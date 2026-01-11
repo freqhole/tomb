@@ -332,18 +332,18 @@ pub async fn handle_delete_song(action: MusicAction) -> CommandOutput<()> {
 }
 
 // Genre operations
-pub async fn handle_list_genres(_action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_list_genres(_action: MusicAction) -> CommandOutput<Vec<crate::music::Genre>> {
     let response = list_genres().await;
     if !response.success {
-        return CommandOutput::failure(response.message, response.errors, ());
+        return CommandOutput::failure(response.message, response.errors, vec![]);
     }
 
     let Some(genres) = response.data else {
-        return CommandOutput::failure("No genres returned", vec![], ());
+        return CommandOutput::failure("No genres returned", vec![], vec![]);
     };
 
     let message = format!("Found {} genres", genres.len());
-    CommandOutput::success(message, genres).map_data(|_| ())
+    CommandOutput::success(message, genres)
 }
 
 pub async fn handle_get_genre(action: MusicAction) -> CommandOutput<()> {

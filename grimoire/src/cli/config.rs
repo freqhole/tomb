@@ -16,7 +16,7 @@ pub enum ConfigAction {
 }
 
 /// Handle config commands
-pub async fn handle_command(action: ConfigAction) -> CommandOutput<()> {
+pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::Value> {
     match action {
         ConfigAction::Validate { config_path } => {
             let path = match find_config(config_path.map(std::path::PathBuf::from)) {
@@ -30,6 +30,7 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<()> {
                         .into()],
                         (),
                     )
+                    .to_output()
                 }
             };
 
@@ -44,6 +45,7 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<()> {
                         .into()],
                         (),
                     )
+                    .to_output()
                 }
             };
 
@@ -57,7 +59,7 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<()> {
             };
 
             let message = format!("Configuration is valid: {}", path.display());
-            CommandOutput::success(message, response).map_data(|_| ())
+            CommandOutput::success(message, response).to_output()
         }
     }
 }

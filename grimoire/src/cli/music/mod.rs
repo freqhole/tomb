@@ -354,104 +354,141 @@ pub enum MusicAction {
 }
 
 /// Handle music commands
-pub async fn handle_command(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Value> {
     execute_music_command(action).await
 }
 
-/// Execute music command - internal helper
-async fn execute_music_command(action: MusicAction) -> CommandOutput<()> {
+async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json::Value> {
     match action {
         // Query commands
-        MusicAction::QuerySongs { .. } => query::handle_query_songs(action).await,
-        MusicAction::QueryArtists { .. } => query::handle_query_artists(action).await,
-        MusicAction::QueryAlbums { .. } => query::handle_query_albums(action).await,
-        MusicAction::QueryGenres { .. } => query::handle_query_genres(action).await,
-        MusicAction::QueryPlaylists { .. } => query::handle_query_playlists(action).await,
-        MusicAction::QueryPlaylistSongs { .. } => query::handle_query_playlist_songs(action).await,
+        MusicAction::QuerySongs { .. } => query::handle_query_songs(action).await.to_output(),
+        MusicAction::QueryArtists { .. } => query::handle_query_artists(action).await.to_output(),
+        MusicAction::QueryAlbums { .. } => query::handle_query_albums(action).await.to_output(),
+        MusicAction::QueryGenres { .. } => query::handle_query_genres(action).await.to_output(),
+        MusicAction::QueryPlaylists { .. } => {
+            query::handle_query_playlists(action).await.to_output()
+        }
+        MusicAction::QueryPlaylistSongs { .. } => {
+            query::handle_query_playlist_songs(action).await.to_output()
+        }
 
         // Song commands
-        MusicAction::RecentSongs { .. } => songs::handle_recent_songs(action).await,
-        MusicAction::UpdateSongs { .. } => songs::handle_update_songs(action).await,
+        MusicAction::RecentSongs { .. } => songs::handle_recent_songs(action).await.to_output(),
+        MusicAction::UpdateSongs { .. } => songs::handle_update_songs(action).await.to_output(),
 
         // Playlist commands
-        MusicAction::CreatePlaylist { .. } => playlists::handle_create_playlist(action).await,
-        MusicAction::AddSongsToPlaylist { .. } => playlists::handle_add_songs(action).await,
-        MusicAction::UpdateSongPosition { .. } => playlists::handle_update_position(action).await,
-        MusicAction::DeletePlaylist { .. } => playlists::handle_delete_playlist(action).await,
-        MusicAction::UpdatePlaylist { .. } => playlists::handle_update_playlist(action).await,
+        MusicAction::CreatePlaylist { .. } => {
+            playlists::handle_create_playlist(action).await.to_output()
+        }
+        MusicAction::AddSongsToPlaylist { .. } => {
+            playlists::handle_add_songs(action).await.to_output()
+        }
+        MusicAction::UpdateSongPosition { .. } => {
+            playlists::handle_update_position(action).await.to_output()
+        }
+        MusicAction::DeletePlaylist { .. } => {
+            playlists::handle_delete_playlist(action).await.to_output()
+        }
+        MusicAction::UpdatePlaylist { .. } => {
+            playlists::handle_update_playlist(action).await.to_output()
+        }
         MusicAction::RemovePlaylistThumbnail { .. } => {
-            playlists::handle_remove_thumbnail(action).await
+            playlists::handle_remove_thumbnail(action).await.to_output()
         }
 
         // Maintenance commands
         MusicAction::CheckBlobReferences { .. } => {
-            maintenance::handle_check_blob_references(action).await
+            maintenance::handle_check_blob_references(action)
+                .await
+                .to_output()
         }
         MusicAction::CleanupOrphanedBlobs { .. } => {
-            maintenance::handle_cleanup_orphaned_blobs(action).await
+            maintenance::handle_cleanup_orphaned_blobs(action)
+                .await
+                .to_output()
         }
         MusicAction::HardDeleteOldRecords { .. } => {
-            maintenance::handle_hard_delete_old_records(action).await
+            maintenance::handle_hard_delete_old_records(action)
+                .await
+                .to_output()
         }
-        MusicAction::RunMaintenance { .. } => maintenance::handle_run_maintenance(action).await,
+        MusicAction::RunMaintenance { .. } => maintenance::handle_run_maintenance(action)
+            .await
+            .to_output(),
 
         // Album commands
-        MusicAction::ListAlbums { .. } => query::handle_list_albums(action).await,
-        MusicAction::GetAlbum { .. } => query::handle_get_album(action).await,
-        MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await,
-        MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await,
+        MusicAction::ListAlbums { .. } => query::handle_list_albums(action).await.to_output(),
+        MusicAction::GetAlbum { .. } => query::handle_get_album(action).await.to_output(),
+        MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await.to_output(),
+        MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await.to_output(),
 
         // Artist commands
-        MusicAction::ListArtists { .. } => query::handle_list_artists(action).await,
-        MusicAction::GetArtist { .. } => query::handle_get_artist(action).await,
-        MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await,
+        MusicAction::ListArtists { .. } => query::handle_list_artists(action).await.to_output(),
+        MusicAction::GetArtist { .. } => query::handle_get_artist(action).await.to_output(),
+        MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await.to_output(),
 
         // Song commands
-        MusicAction::ListSongs { .. } => query::handle_list_songs(action).await,
-        MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await,
+        MusicAction::ListSongs { .. } => query::handle_list_songs(action).await.to_output(),
+        MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await.to_output(),
 
         // Additional playlist commands
-        MusicAction::ListPlaylists => playlists::handle_list_playlists(action).await,
-        MusicAction::ListUserPlaylists { .. } => {
-            playlists::handle_list_user_playlists(action).await
+        MusicAction::ListPlaylists => playlists::handle_list_playlists(action).await.to_output(),
+        MusicAction::ListUserPlaylists { .. } => playlists::handle_list_user_playlists(action)
+            .await
+            .to_output(),
+        MusicAction::SearchPlaylists { .. } => {
+            playlists::handle_search_playlists(action).await.to_output()
         }
-        MusicAction::SearchPlaylists { .. } => playlists::handle_search_playlists(action).await,
 
         // Genre commands
-        MusicAction::ListGenres => query::handle_list_genres(action).await,
-        MusicAction::GetGenre { .. } => query::handle_get_genre(action).await,
-        MusicAction::GetGenreStats { .. } => query::handle_get_genre_stats(action).await,
+        MusicAction::ListGenres => query::handle_list_genres(action).await.to_output(),
+        MusicAction::GetGenre { .. } => query::handle_get_genre(action).await.to_output(),
+        MusicAction::GetGenreStats { .. } => {
+            query::handle_get_genre_stats(action).await.to_output()
+        }
 
         // Sub-genre commands
-        MusicAction::ListSubGenres => query::handle_list_sub_genres(action).await,
+        MusicAction::ListSubGenres => query::handle_list_sub_genres(action).await.to_output(),
         MusicAction::ListSubGenresForGenre { .. } => {
-            query::handle_list_sub_genres_for_genre(action).await
+            query::handle_list_sub_genres_for_genre(action)
+                .await
+                .to_output()
         }
-        MusicAction::GetSubGenre { .. } => query::handle_get_sub_genre(action).await,
-        MusicAction::DeleteSubGenre { .. } => query::handle_delete_sub_genre(action).await,
-        MusicAction::FindOrCreateSubGenre { .. } => {
-            query::handle_find_or_create_sub_genre(action).await
+        MusicAction::GetSubGenre { .. } => query::handle_get_sub_genre(action).await.to_output(),
+        MusicAction::DeleteSubGenre { .. } => {
+            query::handle_delete_sub_genre(action).await.to_output()
         }
+        MusicAction::FindOrCreateSubGenre { .. } => query::handle_find_or_create_sub_genre(action)
+            .await
+            .to_output(),
 
         // Tag commands
-        MusicAction::ListTags => query::handle_list_tags(action).await,
-        MusicAction::GetTag { .. } => query::handle_get_tag(action).await,
-        MusicAction::DeleteTag { .. } => query::handle_delete_tag(action).await,
-        MusicAction::QueryTagsSearch { .. } => query::handle_query_tags_search(action).await,
-
-        // Additional query commands
-        MusicAction::QueryGenresSearch { .. } => query::handle_query_genres_search(action).await,
-        MusicAction::QuerySubGenresSearch { .. } => {
-            query::handle_query_sub_genres_search(action).await
+        MusicAction::ListTags => query::handle_list_tags(action).await.to_output(),
+        MusicAction::GetTag { .. } => query::handle_get_tag(action).await.to_output(),
+        MusicAction::DeleteTag { .. } => query::handle_delete_tag(action).await.to_output(),
+        MusicAction::QueryTagsSearch { .. } => {
+            query::handle_query_tags_search(action).await.to_output()
         }
 
+        // Additional query commands
+        MusicAction::QueryGenresSearch { .. } => {
+            query::handle_query_genres_search(action).await.to_output()
+        }
+        MusicAction::QuerySubGenresSearch { .. } => query::handle_query_sub_genres_search(action)
+            .await
+            .to_output(),
+
         // MusicBrainz commands
-        MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
+        MusicAction::MusicBrainz { action } => {
+            musicbrainz::handle_command(action).await.to_output()
+        }
 
         // User favorites commands
-        MusicAction::Favorites { action } => user_favorites::handle_command(action).await,
+        MusicAction::Favorites { action } => {
+            user_favorites::handle_command(action).await.to_output()
+        }
 
         // User ratings commands
-        MusicAction::Ratings { action } => user_ratings::handle_command(action).await,
+        MusicAction::Ratings { action } => user_ratings::handle_command(action).await.to_output(),
     }
 }

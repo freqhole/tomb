@@ -50,17 +50,17 @@ pub enum JobAction {
 }
 
 /// Handle job commands
-pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
+pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Value> {
     match action {
         JobAction::List { session_id, limit } => {
             let response = list_jobs(session_id.as_deref(), None, Some(limit as u32), None).await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(jobs) = response.data else {
-                return CommandOutput::failure("No jobs data returned", vec![], ());
+                return CommandOutput::failure("No jobs data returned", vec![], ()).to_output();
             };
 
             let job_items: Vec<JobListResponse> = jobs
@@ -82,18 +82,18 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
                 .collect();
 
             let message = format!("Found {} jobs", job_items.len());
-            CommandOutput::success(message, job_items).map_data(|_| ())
+            CommandOutput::success(message, job_items).to_output()
         }
 
         JobAction::Stats => {
             let response = get_queue_stats().await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(stats) = response.data else {
-                return CommandOutput::failure("No stats data returned", vec![], ());
+                return CommandOutput::failure("No stats data returned", vec![], ()).to_output();
             };
 
             let total_jobs =
@@ -114,7 +114,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
                 success_rate,
             };
 
-            CommandOutput::success("Queue statistics", job_stats).map_data(|_| ())
+            CommandOutput::success("Queue statistics", job_stats).to_output()
         }
 
         JobAction::Scan {
@@ -136,11 +136,12 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
                     session_response.message,
                     session_response.errors,
                     (),
-                );
+                )
+                .to_output();
             }
 
             let Some(session) = session_response.data else {
-                return CommandOutput::failure("No session data returned", vec![], ());
+                return CommandOutput::failure("No session data returned", vec![], ()).to_output();
             };
 
             // Create the scan job
@@ -163,11 +164,12 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
             let job_response = create_job(job_request).await;
 
             if !job_response.success {
-                return CommandOutput::failure(job_response.message, job_response.errors, ());
+                return CommandOutput::failure(job_response.message, job_response.errors, ())
+                    .to_output();
             }
 
             let Some(job) = job_response.data else {
-                return CommandOutput::failure("No job data returned", vec![], ());
+                return CommandOutput::failure("No job data returned", vec![], ()).to_output();
             };
 
             let result = ScanJobCreatedResponse {
@@ -179,7 +181,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
             };
 
             let message = format!("Created scan job for directory: {}", result.path);
-            CommandOutput::success(message, result).map_data(|_| ())
+            CommandOutput::success(message, result).to_output()
         }
 
         JobAction::ProcessFile { path } => {
@@ -200,11 +202,12 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
             let job_response = create_job(job_request).await;
 
             if !job_response.success {
-                return CommandOutput::failure(job_response.message, job_response.errors, ());
+                return CommandOutput::failure(job_response.message, job_response.errors, ())
+                    .to_output();
             }
 
             let Some(job) = job_response.data else {
-                return CommandOutput::failure("No job data returned", vec![], ());
+                return CommandOutput::failure("No job data returned", vec![], ()).to_output();
             };
 
             let result = ProcessJobCreatedResponse {
@@ -213,7 +216,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
             };
 
             let message = format!("Created process file job for: {}", result.file_path);
-            CommandOutput::success(message, result).map_data(|_| ())
+            CommandOutput::success(message, result).to_output()
         }
 
         JobAction::RunProcessor { max_jobs, once } => {
@@ -230,7 +233,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
             };
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let result = ProcessorResponse {
@@ -245,7 +248,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
                 "Job processor completed"
             };
 
-            CommandOutput::success(message, result).map_data(|_| ())
+            CommandOutput::success(message, result).to_output()
         }
     }
 }

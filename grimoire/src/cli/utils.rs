@@ -173,6 +173,17 @@ impl<T: Default> CommandOutput<T> {
 }
 
 impl<T: Serialize> CommandOutput<T> {
+    /// Convert CommandOutput<T> to CommandOutput<serde_json::Value> for type erasure
+    /// This allows handlers to return specific types while the dispatch layer uses a common type
+    pub fn to_output(self) -> CommandOutput<serde_json::Value> {
+        CommandOutput {
+            success: self.success,
+            message: self.message,
+            data: serde_json::to_value(self.data).unwrap_or(serde_json::Value::Null),
+            errors: self.errors,
+        }
+    }
+
     /// Format output according to the specified format
     pub fn format(&self, format: OutputFormat) -> String {
         match format {

@@ -57,7 +57,7 @@ pub enum WordlistAction {
 }
 
 /// Handle wordlist commands
-pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
+pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json::Value> {
     match action {
         WordlistAction::Generate {
             count,
@@ -84,7 +84,8 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                     }
                     .into()],
                     (),
-                );
+                )
+                .to_output();
             }
 
             let content = match service.generate_wordlist_content(&config) {
@@ -98,6 +99,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                         .into()],
                         (),
                     )
+                    .to_output()
                 }
             };
 
@@ -110,7 +112,8 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                         }
                         .into()],
                         (),
-                    );
+                    )
+                    .to_output();
                 }
             }
 
@@ -126,7 +129,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
             };
 
             let message = format!("Generated wordlist with {} words", count);
-            CommandOutput::success(message, data).map_data(|_| ())
+            CommandOutput::success(message, data).to_output()
         }
 
         WordlistAction::Validate { file_path } => {
@@ -142,6 +145,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                         .into()],
                         (),
                     )
+                    .to_output()
                 }
             };
 
@@ -153,9 +157,9 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
             };
 
             if is_valid {
-                CommandOutput::success(message, validation).map_data(|_| ())
+                CommandOutput::success(message, validation).to_output()
             } else {
-                CommandOutput::failure(message, vec![], ()).map_data(|_| ())
+                CommandOutput::failure(message, vec![], ()).to_output()
             }
         }
 
@@ -172,11 +176,12 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                         .into()],
                         (),
                     )
+                    .to_output()
                 }
             };
 
             let message = format!("Wordlist statistics for: {}", file_path);
-            CommandOutput::success(message, stats).map_data(|_| ())
+            CommandOutput::success(message, stats).to_output()
         }
 
         WordlistAction::GenerateCode {
@@ -192,7 +197,8 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
 
                 let response = initialize_wordlist(&config);
                 if !response.success {
-                    return CommandOutput::failure(response.message, response.errors, ());
+                    return CommandOutput::failure(response.message, response.errors, ())
+                        .to_output();
                 }
             } else if !is_initialized() {
                 return CommandOutput::failure(
@@ -201,14 +207,15 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                         message: "No wordlist initialized and no file provided. Use --wordlist-file or initialize a wordlist first".to_string(),
                     }.into()],
                     (),
-                );
+                ).to_output();
             }
 
             let mut codes = Vec::new();
             for _ in 0..count {
                 let response = generate_word_code(word_count);
                 if !response.success {
-                    return CommandOutput::failure(response.message, response.errors, ());
+                    return CommandOutput::failure(response.message, response.errors, ())
+                        .to_output();
                 }
                 if let Some(code) = response.data {
                     codes.push(code);
@@ -222,7 +229,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<()> {
                 if count == 1 { "" } else { "s" },
                 word_count
             );
-            CommandOutput::success(message, data).map_data(|_| ())
+            CommandOutput::success(message, data).to_output()
         }
     }
 }

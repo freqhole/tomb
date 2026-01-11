@@ -46,67 +46,71 @@ pub enum MaintenanceAction {
 }
 
 /// Handle maintenance commands
-pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<()> {
+pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_json::Value> {
     match action {
         MaintenanceAction::CleanupOrphanedTags { dry_run } => {
             let response = cleanup_orphaned_tags(dry_run).await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(summary) = response.data else {
-                return CommandOutput::failure("No summary data returned", vec![], ());
+                return CommandOutput::failure("No summary data returned", vec![], ()).to_output();
             };
 
-            CommandOutput::success(response.message, summary).map_data(|_| ())
+            CommandOutput::success(response.message, summary).to_output()
         }
 
         MaintenanceAction::CleanupOrphanedGenres { dry_run } => {
             let response = cleanup_orphaned_genres(dry_run).await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(summary) = response.data else {
-                return CommandOutput::failure("No summary data returned", vec![], ());
+                return CommandOutput::failure("No summary data returned", vec![], ()).to_output();
             };
 
-            CommandOutput::success(response.message, summary).map_data(|_| ())
+            CommandOutput::success(response.message, summary).to_output()
         }
 
         MaintenanceAction::CleanupOrphanedSubGenres { dry_run } => {
             let response = cleanup_orphaned_sub_genres(dry_run).await;
 
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(summary) = response.data else {
-                return CommandOutput::failure("No summary data returned", vec![], ());
+                return CommandOutput::failure("No summary data returned", vec![], ()).to_output();
             };
 
-            CommandOutput::success(response.message, summary).map_data(|_| ())
+            CommandOutput::success(response.message, summary).to_output()
         }
 
         MaintenanceAction::CleanupAll { dry_run } => {
             // Cleanup tags
             let tags_response = cleanup_orphaned_tags(dry_run).await;
             if !tags_response.success {
-                return CommandOutput::failure(tags_response.message, tags_response.errors, ());
+                return CommandOutput::failure(tags_response.message, tags_response.errors, ())
+                    .to_output();
             }
             let Some(tags_summary) = tags_response.data else {
-                return CommandOutput::failure("No tags summary data returned", vec![], ());
+                return CommandOutput::failure("No tags summary data returned", vec![], ())
+                    .to_output();
             };
 
             // Cleanup genres
             let genres_response = cleanup_orphaned_genres(dry_run).await;
             if !genres_response.success {
-                return CommandOutput::failure(genres_response.message, genres_response.errors, ());
+                return CommandOutput::failure(genres_response.message, genres_response.errors, ())
+                    .to_output();
             }
             let Some(genres_summary) = genres_response.data else {
-                return CommandOutput::failure("No genres summary data returned", vec![], ());
+                return CommandOutput::failure("No genres summary data returned", vec![], ())
+                    .to_output();
             };
 
             // Cleanup sub-genres
@@ -116,10 +120,12 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<()> {
                     sub_genres_response.message,
                     sub_genres_response.errors,
                     (),
-                );
+                )
+                .to_output();
             }
             let Some(sub_genres_summary) = sub_genres_response.data else {
-                return CommandOutput::failure("No sub-genres summary data returned", vec![], ());
+                return CommandOutput::failure("No sub-genres summary data returned", vec![], ())
+                    .to_output();
             };
 
             // Create combined summary
@@ -150,7 +156,7 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<()> {
                 )
             };
 
-            CommandOutput::success(message, combined).map_data(|_| ())
+            CommandOutput::success(message, combined).to_output()
         }
     }
 }

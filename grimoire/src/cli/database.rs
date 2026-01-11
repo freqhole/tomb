@@ -14,7 +14,7 @@ pub enum DatabaseAction {
 }
 
 /// Handle database commands
-pub async fn handle_command(action: DatabaseAction) -> CommandOutput<()> {
+pub async fn handle_command(action: DatabaseAction) -> CommandOutput<serde_json::Value> {
     match action {
         DatabaseAction::Test => {
             let pool = match crate::database::connect().await {
@@ -25,6 +25,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<()> {
                         vec![e.into()],
                         (),
                     )
+                    .to_output()
                 }
             };
 
@@ -37,6 +38,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<()> {
                         vec![e.into()],
                         (),
                     )
+                    .to_output()
                 }
             };
             let connection_ok = result.0 == 1;
@@ -89,7 +91,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<()> {
                 "Database connection test failed"
             };
 
-            CommandOutput::success(message, result).map_data(|_| ())
+            CommandOutput::success(message, result).to_output()
         }
 
         DatabaseAction::Info => {
@@ -136,7 +138,7 @@ pub async fn handle_command(action: DatabaseAction) -> CommandOutput<()> {
             };
 
             let message = format!("Database: {}", db_path.display());
-            CommandOutput::success(message, info).map_data(|_| ())
+            CommandOutput::success(message, info).to_output()
         }
     }
 }

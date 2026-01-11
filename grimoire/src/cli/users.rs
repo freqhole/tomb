@@ -100,7 +100,7 @@ fn parse_role(role_str: &str) -> UserRole {
 /// Convert any error to GrimoireError with context
 
 /// Handle user commands
-pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
+pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Value> {
     let service = UserService::new();
 
     match action {
@@ -115,18 +115,19 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
                         "bootstrap flag can only be used with --role admin",
                         vec![],
                         (),
-                    );
+                    )
+                    .to_output();
                 }
                 request.invite_code = None;
             }
 
             let response = service.register_user(&request).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(user) = response.data else {
-                return CommandOutput::failure("No user data returned", vec![], ());
+                return CommandOutput::failure("No user data returned", vec![], ()).to_output();
             };
 
             let username = user.username.clone();
@@ -138,7 +139,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
             };
 
             let message = format!("User created: {}", username);
-            CommandOutput::success(message, data).map_data(|_| ())
+            CommandOutput::success(message, data).to_output()
         }
         UserAction::List {
             role,
@@ -160,11 +161,11 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
 
             let response = service.list_users(&params, &admin_user).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(users) = response.data else {
-                return CommandOutput::failure("No users data returned", vec![], ());
+                return CommandOutput::failure("No users data returned", vec![], ()).to_output();
             };
 
             let user_infos: Vec<UserInfoResponse> = users
@@ -187,7 +188,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
                 data.total,
                 if data.total == 1 { "" } else { "s" }
             );
-            CommandOutput::success(message, data).map_data(|_| ())
+            CommandOutput::success(message, data).to_output()
         }
         UserAction::Update { user_id, role } => {
             let user_role = role.as_deref().map(parse_role);
@@ -198,11 +199,11 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
 
             let response = service.update_user(&user_id, &request, &admin_user).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(user) = response.data else {
-                return CommandOutput::failure("No user data returned", vec![], ());
+                return CommandOutput::failure("No user data returned", vec![], ()).to_output();
             };
 
             let username = user.username.clone();
@@ -214,18 +215,18 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
             };
 
             let message = format!("User updated: {}", username);
-            CommandOutput::success(message, data).map_data(|_| ())
+            CommandOutput::success(message, data).to_output()
         }
         UserAction::Delete { user_id } => {
             let admin_user = cli_admin_user();
 
             let response = service.delete_user(&user_id, &admin_user).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let message = format!("User deleted: {}", user_id);
-            CommandOutput::success(message, ())
+            CommandOutput::success(message, ()).to_output()
         }
         UserAction::GenerateInvites {
             count,
@@ -238,7 +239,8 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
                 let config = ManagementWordlistConfig::default();
                 let response = initialize_wordlist(&config);
                 if !response.success {
-                    return CommandOutput::failure(response.message, response.errors, ());
+                    return CommandOutput::failure(response.message, response.errors, ())
+                        .to_output();
                 }
             }
 
@@ -261,11 +263,12 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
                 .generate_invite_codes(&request, count as u32, word_count, &admin_user)
                 .await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(codes) = response.data else {
-                return CommandOutput::failure("No invite codes data returned", vec![], ());
+                return CommandOutput::failure("No invite codes data returned", vec![], ())
+                    .to_output();
             };
 
             let code_infos: Vec<InviteCodeInfoResponse> = codes
@@ -286,18 +289,19 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
                 data.count,
                 if data.count == 1 { "" } else { "s" }
             );
-            CommandOutput::success(message, data).map_data(|_| ())
+            CommandOutput::success(message, data).to_output()
         }
         UserAction::ListInvites { active_only } => {
             let admin_user = cli_admin_user();
 
             let response = service.list_invite_codes(active_only, &admin_user).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let Some(codes) = response.data else {
-                return CommandOutput::failure("No invite codes data returned", vec![], ());
+                return CommandOutput::failure("No invite codes data returned", vec![], ())
+                    .to_output();
             };
 
             let message = format!(
@@ -305,18 +309,18 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
                 codes.len(),
                 if codes.len() == 1 { "" } else { "s" }
             );
-            CommandOutput::success(message, codes).map_data(|_| ())
+            CommandOutput::success(message, codes).to_output()
         }
         UserAction::DeactivateInvite { code } => {
             let admin_user = cli_admin_user();
 
             let response = service.deactivate_invite_code(&code, &admin_user).await;
             if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
+                return CommandOutput::failure(response.message, response.errors, ()).to_output();
             }
 
             let message = format!("Invite code deactivated: {}", code);
-            CommandOutput::success(message, ())
+            CommandOutput::success(message, ()).to_output()
         }
     }
 }
