@@ -225,10 +225,10 @@ mod tests {
             Some(json!({"position": 0})),
         );
 
-        let result = record_play_event(&media_event, &music_event).await;
-        assert!(result.is_ok());
+        let response = record_play_event(&media_event, &music_event).await;
+        assert!(response.success);
 
-        let (media_id, music_id) = result.unwrap();
+        let (media_id, music_id) = response.data.unwrap();
         assert!(!media_id.is_empty());
         assert!(!music_id.is_empty());
     }

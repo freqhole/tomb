@@ -517,9 +517,9 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_recent_listens() {
-        let result = get_recent_listens(10, 0).await;
-        assert!(result.is_ok());
-        let (items, total) = result.unwrap();
+        let response = get_recent_listens(10, 0).await;
+        assert!(response.success);
+        let (items, total) = response.data.unwrap();
         assert!(total >= 0);
         assert!(items.len() <= 10);
     }
@@ -527,23 +527,23 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_recent_favorites() {
-        let result = get_recent_favorites(10, 0).await;
-        assert!(result.is_ok());
+        let response = get_recent_favorites(10, 0).await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_recent_albums() {
-        let result = get_recent_albums(10, 0).await;
-        assert!(result.is_ok());
+        let response = get_recent_albums(10, 0).await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_combined_feed() {
-        let result = get_combined_feed(20, 0).await;
-        assert!(result.is_ok());
-        let (items, total) = result.unwrap();
+        let response = get_combined_feed(20, 0).await;
+        assert!(response.success);
+        let (items, total) = response.data.unwrap();
         assert!(total >= 0);
         assert!(items.len() <= 20);
     }

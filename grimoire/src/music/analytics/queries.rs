@@ -429,27 +429,27 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_song_play_count() {
-        let result = get_song_play_count("test_song_id").await;
-        assert!(result.is_ok());
+        let response = get_song_play_count("test_song_id").await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_song_play_analytics() {
-        let result = get_song_play_analytics("test_song_id").await;
-        assert!(result.is_ok());
+        let response = get_song_play_analytics("test_song_id").await;
+        assert!(response.success);
 
-        let analytics = result.unwrap();
+        let analytics = response.data.unwrap();
         assert_eq!(analytics.song_id, "test_song_id");
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_user_listening_history() {
-        let result = get_user_listening_history("test_user_id", 10, 0).await;
-        assert!(result.is_ok());
+        let response = get_user_listening_history("test_user_id", 10, 0).await;
+        assert!(response.success);
 
-        let (items, total_count) = result.unwrap();
+        let (items, total_count) = response.data.unwrap();
         assert!(total_count >= 0);
         assert!(items.len() <= 10);
     }
@@ -457,22 +457,23 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_album_play_count() {
-        let result = get_album_play_count("test_album_id").await;
-        assert!(result.is_ok());
+        let response = get_album_play_count("test_album_id").await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_artist_play_count() {
-        let result = get_artist_play_count("test_artist_id").await;
-        assert!(result.is_ok());
+        let response = get_artist_play_count("test_artist_id").await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_session_summary() {
-        let result = get_session_summary("test_session_id").await;
-        // May be ok or err depending on whether session exists
-        assert!(result.is_ok() || result.is_err());
+        let response = get_session_summary("test_session_id").await;
+        // May succeed or fail depending on whether session exists
+        // Just verify we get a response back
+        assert!(response.success || !response.success);
     }
 }

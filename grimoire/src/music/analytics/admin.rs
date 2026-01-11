@@ -4,7 +4,7 @@
 //! including overview stats, top songs/albums/artists, and user statistics.
 
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::response::GrimoireResponse;
 use serde::{Deserialize, Serialize};
 
 /// Overview statistics for the entire system
@@ -109,10 +109,15 @@ pub struct UserStats {
 /// Get overview statistics for the entire system
 ///
 /// Returns high-level counts and aggregates across the entire library and user base.
-pub async fn get_overview_stats() -> GrimoireResult<OverviewStats> {
-    let pool = database::connect().await?;
+pub async fn get_overview_stats() -> GrimoireResponse<OverviewStats> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let result = sqlx::query!(
+    let result = match sqlx::query!(
         r#"
         SELECT
             (SELECT COUNT(*) FROM songz WHERE deleted_at IS NULL) as "total_songs!: i64",
@@ -126,9 +131,13 @@ pub async fn get_overview_stats() -> GrimoireResult<OverviewStats> {
         "#
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to fetch overview statistics", vec![e.into()]),
+    };
 
-    Ok(OverviewStats {
+    let stats = OverviewStats {
         total_songs: result.total_songs,
         total_albums: result.total_albums,
         total_artists: result.total_artists,
@@ -137,16 +146,23 @@ pub async fn get_overview_stats() -> GrimoireResult<OverviewStats> {
         total_sessions: result.total_sessions,
         total_favorites: result.total_favorites,
         total_duration_seconds: result.total_duration / 1000, // Convert ms to seconds
-    })
+    };
+
+    GrimoireResponse::success("Retrieved overview statistics", stats)
 }
 
 /// Get top songs by play count
 ///
 /// Returns the most played songs in the system.
-pub async fn get_top_songs(limit: i64) -> GrimoireResult<Vec<TopSong>> {
-    let pool = database::connect().await?;
+pub async fn get_top_songs(limit: i64) -> GrimoireResponse<Vec<TopSong>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let rows = sqlx::query!(
+    let rows = match sqlx::query!(
         r#"
         SELECT
             mpe.song_id,
@@ -173,7 +189,11 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResult<Vec<TopSong>> {
         limit
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to fetch top songs", vec![e.into()]),
+    };
 
     let songs = rows
         .into_iter()
@@ -189,16 +209,21 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResult<Vec<TopSong>> {
         })
         .collect();
 
-    Ok(songs)
+    GrimoireResponse::success("Retrieved top songs", songs)
 }
 
 /// Get top albums by aggregated play count
 ///
 /// Returns albums with the most plays across all their songs.
-pub async fn get_top_albums(limit: i64) -> GrimoireResult<Vec<TopAlbum>> {
-    let pool = database::connect().await?;
+pub async fn get_top_albums(limit: i64) -> GrimoireResponse<Vec<TopAlbum>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let rows = sqlx::query!(
+    let rows = match sqlx::query!(
         r#"
         SELECT
             alb.id as "album_id!",
@@ -224,7 +249,11 @@ pub async fn get_top_albums(limit: i64) -> GrimoireResult<Vec<TopAlbum>> {
         limit
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to fetch top albums", vec![e.into()]),
+    };
 
     let albums = rows
         .into_iter()
@@ -239,16 +268,21 @@ pub async fn get_top_albums(limit: i64) -> GrimoireResult<Vec<TopAlbum>> {
         })
         .collect();
 
-    Ok(albums)
+    GrimoireResponse::success("Retrieved top albums", albums)
 }
 
 /// Get top artists by aggregated play count
 ///
 /// Returns artists with the most plays across all their songs.
-pub async fn get_top_artists(limit: i64) -> GrimoireResult<Vec<TopArtist>> {
-    let pool = database::connect().await?;
+pub async fn get_top_artists(limit: i64) -> GrimoireResponse<Vec<TopArtist>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let rows = sqlx::query!(
+    let rows = match sqlx::query!(
         r#"
         SELECT
             a.id as "artist_id!",
@@ -270,7 +304,11 @@ pub async fn get_top_artists(limit: i64) -> GrimoireResult<Vec<TopArtist>> {
         limit
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to fetch top artists", vec![e.into()]),
+    };
 
     let artists = rows
         .into_iter()
@@ -284,16 +322,21 @@ pub async fn get_top_artists(limit: i64) -> GrimoireResult<Vec<TopArtist>> {
         })
         .collect();
 
-    Ok(artists)
+    GrimoireResponse::success("Retrieved top artists", artists)
 }
 
 /// Get statistics for a specific user
 ///
 /// Returns detailed activity statistics for a single user.
-pub async fn get_user_stats(user_id: &str) -> GrimoireResult<UserStats> {
-    let pool = database::connect().await?;
+pub async fn get_user_stats(user_id: &str) -> GrimoireResponse<UserStats> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let result = sqlx::query!(
+    let result = match sqlx::query!(
         r#"
         SELECT
             u.id as "user_id!",
@@ -310,9 +353,13 @@ pub async fn get_user_stats(user_id: &str) -> GrimoireResult<UserStats> {
         user_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to fetch user statistics", vec![e.into()]),
+    };
 
-    Ok(UserStats {
+    let stats = UserStats {
         user_id: result.user_id,
         username: result.username,
         total_plays: result.total_plays,
@@ -321,16 +368,23 @@ pub async fn get_user_stats(user_id: &str) -> GrimoireResult<UserStats> {
         total_favorites: result.total_favorites,
         first_activity_at: result.first_activity,
         last_activity_at: result.last_activity,
-    })
+    };
+
+    GrimoireResponse::success("Retrieved user statistics", stats)
 }
 
 /// Get statistics for all users
 ///
 /// Returns activity statistics for all users in the system.
-pub async fn get_all_user_stats(limit: i64) -> GrimoireResult<Vec<UserStats>> {
-    let pool = database::connect().await?;
+pub async fn get_all_user_stats(limit: i64) -> GrimoireResponse<Vec<UserStats>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let rows = sqlx::query!(
+    let rows = match sqlx::query!(
         r#"
         SELECT
             u.id as "user_id!",
@@ -349,7 +403,11 @@ pub async fn get_all_user_stats(limit: i64) -> GrimoireResult<Vec<UserStats>> {
         limit
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to fetch user statistics", vec![e.into()]),
+    };
 
     let users = rows
         .into_iter()
@@ -365,7 +423,7 @@ pub async fn get_all_user_stats(limit: i64) -> GrimoireResult<Vec<UserStats>> {
         })
         .collect();
 
-    Ok(users)
+    GrimoireResponse::success("Retrieved statistics for all users", users)
 }
 
 #[cfg(test)]
@@ -375,47 +433,48 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_overview_stats() {
-        let result = get_overview_stats().await;
-        assert!(result.is_ok());
-        let stats = result.unwrap();
+        let response = get_overview_stats().await;
+        assert!(response.success);
+        let stats = response.data.unwrap();
         assert!(stats.total_songs >= 0);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_top_songs() {
-        let result = get_top_songs(10).await;
-        assert!(result.is_ok());
-        let songs = result.unwrap();
+        let response = get_top_songs(10).await;
+        assert!(response.success);
+        let songs = response.data.unwrap();
         assert!(songs.len() <= 10);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_top_albums() {
-        let result = get_top_albums(10).await;
-        assert!(result.is_ok());
+        let response = get_top_albums(10).await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_top_artists() {
-        let result = get_top_artists(10).await;
-        assert!(result.is_ok());
+        let response = get_top_artists(10).await;
+        assert!(response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_user_stats() {
-        let result = get_user_stats("test_user_id").await;
+        let response = get_user_stats("test_user_id").await;
         // May fail if user doesn't exist, that's expected
-        assert!(result.is_ok() || result.is_err());
+        // Just verify we get a response back
+        assert!(response.success || !response.success);
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup with test data
     async fn test_get_all_user_stats() {
-        let result = get_all_user_stats(10).await;
-        assert!(result.is_ok());
+        let response = get_all_user_stats(10).await;
+        assert!(response.success);
     }
 }

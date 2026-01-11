@@ -594,7 +594,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::AdminOverview => {
             println!("Fetching overview statistics...\n");
 
-            let stats = get_overview_stats().await?;
+            let stats = to_result(get_overview_stats().await)?;
 
             println!("📊 System Overview\n");
             println!("Library:");
@@ -617,7 +617,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::TopSongs { limit } => {
             println!("Fetching top {} songs...\n", limit);
 
-            let songs = get_top_songs(limit).await?;
+            let songs = to_result(get_top_songs(limit).await)?;
 
             if songs.is_empty() {
                 println!("No songs found.");
@@ -650,7 +650,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::TopAlbums { limit } => {
             println!("Fetching top {} albums...\n", limit);
 
-            let albums = get_top_albums(limit).await?;
+            let albums = to_result(get_top_albums(limit).await)?;
 
             if albums.is_empty() {
                 println!("No albums found.");
@@ -673,7 +673,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::TopArtists { limit } => {
             println!("Fetching top {} artists...\n", limit);
 
-            let artists = get_top_artists(limit).await?;
+            let artists = to_result(get_top_artists(limit).await)?;
 
             if artists.is_empty() {
                 println!("No artists found.");
@@ -694,7 +694,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::UserStats { user_id } => {
             println!("Fetching statistics for user {}...\n", user_id);
 
-            let stats = get_user_stats(&user_id).await?;
+            let stats = to_result(get_user_stats(&user_id).await)?;
 
             println!("👤 User: {}\n", stats.username);
             println!("Activity:");
@@ -720,7 +720,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::AllUserStats { limit } => {
             println!("Fetching statistics for all users...\n");
 
-            let users = get_all_user_stats(limit).await?;
+            let users = to_result(get_all_user_stats(limit).await)?;
 
             if users.is_empty() {
                 println!("No users found.");
