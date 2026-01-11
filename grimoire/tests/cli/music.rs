@@ -115,3 +115,193 @@ fn test_with_custom_snapshot() {
     // The snapshot is copied to temp location - never modified
     // Multiple tests can safely use the same snapshot file
 }
+
+#[test]
+fn test_music_genres() {
+    let ctx = TestContext::from_snapshot();
+
+    // List genres
+    let result = ctx.run_json(&["music", "list-genres"]);
+    assert!(result["success"].as_bool().unwrap(), "Should list genres");
+    let genres = result["data"].as_array().unwrap();
+
+    if !genres.is_empty() {
+        let genre_id = genres[0]["id"].as_str().unwrap();
+
+        // Get genre by ID
+        let result = ctx.run_json(&["music", "get-genre", "--genre-id", genre_id]);
+        assert!(result["success"].as_bool().unwrap(), "Should get genre");
+
+        // Get genre stats
+        let result = ctx.run_json(&["music", "get-genre-stats", "--genre-id", genre_id]);
+        assert!(
+            result["success"].as_bool().unwrap(),
+            "Should get genre stats"
+        );
+
+        // List sub-genres for this genre
+        let result = ctx.run_json(&["music", "list-sub-genres-for-genre", "--genre-id", genre_id]);
+        assert!(
+            result["success"].as_bool().unwrap(),
+            "Should list sub-genres"
+        );
+    }
+}
+
+#[test]
+fn test_music_sub_genres() {
+    let ctx = TestContext::from_snapshot();
+
+    // List all sub-genres
+    let result = ctx.run_json(&["music", "list-sub-genres"]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "Should list sub-genres"
+    );
+
+    let sub_genres = result["data"].as_array().unwrap();
+    if !sub_genres.is_empty() {
+        let sub_genre_id = sub_genres[0]["id"].as_str().unwrap();
+
+        // Get sub-genre by ID
+        let result = ctx.run_json(&["music", "get-sub-genre", "--sub-genre-id", sub_genre_id]);
+        assert!(result["success"].as_bool().unwrap(), "Should get sub-genre");
+    }
+}
+
+#[test]
+fn test_music_tags() {
+    let ctx = TestContext::from_snapshot();
+
+    // List tags
+    let result = ctx.run_json(&["music", "list-tags"]);
+    assert!(result["success"].as_bool().unwrap(), "Should list tags");
+
+    let tags = result["data"].as_array().unwrap();
+    if !tags.is_empty() {
+        let tag_id = tags[0]["id"].as_str().unwrap();
+
+        // Get tag by ID
+        let result = ctx.run_json(&["music", "get-tag", "--tag-id", tag_id]);
+        assert!(result["success"].as_bool().unwrap(), "Should get tag");
+    }
+}
+
+#[test]
+fn test_music_query_operations() {
+    let ctx = TestContext::from_snapshot();
+
+    // Query artists
+    let result = ctx.run_json(&["music", "query-artists", "--limit", "10"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query artists");
+    assert!(result["data"]["items"].is_array());
+
+    // Query albums
+    let result = ctx.run_json(&["music", "query-albums", "--limit", "10"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query albums");
+    assert!(result["data"]["items"].is_array());
+
+    // Query genres
+    let result = ctx.run_json(&["music", "query-genres", "--limit", "10"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query genres");
+    assert!(result["data"]["items"].is_array());
+}
+
+#[test]
+fn test_music_search_operations() {
+    let ctx = TestContext::from_snapshot();
+
+    // Search tags
+    let result = ctx.run_json(&["music", "query-tags-search", "--search", "test"]);
+    assert!(result["success"].as_bool().unwrap(), "Should search tags");
+    assert!(result["data"].is_array());
+
+    // Search genres
+    let result = ctx.run_json(&["music", "query-genres-search", "--search", "test"]);
+    assert!(result["success"].as_bool().unwrap(), "Should search genres");
+    assert!(result["data"].is_array());
+
+    // Search sub-genres
+    let result = ctx.run_json(&["music", "query-sub-genres-search", "--search", "test"]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "Should search sub-genres"
+    );
+    assert!(result["data"].is_array());
+}
+
+#[test]
+fn test_music_recent_songs() {
+    let ctx = TestContext::from_snapshot();
+
+    // Get recently added songs
+    let result = ctx.run_json(&["music", "recent-songs", "--limit", "10"]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "Should get recent songs"
+    );
+    assert!(result["data"]["items"].is_array());
+}
+
+#[test]
+fn test_music_artist_operations() {
+    let ctx = TestContext::from_snapshot();
+
+    // List artists
+    let result = ctx.run_json(&["music", "list-artists"]);
+    assert!(result["success"].as_bool().unwrap(), "Should list artists");
+
+    let artists = result["data"].as_array().unwrap();
+    if !artists.is_empty() {
+        let artist_id = artists[0]["id"].as_str().unwrap();
+
+        // Get artist by ID
+        let result = ctx.run_json(&["music", "get-artist", "--artist-id", artist_id]);
+        assert!(result["success"].as_bool().unwrap(), "Should get artist");
+    }
+}
+
+#[test]
+fn test_music_album_operations() {
+    let ctx = TestContext::from_snapshot();
+
+    // List albums
+    let result = ctx.run_json(&["music", "list-albums"]);
+    assert!(result["success"].as_bool().unwrap(), "Should list albums");
+
+    let albums = result["data"].as_array().unwrap();
+    if !albums.is_empty() {
+        let album_id = albums[0]["id"].as_str().unwrap();
+
+        // Get album by ID
+        let result = ctx.run_json(&["music", "get-album", "--album-id", album_id]);
+        assert!(result["success"].as_bool().unwrap(), "Should get album");
+
+        // Get album tags
+        let result = ctx.run_json(&["music", "get-album-tags", "--album-id", album_id]);
+        assert!(
+            result["success"].as_bool().unwrap(),
+            "Should get album tags"
+        );
+    }
+}
+
+#[test]
+fn test_music_maintenance_operations() {
+    let ctx = TestContext::from_snapshot();
+
+    // Check blob references (with a fake blob ID, should handle gracefully)
+    let result = ctx.run_json(&[
+        "music",
+        "check-blob-references",
+        "--blob-id",
+        "non-existent-blob",
+    ]);
+    assert!(
+        result["success"].as_bool().is_some(),
+        "Should handle check-blob-references"
+    );
+
+    // Note: We don't test cleanup-orphaned-blobs, hard-delete-old-records, or run-maintenance
+    // as they modify the database and could affect other tests
+}
