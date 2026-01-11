@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            id as \"id!\",\n            name as \"name!\",\n            parent_genre_id,\n            created_at as \"created_at!\"\n           FROM sub_genrez\n           WHERE deleted_at IS NULL\n           ORDER BY name ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "parent_genre_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5743664562dfb9d5bcb6e2527ad3d28bd95b39aeb56199537b102cbe32bee319"
+}

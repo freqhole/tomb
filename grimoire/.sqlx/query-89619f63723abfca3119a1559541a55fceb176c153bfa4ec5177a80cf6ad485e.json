@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO music_play_eventz (\n            media_event_id,\n            song_id,\n            album_id,\n            artist_id,\n            playlist_id,\n            user_id,\n            session_id\n        )\n        VALUES (?, ?, ?, ?, ?, ?, ?)\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "89619f63723abfca3119a1559541a55fceb176c153bfa4ec5177a80cf6ad485e"
+}

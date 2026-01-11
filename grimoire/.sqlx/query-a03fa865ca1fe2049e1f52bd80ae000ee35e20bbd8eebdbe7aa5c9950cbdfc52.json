@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            alb.id as \"album_id!\",\n            alb.title as \"title!\",\n            alb.song_count as \"song_count!: i64\",\n            COUNT(*) as \"total_plays!: i64\",\n            COUNT(DISTINCT mpe.user_id) as \"unique_users!: i64\",\n            (SELECT a.name FROM artist_albumz aa\n             JOIN artistz a ON a.id = aa.artist_id\n             WHERE aa.album_id = alb.id\n             LIMIT 1) as \"artist_name?\",\n            (SELECT ai.media_blob_id FROM album_imagez ai\n             WHERE ai.album_id = alb.id AND ai.is_primary = 1\n             LIMIT 1) as \"thumbnail_blob_id?\"\n        FROM music_play_eventz mpe\n        JOIN album_songz als ON als.song_id = mpe.song_id\n        JOIN albumz alb ON alb.id = als.album_id\n        WHERE alb.deleted_at IS NULL\n        GROUP BY alb.id\n        ORDER BY COUNT(*) DESC\n        LIMIT ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "album_id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_count!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "total_plays!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "unique_users!: i64",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "artist_name?",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "thumbnail_blob_id?",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "a03fa865ca1fe2049e1f52bd80ae000ee35e20bbd8eebdbe7aa5c9950cbdfc52"
+}

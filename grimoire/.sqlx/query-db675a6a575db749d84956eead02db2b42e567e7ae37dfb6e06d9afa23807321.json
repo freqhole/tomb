@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            u.id as \"user_id!\",\n            u.username as \"username!\",\n            (SELECT COUNT(*) FROM music_play_eventz WHERE user_id = u.id) as \"total_plays!: i64\",\n            (SELECT COUNT(DISTINCT song_id) FROM music_play_eventz WHERE user_id = u.id) as \"unique_songs!: i64\",\n            (SELECT COUNT(DISTINCT session_id) FROM music_play_eventz WHERE user_id = u.id) as \"unique_sessions!: i64\",\n            (SELECT COUNT(*) FROM user_favoritez WHERE user_id = u.id) as \"total_favorites!: i64\",\n            (SELECT MIN(created_at) FROM music_play_eventz WHERE user_id = u.id) as \"first_activity?: i64\",\n            (SELECT MAX(created_at) FROM music_play_eventz WHERE user_id = u.id) as \"last_activity?: i64\"\n        FROM user_accountz u\n        WHERE u.id = ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "user_id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "username!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "total_plays!: i64",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "unique_songs!: i64",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "unique_sessions!: i64",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "total_favorites!: i64",
+        "ordinal": 5,
+        "type_info": "Null"
+      },
+      {
+        "name": "first_activity?: i64",
+        "ordinal": 6,
+        "type_info": "Null"
+      },
+      {
+        "name": "last_activity?: i64",
+        "ordinal": 7,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "db675a6a575db749d84956eead02db2b42e567e7ae37dfb6e06d9afa23807321"
+}

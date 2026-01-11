@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT COUNT(*) as count\n        FROM music_play_eventz mpe\n        WHERE mpe.song_id IN (\n            SELECT song_id FROM album_songz WHERE album_id = ?\n        )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "count",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4e7fbe159073e29aa9b5784e22ad9fdac74472fecea9f5fcbc05f8f988508325"
+}

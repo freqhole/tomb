@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            g.name as \"name!\",\n            COUNT(a.id) as \"song_count!\",\n            0 as \"album_count!\",\n            0 as \"artist_count!\",\n            0 as \"total_duration!\"\n           FROM genrez g\n           LEFT JOIN albumz a ON a.genre_id = g.id AND a.deleted_at IS NULL\n           WHERE g.deleted_at IS NULL\n           GROUP BY g.id, g.name\n           ORDER BY g.name ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_count!",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "album_count!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "artist_count!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "total_duration!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c4ac908af2a955badec91372bcb783dc6bd46bd4378d4e14555acccadf4691fd"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM user_ratingz WHERE target_type = 'album' AND target_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "87f339334344e3d12dab575147f0d7e6a2b7d71e7123f78e44c6bbad96c1a091"
+}

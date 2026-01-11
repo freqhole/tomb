@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO media_eventz (\n            media_blob_id,\n            user_id,\n            event_type,\n            event_data,\n            session_id,\n            user_agent,\n            client_id,\n            client_timestamp\n        )\n        VALUES (?, ?, ?, ?, ?, ?, ?, ?)\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "668d024aa11249c335202d11b865f154a58a3d7665d6be31d1a8f39615fcd0f4"
+}

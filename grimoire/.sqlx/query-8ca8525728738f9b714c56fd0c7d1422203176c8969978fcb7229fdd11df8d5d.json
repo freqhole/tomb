@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT id, name FROM genrez\n        WHERE id NOT IN (\n            SELECT DISTINCT genre_id FROM albumz\n            WHERE genre_id IS NOT NULL\n        )\n        AND id NOT IN (\n            SELECT DISTINCT parent_genre_id FROM sub_genrez\n            WHERE parent_genre_id IS NOT NULL\n        )\n        ORDER BY name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "8ca8525728738f9b714c56fd0c7d1422203176c8969978fcb7229fdd11df8d5d"
+}

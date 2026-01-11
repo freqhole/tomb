@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            uf.id as \"id!\",\n            uf.target_id as \"song_id!\",\n            s.title,\n            s.thumbnail_blob_id,\n            uf.created_at as \"created_at!: i64\",\n            (SELECT a.id FROM artist_songz asz\n             JOIN artistz a ON a.id = asz.artist_id\n             WHERE asz.song_id = uf.target_id\n             LIMIT 1) as \"artist_id?\",\n            (SELECT a.name FROM artist_songz asz\n             JOIN artistz a ON a.id = asz.artist_id\n             WHERE asz.song_id = uf.target_id\n             LIMIT 1) as \"artist_name?\",\n            (SELECT alb.id FROM album_songz als\n             JOIN albumz alb ON alb.id = als.album_id\n             WHERE als.song_id = uf.target_id\n             LIMIT 1) as \"album_id?\",\n            uf.user_id,\n            (SELECT u.username FROM user_accountz u\n             WHERE u.id = uf.user_id) as \"username?\"\n        FROM user_favoritez uf\n        JOIN songz s ON s.id = uf.target_id\n        WHERE uf.target_type = 'song'\n        ORDER BY uf.created_at DESC\n        LIMIT ? OFFSET ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "thumbnail_blob_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: i64",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "artist_id?",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "artist_name?",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "album_id?",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "username?",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "d8f864570b51e94188874eabf7c6330113bc68661de3300c3cf284ea26f770b3"
+}

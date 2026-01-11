@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT DISTINCT s.id as \"id!\"\n        FROM songz s\n        LEFT JOIN media_blobz mb ON s.media_blob_id = mb.id\n        WHERE mb.deleted_at IS NOT NULL OR mb.id IS NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4e48b55927dd46db8641a1d0ae97f4d3db7fcc2773c2b029400bc50036ed2936"
+}

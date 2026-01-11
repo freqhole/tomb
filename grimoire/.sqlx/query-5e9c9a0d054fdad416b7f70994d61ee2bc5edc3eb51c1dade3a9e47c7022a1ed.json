@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!\", name as \"name!\",\n                  created_at as \"created_at!\", updated_at as \"updated_at!\",\n                  deleted_at, deleted_by, created_by, updated_by\n           FROM artistz\n           WHERE deleted_at IS NULL\n           ORDER BY name ASC\n           LIMIT ? OFFSET ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5e9c9a0d054fdad416b7f70994d61ee2bc5edc3eb51c1dade3a9e47c7022a1ed"
+}

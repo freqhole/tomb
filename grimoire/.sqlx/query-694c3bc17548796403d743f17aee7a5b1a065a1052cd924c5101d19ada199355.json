@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            COUNT(*) as total_plays,\n            COUNT(CASE WHEN me.event_type = 'complete' THEN 1 END) as complete_plays,\n            COUNT(CASE WHEN me.event_type != 'complete' THEN 1 END) as partial_plays,\n            COUNT(DISTINCT mpe.user_id) as unique_users,\n            COUNT(DISTINCT mpe.session_id) as unique_sessions,\n            MIN(mpe.created_at) as \"first_played_at?: i64\",\n            MAX(mpe.created_at) as \"last_played_at?: i64\",\n            AVG(\n                CASE\n                    WHEN json_extract(me.event_data, '$.position') IS NOT NULL\n                    THEN CAST(json_extract(me.event_data, '$.position') AS REAL)\n                    ELSE 0.0\n                END\n            ) as \"avg_play_time?: f64\",\n            SUM(\n                CASE\n                    WHEN json_extract(me.event_data, '$.position') IS NOT NULL\n                    THEN CAST(json_extract(me.event_data, '$.position') AS INTEGER)\n                    ELSE 0\n                END\n            ) as \"total_play_time?: i64\"\n        FROM music_play_eventz mpe\n        JOIN media_eventz me ON me.id = mpe.media_event_id\n        WHERE mpe.song_id = ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "total_plays",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "complete_plays",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "partial_plays",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "unique_users",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "unique_sessions",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "first_played_at?: i64",
+        "ordinal": 5,
+        "type_info": "Null"
+      },
+      {
+        "name": "last_played_at?: i64",
+        "ordinal": 6,
+        "type_info": "Null"
+      },
+      {
+        "name": "avg_play_time?: f64",
+        "ordinal": 7,
+        "type_info": "Null"
+      },
+      {
+        "name": "total_play_time?: i64",
+        "ordinal": 8,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "694c3bc17548796403d743f17aee7a5b1a065a1052cd924c5101d19ada199355"
+}

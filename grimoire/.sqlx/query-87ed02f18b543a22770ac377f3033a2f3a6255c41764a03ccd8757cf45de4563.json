@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        UPDATE albumz\n        SET deleted_at = ?1, updated_at = ?1\n        WHERE id = ?2 AND deleted_at IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "87ed02f18b543a22770ac377f3033a2f3a6255c41764a03ccd8757cf45de4563"
+}
