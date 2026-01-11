@@ -89,11 +89,19 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         )
         .await
         {
-            Ok(blob_id) => Some(blob_id),
-            Err(err) => {
+            response if response.success => match response.data {
+                Some(blob_id) => Some(blob_id),
+                None => {
+                    return GrimoireResponse::failure(
+                        "Failed to create thumbnail blob: no data returned",
+                        vec![],
+                    );
+                }
+            },
+            response => {
                 return GrimoireResponse::failure(
                     "Failed to create thumbnail blob",
-                    vec![err.into()],
+                    response.errors,
                 );
             }
         }
@@ -117,17 +125,25 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         match create_image_blob_from_webp_data(
             webp_data,
             "original",
-            None,
+            None, // no parent blob
             metadata,
             req.updated_by.clone(),
         )
         .await
         {
-            Ok(blob_id) => Some(blob_id),
-            Err(err) => {
+            response if response.success => match response.data {
+                Some(blob_id) => Some(blob_id),
+                None => {
+                    return GrimoireResponse::failure(
+                        "Failed to create thumbnail blob from bytes: no data returned",
+                        vec![],
+                    );
+                }
+            },
+            response => {
                 return GrimoireResponse::failure(
-                    "Failed to create thumbnail blob",
-                    vec![err.into()],
+                    "Failed to create thumbnail blob from bytes",
+                    response.errors,
                 );
             }
         }

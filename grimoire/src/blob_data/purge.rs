@@ -2,8 +2,9 @@
 //! Finds and removes media blobs that have no references in any table
 
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::error::ErrorDetail;
 use crate::media_blobz::{delete_media_blob, find_media_blob_references};
+use crate::response::GrimoireResponse;
 use std::time::Instant;
 
 /// Summary of orphaned blob purge operation
@@ -28,19 +29,30 @@ pub struct OrphanedBlob {
 }
 
 /// Find all orphaned media blobs (blobs with zero references)
-pub async fn find_orphaned_media_blobs() -> GrimoireResult<Vec<OrphanedBlob>> {
+pub async fn find_orphaned_media_blobs() -> GrimoireResponse<Vec<OrphanedBlob>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get all non-deleted media blobs
-    let all_blobs = sqlx::query!(
+    let all_blobs = match sqlx::query!(
         "SELECT id as \"id!\", size, mime, blob_type as \"blob_type!\", created_at as \"created_at!\"
          FROM media_blobz
          WHERE deleted_at IS NULL
          ORDER BY created_at ASC"
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(blobs) => blobs,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query media blobs", vec![e.into()])
+        }
+    };
 
     let mut orphaned_blobs = Vec::new();
     let total_blobs = all_blobs.len();
@@ -49,7 +61,19 @@ pub async fn find_orphaned_media_blobs() -> GrimoireResult<Vec<OrphanedBlob>> {
 
     for blob in all_blobs {
         // Check if this blob has any references
-        let refs = find_media_blob_references(&blob.id).await?;
+        let refs = match find_media_blob_references(&blob.id).await {
+            Ok(r) => r,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to check blob references",
+                    vec![ErrorDetail::new(
+                        "reference_check_failed",
+                        "Reference Check Failed",
+                        format!("Failed to check references for blob {}: {}", blob.id, e),
+                    )],
+                )
+            }
+        };
 
         if !refs.has_references() {
             orphaned_blobs.push(OrphanedBlob {
@@ -70,15 +94,40 @@ pub async fn find_orphaned_media_blobs() -> GrimoireResult<Vec<OrphanedBlob>> {
         duration_ms
     );
 
-    Ok(orphaned_blobs)
+    GrimoireResponse::success(
+        format!(
+            "Found {} orphaned blobs out of {} total (took {}ms)",
+            orphaned_blobs.len(),
+            total_blobs,
+            duration_ms
+        ),
+        orphaned_blobs,
+    )
 }
 
 /// Clean up all orphaned media blobs
-pub async fn cleanup_orphaned_media_blobs() -> GrimoireResult<OrphanedBlobSummary> {
+pub async fn cleanup_orphaned_media_blobs() -> GrimoireResponse<OrphanedBlobSummary> {
     let start_time = Instant::now();
 
     // Find orphaned blobs
-    let orphaned_blobs = find_orphaned_media_blobs().await?;
+    let orphaned_blobs = match find_orphaned_media_blobs().await {
+        response if response.success => match response.data {
+            Some(blobs) => blobs,
+            None => {
+                return GrimoireResponse::failure(
+                    "Failed to find orphaned blobs",
+                    vec![ErrorDetail::new(
+                        "no_data",
+                        "No Data",
+                        "Find operation succeeded but returned no data",
+                    )],
+                )
+            }
+        },
+        response => {
+            return GrimoireResponse::failure("Failed to find orphaned blobs", response.errors)
+        }
+    };
 
     let mut deleted_count = 0;
     let mut failure_count = 0;
@@ -123,7 +172,16 @@ pub async fn cleanup_orphaned_media_blobs() -> GrimoireResult<OrphanedBlobSummar
         duration_ms
     );
 
-    Ok(summary)
+    GrimoireResponse::success(
+        format!(
+            "Orphaned blob cleanup completed: deleted {}/{} blobs, freed {} bytes ({}ms)",
+            deleted_count,
+            orphaned_blobs.len(),
+            bytes_freed,
+            duration_ms
+        ),
+        summary,
+    )
 }
 
 #[cfg(test)]

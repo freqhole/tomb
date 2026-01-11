@@ -92,9 +92,24 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
     // Find all orphaned blobs
     let blobs_result = find_orphaned_media_blobs().await;
     let all_orphaned_blobs = match blobs_result {
-        Ok(blobs) => blobs,
-        Err(e) => {
-            return GrimoireResponse::failure("Failed to find orphaned media blobs", vec![e.into()])
+        response if response.success => match response.data {
+            Some(blobs) => blobs,
+            None => {
+                return GrimoireResponse::failure(
+                    "Failed to find orphaned media blobs",
+                    vec![crate::error::ErrorDetail::new(
+                        "no_data",
+                        "No Data",
+                        "Find operation succeeded but returned no data",
+                    )],
+                )
+            }
+        },
+        response => {
+            return GrimoireResponse::failure(
+                "Failed to find orphaned media blobs",
+                response.errors,
+            )
         }
     };
 

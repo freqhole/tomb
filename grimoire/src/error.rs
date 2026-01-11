@@ -253,6 +253,16 @@ impl From<crate::wordlist::ManagementWordlistError> for ErrorDetail {
     }
 }
 
+impl From<image::ImageError> for ErrorDetail {
+    fn from(err: image::ImageError) -> Self {
+        ErrorDetail {
+            error_type: "image_error".to_string(),
+            title: "Image Error".to_string(),
+            detail: err.to_string(),
+        }
+    }
+}
+
 /// Convert error_type (snake_case) to Title Case
 /// Example: "database_not_found" -> "Database Not Found"
 fn error_type_to_title(error_type: &str) -> String {

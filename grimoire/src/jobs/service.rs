@@ -762,11 +762,23 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     // Step 1: Create media blob in database
     let media_blob_id =
         match blob_data::create_media_blob_from_file(&params.file_path, file_size).await {
-            Ok(id) => id,
-            Err(e) => {
+            response if response.success => match response.data {
+                Some(id) => id,
+                None => {
+                    return Err(JobError::ProcessingFailed {
+                        reason: "Failed to create media blob: no data returned".to_string(),
+                    })
+                }
+            },
+            response => {
+                let error_msg = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message
+                };
                 return Err(JobError::ProcessingFailed {
-                    reason: format!("Failed to create media blob: {}", e),
-                })
+                    reason: format!("Failed to create media blob: {}", error_msg),
+                });
             }
         };
     println!("created media blob: {}", media_blob_id);
@@ -804,12 +816,23 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     // Step 3: Generate thumbnail if requested
     let thumbnail_generated = if params.generate_thumbnail {
         match blob_data::create_audio_thumbnail_blob(&media_blob_id, &params.file_path).await {
-            Ok(thumbnail_blob_id) => {
-                println!("thumbnail generated as blob: {}", thumbnail_blob_id);
-                true
-            }
-            Err(e) => {
-                eprintln!("thumbnail generation failed: {}", e);
+            response if response.success => match response.data {
+                Some(thumbnail_blob_id) => {
+                    println!("thumbnail generated as blob: {}", thumbnail_blob_id);
+                    true
+                }
+                None => {
+                    eprintln!("thumbnail generation failed: no data returned");
+                    false
+                }
+            },
+            response => {
+                let error_msg = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message
+                };
+                eprintln!("thumbnail generation failed: {}", error_msg);
                 false
             }
         }
@@ -820,12 +843,23 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     // Step 4: Generate waveform if requested
     let waveform_generated = if params.generate_waveform {
         match blob_data::create_audio_waveform_blob(&media_blob_id, &params.file_path).await {
-            Ok(waveform_blob_id) => {
-                println!("waveform generated as blob: {}", waveform_blob_id);
-                true
-            }
-            Err(e) => {
-                eprintln!("waveform generation failed: {}", e);
+            response if response.success => match response.data {
+                Some(waveform_blob_id) => {
+                    println!("waveform generated as blob: {}", waveform_blob_id);
+                    true
+                }
+                None => {
+                    eprintln!("waveform generation failed: no data returned");
+                    false
+                }
+            },
+            response => {
+                let error_msg = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message
+                };
+                eprintln!("waveform generation failed: {}", error_msg);
                 false
             }
         }

@@ -76,12 +76,30 @@ pub async fn create_thumbnail_from_bytes(
     });
 
     // Use shared function for creating image blob
-    create_image_blob_from_webp_data(
+    match create_image_blob_from_webp_data(
         webp_data, "original", // Original user upload, not derived
         None,       // No parent blob
         metadata, created_by,
     )
     .await
+    {
+        response if response.success => match response.data {
+            Some(id) => Ok(id),
+            None => Err(GrimoireError::ProcessingFailed {
+                message: "Failed to create image blob: no data returned".to_string(),
+            }),
+        },
+        response => {
+            let error_msg = if !response.errors.is_empty() {
+                response.errors[0].detail.clone()
+            } else {
+                response.message
+            };
+            Err(GrimoireError::ProcessingFailed {
+                message: format!("Failed to create image blob: {}", error_msg),
+            })
+        }
+    }
 }
 
 #[cfg(test)]

@@ -93,7 +93,19 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
 
     // If binary data was provided, store it in blob_data table
     if let Some(data) = req.data {
-        blob_data::store_blob_data(&blob_with_metadata.id, data).await?;
+        match blob_data::store_blob_data(&blob_with_metadata.id, data).await {
+            response if response.success => {}
+            response => {
+                let error_msg = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message
+                };
+                return Err(GrimoireError::ProcessingFailed {
+                    message: format!("Failed to store blob data: {}", error_msg),
+                });
+            }
+        }
     }
 
     Ok(blob_with_metadata)
