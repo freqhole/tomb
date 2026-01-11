@@ -1,5 +1,6 @@
 //! error handling for grimoire
 
+use serde::Serialize;
 use thiserror::Error;
 
 /// main error type for grimoire operations
@@ -160,4 +161,70 @@ impl From<reqwest::Error> for GrimoireError {
     fn from(err: reqwest::Error) -> Self {
         GrimoireError::HttpRequest(err.to_string())
     }
+}
+
+// ============================================================================
+// Error Details (RFC 9457 style)
+// ============================================================================
+
+/// RFC 9457-style error object for structured error responses
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ErrorDetail {
+    /// Error type identifier (e.g., "validation_error", "not_found")
+    pub error_type: String,
+    /// Short, human-readable summary
+    pub title: String,
+    /// Specific explanation of this error occurrence
+    pub detail: String,
+}
+
+impl ErrorDetail {
+    /// Create a new error detail
+    pub fn new(
+        error_type: impl Into<String>,
+        title: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            error_type: error_type.into(),
+            title: title.into(),
+            detail: detail.into(),
+        }
+    }
+}
+
+impl From<&GrimoireError> for ErrorDetail {
+    fn from(err: &GrimoireError) -> Self {
+        let error_type = err.error_type();
+        let title = error_type_to_title(&error_type);
+        let detail = err.to_string();
+
+        Self {
+            error_type,
+            title,
+            detail,
+        }
+    }
+}
+
+impl From<GrimoireError> for ErrorDetail {
+    fn from(err: GrimoireError) -> Self {
+        Self::from(&err)
+    }
+}
+
+/// Convert error_type (snake_case) to Title Case
+/// Example: "database_not_found" -> "Database Not Found"
+fn error_type_to_title(error_type: &str) -> String {
+    error_type
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

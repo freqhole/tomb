@@ -7,11 +7,13 @@
 //! Design: Handlers return `CommandOutput<T>` with structured data.
 //! Top-level command router applies formatting based on --json flag.
 
-use crate::error::GrimoireResult;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use time::OffsetDateTime;
+
+// Re-export ErrorDetail for CLI code compatibility
+pub use crate::error::{ErrorDetail, GrimoireResult};
 
 // ============================================================================
 // Time Formatting
@@ -62,68 +64,7 @@ pub fn resolve_request<T: DeserializeOwned>(
 // Error Formatting
 // ============================================================================
 
-/// RFC 9457-style error object
-#[derive(Debug, Clone, Serialize)]
-pub struct ErrorDetail {
-    /// Error type identifier (e.g., "validation_error", "not_found")
-    #[serde(rename = "type")]
-    pub error_type: String,
-    /// Short, human-readable summary
-    pub title: String,
-    /// Specific explanation of this error occurrence
-    pub detail: String,
-}
-
-impl ErrorDetail {
-    /// Create a new error detail
-    pub fn new(
-        error_type: impl Into<String>,
-        title: impl Into<String>,
-        detail: impl Into<String>,
-    ) -> Self {
-        Self {
-            error_type: error_type.into(),
-            title: title.into(),
-            detail: detail.into(),
-        }
-    }
-}
-
-impl From<&crate::error::GrimoireError> for ErrorDetail {
-    fn from(err: &crate::error::GrimoireError) -> Self {
-        let error_type = err.error_type();
-        let title = error_type_to_title(&error_type);
-        let detail = err.to_string();
-
-        Self {
-            error_type,
-            title,
-            detail,
-        }
-    }
-}
-
-impl From<crate::error::GrimoireError> for ErrorDetail {
-    fn from(err: crate::error::GrimoireError) -> Self {
-        Self::from(&err)
-    }
-}
-
-/// Convert error_type (snake_case) to Title Case
-/// Example: "database_not_found" -> "Database Not Found"
-fn error_type_to_title(error_type: &str) -> String {
-    error_type
-        .split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
+// ErrorDetail is now defined in crate::error and re-exported from crate root
 
 // ============================================================================
 // Output Formatting
@@ -189,6 +130,34 @@ impl<T> CommandOutput<T> {
             message: message.into(),
             data,
             errors,
+        }
+    }
+
+    /// Convert a GrimoireResponse to CommandOutput
+    ///
+    /// For failed responses, requires a default data value since CommandOutput
+    /// always has data (while GrimoireResponse uses Option).
+    pub fn from_grimoire_response(
+        response: crate::response::GrimoireResponse<T>,
+        default_data: T,
+    ) -> Self {
+        Self {
+            success: response.success,
+            message: response.message,
+            data: response.data.unwrap_or(default_data),
+            errors: response.errors,
+        }
+    }
+}
+
+impl<T: Default> CommandOutput<T> {
+    /// Convert a GrimoireResponse to CommandOutput using T::default() for failures
+    pub fn from_grimoire_response_default(response: crate::response::GrimoireResponse<T>) -> Self {
+        Self {
+            success: response.success,
+            message: response.message,
+            data: response.data.unwrap_or_default(),
+            errors: response.errors,
         }
     }
 }
