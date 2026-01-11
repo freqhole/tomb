@@ -6,7 +6,7 @@
 
 use crate::analytics::{record_event_with_conn, MediaEvent, MediaEventType};
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::GrimoireResponse;
 use sqlx::SqliteConnection;
 
 use super::models::MusicPlayEvent;
@@ -21,20 +21,45 @@ use super::models::MusicPlayEvent;
 pub async fn record_play_event(
     media_event: &MediaEvent,
     music_event: &MusicPlayEvent,
-) -> GrimoireResult<(String, String)> {
-    let pool = database::connect().await?;
-    let mut tx = pool.begin().await?;
+) -> GrimoireResponse<(String, String)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => return GrimoireResponse::failure("Failed to begin transaction", vec![e.into()]),
+    };
 
     // First record the generic media event
-    let media_event_id = record_event_with_conn(&mut tx, media_event).await?;
+    let media_event_id = match record_event_with_conn(&mut tx, media_event).await {
+        Ok(id) => id,
+        Err(e) => return GrimoireResponse::failure("Failed to record media event", vec![e.into()]),
+    };
 
     // Then record the music-specific play event with the media_event_id
     let music_event_id =
-        record_music_play_event_with_conn(&mut tx, &media_event_id, music_event).await?;
+        match record_music_play_event_with_conn(&mut tx, &media_event_id, music_event).await {
+            Ok(id) => id,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to record music play event",
+                    vec![e.into()],
+                )
+            }
+        };
 
-    tx.commit().await?;
+    if let Err(e) = tx.commit().await {
+        return GrimoireResponse::failure("Failed to commit transaction", vec![e.into()]);
+    }
 
-    Ok((media_event_id, music_event_id))
+    GrimoireResponse::success(
+        "Play event recorded successfully",
+        (media_event_id, music_event_id),
+    )
 }
 
 /// Record a music play event using an existing connection/transaction
@@ -45,7 +70,7 @@ async fn record_music_play_event_with_conn(
     conn: &mut SqliteConnection,
     media_event_id: &str,
     event: &MusicPlayEvent,
-) -> GrimoireResult<String> {
+) -> Result<String, sqlx::Error> {
     let result = sqlx::query!(
         r#"
         INSERT INTO music_play_eventz (

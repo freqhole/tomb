@@ -193,9 +193,9 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
 
             // Record the event
             let (media_event_id, music_event_id) =
-                record_play_event(&media_event, &music_event).await?;
+                to_result(record_play_event(&media_event, &music_event).await)?;
 
-            println!("✓ Play event recorded successfully");
+            println!("Play event recorded successfully");
             println!("  Media Event ID: {}", media_event_id);
             println!("  Music Event ID: {}", music_event_id);
             println!("  Song: {}", song_result.song.title);
@@ -233,7 +233,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                 })?;
 
             // Get play analytics
-            let analytics = get_song_play_analytics(&song_id).await?;
+            let analytics = to_result(get_song_play_analytics(&song_id).await)?;
 
             println!("Song: {}", song_result.song.title);
             if let Some(artist) = &song_result.artist {
@@ -277,7 +277,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
             println!("Fetching listening history for user {}...\n", user_id);
 
             let (history, total_count) =
-                get_user_listening_history(&user_id, limit, offset).await?;
+                to_result(get_user_listening_history(&user_id, limit, offset).await)?;
 
             if history.is_empty() {
                 println!("No listening history found.");
@@ -310,7 +310,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::Session { session_id } => {
             println!("Fetching session summary for {}...\n", session_id);
 
-            let summary = get_session_summary(&session_id).await?;
+            let summary = to_result(get_session_summary(&session_id).await)?;
 
             println!("Session: {}", summary.session_id);
             if let Some(user_id) = &summary.user_id {
@@ -354,7 +354,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
 
             match entity_type_lower.as_str() {
                 "song" => {
-                    let count = get_song_play_count(&entity_id).await?;
+                    let count = to_result(get_song_play_count(&entity_id).await)?;
 
                     // Get song details using query API
                     let mut filters = std::collections::HashMap::new();
@@ -384,7 +384,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                     println!("Play Count: {}", count);
                 }
                 "album" => {
-                    let count = get_album_play_count(&entity_id).await?;
+                    let count = to_result(get_album_play_count(&entity_id).await)?;
 
                     // Get album details using query API
                     let mut filters = std::collections::HashMap::new();
@@ -414,7 +414,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                     println!("Total Plays: {}", count);
                 }
                 "artist" => {
-                    let count = get_artist_play_count(&entity_id).await?;
+                    let count = to_result(get_artist_play_count(&entity_id).await)?;
 
                     // Get artist details using query API
                     let mut filters = std::collections::HashMap::new();
@@ -454,7 +454,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::RecentListens { limit, offset } => {
             println!("Fetching recent listening activity...\n");
 
-            let (items, total_count) = get_recent_listens(limit, offset).await?;
+            let (items, total_count) = to_result(get_recent_listens(limit, offset).await)?;
 
             if items.is_empty() {
                 println!("No recent listening activity found.");
@@ -487,7 +487,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::RecentFavorites { limit, offset } => {
             println!("Fetching recent favorites...\n");
 
-            let (items, total_count) = get_recent_favorites(limit, offset).await?;
+            let (items, total_count) = to_result(get_recent_favorites(limit, offset).await)?;
 
             if items.is_empty() {
                 println!("No recent favorites found.");
@@ -517,7 +517,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::RecentAlbums { limit, offset } => {
             println!("Fetching recently added albums...\n");
 
-            let (items, total_count) = get_recent_albums(limit, offset).await?;
+            let (items, total_count) = to_result(get_recent_albums(limit, offset).await)?;
 
             if items.is_empty() {
                 println!("No recent albums found.");
@@ -544,7 +544,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
         AnalyticsAction::Feed { limit, offset } => {
             println!("Fetching combined activity feed...\n");
 
-            let (items, total_count) = get_combined_feed(limit, offset).await?;
+            let (items, total_count) = to_result(get_combined_feed(limit, offset).await)?;
 
             if items.is_empty() {
                 println!("No activity found.");

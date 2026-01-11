@@ -1,17 +1,23 @@
 //! Music analytics queries - read operations for play statistics and history
 
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::GrimoireError;
+use crate::GrimoireResponse;
 
 use super::models::{ListeningHistoryItem, PlayAnalytics, SessionSong, SessionSummary};
 
 /// Get aggregated play analytics for a song
 ///
 /// Returns statistics including total plays, completion rate, unique users, etc.
-pub async fn get_song_play_analytics(song_id: &str) -> GrimoireResult<PlayAnalytics> {
-    let pool = database::connect().await?;
+pub async fn get_song_play_analytics(song_id: &str) -> GrimoireResponse<PlayAnalytics> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let result = sqlx::query!(
+    let result = match sqlx::query!(
         r#"
         SELECT
             COUNT(*) as total_plays,
@@ -42,7 +48,13 @@ pub async fn get_song_play_analytics(song_id: &str) -> GrimoireResult<PlayAnalyt
         song_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get song play analytics", vec![e.into()])
+        }
+    };
 
     let total_plays = result.total_plays;
     let complete_plays = result.complete_plays;
@@ -53,19 +65,22 @@ pub async fn get_song_play_analytics(song_id: &str) -> GrimoireResult<PlayAnalyt
         0.0
     };
 
-    Ok(PlayAnalytics {
-        song_id: song_id.to_string(),
-        total_plays,
-        complete_plays,
-        partial_plays: result.partial_plays,
-        unique_users: result.unique_users,
-        unique_sessions: result.unique_sessions,
-        completion_rate,
-        avg_play_time_seconds: result.avg_play_time.unwrap_or(0.0),
-        total_play_time_seconds: result.total_play_time.unwrap_or(0),
-        first_played_at: result.first_played_at,
-        last_played_at: result.last_played_at,
-    })
+    GrimoireResponse::success(
+        "Song play analytics retrieved successfully",
+        PlayAnalytics {
+            song_id: song_id.to_string(),
+            total_plays,
+            complete_plays,
+            partial_plays: result.partial_plays,
+            unique_users: result.unique_users,
+            unique_sessions: result.unique_sessions,
+            completion_rate,
+            avg_play_time_seconds: result.avg_play_time.unwrap_or(0.0),
+            total_play_time_seconds: result.total_play_time.unwrap_or(0),
+            first_played_at: result.first_played_at,
+            last_played_at: result.last_played_at,
+        },
+    )
 }
 
 /// Get paginated listening history for a user
@@ -75,11 +90,16 @@ pub async fn get_user_listening_history(
     user_id: &str,
     limit: i64,
     offset: i64,
-) -> GrimoireResult<(Vec<ListeningHistoryItem>, i64)> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<(Vec<ListeningHistoryItem>, i64)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get total count for pagination
-    let count_result = sqlx::query!(
+    let count_result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
         FROM music_play_eventz
@@ -88,12 +108,21 @@ pub async fn get_user_listening_history(
         user_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to get listening history count",
+                vec![e.into()],
+            )
+        }
+    };
 
     let total_count = count_result.count;
 
     // Get paginated items with enriched data
-    let rows = sqlx::query!(
+    let rows = match sqlx::query!(
         r#"
         SELECT
             mpe.id,
@@ -144,7 +173,13 @@ pub async fn get_user_listening_history(
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get listening history", vec![e.into()])
+        }
+    };
 
     let items = rows
         .into_iter()
@@ -178,16 +213,24 @@ pub async fn get_user_listening_history(
         })
         .collect();
 
-    Ok((items, total_count))
+    GrimoireResponse::success(
+        "Listening history retrieved successfully",
+        (items, total_count),
+    )
 }
 
 /// Get simple play count for a song
 ///
 /// Returns the total number of play events for this song
-pub async fn get_song_play_count(song_id: &str) -> GrimoireResult<i64> {
-    let pool = database::connect().await?;
+pub async fn get_song_play_count(song_id: &str) -> GrimoireResponse<i64> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let result = sqlx::query!(
+    let result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
         FROM music_play_eventz
@@ -196,18 +239,29 @@ pub async fn get_song_play_count(song_id: &str) -> GrimoireResult<i64> {
         song_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get song play count", vec![e.into()])
+        }
+    };
 
-    Ok(result.count)
+    GrimoireResponse::success("Song play count retrieved successfully", result.count)
 }
 
 /// Get aggregate play count for all songs in an album
 ///
 /// Returns the total number of play events for all songs in this album
-pub async fn get_album_play_count(album_id: &str) -> GrimoireResult<i64> {
-    let pool = database::connect().await?;
+pub async fn get_album_play_count(album_id: &str) -> GrimoireResponse<i64> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let result = sqlx::query!(
+    let result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
         FROM music_play_eventz mpe
@@ -218,18 +272,29 @@ pub async fn get_album_play_count(album_id: &str) -> GrimoireResult<i64> {
         album_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get album play count", vec![e.into()])
+        }
+    };
 
-    Ok(result.count)
+    GrimoireResponse::success("Album play count retrieved successfully", result.count)
 }
 
 /// Get aggregate play count for all songs by an artist
 ///
 /// Returns the total number of play events for all songs by this artist
-pub async fn get_artist_play_count(artist_id: &str) -> GrimoireResult<i64> {
-    let pool = database::connect().await?;
+pub async fn get_artist_play_count(artist_id: &str) -> GrimoireResponse<i64> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let result = sqlx::query!(
+    let result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
         FROM music_play_eventz mpe
@@ -240,19 +305,30 @@ pub async fn get_artist_play_count(artist_id: &str) -> GrimoireResult<i64> {
         artist_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get artist play count", vec![e.into()])
+        }
+    };
 
-    Ok(result.count)
+    GrimoireResponse::success("Artist play count retrieved successfully", result.count)
 }
 
 /// Get summary of a listening session
 ///
 /// Returns session metadata and list of songs played in chronological order
-pub async fn get_session_summary(session_id: &str) -> GrimoireResult<SessionSummary> {
-    let pool = database::connect().await?;
+pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get session metadata
-    let session_meta = sqlx::query!(
+    let session_meta = match sqlx::query!(
         r#"
         SELECT
             user_id,
@@ -267,11 +343,22 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResult<SessionSumm
         session_id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::Analytics(format!("Session not found: {}", session_id)))?;
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "Session not found",
+                vec![GrimoireError::Analytics(format!("Session not found: {}", session_id)).into()],
+            )
+        }
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get session metadata", vec![e.into()])
+        }
+    };
 
     // Get songs in session
-    let songs_rows = sqlx::query!(
+    let songs_rows = match sqlx::query!(
         r#"
         SELECT
             mpe.song_id,
@@ -294,7 +381,11 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResult<SessionSumm
         session_id
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to get session songs", vec![e.into()]),
+    };
 
     let songs = songs_rows
         .into_iter()
@@ -316,16 +407,19 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResult<SessionSumm
         0
     };
 
-    Ok(SessionSummary {
-        session_id: session_id.to_string(),
-        user_id: session_meta.user_id,
-        username: session_meta.username,
-        songs,
-        total_duration,
-        session_start,
-        session_end,
-        song_count: session_meta.song_count.unwrap_or(0),
-    })
+    GrimoireResponse::success(
+        "Session summary retrieved successfully",
+        SessionSummary {
+            session_id: session_id.to_string(),
+            user_id: session_meta.user_id,
+            username: session_meta.username,
+            songs,
+            total_duration,
+            session_start,
+            session_end,
+            song_count: session_meta.song_count.unwrap_or(0),
+        },
+    )
 }
 
 #[cfg(test)]

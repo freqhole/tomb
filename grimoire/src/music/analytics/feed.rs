@@ -6,7 +6,7 @@
 //! - Recent albums (newly added to library)
 
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::GrimoireResponse;
 use serde::{Deserialize, Serialize};
 
 /// Type of feed item
@@ -56,18 +56,29 @@ pub struct FeedItem {
 /// Multiple plays of the same song are grouped together.
 ///
 /// Returns (items, total_count) for pagination.
-pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResult<(Vec<FeedItem>, i64)> {
-    let pool = database::connect().await?;
+pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResponse<(Vec<FeedItem>, i64)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get total count
-    let count_result = sqlx::query!(
+    let count_result = match sqlx::query!(
         r#"
         SELECT COUNT(DISTINCT song_id) as count
         FROM music_play_eventz
         "#
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get recent listens count", vec![e.into()])
+        }
+    };
 
     let total_count = count_result.count;
 
@@ -106,7 +117,12 @@ pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResult<(Vec<
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await;
+
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to get recent listens", vec![e.into()]),
+    };
 
     let items = rows
         .into_iter()
@@ -126,7 +142,10 @@ pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResult<(Vec<
         })
         .collect();
 
-    Ok((items, total_count))
+    GrimoireResponse::success(
+        "Recent listens retrieved successfully",
+        (items, total_count),
+    )
 }
 
 /// Get recent favorites
@@ -134,11 +153,19 @@ pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResult<(Vec<
 /// Returns songs that were recently favorited, ordered by most recent first.
 ///
 /// Returns (items, total_count) for pagination.
-pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Vec<FeedItem>, i64)> {
-    let pool = database::connect().await?;
+pub async fn get_recent_favorites(
+    limit: i64,
+    offset: i64,
+) -> GrimoireResponse<(Vec<FeedItem>, i64)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get total count
-    let count_result = sqlx::query!(
+    let count_result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
         FROM user_favoritez
@@ -146,7 +173,16 @@ pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Ve
         "#
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to get recent favorites count",
+                vec![e.into()],
+            )
+        }
+    };
 
     let total_count = count_result.count;
 
@@ -156,10 +192,9 @@ pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Ve
         SELECT
             uf.id as "id!",
             uf.target_id as "song_id!",
-            uf.user_id,
-            uf.created_at,
             s.title,
             s.thumbnail_blob_id,
+            uf.created_at as "created_at!: i64",
             (SELECT a.id FROM artist_songz asz
              JOIN artistz a ON a.id = asz.artist_id
              WHERE asz.song_id = uf.target_id
@@ -172,6 +207,7 @@ pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Ve
              JOIN albumz alb ON alb.id = als.album_id
              WHERE als.song_id = uf.target_id
              LIMIT 1) as "album_id?",
+            uf.user_id,
             (SELECT u.username FROM user_accountz u
              WHERE u.id = uf.user_id) as "username?"
         FROM user_favoritez uf
@@ -184,7 +220,14 @@ pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Ve
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await;
+
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get recent favorites", vec![e.into()])
+        }
+    };
 
     let items = rows
         .into_iter()
@@ -204,7 +247,10 @@ pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Ve
         })
         .collect();
 
-    Ok((items, total_count))
+    GrimoireResponse::success(
+        "Recent favorites retrieved successfully",
+        (items, total_count),
+    )
 }
 
 /// Get recently added albums
@@ -212,11 +258,16 @@ pub async fn get_recent_favorites(limit: i64, offset: i64) -> GrimoireResult<(Ve
 /// Returns albums that were recently added to the library, ordered by most recent first.
 ///
 /// Returns (items, total_count) for pagination.
-pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<FeedItem>, i64)> {
-    let pool = database::connect().await?;
+pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResponse<(Vec<FeedItem>, i64)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get total count
-    let count_result = sqlx::query!(
+    let count_result = match sqlx::query!(
         r#"
         SELECT COUNT(*) as count
         FROM albumz
@@ -224,7 +275,13 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         "#
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get recent albums count", vec![e.into()])
+        }
+    };
 
     let total_count = count_result.count;
 
@@ -234,10 +291,7 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         SELECT
             alb.id as "id!",
             alb.title as "title!",
-            (SELECT ai.media_blob_id FROM album_imagez ai
-             WHERE ai.album_id = alb.id AND ai.is_primary = 1
-             LIMIT 1) as "thumbnail_blob_id?",
-            alb.created_at,
+            alb.created_at as "created_at!: i64",
             (SELECT a.id FROM artist_albumz aa
              JOIN artistz a ON a.id = aa.artist_id
              WHERE aa.album_id = alb.id
@@ -245,7 +299,10 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
             (SELECT a.name FROM artist_albumz aa
              JOIN artistz a ON a.id = aa.artist_id
              WHERE aa.album_id = alb.id
-             LIMIT 1) as "artist_name?"
+             LIMIT 1) as "artist_name?",
+            (SELECT ai.media_blob_id FROM album_imagez ai
+             WHERE ai.album_id = alb.id AND ai.is_primary = 1
+             LIMIT 1) as "thumbnail_blob_id?"
         FROM albumz alb
         WHERE alb.deleted_at IS NULL
         ORDER BY alb.created_at DESC
@@ -255,7 +312,12 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await;
+
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to get recent albums", vec![e.into()]),
+    };
 
     let items = rows
         .into_iter()
@@ -263,7 +325,7 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
             id: row.id.clone(),
             feed_type: FeedItemType::RecentAlbum,
             song_id: None,
-            album_id: Some(row.id.clone()),
+            album_id: Some(row.id),
             artist_id: row.artist_id,
             title: row.title,
             subtitle: row.artist_name,
@@ -275,7 +337,7 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         })
         .collect();
 
-    Ok((items, total_count))
+    GrimoireResponse::success("Recent albums retrieved successfully", (items, total_count))
 }
 
 /// Get combined activity feed
@@ -284,11 +346,16 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
 /// ordered by timestamp (most recent first).
 ///
 /// Returns (items, total_count) for pagination.
-pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResult<(Vec<FeedItem>, i64)> {
-    let pool = database::connect().await?;
+pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec<FeedItem>, i64)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get total count across all feed types
-    let count_result = sqlx::query!(
+    let count_result = match sqlx::query!(
         r#"
         SELECT
             (SELECT COUNT(DISTINCT song_id) FROM music_play_eventz) +
@@ -298,7 +365,13 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         "#
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get combined feed count", vec![e.into()])
+        }
+    };
 
     let total_count = count_result.total_count;
 
@@ -400,7 +473,12 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await;
+
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to get combined feed", vec![e.into()]),
+    };
 
     let items = rows
         .into_iter()
@@ -429,7 +507,7 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResult<(Vec<F
         })
         .collect();
 
-    Ok((items, total_count))
+    GrimoireResponse::success("Combined feed retrieved successfully", (items, total_count))
 }
 
 #[cfg(test)]

@@ -541,15 +541,24 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     if params.extract_metadata {
         match scanner::import_audio_file(&media_blob_id, file_path).await {
-            Ok(import_result) => {
+            crate::GrimoireResponse {
+                success: true,
+                data: Some(import_result),
+                ..
+            } => {
                 song_id = Some(import_result.song_id);
                 artist_id = import_result.artist_id;
                 album_id = import_result.album_id;
                 metadata_extracted = import_result.metadata_extracted;
                 println!("metadata extracted successfully");
             }
-            Err(e) => {
-                eprintln!("metadata extraction failed: {}", e);
+            response => {
+                let error_msg = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message
+                };
+                eprintln!("metadata extraction failed: {}", error_msg);
             }
         }
     }

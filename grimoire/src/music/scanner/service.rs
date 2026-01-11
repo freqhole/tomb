@@ -3,7 +3,8 @@
 //! Provides high-level functions for scanning directories and importing audio files.
 //! This module delegates to specialized submodules for implementation details.
 
-use crate::error::GrimoireResult;
+use crate::error::ErrorDetail;
+use crate::GrimoireResponse;
 use std::path::Path;
 
 pub use super::directory::{is_audio_file, scan_directory_and_create_jobs};
@@ -33,8 +34,16 @@ pub async fn scan_directory(
     recursive: bool,
     max_depth: Option<u32>,
     file_extensions: Option<Vec<String>>,
-) -> GrimoireResult<usize> {
-    scan_directory_and_create_jobs(path, session_id, recursive, max_depth, file_extensions).await
+) -> GrimoireResponse<usize> {
+    match scan_directory_and_create_jobs(path, session_id, recursive, max_depth, file_extensions)
+        .await
+    {
+        Ok(count) => GrimoireResponse::success(
+            format!("Scanned directory and created {} jobs", count),
+            count,
+        ),
+        Err(e) => GrimoireResponse::failure("Failed to scan directory", vec![e.into()]),
+    }
 }
 
 /// Import a single audio file into the music library
@@ -54,12 +63,18 @@ pub async fn scan_directory(
 pub async fn import_audio_file(
     media_blob_id: &str,
     file_path: &Path,
-) -> GrimoireResult<ImportResult> {
-    extract_and_import(media_blob_id, file_path)
-        .await
-        .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
-            message: format!("Failed to import audio file: {}", e),
-        })
+) -> GrimoireResponse<ImportResult> {
+    match extract_and_import(media_blob_id, file_path).await {
+        Ok(result) => GrimoireResponse::success("Audio file imported successfully", result),
+        Err(e) => GrimoireResponse::failure(
+            "Failed to import audio file",
+            vec![ErrorDetail::new(
+                "import_failed",
+                "Import Failed",
+                format!("Failed to import audio file: {}", e),
+            )],
+        ),
+    }
 }
 
 /// Check if a file is a supported audio format
