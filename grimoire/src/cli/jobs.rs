@@ -1,33 +1,13 @@
 //! Job queue management CLI commands
 
 use crate::cli::utils::{CommandOutput, OutputFormat};
-use crate::error::{GrimoireError, GrimoireResult};
 use crate::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
     ProcessJobCreatedResponse, ProcessorResponse, ScanDirectoryParams, ScanJobCreatedResponse,
 };
-use crate::response::GrimoireResponse;
 use clap::Subcommand;
 use serde_json::json;
-
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
-}
 
 #[derive(Subcommand)]
 pub enum JobAction {
@@ -70,11 +50,18 @@ pub enum JobAction {
 }
 
 /// Handle job commands
-pub async fn handle_command(action: JobAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: JobAction, _format: OutputFormat) -> CommandOutput<()> {
     match action {
         JobAction::List { session_id, limit } => {
-            let jobs =
-                to_result(list_jobs(session_id.as_deref(), None, Some(limit as u32), None).await)?;
+            let response = list_jobs(session_id.as_deref(), None, Some(limit as u32), None).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(jobs) = response.data else {
+                return CommandOutput::failure("No jobs data returned", vec![], ());
+            };
 
             let job_items: Vec<JobListResponse> = jobs
                 .iter()
@@ -95,12 +82,19 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 .collect();
 
             let message = format!("Found {} jobs", job_items.len());
-            let output = CommandOutput::success(message, job_items);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, job_items).map_data(|_| ())
         }
 
         JobAction::Stats => {
-            let stats = to_result(get_queue_stats().await)?;
+            let response = get_queue_stats().await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(stats) = response.data else {
+                return CommandOutput::failure("No stats data returned", vec![], ());
+            };
 
             let total_jobs =
                 stats.pending_jobs + stats.running_jobs + stats.completed_jobs + stats.failed_jobs;
@@ -120,8 +114,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 success_rate,
             };
 
-            let output = CommandOutput::success("Queue statistics", job_stats);
-            print!("{}", output.format(format));
+            CommandOutput::success("Queue statistics", job_stats).map_data(|_| ())
         }
 
         JobAction::Scan {
@@ -136,7 +129,19 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 created_by: Some("cli".to_string()),
             };
 
-            let session = to_result(create_job_session(session_request).await)?;
+            let session_response = create_job_session(session_request).await;
+
+            if !session_response.success {
+                return CommandOutput::failure(
+                    session_response.message,
+                    session_response.errors,
+                    (),
+                );
+            }
+
+            let Some(session) = session_response.data else {
+                return CommandOutput::failure("No session data returned", vec![], ());
+            };
 
             // Create the scan job
             let scan_params = ScanDirectoryParams {
@@ -155,7 +160,15 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 created_by: Some("cli".to_string()),
             };
 
-            let job = to_result(create_job(job_request).await)?;
+            let job_response = create_job(job_request).await;
+
+            if !job_response.success {
+                return CommandOutput::failure(job_response.message, job_response.errors, ());
+            }
+
+            let Some(job) = job_response.data else {
+                return CommandOutput::failure("No job data returned", vec![], ());
+            };
 
             let result = ScanJobCreatedResponse {
                 job_id: job.id,
@@ -166,8 +179,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
             };
 
             let message = format!("Created scan job for directory: {}", result.path);
-            let output = CommandOutput::success(message, result);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, result).map_data(|_| ())
         }
 
         JobAction::ProcessFile { path } => {
@@ -185,7 +197,15 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 created_by: Some("cli".to_string()),
             };
 
-            let job = to_result(create_job(job_request).await)?;
+            let job_response = create_job(job_request).await;
+
+            if !job_response.success {
+                return CommandOutput::failure(job_response.message, job_response.errors, ());
+            }
+
+            let Some(job) = job_response.data else {
+                return CommandOutput::failure("No job data returned", vec![], ());
+            };
 
             let result = ProcessJobCreatedResponse {
                 job_id: job.id,
@@ -193,8 +213,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
             };
 
             let message = format!("Created process file job for: {}", result.file_path);
-            let output = CommandOutput::success(message, result);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, result).map_data(|_| ())
         }
 
         JobAction::RunProcessor { max_jobs, once } => {
@@ -204,15 +223,15 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 "continuous processing"
             };
 
-            let result_op = if once {
-                to_result(crate::jobs::run_job_processor_once(max_jobs as u32).await)
+            let response = if once {
+                crate::jobs::run_job_processor_once(max_jobs as u32).await
             } else {
-                to_result(crate::jobs::run_job_processor().await)
+                crate::jobs::run_job_processor().await
             };
 
-            result_op.map_err(|e| GrimoireError::ProcessingFailed {
-                message: format!("Job processor failed: {}", e),
-            })?;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
             let result = ProcessorResponse {
                 mode: mode.to_string(),
@@ -226,10 +245,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 "Job processor completed"
             };
 
-            let output = CommandOutput::success(message, result);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, result).map_data(|_| ())
         }
     }
-
-    Ok(())
 }

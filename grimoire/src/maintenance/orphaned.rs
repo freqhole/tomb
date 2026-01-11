@@ -5,9 +5,10 @@
 
 use crate::database;
 use crate::response::GrimoireResponse;
+use serde::Serialize;
 
 /// Summary of orphaned tag cleanup operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrphanedTagsSummary {
     pub tags_found: u32,
     pub tags_deleted: u32,
@@ -15,7 +16,7 @@ pub struct OrphanedTagsSummary {
 }
 
 /// Summary of orphaned genre cleanup operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrphanedGenresSummary {
     pub genres_found: u32,
     pub genres_deleted: u32,
@@ -23,7 +24,7 @@ pub struct OrphanedGenresSummary {
 }
 
 /// Summary of orphaned sub-genre cleanup operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrphanedSubGenresSummary {
     pub sub_genres_found: u32,
     pub sub_genres_deleted: u32,

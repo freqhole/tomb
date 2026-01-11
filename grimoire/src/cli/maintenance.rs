@@ -1,29 +1,20 @@
 //! Maintenance operations CLI commands
 
-use crate::cli::utils::OutputFormat;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::cli::utils::{CommandOutput, OutputFormat};
 use crate::maintenance::{
     cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
 };
-use crate::response::GrimoireResponse;
 use clap::Subcommand;
+use serde::Serialize;
 
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
+/// Combined summary for all cleanup operations
+#[derive(Serialize)]
+struct AllCleanupSummary {
+    tags: crate::maintenance::OrphanedTagsSummary,
+    genres: crate::maintenance::OrphanedGenresSummary,
+    sub_genres: crate::maintenance::OrphanedSubGenresSummary,
+    total_found: u32,
+    total_deleted: u32,
 }
 
 #[derive(Subcommand)]
@@ -55,149 +46,111 @@ pub enum MaintenanceAction {
 }
 
 /// Handle maintenance commands
-pub async fn handle_command(
-    action: MaintenanceAction,
-    _format: OutputFormat,
-) -> GrimoireResult<()> {
+pub async fn handle_command(action: MaintenanceAction, _format: OutputFormat) -> CommandOutput<()> {
     match action {
         MaintenanceAction::CleanupOrphanedTags { dry_run } => {
-            println!("Finding orphaned tags...");
-            let summary = to_result(cleanup_orphaned_tags(dry_run).await)?;
+            let response = cleanup_orphaned_tags(dry_run).await;
 
-            println!("\n=== Orphaned Tags Summary ===");
-            println!("Tags found: {}", summary.tags_found);
-
-            if summary.tags_found > 0 {
-                println!("\nOrphaned tags:");
-                for name in &summary.tag_names {
-                    println!("  - {}", name);
-                }
-
-                if dry_run {
-                    println!("\n[DRY RUN] No tags were deleted. Run without --dry-run to delete.");
-                } else {
-                    println!("\nTags deleted: {}", summary.tags_deleted);
-                    if summary.tags_deleted < summary.tags_found {
-                        println!(
-                            "Warning: {} tags failed to delete",
-                            summary.tags_found - summary.tags_deleted
-                        );
-                    }
-                }
-            } else {
-                println!("No orphaned tags found.");
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
             }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary).map_data(|_| ())
         }
 
         MaintenanceAction::CleanupOrphanedGenres { dry_run } => {
-            println!("Finding orphaned genres...");
-            let summary = to_result(cleanup_orphaned_genres(dry_run).await)?;
+            let response = cleanup_orphaned_genres(dry_run).await;
 
-            println!("\n=== Orphaned Genres Summary ===");
-            println!("Genres found: {}", summary.genres_found);
-
-            if summary.genres_found > 0 {
-                println!("\nOrphaned genres:");
-                for name in &summary.genre_names {
-                    println!("  - {}", name);
-                }
-
-                if dry_run {
-                    println!(
-                        "\n[DRY RUN] No genres were deleted. Run without --dry-run to delete."
-                    );
-                } else {
-                    println!("\nGenres deleted: {}", summary.genres_deleted);
-                    if summary.genres_deleted < summary.genres_found {
-                        println!(
-                            "Warning: {} genres failed to delete",
-                            summary.genres_found - summary.genres_deleted
-                        );
-                    }
-                }
-            } else {
-                println!("No orphaned genres found.");
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
             }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary).map_data(|_| ())
         }
 
         MaintenanceAction::CleanupOrphanedSubGenres { dry_run } => {
-            println!("Finding orphaned sub-genres...");
-            let summary = to_result(cleanup_orphaned_sub_genres(dry_run).await)?;
+            let response = cleanup_orphaned_sub_genres(dry_run).await;
 
-            println!("\n=== Orphaned Sub-Genres Summary ===");
-            println!("Sub-genres found: {}", summary.sub_genres_found);
-
-            if summary.sub_genres_found > 0 {
-                println!("\nOrphaned sub-genres:");
-                for name in &summary.sub_genre_names {
-                    println!("  - {}", name);
-                }
-
-                if dry_run {
-                    println!(
-                        "\n[DRY RUN] No sub-genres were deleted. Run without --dry-run to delete."
-                    );
-                } else {
-                    println!("\nSub-genres deleted: {}", summary.sub_genres_deleted);
-                    if summary.sub_genres_deleted < summary.sub_genres_found {
-                        println!(
-                            "Warning: {} sub-genres failed to delete",
-                            summary.sub_genres_found - summary.sub_genres_deleted
-                        );
-                    }
-                }
-            } else {
-                println!("No orphaned sub-genres found.");
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
             }
+
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("No summary data returned", vec![], ());
+            };
+
+            CommandOutput::success(response.message, summary).map_data(|_| ())
         }
 
         MaintenanceAction::CleanupAll { dry_run } => {
-            println!("Running comprehensive orphaned records cleanup...\n");
-
             // Cleanup tags
-            println!("=== Cleaning up orphaned tags ===");
-            let tags_summary = to_result(cleanup_orphaned_tags(dry_run).await)?;
-            println!("Tags found: {}", tags_summary.tags_found);
-            if !dry_run && tags_summary.tags_deleted > 0 {
-                println!("Tags deleted: {}", tags_summary.tags_deleted);
+            let tags_response = cleanup_orphaned_tags(dry_run).await;
+            if !tags_response.success {
+                return CommandOutput::failure(tags_response.message, tags_response.errors, ());
             }
+            let Some(tags_summary) = tags_response.data else {
+                return CommandOutput::failure("No tags summary data returned", vec![], ());
+            };
 
             // Cleanup genres
-            println!("\n=== Cleaning up orphaned genres ===");
-            let genres_summary = to_result(cleanup_orphaned_genres(dry_run).await)?;
-            println!("Genres found: {}", genres_summary.genres_found);
-            if !dry_run && genres_summary.genres_deleted > 0 {
-                println!("Genres deleted: {}", genres_summary.genres_deleted);
+            let genres_response = cleanup_orphaned_genres(dry_run).await;
+            if !genres_response.success {
+                return CommandOutput::failure(genres_response.message, genres_response.errors, ());
             }
+            let Some(genres_summary) = genres_response.data else {
+                return CommandOutput::failure("No genres summary data returned", vec![], ());
+            };
 
             // Cleanup sub-genres
-            println!("\n=== Cleaning up orphaned sub-genres ===");
-            let sub_genres_summary = to_result(cleanup_orphaned_sub_genres(dry_run).await)?;
-            println!("Sub-genres found: {}", sub_genres_summary.sub_genres_found);
-            if !dry_run && sub_genres_summary.sub_genres_deleted > 0 {
-                println!(
-                    "Sub-genres deleted: {}",
-                    sub_genres_summary.sub_genres_deleted
+            let sub_genres_response = cleanup_orphaned_sub_genres(dry_run).await;
+            if !sub_genres_response.success {
+                return CommandOutput::failure(
+                    sub_genres_response.message,
+                    sub_genres_response.errors,
+                    (),
                 );
             }
+            let Some(sub_genres_summary) = sub_genres_response.data else {
+                return CommandOutput::failure("No sub-genres summary data returned", vec![], ());
+            };
 
-            // Overall summary
-            println!("\n=== Overall Summary ===");
+            // Create combined summary
             let total_found = tags_summary.tags_found
                 + genres_summary.genres_found
                 + sub_genres_summary.sub_genres_found;
-            println!("Total orphaned records found: {}", total_found);
+            let total_deleted = tags_summary.tags_deleted
+                + genres_summary.genres_deleted
+                + sub_genres_summary.sub_genres_deleted;
 
-            if !dry_run {
-                let total_deleted = tags_summary.tags_deleted
-                    + genres_summary.genres_deleted
-                    + sub_genres_summary.sub_genres_deleted;
-                println!("Total records deleted: {}", total_deleted);
+            let combined = AllCleanupSummary {
+                tags: tags_summary,
+                genres: genres_summary,
+                sub_genres: sub_genres_summary,
+                total_found,
+                total_deleted,
+            };
+
+            let message = if dry_run {
+                format!(
+                    "Found {} total orphaned records (dry run, nothing deleted)",
+                    total_found
+                )
             } else {
-                println!("\n[DRY RUN] No records were deleted. Run without --dry-run to delete.");
-            }
+                format!(
+                    "Deleted {} of {} orphaned records",
+                    total_deleted, total_found
+                )
+            };
+
+            CommandOutput::success(message, combined).map_data(|_| ())
         }
     }
-
-    Ok(())
 }

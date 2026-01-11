@@ -148,6 +148,16 @@ impl<T> CommandOutput<T> {
             errors: response.errors,
         }
     }
+
+    /// Map the data to a different type
+    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> CommandOutput<U> {
+        CommandOutput {
+            success: self.success,
+            message: self.message,
+            data: f(self.data),
+            errors: self.errors,
+        }
+    }
 }
 
 impl<T: Default> CommandOutput<T> {
@@ -275,6 +285,30 @@ fn format_as_table<T: Serialize>(items: &[T]) -> String {
     }
 
     String::new()
+}
+
+// ============================================================================
+// Output Handling
+// ============================================================================
+
+/// Print CommandOutput and exit with appropriate code
+///
+/// This is the centralized output handler for all CLI commands:
+/// - Success: prints to stdout, exits 0
+/// - Failure: prints to stderr, exits 1
+///
+/// Use this at the top level of command dispatching to avoid repetitive
+/// error handling in every command handler.
+pub fn print_and_exit<T: Serialize>(output: CommandOutput<T>, format: OutputFormat) -> ! {
+    let formatted = output.format(format);
+
+    if output.success {
+        println!("{}", formatted);
+        std::process::exit(0);
+    } else {
+        eprintln!("{}", formatted);
+        std::process::exit(1);
+    }
 }
 
 // ============================================================================

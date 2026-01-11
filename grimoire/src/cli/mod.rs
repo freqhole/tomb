@@ -34,7 +34,22 @@ pub use users::UserAction;
 pub use wordlist::WordlistAction;
 
 use std::path::PathBuf;
-use utils::OutputFormat;
+use utils::{CommandOutput, OutputFormat};
+
+/// Temporary helper to convert Result to CommandOutput
+/// This will be removed once all handlers return CommandOutput
+fn result_to_output<T: serde::Serialize + Default>(
+    result: Result<T, crate::error::GrimoireError>,
+) -> CommandOutput<T> {
+    match result {
+        Ok(data) => CommandOutput::success("Command completed", data),
+        Err(e) => CommandOutput::failure(
+            "Command failed",
+            vec![utils::ErrorDetail::from(&e)],
+            T::default(),
+        ),
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "grimoire")]
@@ -117,7 +132,7 @@ pub enum Commands {
 }
 
 /// Main CLI entry point
-pub async fn run_cli() -> crate::error::GrimoireResult<()> {
+pub async fn run_cli() -> ! {
     let cli = Cli::parse();
 
     match cli.command {
@@ -126,152 +141,69 @@ pub async fn run_cli() -> crate::error::GrimoireResult<()> {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            config::handle_command(action, format).await.or_else(|err| {
-                if json_output {
-                    use utils::{CommandOutput, ErrorDetail};
-                    let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                        "Command failed",
-                        vec![ErrorDetail::from(&err)],
-                        vec![],
-                    );
-                    eprintln!("{}", output.format(format));
-                    Ok(())
-                } else {
-                    Err(err)
-                }
-            })
+            let result = config::handle_command(action, format).await;
+            let output = result_to_output(result);
+            utils::print_and_exit(output, format);
         }
         Commands::Jobs {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            jobs::handle_command(action, format).await.or_else(|err| {
-                if json_output {
-                    use utils::{CommandOutput, ErrorDetail};
-                    let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                        "Command failed",
-                        vec![ErrorDetail::from(&err)],
-                        vec![],
-                    );
-                    eprintln!("{}", output.format(format));
-                    Ok(())
-                } else {
-                    Err(err)
-                }
-            })
+            let output = jobs::handle_command(action, format).await;
+            utils::print_and_exit(output, format);
         }
         Commands::Database {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            database::handle_command(action, format)
-                .await
-                .or_else(|err| {
-                    if json_output {
-                        use utils::{CommandOutput, ErrorDetail};
-                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                            "Command failed",
-                            vec![ErrorDetail::from(&err)],
-                            vec![],
-                        );
-                        eprintln!("{}", output.format(format));
-                        Ok(())
-                    } else {
-                        Err(err)
-                    }
-                })
+            let result = database::handle_command(action, format).await;
+            let output = result_to_output(result);
+            utils::print_and_exit(output, format);
         }
         Commands::Music {
             action,
             json_output,
-        } => music::handle_command(action, json_output).await,
+        } => {
+            let format = OutputFormat::from_json_flag(json_output);
+            let result = music::handle_command(action, json_output).await;
+            let output = result_to_output(result);
+            utils::print_and_exit(output, format);
+        }
         Commands::Wordlist {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            wordlist::handle_command(action, format)
-                .await
-                .or_else(|err| {
-                    if json_output {
-                        use utils::{CommandOutput, ErrorDetail};
-                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                            "Command failed",
-                            vec![ErrorDetail::from(&err)],
-                            vec![],
-                        );
-                        eprintln!("{}", output.format(format));
-                        Ok(())
-                    } else {
-                        Err(err)
-                    }
-                })
+            let output = wordlist::handle_command(action, format).await;
+            utils::print_and_exit(output, format);
         }
         Commands::Users {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            users::handle_command(action, format).await.or_else(|err| {
-                if json_output {
-                    use utils::{CommandOutput, ErrorDetail};
-                    let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                        "Command failed",
-                        vec![ErrorDetail::from(&err)],
-                        vec![],
-                    );
-                    eprintln!("{}", output.format(format));
-                    Ok(())
-                } else {
-                    Err(err)
-                }
-            })
+            let result = users::handle_command(action, format).await;
+            let output = result_to_output(result);
+            utils::print_and_exit(output, format);
         }
         Commands::Maintenance {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            maintenance::handle_command(action, format)
-                .await
-                .or_else(|err| {
-                    if json_output {
-                        use utils::{CommandOutput, ErrorDetail};
-                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                            "Command failed",
-                            vec![ErrorDetail::from(&err)],
-                            vec![],
-                        );
-                        eprintln!("{}", output.format(format));
-                        Ok(())
-                    } else {
-                        Err(err)
-                    }
-                })
+            let output = maintenance::handle_command(action, format).await;
+            utils::print_and_exit(output, format);
         }
         Commands::Analytics {
             action,
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            analytics::handle_command(action, format)
-                .await
-                .or_else(|err| {
-                    if json_output {
-                        use utils::{CommandOutput, ErrorDetail};
-                        let output: CommandOutput<Vec<()>> = CommandOutput::failure(
-                            "Command failed",
-                            vec![ErrorDetail::from(&err)],
-                            vec![],
-                        );
-                        eprintln!("{}", output.format(format));
-                        Ok(())
-                    } else {
-                        Err(err)
-                    }
-                })
+            let result = analytics::handle_command(action, format).await;
+            let output = result_to_output(result);
+            utils::print_and_exit(output, format);
         }
     }
 }

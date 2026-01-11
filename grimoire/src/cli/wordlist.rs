@@ -1,32 +1,13 @@
 //! Wordlist operations CLI commands
 
 use crate::cli::utils::{CommandOutput, OutputFormat};
-use crate::error::{GrimoireError, GrimoireResult};
-use crate::response::GrimoireResponse;
+use crate::error::GrimoireError;
 use crate::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, InviteCodesResponse,
     ManagementWordlistConfig, WordlistConfig, WordlistConfigSummary, WordlistGeneratedResponse,
     WordlistService,
 };
 use clap::Subcommand;
-
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
-}
 
 #[derive(Subcommand)]
 pub enum WordlistAction {
@@ -76,7 +57,7 @@ pub enum WordlistAction {
 }
 
 /// Handle wordlist commands
-pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: WordlistAction, _format: OutputFormat) -> CommandOutput<()> {
     match action {
         WordlistAction::Generate {
             count,
@@ -95,24 +76,42 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
             };
 
             let service = WordlistService::new();
-            let _result = service.generate_wordlist(&config).map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to generate wordlist: {}", e),
-                }
-            })?;
+            if let Err(e) = service.generate_wordlist(&config) {
+                return CommandOutput::failure(
+                    "Failed to generate wordlist",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                );
+            }
 
-            let content = service.generate_wordlist_content(&config).map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to generate wordlist content: {}", e),
+            let content = match service.generate_wordlist_content(&config) {
+                Ok(c) => c,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to generate wordlist content",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
                 }
-            })?;
+            };
 
             if let Some(output_path) = &output {
-                std::fs::write(output_path, &content).map_err(|e| {
-                    GrimoireError::ProcessingFailed {
-                        message: format!("Failed to write wordlist to {}: {}", output_path, e),
-                    }
-                })?;
+                if let Err(e) = std::fs::write(output_path, &content) {
+                    return CommandOutput::failure(
+                        format!("Failed to write wordlist to {}", output_path),
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    );
+                }
             }
 
             let data = WordlistGeneratedResponse {
@@ -127,17 +126,24 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
             };
 
             let message = format!("Generated wordlist with {} words", count);
-            let output = CommandOutput::success(message, data);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, data).map_data(|_| ())
         }
 
         WordlistAction::Validate { file_path } => {
             let service = WordlistService::new();
-            let validation = service.validate_wordlist_file(&file_path).map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to validate wordlist: {}", e),
+            let validation = match service.validate_wordlist_file(&file_path) {
+                Ok(v) => v,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to validate wordlist",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
                 }
-            })?;
+            };
 
             let is_valid = validation.is_valid;
             let message = if is_valid {
@@ -146,25 +152,31 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
                 format!("Wordlist validation failed: {}", file_path)
             };
 
-            let output = CommandOutput::success(message, validation);
-            print!("{}", output.format(format));
-
-            if !is_valid {
-                std::process::exit(1);
+            if is_valid {
+                CommandOutput::success(message, validation).map_data(|_| ())
+            } else {
+                CommandOutput::failure(message, vec![], ()).map_data(|_| ())
             }
         }
 
         WordlistAction::Stats { file_path } => {
             let service = WordlistService::new();
-            let stats = service.get_wordlist_stats_file(&file_path).map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get wordlist stats: {}", e),
+            let stats = match service.get_wordlist_stats_file(&file_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to get wordlist stats",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
                 }
-            })?;
+            };
 
             let message = format!("Wordlist statistics for: {}", file_path);
-            let output = CommandOutput::success(message, stats);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, stats).map_data(|_| ())
         }
 
         WordlistAction::GenerateCode {
@@ -178,19 +190,29 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
                     ..Default::default()
                 };
 
-                to_result(initialize_wordlist(&config))?;
+                let response = initialize_wordlist(&config);
+                if !response.success {
+                    return CommandOutput::failure(response.message, response.errors, ());
+                }
             } else if !is_initialized() {
-                return Err(GrimoireError::ProcessingFailed {
-                    message:
-                        "No wordlist initialized and no file provided. Use --wordlist-file or initialize a wordlist first"
-                            .to_string(),
-                });
+                return CommandOutput::failure(
+                    "No wordlist initialized",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: "No wordlist initialized and no file provided. Use --wordlist-file or initialize a wordlist first".to_string(),
+                    }.into()],
+                    (),
+                );
             }
 
             let mut codes = Vec::new();
             for _ in 0..count {
-                let code = to_result(generate_word_code(word_count))?;
-                codes.push(code);
+                let response = generate_word_code(word_count);
+                if !response.success {
+                    return CommandOutput::failure(response.message, response.errors, ());
+                }
+                if let Some(code) = response.data {
+                    codes.push(code);
+                }
             }
 
             let data = InviteCodesResponse { codes, word_count };
@@ -200,10 +222,7 @@ pub async fn handle_command(action: WordlistAction, format: OutputFormat) -> Gri
                 if count == 1 { "" } else { "s" },
                 word_count
             );
-            let output = CommandOutput::success(message, data);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, data).map_data(|_| ())
         }
     }
-
-    Ok(())
 }

@@ -38,7 +38,6 @@ async fn run() -> grimoire::GrimoireResult<()> {
     init().await?;
 
     // Run CLI (parses args internally)
-    cli::run_cli().await?;
-
-    Ok(())
+    // Note: run_cli() never returns (it exits the process)
+    cli::run_cli().await
 }
