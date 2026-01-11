@@ -2,7 +2,7 @@
 
 use super::MusicAction;
 use crate::cli::utils::CommandOutput;
-use crate::error::GrimoireResult;
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::music::crud::{
     delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,
     find_or_create_sub_genre, get_album, get_album_tags, get_artist, get_genre, get_genre_stats,
@@ -13,12 +13,31 @@ use crate::music::crud::{
     PlaylistSongResult, QueryResult, SongQueryResult,
 };
 use crate::music::{Album, Artist, Genre, GenreStat, Song, SubGenre, Tag};
+use crate::response::GrimoireResponse;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 pub async fn handle_query_songs(
     action: MusicAction,
 ) -> GrimoireResult<CommandOutput<QueryResult<SongQueryResult>>> {
     if let MusicAction::QuerySongs { params } = action {
-        let result = query_songs(params).await?;
+        let result = to_result(query_songs(params).await)?;
 
         let message = format!(
             "found {} songs (total: {})",
@@ -40,7 +59,7 @@ pub async fn handle_query_artists(
         starts_with: _,
     } = action
     {
-        let result = query_artists(params).await?;
+        let result = to_result(query_artists(params).await)?;
 
         let message = format!(
             "found {} artists (total: {})",
@@ -58,7 +77,7 @@ pub async fn handle_query_albums(
     action: MusicAction,
 ) -> GrimoireResult<CommandOutput<QueryResult<AlbumQueryResult>>> {
     if let MusicAction::QueryAlbums { params } = action {
-        let result = query_albums(params).await?;
+        let result = to_result(query_albums(params).await)?;
 
         let message = format!(
             "found {} albums (total: {})",
@@ -76,7 +95,7 @@ pub async fn handle_query_genres(
     action: MusicAction,
 ) -> GrimoireResult<CommandOutput<QueryResult<GenreQueryResult>>> {
     if let MusicAction::QueryGenres { params } = action {
-        let result = query_genres(params).await?;
+        let result = to_result(query_genres(params).await)?;
 
         let message = format!(
             "found {} genres (total: {})",

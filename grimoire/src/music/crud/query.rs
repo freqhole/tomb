@@ -11,6 +11,7 @@ use crate::music::crud::models::{
 };
 use crate::music::entities::{Album, Artist, Song};
 use crate::music::Genre;
+use crate::response::GrimoireResponse;
 
 // Table identifiers for type-safe queries
 #[derive(Iden)]
@@ -500,9 +501,14 @@ fn add_global_filters(
 }
 
 // Main query functions
-pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<SongQueryResult>> {
+pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<SongQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+        }
+    };
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -597,14 +603,21 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
                 sqlx_query = sqlx_query.bind(u as i64);
             }
             _ => {
-                return Err(crate::error::GrimoireError::Database(
-                    sqlx::Error::Protocol("Unsupported parameter type in query".to_string()),
-                ));
+                return GrimoireResponse::failure(
+                    "Unsupported parameter type in query",
+                    vec![crate::error::GrimoireError::Database(sqlx::Error::Protocol(
+                        "Unsupported parameter type in query".to_string(),
+                    ))
+                    .into()],
+                );
             }
         }
     }
 
-    let rows = sqlx_query.fetch_all(&pool).await?;
+    let rows = match sqlx_query.fetch_all(&pool).await {
+        Ok(rows) => rows,
+        Err(err) => return GrimoireResponse::failure("Failed to query songs", vec![err.into()]),
+    };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
     let songs: Vec<SongQueryResult> = rows
@@ -613,19 +626,27 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResult<QueryResult<Song
         .collect();
     let song_count = songs.len();
 
-    Ok(QueryResult {
-        items: songs,
-        total_count: song_count as i64,
-        has_more: song_count == limit as usize,
-        limit: limit as i64,
-        offset: offset as i64,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-    })
+    GrimoireResponse::success(
+        format!("Found {} song(s)", song_count),
+        QueryResult {
+            items: songs,
+            total_count: song_count as i64,
+            has_more: song_count == limit as usize,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
 }
 
-pub async fn query_albums(params: QueryParams) -> GrimoireResult<QueryResult<AlbumQueryResult>> {
+pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<AlbumQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+        }
+    };
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -686,7 +707,10 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResult<QueryResult<Alb
         }
     }
 
-    let rows = sqlx_query.fetch_all(&pool).await?;
+    let rows = match sqlx_query.fetch_all(&pool).await {
+        Ok(rows) => rows,
+        Err(err) => return GrimoireResponse::failure("Failed to query albums", vec![err.into()]),
+    };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
     let albums: Vec<AlbumQueryResult> = rows
@@ -695,19 +719,29 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResult<QueryResult<Alb
         .collect();
     let album_count = albums.len();
 
-    Ok(QueryResult {
-        items: albums,
-        total_count: album_count as i64,
-        has_more: album_count == limit as usize,
-        limit: limit as i64,
-        offset: offset as i64,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-    })
+    GrimoireResponse::success(
+        format!("Found {} album(s)", album_count),
+        QueryResult {
+            items: albums,
+            total_count: album_count as i64,
+            has_more: album_count == limit as usize,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
 }
 
-pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<ArtistQueryResult>> {
+pub async fn query_artists(
+    params: QueryParams,
+) -> GrimoireResponse<QueryResult<ArtistQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+        }
+    };
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -780,7 +814,10 @@ pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<Ar
         }
     }
 
-    let rows = sqlx_query.fetch_all(&pool).await?;
+    let rows = match sqlx_query.fetch_all(&pool).await {
+        Ok(rows) => rows,
+        Err(err) => return GrimoireResponse::failure("Failed to query artists", vec![err.into()]),
+    };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
     let artists: Vec<ArtistQueryResult> = rows
@@ -789,19 +826,27 @@ pub async fn query_artists(params: QueryParams) -> GrimoireResult<QueryResult<Ar
         .collect();
     let artist_count = artists.len();
 
-    Ok(QueryResult {
-        items: artists,
-        total_count: artist_count as i64,
-        has_more: artist_count == limit as usize,
-        limit: limit as i64,
-        offset: offset as i64,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-    })
+    GrimoireResponse::success(
+        format!("Found {} artist(s)", artist_count),
+        QueryResult {
+            items: artists,
+            total_count: artist_count as i64,
+            has_more: artist_count == limit as usize,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
 }
 
-pub async fn query_genres(params: QueryParams) -> GrimoireResult<QueryResult<GenreQueryResult>> {
+pub async fn query_genres(params: QueryParams) -> GrimoireResponse<QueryResult<GenreQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+        }
+    };
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -851,7 +896,10 @@ pub async fn query_genres(params: QueryParams) -> GrimoireResult<QueryResult<Gen
         }
     }
 
-    let rows = sqlx_query.fetch_all(&pool).await?;
+    let rows = match sqlx_query.fetch_all(&pool).await {
+        Ok(rows) => rows,
+        Err(err) => return GrimoireResponse::failure("Failed to query genres", vec![err.into()]),
+    };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
     let genres: Vec<GenreQueryResult> = rows
@@ -860,18 +908,23 @@ pub async fn query_genres(params: QueryParams) -> GrimoireResult<QueryResult<Gen
         .collect();
     let genre_count = genres.len();
 
-    Ok(QueryResult {
-        items: genres,
-        total_count: genre_count as i64,
-        has_more: genre_count == limit as usize,
-        limit: limit as i64,
-        offset: offset as i64,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-    })
+    GrimoireResponse::success(
+        format!("Found {} genre(s)", genre_count),
+        QueryResult {
+            items: genres,
+            total_count: genre_count as i64,
+            has_more: genre_count == limit as usize,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
 }
 
 // Legacy compatibility functions (temporary)
-pub async fn list_recent_songs(limit: Option<u32>) -> GrimoireResult<QueryResult<SongQueryResult>> {
+pub async fn list_recent_songs(
+    limit: Option<u32>,
+) -> GrimoireResponse<QueryResult<SongQueryResult>> {
     let params = QueryParams {
         q: None,
         search_fields: None,
@@ -891,7 +944,7 @@ pub async fn search_songs(
     q: &str,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<SongQueryResult>> {
+) -> GrimoireResponse<QueryResult<SongQueryResult>> {
     let params = QueryParams {
         q: Some(q.to_string()),
         search_fields: None,
@@ -911,7 +964,7 @@ pub async fn list_songs_by_artist(
     artist_id: &str,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<SongQueryResult>> {
+) -> GrimoireResponse<QueryResult<SongQueryResult>> {
     let mut filters = std::collections::HashMap::new();
     filters.insert(
         "artist_id".to_string(),
@@ -937,7 +990,7 @@ pub async fn list_songs_by_album(
     album_id: &str,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<SongQueryResult>> {
+) -> GrimoireResponse<QueryResult<SongQueryResult>> {
     let mut filters = std::collections::HashMap::new();
     filters.insert(
         "album_id".to_string(),
@@ -963,7 +1016,7 @@ pub async fn list_songs_by_genre(
     genre_id: &str,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<SongQueryResult>> {
+) -> GrimoireResponse<QueryResult<SongQueryResult>> {
     let mut filters = std::collections::HashMap::new();
     filters.insert(
         "genre_id".to_string(),
@@ -989,7 +1042,7 @@ pub async fn list_albums_by_artist(
     artist_id: &str,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<AlbumQueryResult>> {
+) -> GrimoireResponse<QueryResult<AlbumQueryResult>> {
     let mut filters = std::collections::HashMap::new();
     filters.insert(
         "artist_id".to_string(),

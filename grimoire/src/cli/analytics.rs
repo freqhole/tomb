@@ -10,7 +10,26 @@ use crate::music::analytics::{
     record_play_event, FeedItemType,
 };
 use crate::music::crud::{query_albums, query_artists, query_songs, QueryParams};
+use crate::response::GrimoireResponse;
 use clap::Subcommand;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 #[derive(Subcommand)]
 pub enum AnalyticsAction {
@@ -130,7 +149,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                 min_rating: None,
             };
 
-            let result = query_songs(params).await?;
+            let result = to_result(query_songs(params).await)?;
             let song_result = result
                 .items
                 .first()
@@ -205,7 +224,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                 min_rating: None,
             };
 
-            let result = query_songs(params).await?;
+            let result = to_result(query_songs(params).await)?;
             let song_result = result
                 .items
                 .first()
@@ -354,7 +373,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                         min_rating: None,
                     };
 
-                    let result = query_songs(params).await?;
+                    let result = to_result(query_songs(params).await)?;
                     let song_result = result.items.first().ok_or_else(|| {
                         crate::error::GrimoireError::SongNotFound {
                             id: entity_id.clone(),
@@ -384,7 +403,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                         min_rating: None,
                     };
 
-                    let result = query_albums(params).await?;
+                    let result = to_result(query_albums(params).await)?;
                     let album_result = result.items.first().ok_or_else(|| {
                         crate::error::GrimoireError::AlbumNotFound {
                             id: entity_id.clone(),
@@ -414,7 +433,7 @@ pub async fn handle_command(action: AnalyticsAction, _format: OutputFormat) -> G
                         min_rating: None,
                     };
 
-                    let result = query_artists(params).await?;
+                    let result = to_result(query_artists(params).await)?;
                     let artist_result = result.items.first().ok_or_else(|| {
                         crate::error::GrimoireError::ArtistNotFound {
                             id: entity_id.clone(),
