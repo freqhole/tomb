@@ -81,11 +81,12 @@ pub async fn scan_directory_and_create_jobs(
             created_by: Some("scanner".to_string()),
         };
 
-        create_job(job_request).await.map_err(|e| {
-            crate::error::GrimoireError::ProcessingFailed {
-                message: format!("Failed to create job: {}", e),
-            }
-        })?;
+        let job_response = create_job(job_request).await;
+        if !job_response.success {
+            return Err(crate::error::GrimoireError::ProcessingFailed {
+                message: format!("Failed to create job: {}", job_response.message),
+            });
+        }
     }
 
     Ok(file_count)

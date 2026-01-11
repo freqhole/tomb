@@ -223,6 +223,26 @@ impl From<sqlx::Error> for ErrorDetail {
     }
 }
 
+impl From<crate::jobs::JobError> for ErrorDetail {
+    fn from(err: crate::jobs::JobError) -> Self {
+        ErrorDetail {
+            error_type: "job_error".to_string(),
+            title: "Job Error".to_string(),
+            detail: err.to_string(),
+        }
+    }
+}
+
+impl From<serde_json::Error> for ErrorDetail {
+    fn from(err: serde_json::Error) -> Self {
+        ErrorDetail {
+            error_type: "serialization_error".to_string(),
+            title: "Serialization Error".to_string(),
+            detail: err.to_string(),
+        }
+    }
+}
+
 /// Convert error_type (snake_case) to Title Case
 /// Example: "database_not_found" -> "Database Not Found"
 fn error_type_to_title(error_type: &str) -> String {

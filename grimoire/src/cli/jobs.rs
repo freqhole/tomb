@@ -7,8 +7,27 @@ use crate::jobs::{
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
     ProcessJobCreatedResponse, ProcessorResponse, ScanDirectoryParams, ScanJobCreatedResponse,
 };
+use crate::response::GrimoireResponse;
 use clap::Subcommand;
 use serde_json::json;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 #[derive(Subcommand)]
 pub enum JobAction {
@@ -54,11 +73,8 @@ pub enum JobAction {
 pub async fn handle_command(action: JobAction, format: OutputFormat) -> GrimoireResult<()> {
     match action {
         JobAction::List { session_id, limit } => {
-            let jobs = list_jobs(session_id.as_deref(), None, Some(limit as u32), None)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to list jobs: {}", e),
-                })?;
+            let jobs =
+                to_result(list_jobs(session_id.as_deref(), None, Some(limit as u32), None).await)?;
 
             let job_items: Vec<JobListResponse> = jobs
                 .iter()
@@ -84,11 +100,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
         }
 
         JobAction::Stats => {
-            let stats = get_queue_stats()
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get stats: {}", e),
-                })?;
+            let stats = to_result(get_queue_stats().await)?;
 
             let total_jobs =
                 stats.pending_jobs + stats.running_jobs + stats.completed_jobs + stats.failed_jobs;
@@ -124,11 +136,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 created_by: Some("cli".to_string()),
             };
 
-            let session = create_job_session(session_request).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to create job session: {}", e),
-                }
-            })?;
+            let session = to_result(create_job_session(session_request).await)?;
 
             // Create the scan job
             let scan_params = ScanDirectoryParams {
@@ -147,12 +155,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 created_by: Some("cli".to_string()),
             };
 
-            let job =
-                create_job(job_request)
-                    .await
-                    .map_err(|e| GrimoireError::ProcessingFailed {
-                        message: format!("Failed to create scan job: {}", e),
-                    })?;
+            let job = to_result(create_job(job_request).await)?;
 
             let result = ScanJobCreatedResponse {
                 job_id: job.id,
@@ -182,12 +185,7 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
                 created_by: Some("cli".to_string()),
             };
 
-            let job =
-                create_job(job_request)
-                    .await
-                    .map_err(|e| GrimoireError::ProcessingFailed {
-                        message: format!("Failed to create process file job: {}", e),
-                    })?;
+            let job = to_result(create_job(job_request).await)?;
 
             let result = ProcessJobCreatedResponse {
                 job_id: job.id,
@@ -207,9 +205,9 @@ pub async fn handle_command(action: JobAction, format: OutputFormat) -> Grimoire
             };
 
             let result_op = if once {
-                crate::jobs::run_job_processor_once(max_jobs as u32).await
+                to_result(crate::jobs::run_job_processor_once(max_jobs as u32).await)
             } else {
-                crate::jobs::run_job_processor().await
+                to_result(crate::jobs::run_job_processor().await)
             };
 
             result_op.map_err(|e| GrimoireError::ProcessingFailed {

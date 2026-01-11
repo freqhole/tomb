@@ -11,6 +11,7 @@ use sqlx::Row;
 use crate::blob_data;
 use crate::database;
 use crate::music::scanner;
+use crate::response::GrimoireResponse;
 
 use super::models::{
     CreateJobRequest, CreateJobSessionRequest, Job, JobError, JobProgress, JobResult, JobSession,
@@ -19,17 +20,28 @@ use super::models::{
 };
 
 /// Create a new job session for batch operations
-pub async fn create_job_session(request: CreateJobSessionRequest) -> Result<JobSession, JobError> {
-    let pool = database::connect().await?;
+pub async fn create_job_session(request: CreateJobSessionRequest) -> GrimoireResponse<JobSession> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let job_type_str = serde_json::to_string(&request.job_type)?;
+    let job_type_str = match serde_json::to_string(&request.job_type) {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to serialize job type", vec![e.into()]),
+    };
     let job_type_str = job_type_str.trim_matches('"'); // Remove quotes from serialized enum
 
     let batch_size = request.batch_size.unwrap_or(100) as i64;
     let progress = JobProgress::new(0, 0);
-    let progress_json = serde_json::to_string(&progress)?;
+    let progress_json = match serde_json::to_string(&progress) {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to serialize progress", vec![e.into()]),
+    };
 
-    let session = sqlx::query_as::<_, JobSession>(
+    let session = match sqlx::query_as::<_, JobSession>(
         r#"
         INSERT INTO job_sessionz (job_type, status, progress, batch_size, created_by)
         VALUES (?, 'Active', ?, ?, ?)
@@ -42,19 +54,36 @@ pub async fn create_job_session(request: CreateJobSessionRequest) -> Result<JobS
     .bind(batch_size)
     .bind(request.created_by)
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to create job session", vec![e.into()]),
+    };
 
-    Ok(session)
+    GrimoireResponse::success("Job session created successfully", session)
 }
 
 /// Create a new job in the queue
-pub async fn create_job(request: CreateJobRequest) -> Result<Job, JobError> {
-    let pool = database::connect().await?;
+pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let job_type_str = serde_json::to_string(&request.job_type)?;
+    let job_type_str = match serde_json::to_string(&request.job_type) {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to serialize job type", vec![e.into()]),
+    };
     let job_type_str = job_type_str.trim_matches('"'); // Remove quotes from serialized enum
 
-    let parameters_json = serde_json::to_string(&request.parameters)?;
+    let parameters_json = match serde_json::to_string(&request.parameters) {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to serialize parameters", vec![e.into()])
+        }
+    };
     let max_retries = request.max_retries.unwrap_or(3);
     let scheduled_at = request.scheduled_at.unwrap_or_else(|| {
         std::time::SystemTime::now()
@@ -63,7 +92,7 @@ pub async fn create_job(request: CreateJobRequest) -> Result<Job, JobError> {
             .as_secs() as i64
     });
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by)
         VALUES (?, ?, 'Pending', ?, ?, ?, ?)
@@ -78,16 +107,25 @@ pub async fn create_job(request: CreateJobRequest) -> Result<Job, JobError> {
     .bind(scheduled_at)
     .bind(request.created_by)
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("Failed to create job", vec![e.into()]),
+    };
 
-    Ok(job)
+    GrimoireResponse::success("Job created successfully", job)
 }
 
 /// Get a job by ID
-pub async fn get_job(job_id: &str) -> Result<Job, JobError> {
-    let pool = database::connect().await?;
+pub async fn get_job(job_id: &str) -> GrimoireResponse<Job> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         SELECT id, session_id, job_type, status, parameters, result, retry_count,
                max_retries, scheduled_at, started_at, completed_at, error_message, created_by
@@ -96,18 +134,34 @@ pub async fn get_job(job_id: &str) -> Result<Job, JobError> {
     )
     .bind(job_id)
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(Some(j)) => j,
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "Job not found",
+                vec![JobError::JobNotFound {
+                    id: job_id.to_string(),
+                }
+                .into()],
+            )
+        }
+        Err(e) => return GrimoireResponse::failure("Failed to fetch job", vec![e.into()]),
+    };
 
-    job.ok_or(JobError::JobNotFound {
-        id: job_id.to_string(),
-    })
+    GrimoireResponse::success("Job retrieved successfully", job)
 }
 
 /// Get a job session by ID
-pub async fn get_job_session(session_id: &str) -> Result<JobSession, JobError> {
-    let pool = database::connect().await?;
+pub async fn get_job_session(session_id: &str) -> GrimoireResponse<JobSession> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let session = sqlx::query_as::<_, JobSession>(
+    let session = match sqlx::query_as::<_, JobSession>(
         r#"
         SELECT id, job_type, status, progress, last_checkpoint, batch_size,
                created_at, updated_at, created_by
@@ -116,18 +170,35 @@ pub async fn get_job_session(session_id: &str) -> Result<JobSession, JobError> {
     )
     .bind(session_id)
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "Job session not found",
+                vec![JobError::JobNotFound {
+                    id: session_id.to_string(),
+                }
+                .into()],
+            )
+        }
+        Err(e) => return GrimoireResponse::failure("Failed to fetch job session", vec![e.into()]),
+    };
 
-    session.ok_or(JobError::SessionNotFound {
-        id: session_id.to_string(),
-    })
+    GrimoireResponse::success("Job session retrieved successfully", session)
 }
 
 /// Get the next pending job to process
-pub async fn get_next_pending_job() -> Result<Option<Job>, JobError> {
-    let pool = database::connect().await?;
+/// Get the next pending job from the queue
+pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         SELECT id, session_id, job_type, status, parameters, result, retry_count,
                max_retries, scheduled_at, started_at, completed_at, error_message, created_by
@@ -138,16 +209,27 @@ pub async fn get_next_pending_job() -> Result<Option<Job>, JobError> {
         "#,
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to fetch next pending job", vec![e.into()])
+        }
+    };
 
-    Ok(job)
+    GrimoireResponse::success("Retrieved next pending job", job)
 }
 
 /// Mark a job as started
-pub async fn mark_job_started(job_id: &str) -> Result<Job, JobError> {
-    let pool = database::connect().await?;
+pub async fn mark_job_started(job_id: &str) -> GrimoireResponse<Job> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         UPDATE jobz
         SET status = 'Running', started_at = unixepoch()
@@ -157,24 +239,38 @@ pub async fn mark_job_started(job_id: &str) -> Result<Job, JobError> {
         "#,
     )
     .bind(job_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to mark job as started", vec![e.into()])
+        }
+    };
 
-    job.ok_or(JobError::JobNotFound {
-        id: job_id.to_string(),
-    })
+    GrimoireResponse::success("Job marked as started", job)
 }
 
-/// Mark a job as completed with result
-pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Result<Job, JobError> {
-    let pool = database::connect().await?;
+/// Mark a job as completed
+pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> GrimoireResponse<Job> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     let result_json = match result {
-        Some(r) => Some(serde_json::to_string(&r)?),
+        Some(r) => match serde_json::to_string(&r) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                return GrimoireResponse::failure("Failed to serialize result", vec![e.into()])
+            }
+        },
         None => None,
     };
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         UPDATE jobz
         SET status = 'Completed', completed_at = unixepoch(), result = ?
@@ -185,20 +281,38 @@ pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Result<J
     )
     .bind(result_json)
     .bind(job_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to mark job as completed", vec![e.into()])
+        }
+    };
 
-    job.ok_or(JobError::JobNotFound {
-        id: job_id.to_string(),
-    })
+    GrimoireResponse::success("Job marked as completed", job)
 }
 
-/// Mark a job as failed
-pub async fn mark_job_failed(job_id: &str, error_message: &str) -> Result<Job, JobError> {
-    let pool = database::connect().await?;
+/// Mark a job as failed and handle retry logic
+pub async fn mark_job_failed(job_id: &str, error_message: &str) -> GrimoireResponse<Job> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // First get the current job to check retry count
-    let current_job = get_job(job_id).await?;
+    let current_job_response = get_job(job_id).await;
+    let current_job = match current_job_response.data {
+        Some(j) => j,
+        None => {
+            return GrimoireResponse::failure(
+                "Failed to get current job for retry check",
+                current_job_response.errors,
+            )
+        }
+    };
 
     let new_retry_count = current_job.retry_count + 1;
     let should_retry = new_retry_count < current_job.max_retries;
@@ -216,7 +330,7 @@ pub async fn mark_job_failed(job_id: &str, error_message: &str) -> Result<Job, J
         ("Failed".to_string(), current_job.scheduled_at)
     };
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         UPDATE jobz
         SET status = ?, retry_count = ?, error_message = ?, scheduled_at = ?,
@@ -232,19 +346,26 @@ pub async fn mark_job_failed(job_id: &str, error_message: &str) -> Result<Job, J
     .bind(scheduled_at)
     .bind(&status)
     .bind(job_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("Failed to mark job as failed", vec![e.into()]),
+    };
 
-    job.ok_or(JobError::JobNotFound {
-        id: job_id.to_string(),
-    })
+    GrimoireResponse::success("Job marked as failed", job)
 }
 
 /// Cancel a job
-pub async fn cancel_job(job_id: &str) -> Result<Job, JobError> {
-    let pool = database::connect().await?;
+pub async fn cancel_job(job_id: &str) -> GrimoireResponse<Job> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let job = sqlx::query_as::<_, Job>(
+    let job = match sqlx::query_as::<_, Job>(
         r#"
         UPDATE jobz
         SET status = 'Cancelled', completed_at = unixepoch()
@@ -254,12 +375,14 @@ pub async fn cancel_job(job_id: &str) -> Result<Job, JobError> {
         "#,
     )
     .bind(job_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("Failed to cancel job", vec![e.into()]),
+    };
 
-    job.ok_or(JobError::JobNotFound {
-        id: job_id.to_string(),
-    })
+    GrimoireResponse::success("Job cancelled successfully", job)
 }
 
 /// Update job session progress
@@ -267,12 +390,20 @@ pub async fn update_session_progress(
     session_id: &str,
     progress: JobProgress,
     checkpoint: Option<String>,
-) -> Result<JobSession, JobError> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<JobSession> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let progress_json = serde_json::to_string(&progress)?;
+    let progress_json = match serde_json::to_string(&progress) {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to serialize progress", vec![e.into()]),
+    };
 
-    let session = sqlx::query_as::<_, JobSession>(
+    let session = match sqlx::query_as::<_, JobSession>(
         r#"
         UPDATE job_sessionz
         SET progress = ?, last_checkpoint = ?
@@ -284,19 +415,28 @@ pub async fn update_session_progress(
     .bind(progress_json)
     .bind(checkpoint)
     .bind(session_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to update session progress", vec![e.into()])
+        }
+    };
 
-    session.ok_or(JobError::SessionNotFound {
-        id: session_id.to_string(),
-    })
+    GrimoireResponse::success("Session progress updated", session)
 }
 
 /// Complete a job session
-pub async fn complete_session(session_id: &str) -> Result<JobSession, JobError> {
-    let pool = database::connect().await?;
+pub async fn complete_session(session_id: &str) -> GrimoireResponse<JobSession> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let session = sqlx::query_as::<_, JobSession>(
+    let session = match sqlx::query_as::<_, JobSession>(
         r#"
         UPDATE job_sessionz
         SET status = 'Completed'
@@ -306,19 +446,26 @@ pub async fn complete_session(session_id: &str) -> Result<JobSession, JobError> 
         "#,
     )
     .bind(session_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to complete session", vec![e.into()]),
+    };
 
-    session.ok_or(JobError::SessionNotFound {
-        id: session_id.to_string(),
-    })
+    GrimoireResponse::success("Session completed successfully", session)
 }
 
 /// Fail a job session
-pub async fn fail_session(session_id: &str) -> Result<JobSession, JobError> {
-    let pool = database::connect().await?;
+pub async fn fail_session(session_id: &str) -> GrimoireResponse<JobSession> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let session = sqlx::query_as::<_, JobSession>(
+    let session = match sqlx::query_as::<_, JobSession>(
         r#"
         UPDATE job_sessionz
         SET status = 'Failed'
@@ -328,19 +475,28 @@ pub async fn fail_session(session_id: &str) -> Result<JobSession, JobError> {
         "#,
     )
     .bind(session_id)
-    .fetch_optional(&pool)
-    .await?;
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to mark session as failed", vec![e.into()])
+        }
+    };
 
-    session.ok_or(JobError::SessionNotFound {
-        id: session_id.to_string(),
-    })
+    GrimoireResponse::success("Session marked as failed", session)
 }
 
 /// Get queue statistics
-pub async fn get_queue_stats() -> Result<QueueStats, JobError> {
-    let pool = database::connect().await?;
+pub async fn get_queue_stats() -> GrimoireResponse<QueueStats> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
-    let row = sqlx::query(
+    let row = match sqlx::query(
         r#"
         SELECT
             COALESCE(SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END), 0) as pending_jobs,
@@ -351,20 +507,38 @@ pub async fn get_queue_stats() -> Result<QueueStats, JobError> {
         "#,
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to fetch queue statistics", vec![e.into()])
+        }
+    };
 
-    let active_sessions_row =
-        sqlx::query("SELECT COUNT(*) as active_sessions FROM job_sessionz WHERE status = 'Active'")
-            .fetch_one(&pool)
-            .await?;
+    let active_sessions_row = match sqlx::query(
+        "SELECT COUNT(*) as active_sessions FROM job_sessionz WHERE status = 'Active'",
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch active sessions count",
+                vec![e.into()],
+            )
+        }
+    };
 
-    Ok(QueueStats {
+    let stats = QueueStats {
         pending_jobs: row.get("pending_jobs"),
         running_jobs: row.get("running_jobs"),
         completed_jobs: row.get("completed_jobs"),
         failed_jobs: row.get("failed_jobs"),
         active_sessions: active_sessions_row.get("active_sessions"),
-    })
+    };
+
+    GrimoireResponse::success("Retrieved queue statistics", stats)
 }
 
 /// List jobs with optional filtering
@@ -373,8 +547,13 @@ pub async fn list_jobs(
     status: Option<JobStatus>,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<Vec<Job>, JobError> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<Vec<Job>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     let mut query_str = String::from(
         r#"
@@ -395,7 +574,12 @@ pub async fn list_jobs(
     }
 
     if let Some(stat) = status {
-        let status_str = serde_json::to_string(&stat)?.trim_matches('"').to_string();
+        let status_str = match serde_json::to_string(&stat) {
+            Ok(s) => s.trim_matches('"').to_string(),
+            Err(e) => {
+                return GrimoireResponse::failure("Failed to serialize status", vec![e.into()])
+            }
+        };
         query_str.push_str(&format!(" AND status = ${}", bind_count + 1));
         params.push(status_str);
         bind_count += 1;
@@ -419,19 +603,38 @@ pub async fn list_jobs(
         query = query.bind(param);
     }
 
-    let jobs = query.fetch_all(&pool).await?;
-    Ok(jobs)
+    let jobs = match query.fetch_all(&pool).await {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("Failed to list jobs", vec![e.into()]),
+    };
+
+    GrimoireResponse::success("Jobs retrieved successfully", jobs)
 }
 
 /// Process a single job (to be called by job processor)
-pub async fn process_job(job: Job) -> Result<JobResult, JobError> {
+pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
     let start_time = Instant::now();
 
     // Mark job as started
-    let job = mark_job_started(&job.id).await?;
+    let started_job_response = mark_job_started(&job.id).await;
+    let job = match started_job_response.data {
+        Some(j) => j,
+        None => {
+            return GrimoireResponse::failure(
+                "Failed to mark job as started",
+                started_job_response.errors,
+            )
+        }
+    };
+
+    // Get job type
+    let job_type = match job.job_type() {
+        Ok(jt) => jt,
+        Err(e) => return GrimoireResponse::failure("Failed to parse job type", vec![e.into()]),
+    };
 
     // Process based on job type
-    let result = match job.job_type()? {
+    let result = match job_type {
         JobType::ScanDirectory => process_scan_directory_job(&job).await,
         JobType::ProcessFile => process_file_job(&job).await,
         JobType::ExtractMetadata => process_extract_metadata_job(&job).await,
@@ -443,16 +646,27 @@ pub async fn process_job(job: Job) -> Result<JobResult, JobError> {
 
     match result {
         Ok(output) => {
-            let completed_job = mark_job_completed(&job.id, output).await?;
-            Ok(JobResult {
+            let completed_job_response = mark_job_completed(&job.id, output).await;
+            let completed_job = match completed_job_response.data {
+                Some(j) => j,
+                None => {
+                    return GrimoireResponse::failure(
+                        "Failed to mark job as completed",
+                        completed_job_response.errors,
+                    )
+                }
+            };
+
+            let job_result = JobResult {
                 job: completed_job,
                 output: None, // Could include the output here if needed
                 processing_time_ms: processing_time,
-            })
+            };
+            GrimoireResponse::success("Job processed successfully", job_result)
         }
         Err(error) => {
-            let _failed_job = mark_job_failed(&job.id, &error.to_string()).await?;
-            Err(error)
+            let _failed_job_response = mark_job_failed(&job.id, &error.to_string()).await;
+            GrimoireResponse::failure("Job processing failed", vec![error.into()])
         }
     }
 }
@@ -460,20 +674,26 @@ pub async fn process_job(job: Job) -> Result<JobResult, JobError> {
 // Job processing functions
 async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError> {
     // Parse job parameters
-    let params: ScanDirectoryParams =
-        serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Invalid parameters: {}", e),
-        })?;
+    let params: ScanDirectoryParams = match serde_json::from_str(&job.parameters) {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("Invalid parameters: {}", e),
+            })
+        }
+    };
 
-    let session_id = job
-        .session_id
-        .as_ref()
-        .ok_or_else(|| JobError::ProcessingFailed {
-            reason: "ScanDirectory job requires a session_id".to_string(),
-        })?;
+    let session_id = match job.session_id.as_ref() {
+        Some(sid) => sid,
+        None => {
+            return Err(JobError::ProcessingFailed {
+                reason: "ScanDirectory job requires a session_id".to_string(),
+            })
+        }
+    };
 
     // Use music scanner to handle directory scanning and job creation
-    let files_discovered = scanner::scan_directory_and_create_jobs(
+    let files_discovered = match scanner::scan_directory_and_create_jobs(
         &params.directory_path,
         session_id,
         params.recursive,
@@ -481,9 +701,14 @@ async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError
         params.file_extensions,
     )
     .await
-    .map_err(|e| JobError::ProcessingFailed {
-        reason: format!("Failed to scan directory: {}", e),
-    })?;
+    {
+        Ok(count) => count,
+        Err(e) => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("Failed to scan directory: {}", e),
+            })
+        }
+    };
 
     // Return scan results
     let result = ScanDirectoryResult {
@@ -501,10 +726,14 @@ async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError
 
 async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     // Parse job parameters
-    let params: ProcessFileParams =
-        serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Invalid parameters: {}", e),
-        })?;
+    let params: ProcessFileParams = match serde_json::from_str(&job.parameters) {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("Invalid parameters: {}", e),
+            })
+        }
+    };
 
     let file_path = Path::new(&params.file_path);
 
@@ -518,19 +747,28 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     println!("processing file: {}", params.file_path);
 
     // Read file metadata
-    let metadata = fs::metadata(file_path).map_err(|e| JobError::ProcessingFailed {
-        reason: format!("Failed to read file metadata: {}", e),
-    })?;
+    let metadata = match fs::metadata(file_path) {
+        Ok(m) => m,
+        Err(e) => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("Failed to read file metadata: {}", e),
+            })
+        }
+    };
 
     let file_size = metadata.len();
     println!("file size: {} bytes", file_size);
 
     // Step 1: Create media blob in database
-    let media_blob_id = blob_data::create_media_blob_from_file(&params.file_path, file_size)
-        .await
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to create media blob: {}", e),
-        })?;
+    let media_blob_id =
+        match blob_data::create_media_blob_from_file(&params.file_path, file_size).await {
+            Ok(id) => id,
+            Err(e) => {
+                return Err(JobError::ProcessingFailed {
+                    reason: format!("Failed to create media blob: {}", e),
+                })
+            }
+        };
     println!("created media blob: {}", media_blob_id);
 
     // Step 2: Import audio file (extracts metadata and creates song)
@@ -635,21 +873,32 @@ async fn process_generate_waveform_job(_job: &Job) -> Result<Option<Value>, JobE
 }
 
 /// Simple job processor that processes one job at a time
-pub async fn run_job_processor() -> Result<(), JobError> {
+pub async fn run_job_processor() -> GrimoireResponse<()> {
     loop {
-        match get_next_pending_job().await? {
+        let next_job_response = get_next_pending_job().await;
+        let next_job = match next_job_response.data {
+            Some(job_opt) => job_opt,
+            None => {
+                return GrimoireResponse::failure(
+                    "Failed to get next pending job",
+                    next_job_response.errors,
+                )
+            }
+        };
+
+        match next_job {
             Some(job) => {
                 println!("processing job: {} ({})", job.id, job.job_type);
-                match process_job(job).await {
-                    Ok(result) => {
+                let process_response = process_job(job).await;
+                if process_response.success {
+                    if let Some(result) = process_response.data {
                         println!(
                             "job completed: {} in {}ms",
                             result.job.id, result.processing_time_ms
                         );
                     }
-                    Err(error) => {
-                        eprintln!("job failed: {}", error);
-                    }
+                } else {
+                    eprintln!("job failed: {}", process_response.message);
                 }
             }
             None => {
@@ -661,25 +910,36 @@ pub async fn run_job_processor() -> Result<(), JobError> {
 }
 
 /// Run the job processor once - process all pending jobs and then exit
-pub async fn run_job_processor_once(max_jobs: u32) -> Result<(), JobError> {
+pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
     let mut processed_count = 0;
 
     loop {
-        match get_next_pending_job().await? {
+        let next_job_response = get_next_pending_job().await;
+        let next_job = match next_job_response.data {
+            Some(job_opt) => job_opt,
+            None => {
+                return GrimoireResponse::failure(
+                    "Failed to get next pending job",
+                    next_job_response.errors,
+                )
+            }
+        };
+
+        match next_job {
             Some(job) => {
                 println!("processing job: {} ({})", job.id, job.job_type);
-                match process_job(job).await {
-                    Ok(result) => {
+                let process_response = process_job(job).await;
+                if process_response.success {
+                    if let Some(result) = process_response.data {
                         println!(
                             "job completed: {} in {}ms",
                             result.job.id, result.processing_time_ms
                         );
                         processed_count += 1;
                     }
-                    Err(error) => {
-                        eprintln!("job failed: {}", error);
-                        processed_count += 1;
-                    }
+                } else {
+                    eprintln!("job failed: {}", process_response.message);
+                    processed_count += 1;
                 }
 
                 // Check if we've hit the max jobs limit
@@ -696,6 +956,5 @@ pub async fn run_job_processor_once(max_jobs: u32) -> Result<(), JobError> {
         }
     }
 
-    println!("processed {} jobs", processed_count);
-    Ok(())
+    GrimoireResponse::success("Job processor completed", ())
 }
