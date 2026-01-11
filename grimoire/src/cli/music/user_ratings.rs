@@ -58,7 +58,7 @@ pub enum RatingsAction {
 }
 
 /// Handle ratings commands
-pub async fn handle_command(action: RatingsAction) -> CommandOutput<()> {
+pub async fn handle_command(action: RatingsAction) -> CommandOutput<serde_json::Value> {
     let ratings_service = RatingsService::new();
 
     match action {
@@ -152,7 +152,7 @@ pub async fn handle_command(action: RatingsAction) -> CommandOutput<()> {
                         "Rating stats for {} {}: {:.1} stars ({} ratings)",
                         target_type, target_id, stats.average_rating, stats.total_ratings
                     );
-                    CommandOutput::success(message, stats).map_data(|_| ())
+                    CommandOutput::success(message, stats)
                 }
                 Err(e) => CommandOutput::failure(
                     "Failed to get rating stats",
@@ -188,7 +188,7 @@ pub async fn handle_command(action: RatingsAction) -> CommandOutput<()> {
                         target_type,
                         if items.len() == 1 { "" } else { "s" }
                     );
-                    CommandOutput::success(message, items).map_data(|_| ())
+                    CommandOutput::success(message, items)
                 }
                 Err(e) => CommandOutput::failure(
                     "Failed to get top rated",

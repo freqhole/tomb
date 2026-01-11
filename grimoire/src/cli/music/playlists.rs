@@ -9,7 +9,7 @@ use crate::music::crud::{
     AddSongsToPlaylistRequest, CreatePlaylistRequest, UpdatePlaylistRequest,
 };
 
-pub async fn handle_create_playlist(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_create_playlist(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::CreatePlaylist {
         json_input,
         request,
@@ -46,13 +46,13 @@ pub async fn handle_create_playlist(action: MusicAction) -> CommandOutput<()> {
             }
         );
 
-        CommandOutput::success(message, vec![playlist]).map_data(|_| ())
+        CommandOutput::success(message, vec![playlist])
     } else {
         unreachable!("handle_create_playlist called with wrong action variant")
     }
 }
 
-pub async fn handle_add_songs(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_add_songs(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::AddSongsToPlaylist {
         json_input,
         request,
@@ -86,7 +86,7 @@ pub async fn handle_add_songs(action: MusicAction) -> CommandOutput<()> {
     }
 }
 
-pub async fn handle_update_position(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_update_position(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::UpdateSongPosition {
         playlist_id,
         song_ids,
@@ -113,7 +113,7 @@ pub async fn handle_update_position(action: MusicAction) -> CommandOutput<()> {
     }
 }
 
-pub async fn handle_delete_playlist(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_delete_playlist(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::DeletePlaylist { playlist_id } = action {
         let response = delete_playlist(&playlist_id, None).await;
         if !response.success {
@@ -127,7 +127,7 @@ pub async fn handle_delete_playlist(action: MusicAction) -> CommandOutput<()> {
     }
 }
 
-pub async fn handle_update_playlist(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_update_playlist(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::UpdatePlaylist {
         playlist_id,
         json_input,
@@ -155,13 +155,13 @@ pub async fn handle_update_playlist(action: MusicAction) -> CommandOutput<()> {
         };
 
         let message = format!("Updated playlist: {}", playlist.title);
-        CommandOutput::success(message, vec![playlist]).map_data(|_| ())
+        CommandOutput::success(message, vec![playlist])
     } else {
         unreachable!("handle_update_playlist called with wrong action variant")
     }
 }
 
-pub async fn handle_remove_thumbnail(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_remove_thumbnail(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::RemovePlaylistThumbnail {
         playlist_id,
         cleanup_blob,
@@ -180,13 +180,13 @@ pub async fn handle_remove_thumbnail(action: MusicAction) -> CommandOutput<()> {
             "successfully removed thumbnail from playlist: {}",
             playlist.title
         );
-        CommandOutput::success(message, vec![playlist]).map_data(|_| ())
+        CommandOutput::success(message, vec![playlist])
     } else {
         unreachable!("handle_remove_thumbnail called with wrong action variant")
     }
 }
 
-pub async fn handle_list_playlists(_action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_list_playlists(_action: MusicAction) -> CommandOutput<serde_json::Value> {
     let response = list_playlists().await;
     if !response.success {
         return CommandOutput::failure(response.message, response.errors, ());
@@ -197,10 +197,10 @@ pub async fn handle_list_playlists(_action: MusicAction) -> CommandOutput<()> {
     };
 
     let message = format!("Found {} playlists", playlists.len());
-    CommandOutput::success(message, playlists).map_data(|_| ())
+    CommandOutput::success(message, playlists)
 }
 
-pub async fn handle_list_user_playlists(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_list_user_playlists(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::ListUserPlaylists {
         user_id,
         limit,
@@ -221,13 +221,13 @@ pub async fn handle_list_user_playlists(action: MusicAction) -> CommandOutput<()
             result.total_count, user_id
         );
 
-        CommandOutput::success(message, result).map_data(|_| ())
+        CommandOutput::success(message, result)
     } else {
         unreachable!("handle_list_user_playlists called with wrong action variant")
     }
 }
 
-pub async fn handle_search_playlists(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_search_playlists(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::SearchPlaylists {
         query,
         limit,
@@ -248,7 +248,7 @@ pub async fn handle_search_playlists(action: MusicAction) -> CommandOutput<()> {
             result.total_count, query
         );
 
-        CommandOutput::success(message, result).map_data(|_| ())
+        CommandOutput::success(message, result)
     } else {
         unreachable!("handle_search_playlists called with wrong action variant")
     }

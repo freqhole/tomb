@@ -6,7 +6,7 @@ use crate::cli::utils::CommandOutput;
 use crate::music::crud::UpdateSongsRequest;
 use crate::music::crud::{list_recent_songs, update_songs};
 
-pub async fn handle_recent_songs(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_recent_songs(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::RecentSongs { limit } = action {
         let response = list_recent_songs(Some(limit as u32)).await;
         if !response.success {
@@ -18,13 +18,13 @@ pub async fn handle_recent_songs(action: MusicAction) -> CommandOutput<()> {
         };
 
         let message = format!("found {} recent songs", result.items.len());
-        CommandOutput::success(message, result).map_data(|_| ())
+        CommandOutput::success(message, result)
     } else {
         unreachable!("handle_recent_songs called with wrong action variant")
     }
 }
 
-pub async fn handle_update_songs(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_update_songs(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::UpdateSongs {
         json_input,
         request,
@@ -53,7 +53,7 @@ pub async fn handle_update_songs(action: MusicAction) -> CommandOutput<()> {
         };
 
         let message = format!("Updated {} song(s)", result.songs_updated);
-        CommandOutput::success(message, result).map_data(|_| ())
+        CommandOutput::success(message, result)
     } else {
         unreachable!("handle_update_songs called with wrong action variant")
     }

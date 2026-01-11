@@ -72,7 +72,7 @@ pub struct MusicBrainzSearchResults<T> {
 }
 
 /// Handle MusicBrainz commands
-pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
+pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<serde_json::Value> {
     // Create client with config (enabled for testing)
     let mut config = MusicBrainzConfig::default();
     config.enabled = true;
@@ -124,7 +124,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
                 results.results.len(),
                 results.count
             );
-            CommandOutput::success(message, results).map_data(|_| ())
+            CommandOutput::success(message, results)
         }
         MusicBrainzAction::SearchAlbum {
             query: query_text,
@@ -160,7 +160,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
                 results.results.len(),
                 results.count
             );
-            CommandOutput::success(message, results).map_data(|_| ())
+            CommandOutput::success(message, results)
         }
         MusicBrainzAction::GetRecording { recording_id } => {
             let response = client.get_recording(&recording_id).await;
@@ -173,7 +173,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             };
 
             let message = format!("Recording: {}", recording.title);
-            CommandOutput::success(message, recording).map_data(|_| ())
+            CommandOutput::success(message, recording)
         }
         MusicBrainzAction::GetRelease { release_id } => {
             let response = client.get_release(&release_id).await;
@@ -186,7 +186,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             };
 
             let message = format!("Release: {}", release.title);
-            CommandOutput::success(message, release).map_data(|_| ())
+            CommandOutput::success(message, release)
         }
         MusicBrainzAction::GetCoverArt { release_id } => {
             let response = client.get_cover_art(&release_id).await;
@@ -199,7 +199,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             };
 
             let message = format!("Found {} cover art images", cover_arts.len());
-            CommandOutput::success(message, cover_arts).map_data(|_| ())
+            CommandOutput::success(message, cover_arts)
         }
         MusicBrainzAction::SearchAlbumWithArt {
             query: query_text,
@@ -231,7 +231,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             };
 
             let message = format!("Found {} releases with cover art", results.len());
-            CommandOutput::success(message, results).map_data(|_| ())
+            CommandOutput::success(message, results)
         }
         MusicBrainzAction::TestConfig => {
             let config = client.config();
@@ -246,7 +246,7 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             });
 
             let message = "MusicBrainz configuration is valid";
-            CommandOutput::success(message, config_info).map_data(|_| ())
+            CommandOutput::success(message, config_info)
         }
     }
 }

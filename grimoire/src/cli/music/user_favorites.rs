@@ -46,7 +46,7 @@ pub enum FavoritesAction {
 }
 
 /// Handle favorites commands
-pub async fn handle_command(action: FavoritesAction) -> CommandOutput<()> {
+pub async fn handle_command(action: FavoritesAction) -> CommandOutput<serde_json::Value> {
     let favorites_service = FavoritesService::new();
 
     match action {
@@ -138,7 +138,7 @@ pub async fn handle_command(action: FavoritesAction) -> CommandOutput<()> {
                 favorites.len(),
                 if favorites.len() == 1 { "" } else { "s" }
             );
-            CommandOutput::success(message, favorites).map_data(|_| ())
+            CommandOutput::success(message, favorites)
         }
     }
 }

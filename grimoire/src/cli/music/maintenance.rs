@@ -8,7 +8,7 @@ use crate::maintenance::{
 };
 use crate::media_blobz::find_media_blob_references;
 
-pub async fn handle_check_blob_references(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_check_blob_references(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::CheckBlobReferences { blob_id } = action {
         let refs = match find_media_blob_references(&blob_id).await {
             Ok(r) => r,
@@ -22,13 +22,15 @@ pub async fn handle_check_blob_references(action: MusicAction) -> CommandOutput<
         };
 
         let message = format!("Media blob {} reference summary", blob_id);
-        CommandOutput::success(message, vec![refs]).map_data(|_| ())
+        CommandOutput::success(message, vec![refs])
     } else {
         unreachable!("handle_check_blob_references called with wrong action variant")
     }
 }
 
-pub async fn handle_cleanup_orphaned_blobs(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_cleanup_orphaned_blobs(
+    action: MusicAction,
+) -> CommandOutput<serde_json::Value> {
     if let MusicAction::CleanupOrphanedBlobs {
         min_age_days,
         dry_run: _,
@@ -44,13 +46,15 @@ pub async fn handle_cleanup_orphaned_blobs(action: MusicAction) -> CommandOutput
         };
 
         let message = "Orphaned blob cleanup completed";
-        CommandOutput::success(message, vec![summary]).map_data(|_| ())
+        CommandOutput::success(message, vec![summary])
     } else {
         unreachable!("handle_cleanup_orphaned_blobs called with wrong action variant")
     }
 }
 
-pub async fn handle_hard_delete_old_records(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_hard_delete_old_records(
+    action: MusicAction,
+) -> CommandOutput<serde_json::Value> {
     if let MusicAction::HardDeleteOldRecords {
         retention_days,
         keep_blob_data,
@@ -73,13 +77,13 @@ pub async fn handle_hard_delete_old_records(action: MusicAction) -> CommandOutpu
         };
 
         let message = "Hard deletion completed";
-        CommandOutput::success(message, vec![summary]).map_data(|_| ())
+        CommandOutput::success(message, vec![summary])
     } else {
         unreachable!("handle_hard_delete_old_records called with wrong action variant")
     }
 }
 
-pub async fn handle_run_maintenance(action: MusicAction) -> CommandOutput<()> {
+pub async fn handle_run_maintenance(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::RunMaintenance {
         retention_days,
         dry_run: _,
@@ -101,7 +105,7 @@ pub async fn handle_run_maintenance(action: MusicAction) -> CommandOutput<()> {
         };
 
         let message = "Full maintenance completed";
-        CommandOutput::success(message, vec![result]).map_data(|_| ())
+        CommandOutput::success(message, vec![result])
     } else {
         unreachable!("handle_run_maintenance called with wrong action variant")
     }

@@ -108,28 +108,13 @@ pub struct CommandOutput<T> {
 }
 
 impl<T> CommandOutput<T> {
-    /// Create new successful output with message and data
-    pub fn success(message: impl Into<String>, data: T) -> Self {
+    /// Create new output with message and data (alias for success)
+    pub fn new(message: impl Into<String>, data: T) -> Self {
         Self {
             success: true,
             message: message.into(),
             data,
             errors: vec![],
-        }
-    }
-
-    /// Create new output with message and data (alias for success)
-    pub fn new(message: impl Into<String>, data: T) -> Self {
-        Self::success(message, data)
-    }
-
-    /// Create new failed output with message and errors
-    pub fn failure(message: impl Into<String>, errors: Vec<ErrorDetail>, data: T) -> Self {
-        Self {
-            success: false,
-            message: message.into(),
-            data,
-            errors,
         }
     }
 
@@ -183,7 +168,37 @@ impl<T: Serialize> CommandOutput<T> {
             errors: self.errors,
         }
     }
+}
 
+impl CommandOutput<serde_json::Value> {
+    /// Create successful output with automatically serialized data
+    /// This is the standard way to create CommandOutput in CLI handlers
+    pub fn success<T: Serialize>(message: impl Into<String>, data: T) -> Self {
+        Self {
+            success: true,
+            message: message.into(),
+            data: serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
+            errors: vec![],
+        }
+    }
+
+    /// Create failed output with automatically serialized data
+    /// This is the standard way to create failed CommandOutput in CLI handlers
+    pub fn failure<T: Serialize>(
+        message: impl Into<String>,
+        errors: Vec<ErrorDetail>,
+        data: T,
+    ) -> Self {
+        Self {
+            success: false,
+            message: message.into(),
+            data: serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
+            errors,
+        }
+    }
+}
+
+impl<T: Serialize> CommandOutput<T> {
     /// Format output according to the specified format
     pub fn format(&self, format: OutputFormat) -> String {
         match format {
