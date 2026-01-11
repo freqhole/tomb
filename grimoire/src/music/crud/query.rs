@@ -4,7 +4,7 @@ use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuil
 use std::time::Instant;
 
 use crate::database;
-use crate::error::GrimoireResult;
+
 use crate::music::crud::models::{
     AlbumQueryResult, ArtistQueryResult, GenreQueryResult, QueryParams, QueryResult,
     SongQueryResult,

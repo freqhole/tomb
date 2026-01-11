@@ -6,7 +6,7 @@
 use crate::database;
 use crate::music::users::models::*;
 use crate::response::GrimoireResponse;
-use crate::users::models::{AuthError, AuthResult};
+use crate::users::models::AuthResult;
 use sqlx::Row;
 use time::OffsetDateTime;
 

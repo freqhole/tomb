@@ -156,7 +156,15 @@ pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireResult
     }
 
     // Remove song from all playlists when soft-deleting
-    remove_song_from_all_playlists(id).await?;
-
-    Ok(())
+    match remove_song_from_all_playlists(id).await {
+        crate::GrimoireResponse { success: true, .. } => Ok(()),
+        response => {
+            let error_msg = if !response.errors.is_empty() {
+                response.errors[0].detail.clone()
+            } else {
+                response.message
+            };
+            Err(GrimoireError::ProcessingFailed { message: error_msg })
+        }
+    }
 }

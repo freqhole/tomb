@@ -123,7 +123,7 @@ pub async fn handle_query_playlists(
                 .insert("is_public".to_string(), serde_json::Value::Bool(public));
         }
 
-        let result = query_playlists(params).await?;
+        let result = to_result(query_playlists(params).await)?;
 
         let message = format!(
             "found {} playlists (total: {})",
@@ -145,7 +145,7 @@ pub async fn handle_query_playlist_songs(
         params,
     } = action
     {
-        let result = query_playlist_songs(&playlist_id, params).await?;
+        let result = to_result(query_playlist_songs(&playlist_id, params).await)?;
 
         let message = format!(
             "found {} songs in playlist (total: {})",

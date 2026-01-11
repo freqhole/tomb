@@ -1,15 +1,34 @@
 //! Music playlist commands
 
 use super::MusicAction;
-use crate::cli::utils::CommandOutput;
 use crate::cli::utils::resolve_request;
-use crate::error::GrimoireResult;
+use crate::cli::utils::CommandOutput;
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::music::crud::{
     add_songs_to_playlist, create_playlist, delete_playlist, list_playlists, list_user_playlists,
     remove_playlist_thumbnail, search_playlists, update_playlist, update_songs_position,
     PlaylistQueryResult, QueryResult,
 };
 use crate::music::Playlist;
+use crate::response::GrimoireResponse;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 pub async fn handle_create_playlist(
     action: MusicAction,
@@ -170,7 +189,8 @@ pub async fn handle_list_user_playlists(
         offset,
     } = action
     {
-        let result = list_user_playlists(user_id.clone(), Some(limit), Some(offset)).await?;
+        let result =
+            to_result(list_user_playlists(user_id.clone(), Some(limit), Some(offset)).await)?;
 
         let message = format!(
             "found {} playlists for user {}",
@@ -192,7 +212,7 @@ pub async fn handle_search_playlists(
         offset,
     } = action
     {
-        let result = search_playlists(&query, Some(limit), Some(offset)).await?;
+        let result = to_result(search_playlists(&query, Some(limit), Some(offset)).await)?;
 
         let message = format!(
             "found {} playlists matching '{}'",

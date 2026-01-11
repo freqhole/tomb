@@ -7,14 +7,17 @@ use super::models::{
     ImportSongResult, SongImportError, SongImportErrorType,
 };
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireResult};
 use crate::music::entities::{
     albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
     CreateGenreRequest, CreateSongRequest, Genre, Playlist, Song,
 };
+use crate::GrimoireResponse;
 
 /// import a song with full metadata, creating related entities as needed
-pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult<ImportSongResult> {
+pub async fn import_song_with_metadata(
+    req: ImportSongRequest,
+) -> GrimoireResponse<ImportSongResult> {
     let _start_time = std::time::Instant::now();
 
     // 1. Find or create artist
@@ -23,7 +26,25 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
             name: artist_name.clone(),
             created_by: req.created_by.clone(),
         };
-        let (artist, created) = find_or_create_artist(artist_req).await?;
+        let (artist, created) = match find_or_create_artist(artist_req).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "artist_creation_failed",
+                        "Artist Creation Failed",
+                        "Failed to find or create artist",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to import song", errors);
+            }
+        };
         (Some(artist), created)
     } else {
         (None, false)
@@ -31,7 +52,25 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
 
     // 2. Find or create genre
     let (genre, created_new_genre) = if let Some(genre_name) = &req.genre_name {
-        let (genre, created) = find_or_create_genre(genre_name.clone()).await?;
+        let (genre, created) = match find_or_create_genre(genre_name.clone()).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "genre_creation_failed",
+                        "Genre Creation Failed",
+                        "Failed to find or create genre",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to import song", errors);
+            }
+        };
         (Some(genre), created)
     } else {
         (None, false)
@@ -50,7 +89,25 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
             year: req.year,
             created_by: req.created_by.clone(),
         };
-        let (album, created) = find_or_create_album(album_req).await?;
+        let (album, created) = match find_or_create_album(album_req).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "album_creation_failed",
+                        "Album Creation Failed",
+                        "Failed to find or create album",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to import song", errors);
+            }
+        };
         (Some(album), created)
     } else if let Some(artist) = &artist {
         // Has artist but no album - create artist-specific "Unknown Album"
@@ -65,7 +122,15 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
             created_by: req.created_by.clone(),
         };
         let (album, created) =
-            find_or_create_album_for_artist(unknown_album_req, &artist.id).await?;
+            match find_or_create_album_for_artist(unknown_album_req, &artist.id).await {
+                Ok(result) => result,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "Failed to find or create unknown album",
+                        vec![e.into()],
+                    )
+                }
+            };
         (Some(album), created)
     } else {
         // No artist, no album - will create "Unknown Artist" + their "Unknown Album" later
@@ -86,39 +151,65 @@ pub async fn import_song_with_metadata(req: ImportSongRequest) -> GrimoireResult
         created_by: req.created_by,
     };
 
-    let song = songs::create_song(song_req).await?;
+    let song = match songs::create_song(song_req).await {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to create song", vec![e.into()]),
+    };
 
     // 5. Create relationships (artist_songz, album_songz, artist_albumz)
     if let Some(artist) = &artist {
-        create_artist_song_relationship(&artist.id, &song.id).await?;
+        if let Err(e) = create_artist_song_relationship(&artist.id, &song.id).await {
+            return GrimoireResponse::failure(
+                "Failed to create artist-song relationship",
+                vec![e.into()],
+            );
+        }
     }
 
     if let Some(album) = &album {
-        create_album_song_relationship(&album.id, &song.id).await?;
+        if let Err(e) = create_album_song_relationship(&album.id, &song.id).await {
+            return GrimoireResponse::failure(
+                "Failed to create album-song relationship",
+                vec![e.into()],
+            );
+        }
     }
 
     // Create artist-album relationship if both exist
     if let (Some(artist), Some(album)) = (&artist, &album) {
-        create_artist_album_relationship(&artist.id, &album.id).await?;
+        if let Err(e) = create_artist_album_relationship(&artist.id, &album.id).await {
+            return GrimoireResponse::failure(
+                "Failed to create artist-album relationship",
+                vec![e.into()],
+            );
+        }
     }
 
-    Ok(ImportSongResult {
-        song,
-        artist,
-        album,
-        genre,
-        created_new_artist,
-        created_new_album,
-        created_new_genre,
-    })
+    GrimoireResponse::success(
+        "Song imported successfully",
+        ImportSongResult {
+            song,
+            artist,
+            album,
+            genre,
+            created_new_artist,
+            created_new_album,
+            created_new_genre,
+        },
+    )
 }
 
 /// find existing artist by name or create new one
-pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResult<(Artist, bool)> {
-    let pool = database::connect().await?;
+pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse<(Artist, bool)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Try to find existing artist by name (case-insensitive)
-    let existing = sqlx::query_as!(
+    let existing = match sqlx::query_as!(
         Artist,
         r#"SELECT
             id as "id!",
@@ -135,26 +226,38 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResult<(
         req.name
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(e) => e,
+        Err(e) => return GrimoireResponse::failure("Failed to query artist", vec![e.into()]),
+    };
 
     if let Some(artist) = existing {
-        Ok((artist, false))
+        GrimoireResponse::success("Artist found", (artist, false))
     } else {
         let create_req = CreateArtistRequest {
             name: req.name,
             created_by: req.created_by,
         };
-        let artist = artists::create_artist(create_req).await?;
-        Ok((artist, true))
+        let artist = match artists::create_artist(create_req).await {
+            Ok(a) => a,
+            Err(e) => return GrimoireResponse::failure("Failed to create artist", vec![e.into()]),
+        };
+        GrimoireResponse::success("Artist created successfully", (artist, true))
     }
 }
 
 /// find existing album by title or create new one
-pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResult<(Album, bool)> {
-    let pool = database::connect().await?;
+pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResponse<(Album, bool)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Try to find existing album by title (case-insensitive)
-    let existing = sqlx::query_as!(
+    let existing = match sqlx::query_as!(
         Album,
         r#"SELECT
             id as "id!",
@@ -178,10 +281,14 @@ pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResult<(Al
         req.title
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(e) => e,
+        Err(e) => return GrimoireResponse::failure("Failed to query album", vec![e.into()]),
+    };
 
     if let Some(album) = existing {
-        Ok((album, false))
+        GrimoireResponse::success("Album found", (album, false))
     } else {
         let create_req = CreateAlbumRequest {
             title: req.title,
@@ -192,17 +299,25 @@ pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResult<(Al
             genre_id: req.genre_id,
             created_by: req.created_by,
         };
-        let album = albums::create_album(create_req).await?;
-        Ok((album, true))
+        let album = match albums::create_album(create_req).await {
+            Ok(a) => a,
+            Err(e) => return GrimoireResponse::failure("Failed to create album", vec![e.into()]),
+        };
+        GrimoireResponse::success("Album created successfully", (album, true))
     }
 }
 
 /// find existing genre by name or create new one
-pub async fn find_or_create_genre(name: String) -> GrimoireResult<(Genre, bool)> {
-    let pool = database::connect().await?;
+pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Try to find existing genre by name (case-insensitive)
-    let existing = sqlx::query_as!(
+    let existing = match sqlx::query_as!(
         Genre,
         r#"SELECT
             id as "id!",
@@ -214,14 +329,21 @@ pub async fn find_or_create_genre(name: String) -> GrimoireResult<(Genre, bool)>
         name
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(e) => e,
+        Err(e) => return GrimoireResponse::failure("Failed to query genre", vec![e.into()]),
+    };
 
     if let Some(genre) = existing {
-        Ok((genre, false))
+        GrimoireResponse::success("Genre found", (genre, false))
     } else {
         let create_req = CreateGenreRequest { name };
-        let genre = genres::create_genre(create_req).await?;
-        Ok((genre, true))
+        let genre = match genres::create_genre(create_req).await {
+            Ok(g) => g,
+            Err(e) => return GrimoireResponse::failure("Failed to create genre", vec![e.into()]),
+        };
+        GrimoireResponse::success("Genre created successfully", (genre, true))
     }
 }
 
@@ -331,7 +453,7 @@ async fn find_or_create_album_for_artist(
 /// create a song with guaranteed artist and album (simpler version)
 pub async fn create_song_with_artist_and_album(
     req: CreateSongWithMetadataRequest,
-) -> GrimoireResult<ImportSongResult> {
+) -> GrimoireResponse<ImportSongResult> {
     let import_req = ImportSongRequest {
         media_blob_id: req.media_blob_id,
         title: req.title,
@@ -352,7 +474,7 @@ pub async fn create_song_with_artist_and_album(
 }
 
 /// bulk import multiple songs with error handling
-pub async fn bulk_import_songs(req: BulkImportRequest) -> GrimoireResult<BulkImportResult> {
+pub async fn bulk_import_songs(req: BulkImportRequest) -> GrimoireResponse<BulkImportResult> {
     let start_time = std::time::Instant::now();
     let mut successful_imports = Vec::new();
     let mut failed_imports = Vec::new();
@@ -365,7 +487,11 @@ pub async fn bulk_import_songs(req: BulkImportRequest) -> GrimoireResult<BulkImp
 
     for song_req in req.songs {
         match import_song_with_metadata(song_req.clone()).await {
-            Ok(result) => {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => {
                 if result.created_new_artist {
                     new_artists_created += 1;
                 }
@@ -377,24 +503,38 @@ pub async fn bulk_import_songs(req: BulkImportRequest) -> GrimoireResult<BulkImp
                 }
                 successful_imports.push(result);
             }
-            Err(err) => {
-                let error_type = match err {
-                    GrimoireError::MediaBlobNotFound { .. } => {
-                        SongImportErrorType::MediaBlobNotFound
+            response => {
+                // Extract error message from response
+                let error_message = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message.clone()
+                };
+
+                // Determine error type based on error_type field in ErrorDetail
+                let error_type = if !response.errors.is_empty() {
+                    match response.errors[0].error_type.as_str() {
+                        "media_blob_not_found" => SongImportErrorType::MediaBlobNotFound,
+                        "song_not_found" => SongImportErrorType::DuplicateSong,
+                        "artist_not_found" | "artist_creation_failed" => {
+                            SongImportErrorType::ArtistCreationFailed
+                        }
+                        "album_not_found" | "album_creation_failed" => {
+                            SongImportErrorType::AlbumCreationFailed
+                        }
+                        "genre_not_found" | "genre_creation_failed" => {
+                            SongImportErrorType::GenreCreationFailed
+                        }
+                        "database" => SongImportErrorType::DatabaseError,
+                        _ => SongImportErrorType::ValidationError,
                     }
-                    GrimoireError::SongNotFound { .. } => SongImportErrorType::DuplicateSong,
-                    GrimoireError::ArtistNotFound { .. } => {
-                        SongImportErrorType::ArtistCreationFailed
-                    }
-                    GrimoireError::AlbumNotFound { .. } => SongImportErrorType::AlbumCreationFailed,
-                    GrimoireError::GenreNotFound { .. } => SongImportErrorType::GenreCreationFailed,
-                    GrimoireError::Database(_) => SongImportErrorType::DatabaseError,
-                    _ => SongImportErrorType::ValidationError,
+                } else {
+                    SongImportErrorType::ValidationError
                 };
 
                 failed_imports.push(SongImportError {
                     request: song_req,
-                    error: err.to_string(),
+                    error: error_message,
                     error_type,
                 });
 
@@ -417,11 +557,14 @@ pub async fn bulk_import_songs(req: BulkImportRequest) -> GrimoireResult<BulkImp
         duration_ms,
     };
 
-    Ok(BulkImportResult {
-        successful_imports,
-        failed_imports,
-        summary,
-    })
+    GrimoireResponse::success(
+        "Bulk import completed",
+        BulkImportResult {
+            successful_imports,
+            failed_imports,
+            summary,
+        },
+    )
 }
 
 /// find playlist by name or create new one
@@ -429,11 +572,16 @@ pub async fn get_or_create_playlist_by_name(
     name: &str,
     is_public: Option<bool>,
     created_by_id: Option<String>,
-) -> GrimoireResult<(Playlist, bool)> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<(Playlist, bool)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Try to find existing playlist by name (case-insensitive)
-    let existing = sqlx::query_as!(
+    let existing = match sqlx::query_as!(
         Playlist,
         r#"SELECT
             p.id as "id!",
@@ -457,10 +605,14 @@ pub async fn get_or_create_playlist_by_name(
         name
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(e) => e,
+        Err(e) => return GrimoireResponse::failure("Failed to query playlist", vec![e.into()]),
+    };
 
     if let Some(playlist) = existing {
-        Ok((playlist, false))
+        GrimoireResponse::success("Playlist found", (playlist, false))
     } else {
         use crate::music::entities::playlists::{create_playlist, CreatePlaylistRequest};
 
@@ -470,8 +622,13 @@ pub async fn get_or_create_playlist_by_name(
             is_public,
             created_by_id,
         };
-        let playlist = create_playlist(create_req).await?;
-        Ok((playlist, true))
+        let playlist = match create_playlist(create_req).await {
+            Ok(p) => p,
+            Err(e) => {
+                return GrimoireResponse::failure("Failed to create playlist", vec![e.into()])
+            }
+        };
+        GrimoireResponse::success("Playlist created successfully", (playlist, true))
     }
 }
 
@@ -481,20 +638,34 @@ pub async fn update_song_with_relationships(
     new_artist_name: Option<String>,
     new_album_title: Option<String>,
     new_genre_name: Option<String>,
-) -> GrimoireResult<ImportSongResult> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<ImportSongResult> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Get the song
-    let song = songs::get_song(song_id).await?;
+    let song = match songs::get_song(song_id).await {
+        Ok(s) => s,
+        Err(e) => return GrimoireResponse::failure("Failed to get song", vec![e.into()]),
+    };
 
     // Remove old relationships
-    sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song.id)
+    if let Err(e) = sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song.id)
         .execute(&pool)
-        .await?;
+        .await
+    {
+        return GrimoireResponse::failure("Failed to delete artist relationships", vec![e.into()]);
+    }
 
-    sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song.id)
+    if let Err(e) = sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song.id)
         .execute(&pool)
-        .await?;
+        .await
+    {
+        return GrimoireResponse::failure("Failed to delete album relationships", vec![e.into()]);
+    }
 
     // Create new relationships
     let (artist, created_new_artist) = if let Some(artist_name) = new_artist_name {
@@ -502,15 +673,56 @@ pub async fn update_song_with_relationships(
             name: artist_name,
             created_by: None,
         };
-        let (artist, created) = find_or_create_artist(artist_req).await?;
-        create_artist_song_relationship(&artist.id, &song.id).await?;
+        let (artist, created) = match find_or_create_artist(artist_req).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "artist_creation_failed",
+                        "Artist Creation Failed",
+                        "Failed to find or create artist",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to update song relationships", errors);
+            }
+        };
+        if let Err(e) = create_artist_song_relationship(&artist.id, &song.id).await {
+            return GrimoireResponse::failure(
+                "Failed to create artist-song relationship",
+                vec![e.into()],
+            );
+        }
         (Some(artist), created)
     } else {
         (None, false)
     };
 
     let (genre, created_new_genre) = if let Some(genre_name) = new_genre_name {
-        let (genre, created) = find_or_create_genre(genre_name).await?;
+        let (genre, created) = match find_or_create_genre(genre_name).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "genre_creation_failed",
+                        "Genre Creation Failed",
+                        "Failed to find or create genre",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to update song relationships", errors);
+            }
+        };
         (Some(genre), created)
     } else {
         (None, false)
@@ -527,8 +739,31 @@ pub async fn update_song_with_relationships(
             year: None,
             created_by: None,
         };
-        let (album, created) = find_or_create_album(album_req).await?;
-        create_album_song_relationship(&album.id, &song.id).await?;
+        let (album, created) = match find_or_create_album(album_req).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "album_creation_failed",
+                        "Album Creation Failed",
+                        "Failed to find or create album",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to update song relationships", errors);
+            }
+        };
+        if let Err(e) = create_album_song_relationship(&album.id, &song.id).await {
+            return GrimoireResponse::failure(
+                "Failed to create album-song relationship",
+                vec![e.into()],
+            );
+        }
         (Some(album), created)
     } else {
         (None, false)
@@ -536,27 +771,53 @@ pub async fn update_song_with_relationships(
 
     // Create artist-album relationship if both exist
     if let (Some(artist), Some(album)) = (&artist, &album) {
-        create_artist_album_relationship(&artist.id, &album.id).await?;
+        if let Err(e) = create_artist_album_relationship(&artist.id, &album.id).await {
+            return GrimoireResponse::failure(
+                "Failed to create artist-album relationship",
+                vec![e.into()],
+            );
+        }
     }
 
-    Ok(ImportSongResult {
-        song,
-        artist,
-        album,
-        genre,
-        created_new_artist,
-        created_new_album,
-        created_new_genre,
-    })
+    GrimoireResponse::success(
+        "Song relationships updated successfully",
+        ImportSongResult {
+            song,
+            artist,
+            album,
+            genre,
+            created_new_artist,
+            created_new_album,
+            created_new_genre,
+        },
+    )
 }
 
 /// import an entire album with all songs and relationships
 pub async fn import_album_with_songs(
     album_req: AlbumImportRequest,
     song_requests: Vec<ImportSongRequest>,
-) -> GrimoireResult<AlbumImportResult> {
+) -> GrimoireResponse<AlbumImportResult> {
     // Find or create the album
-    let (album, created_new_album) = find_or_create_album(album_req).await?;
+    let (album, created_new_album) = match find_or_create_album(album_req).await {
+        GrimoireResponse {
+            success: true,
+            data: Some(result),
+            ..
+        } => result,
+        response => {
+            let errors = if response.errors.is_empty() {
+                vec![ErrorDetail::new(
+                    "album_creation_failed",
+                    "Album Creation Failed",
+                    "Failed to find or create album",
+                )]
+            } else {
+                response.errors
+            };
+            return GrimoireResponse::failure("Failed to import album", errors);
+        }
+    };
 
     // Import all songs for this album
     let bulk_req = BulkImportRequest {
@@ -565,7 +826,25 @@ pub async fn import_album_with_songs(
         created_by: None,
     };
 
-    let bulk_result = bulk_import_songs(bulk_req).await?;
+    let bulk_result = match bulk_import_songs(bulk_req).await {
+        GrimoireResponse {
+            success: true,
+            data: Some(result),
+            ..
+        } => result,
+        response => {
+            let errors = if response.errors.is_empty() {
+                vec![ErrorDetail::new(
+                    "bulk_import_failed",
+                    "Bulk Import Failed",
+                    "Failed to import songs",
+                )]
+            } else {
+                response.errors
+            };
+            return GrimoireResponse::failure("Failed to import album", errors);
+        }
+    };
 
     // Extract the songs and related entities
     let songs: Vec<Song> = bulk_result
@@ -582,14 +861,17 @@ pub async fn import_album_with_songs(
         .first()
         .and_then(|r| r.genre.clone());
 
-    Ok(AlbumImportResult {
-        album,
-        songs,
-        artist,
-        genre,
-        created_new_artist: bulk_result.summary.new_artists_created > 0,
-        created_new_album,
-        created_new_genre: bulk_result.summary.new_genres_created > 0,
-        songs_added: bulk_result.summary.successful_songs,
-    })
+    GrimoireResponse::success(
+        "Album imported successfully",
+        AlbumImportResult {
+            album,
+            songs,
+            artist,
+            genre,
+            created_new_artist: bulk_result.summary.new_artists_created > 0,
+            created_new_album,
+            created_new_genre: bulk_result.summary.new_genres_created > 0,
+            songs_added: bulk_result.summary.successful_songs,
+        },
+    )
 }

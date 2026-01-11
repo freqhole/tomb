@@ -4,12 +4,12 @@ use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuil
 use std::time::Instant;
 
 use crate::database;
-use crate::error::GrimoireResult;
 use crate::music::crud::models::{
     PlaylistQueryResult, PlaylistSongResult, QueryParams, QueryResult, SongQueryResult,
 };
 use crate::music::entities::{Album, Artist, Song};
 use crate::music::Playlist;
+use crate::GrimoireResponse;
 
 // Playlist table identifiers for type-safe queries
 #[derive(Iden)]
@@ -290,9 +290,14 @@ fn add_playlist_filters(query: &mut SelectStatement, params: &QueryParams) {
 // Main playlist query function
 pub async fn query_playlists(
     params: QueryParams,
-) -> GrimoireResult<QueryResult<PlaylistQueryResult>> {
+) -> GrimoireResponse<QueryResult<PlaylistQueryResult>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -350,7 +355,10 @@ pub async fn query_playlists(
         }
     }
 
-    let rows = sqlx_query.fetch_all(&pool).await?;
+    let rows = match sqlx_query.fetch_all(&pool).await {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("Failed to query playlists", vec![e.into()]),
+    };
 
     let playlists: Vec<PlaylistQueryResult> = rows
         .into_iter()
@@ -358,14 +366,17 @@ pub async fn query_playlists(
         .collect();
     let playlist_count = playlists.len();
 
-    Ok(QueryResult {
-        items: playlists,
-        total_count: playlist_count as i64,
-        has_more: playlist_count == limit as usize,
-        limit: limit as i64,
-        offset: offset as i64,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-    })
+    GrimoireResponse::success(
+        "Playlists queried successfully",
+        QueryResult {
+            items: playlists,
+            total_count: playlist_count as i64,
+            has_more: playlist_count == limit as usize,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
 }
 
 // Query songs within a playlist (position-ordered, NOT disc/track ordered)
@@ -373,9 +384,14 @@ pub async fn query_playlists(
 pub async fn query_playlist_songs(
     playlist_id: &str,
     params: QueryParams,
-) -> GrimoireResult<QueryResult<PlaylistSongResult>> {
+) -> GrimoireResponse<QueryResult<PlaylistSongResult>> {
     let start_time = Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
@@ -440,7 +456,12 @@ pub async fn query_playlist_songs(
         }
     }
 
-    let rows = sqlx_query.fetch_all(&pool).await?;
+    let rows = match sqlx_query.fetch_all(&pool).await {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query playlist songs", vec![e.into()])
+        }
+    };
 
     let songs: Vec<PlaylistSongResult> = rows
         .into_iter()
@@ -448,14 +469,17 @@ pub async fn query_playlist_songs(
         .collect();
     let song_count = songs.len();
 
-    Ok(QueryResult {
-        items: songs,
-        total_count: song_count as i64,
-        has_more: song_count == limit as usize,
-        limit: limit as i64,
-        offset: offset as i64,
-        query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-    })
+    GrimoireResponse::success(
+        "Playlist songs queried successfully",
+        QueryResult {
+            items: songs,
+            total_count: song_count as i64,
+            has_more: song_count == limit as usize,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
 }
 
 // Legacy compatibility functions (temporary)
@@ -463,7 +487,7 @@ pub async fn list_user_playlists(
     created_by_id: String,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<PlaylistQueryResult>> {
+) -> GrimoireResponse<QueryResult<PlaylistQueryResult>> {
     let mut filters = std::collections::HashMap::new();
     filters.insert(
         "created_by_id".to_string(),
@@ -489,7 +513,7 @@ pub async fn search_playlists(
     q: &str,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> GrimoireResult<QueryResult<PlaylistQueryResult>> {
+) -> GrimoireResponse<QueryResult<PlaylistQueryResult>> {
     let params = QueryParams {
         q: Some(q.to_string()),
         search_fields: None,

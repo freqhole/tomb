@@ -21,11 +21,6 @@ impl UserService {
         }
     }
 
-    /// Create a new user service with custom repository (internal use only)
-    pub(crate) fn with_repository(repository: UserRepository) -> Self {
-        Self { repository }
-    }
-
     /// Register a new user with optional invite code validation
     pub async fn register_user(&self, request: &CreateUserRequest) -> GrimoireResponse<User> {
         // Validate username

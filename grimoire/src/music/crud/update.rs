@@ -7,7 +7,7 @@ use super::models::{
 };
 use crate::blob_data::{convert_to_webp, create_image_blob_from_webp_data};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::{find_or_create_album, find_or_create_artist, find_or_create_genre};
 use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::tags::{
@@ -144,12 +144,22 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             created_by: req.updated_by.clone(),
         };
         match find_or_create_artist(import_req).await {
-            Ok((artist, _)) => Some(artist),
-            Err(err) => {
-                return GrimoireResponse::failure(
-                    "Failed to find or create artist",
-                    vec![err.into()],
-                );
+            GrimoireResponse {
+                success: true,
+                data: Some((artist, _)),
+                ..
+            } => Some(artist),
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "artist_creation_failed",
+                        "Artist Creation Failed",
+                        "Failed to find or create artist",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to update songs", errors);
             }
         }
     } else {
@@ -158,12 +168,22 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
     let genre = if let Some(genre_name) = req.genre {
         match find_or_create_genre(genre_name).await {
-            Ok((genre, _)) => Some(genre),
-            Err(err) => {
-                return GrimoireResponse::failure(
-                    "Failed to find or create genre",
-                    vec![err.into()],
-                );
+            GrimoireResponse {
+                success: true,
+                data: Some((genre, _)),
+                ..
+            } => Some(genre),
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "genre_creation_failed",
+                        "Genre Creation Failed",
+                        "Failed to find or create genre",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to update songs", errors);
             }
         }
     } else {
@@ -245,12 +265,22 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             created_by: req.updated_by.clone(),
         };
         match find_or_create_album(import_req).await {
-            Ok((album, _)) => Some(album),
-            Err(err) => {
-                return GrimoireResponse::failure(
-                    "Failed to find or create album",
-                    vec![err.into()],
-                );
+            GrimoireResponse {
+                success: true,
+                data: Some((album, _)),
+                ..
+            } => Some(album),
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "album_creation_failed",
+                        "Album Creation Failed",
+                        "Failed to find or create album",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("Failed to update songs", errors);
             }
         }
     } else {

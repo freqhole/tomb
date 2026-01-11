@@ -152,11 +152,19 @@ pub async fn extract_and_import(
         created_by: Some("job_processor".to_string()),
     };
 
-    let result = add_song(import_request)
-        .await
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to import song: {}", e),
-        })?;
+    let response = add_song(import_request).await;
+
+    let result = if response.success {
+        response.data.ok_or_else(|| JobError::ProcessingFailed {
+            reason: "Song import succeeded but returned no data".to_string(),
+        })?
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        return Err(JobError::ProcessingFailed {
+            reason: format!("Failed to import song: {}", error_messages.join(", ")),
+        });
+    };
 
     // Record analytics event for song import (best-effort, don't fail if this errors)
     // Note: user_id is left null for system/automated imports
@@ -211,11 +219,22 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
         created_by: Some("job_processor".to_string()),
     };
 
-    let result = add_song(import_request)
-        .await
-        .map_err(|e| JobError::ProcessingFailed {
-            reason: format!("Failed to create basic song record: {}", e),
-        })?;
+    let response = add_song(import_request).await;
+
+    let result = if response.success {
+        response.data.ok_or_else(|| JobError::ProcessingFailed {
+            reason: "Song import succeeded but returned no data".to_string(),
+        })?
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        return Err(JobError::ProcessingFailed {
+            reason: format!(
+                "Failed to create basic song record: {}",
+                error_messages.join(", ")
+            ),
+        });
+    };
 
     // Record analytics event for song import (best-effort, don't fail if this errors)
     // Note: user_id is left null for system/automated imports
