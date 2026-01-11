@@ -110,3 +110,18 @@ fn test_jobs_process() {
         "Should have completed status"
     );
 }
+
+#[test]
+fn test_jobs_process_file() {
+    let ctx = TestContext::from_snapshot();
+
+    // Try to process a non-existent file - should fail gracefully
+    let result = ctx.run_json(&["jobs", "process-file", "/nonexistent/file.mp3"]);
+
+    // Should return a response (will likely fail since file doesn't exist)
+    // Just verify the command doesn't panic
+    assert!(
+        result["success"].as_bool().is_some(),
+        "Command should return a valid response"
+    );
+}

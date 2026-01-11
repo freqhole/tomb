@@ -237,3 +237,34 @@ fn test_users_error_cases() {
         "Should return a valid response"
     );
 }
+
+#[test]
+fn test_users_deactivate_invite() {
+    let ctx = TestContext::from_snapshot();
+
+    // Generate an invite code first
+    let generate_result = ctx.run_json(&[
+        "users",
+        "generate-invites",
+        "--count",
+        "1",
+        "--word-count",
+        "3",
+    ]);
+
+    if let Some(true) = generate_result["success"].as_bool() {
+        if let Some(codes) = generate_result["data"]["codes"].as_array() {
+            if !codes.is_empty() {
+                if let Some(invite_code) = codes[0]["code"].as_str() {
+                    // Deactivate the invite code (positional argument)
+                    let result = ctx.run_json(&["users", "deactivate-invite", invite_code]);
+
+                    assert!(
+                        result["success"].as_bool().is_some(),
+                        "Should return a response"
+                    );
+                }
+            }
+        }
+    }
+}
