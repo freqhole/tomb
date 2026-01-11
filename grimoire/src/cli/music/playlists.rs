@@ -8,7 +8,6 @@ use crate::music::crud::{
     remove_playlist_thumbnail, search_playlists, update_playlist, update_songs_position,
     AddSongsToPlaylistRequest, CreatePlaylistRequest, UpdatePlaylistRequest,
 };
-use crate::music::Playlist;
 
 pub async fn handle_create_playlist(action: MusicAction) -> CommandOutput<()> {
     if let MusicAction::CreatePlaylist {

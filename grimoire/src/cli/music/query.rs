@@ -10,7 +10,6 @@ use crate::music::crud::{
     query_playlist_songs, query_playlists, query_songs, search_genres, search_sub_genres,
     search_tags,
 };
-use crate::music::{Album, Artist, Genre, GenreStat, Song, SubGenre, Tag};
 
 pub async fn handle_query_songs(action: MusicAction) -> CommandOutput<()> {
     if let MusicAction::QuerySongs { params } = action {

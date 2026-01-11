@@ -34,7 +34,7 @@ pub use users::UserAction;
 pub use wordlist::WordlistAction;
 
 use std::path::PathBuf;
-use utils::{CommandOutput, OutputFormat};
+use utils::OutputFormat;
 
 #[derive(Parser)]
 #[command(name = "grimoire")]

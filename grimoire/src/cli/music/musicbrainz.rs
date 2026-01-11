@@ -24,9 +24,6 @@ pub enum MusicBrainzAction {
         /// Maximum number of results
         #[arg(long, default_value = "10")]
         limit: usize,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Search MusicBrainz for album/release
     SearchAlbum {
@@ -42,9 +39,6 @@ pub enum MusicBrainzAction {
         /// Maximum number of results
         #[arg(long, default_value = "10")]
         limit: usize,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Get recording details by MusicBrainz ID
     GetRecording { recording_id: String },
@@ -103,7 +97,6 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             artist,
             album,
             limit,
-            json,
         } => {
             let mut query = RecordingSearchQuery::new()
                 .title(&title)
@@ -138,7 +131,6 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
             artist,
             album,
             limit,
-            json,
         } => {
             let mut query = ReleaseSearchQuery::new().limit(limit as u32);
 
