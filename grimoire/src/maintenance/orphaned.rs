@@ -4,7 +4,7 @@
 //! referenced by any albums or songs.
 
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::response::GrimoireResponse;
 
 /// Summary of orphaned tag cleanup operation
 #[derive(Debug, Clone)]
@@ -41,11 +41,16 @@ pub struct OrphanedSubGenresSummary {
 ///
 /// # Returns
 /// Summary containing the list of orphaned tag names and deletion status
-pub async fn cleanup_orphaned_tags(dry_run: bool) -> GrimoireResult<OrphanedTagsSummary> {
-    let pool = database::connect().await?;
+pub async fn cleanup_orphaned_tags(dry_run: bool) -> GrimoireResponse<OrphanedTagsSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Find orphaned tags
-    let orphaned_tags = sqlx::query!(
+    let orphaned_tags = match sqlx::query!(
         r#"
         SELECT id, name FROM tagz
         WHERE id NOT IN (SELECT DISTINCT tag_id FROM album_tagz)
@@ -53,7 +58,13 @@ pub async fn cleanup_orphaned_tags(dry_run: bool) -> GrimoireResult<OrphanedTags
         "#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(tags) => tags,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query orphaned tags", vec![e.into()])
+        }
+    };
 
     let tag_names: Vec<String> = orphaned_tags.iter().map(|row| row.name.clone()).collect();
 
@@ -77,11 +88,13 @@ pub async fn cleanup_orphaned_tags(dry_run: bool) -> GrimoireResult<OrphanedTags
         }
     }
 
-    Ok(OrphanedTagsSummary {
+    let summary = OrphanedTagsSummary {
         tags_found,
         tags_deleted,
         tag_names,
-    })
+    };
+
+    GrimoireResponse::success("Orphaned tags cleanup completed", summary)
 }
 
 /// Find and optionally delete orphaned genres
@@ -94,11 +107,16 @@ pub async fn cleanup_orphaned_tags(dry_run: bool) -> GrimoireResult<OrphanedTags
 ///
 /// # Returns
 /// Summary containing the list of orphaned genre names and deletion status
-pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResult<OrphanedGenresSummary> {
-    let pool = database::connect().await?;
+pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<OrphanedGenresSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Find orphaned genres (not used by albums AND not used as parent by sub-genres)
-    let orphaned_genres = sqlx::query!(
+    let orphaned_genres = match sqlx::query!(
         r#"
         SELECT id, name FROM genrez
         WHERE id NOT IN (
@@ -113,7 +131,13 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResult<OrphanedGe
         "#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(genres) => genres,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query orphaned genres", vec![e.into()])
+        }
+    };
 
     let genre_names: Vec<String> = orphaned_genres.iter().map(|row| row.name.clone()).collect();
 
@@ -137,11 +161,13 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResult<OrphanedGe
         }
     }
 
-    Ok(OrphanedGenresSummary {
+    let summary = OrphanedGenresSummary {
         genres_found,
         genres_deleted,
         genre_names,
-    })
+    };
+
+    GrimoireResponse::success("Orphaned genres cleanup completed", summary)
 }
 
 /// Find and optionally delete orphaned sub-genres
@@ -157,11 +183,16 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResult<OrphanedGe
 /// Summary containing the list of orphaned sub-genre names and deletion status
 pub async fn cleanup_orphaned_sub_genres(
     dry_run: bool,
-) -> GrimoireResult<OrphanedSubGenresSummary> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<OrphanedSubGenresSummary> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
 
     // Find orphaned sub-genres (parent genre doesn't exist)
-    let orphaned_sub_genres = sqlx::query!(
+    let orphaned_sub_genres = match sqlx::query!(
         r#"
         SELECT id, name FROM sub_genrez
         WHERE parent_genre_id NOT IN (SELECT id FROM genrez)
@@ -169,7 +200,13 @@ pub async fn cleanup_orphaned_sub_genres(
         "#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(sub_genres) => sub_genres,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query orphaned sub-genres", vec![e.into()])
+        }
+    };
 
     let sub_genre_names: Vec<String> = orphaned_sub_genres
         .iter()
@@ -196,11 +233,13 @@ pub async fn cleanup_orphaned_sub_genres(
         }
     }
 
-    Ok(OrphanedSubGenresSummary {
+    let summary = OrphanedSubGenresSummary {
         sub_genres_found,
         sub_genres_deleted,
         sub_genre_names,
-    })
+    };
+
+    GrimoireResponse::success("Orphaned sub-genres cleanup completed", summary)
 }
 
 #[cfg(test)]
@@ -210,27 +249,27 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires database setup
     async fn test_cleanup_orphaned_tags_dry_run() {
-        let result = cleanup_orphaned_tags(true).await;
-        assert!(result.is_ok());
-        let summary = result.unwrap();
+        let response = cleanup_orphaned_tags(true).await;
+        assert!(response.success);
+        let summary = response.data.unwrap();
         assert_eq!(summary.tags_deleted, 0); // Dry run should not delete
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup
     async fn test_cleanup_orphaned_genres_dry_run() {
-        let result = cleanup_orphaned_genres(true).await;
-        assert!(result.is_ok());
-        let summary = result.unwrap();
+        let response = cleanup_orphaned_genres(true).await;
+        assert!(response.success);
+        let summary = response.data.unwrap();
         assert_eq!(summary.genres_deleted, 0); // Dry run should not delete
     }
 
     #[tokio::test]
     #[ignore] // Requires database setup
     async fn test_cleanup_orphaned_sub_genres_dry_run() {
-        let result = cleanup_orphaned_sub_genres(true).await;
-        assert!(result.is_ok());
-        let summary = result.unwrap();
+        let response = cleanup_orphaned_sub_genres(true).await;
+        assert!(response.success);
+        let summary = response.data.unwrap();
         assert_eq!(summary.sub_genres_deleted, 0); // Dry run should not delete
     }
 }

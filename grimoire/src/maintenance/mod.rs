@@ -1,6 +1,8 @@
 //! Maintenance utilities for grimoire
 //! Provides functions for cleaning up orphaned data and hard deleting old records
 
+use crate::response::GrimoireResponse;
+
 mod hard_delete;
 mod orphaned;
 
@@ -25,42 +27,62 @@ pub struct MaintenanceResult {
 }
 
 /// Run all maintenance tasks with default settings
-pub async fn run_full_maintenance() -> crate::error::GrimoireResult<MaintenanceResult> {
+pub async fn run_full_maintenance() -> GrimoireResponse<MaintenanceResult> {
     run_full_maintenance_with_options(HardDeleteOptions::default()).await
 }
 
 /// Run all maintenance tasks with custom options
 pub async fn run_full_maintenance_with_options(
     options: HardDeleteOptions,
-) -> crate::error::GrimoireResult<MaintenanceResult> {
+) -> GrimoireResponse<MaintenanceResult> {
     let start_time = std::time::Instant::now();
 
     println!("Starting full maintenance...");
 
     // Step 1: Clean up orphaned media blobs
     println!("Cleaning up orphaned media blobs...");
-    let orphaned_blobs_cleaned = cleanup_orphaned_media_blobs_older_than(7.0).await?;
+    let blobs_response = cleanup_orphaned_media_blobs_older_than(7.0).await;
+    let orphaned_blobs_cleaned = match blobs_response.data {
+        Some(data) => data,
+        None => {
+            return GrimoireResponse::failure(
+                "Failed to clean up orphaned blobs",
+                blobs_response.errors,
+            )
+        }
+    };
 
     // Step 2: Hard delete old records
     println!("Hard deleting old records...");
-    let hard_delete_summary = hard_delete_old_records(options).await?;
+    let delete_response = hard_delete_old_records(options).await;
+    let hard_delete_summary = match delete_response.data {
+        Some(data) => data,
+        None => {
+            return GrimoireResponse::failure(
+                "Failed to hard delete old records",
+                delete_response.errors,
+            )
+        }
+    };
 
     let total_duration_ms = start_time.elapsed().as_millis() as u64;
 
     println!("Maintenance completed in {}ms", total_duration_ms);
 
-    Ok(MaintenanceResult {
+    let result = MaintenanceResult {
         orphaned_blobs_cleaned,
         hard_delete_summary,
         total_duration_ms,
-    })
+    };
+
+    GrimoireResponse::success("Full maintenance completed successfully", result)
 }
 
 /// Clean up orphaned blobs older than specified days
 /// Uses the blob_data purge functions but adds age filtering
 pub async fn cleanup_orphaned_media_blobs_older_than(
     min_age_days: f64,
-) -> crate::error::GrimoireResult<OrphanedBlobSummary> {
+) -> GrimoireResponse<OrphanedBlobSummary> {
     use crate::blob_data::find_orphaned_media_blobs;
     use crate::media_blobz::delete_media_blob;
     use std::time::Instant;
@@ -68,7 +90,13 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
     let start_time = Instant::now();
 
     // Find all orphaned blobs
-    let all_orphaned_blobs = find_orphaned_media_blobs().await?;
+    let blobs_result = find_orphaned_media_blobs().await;
+    let all_orphaned_blobs = match blobs_result {
+        Ok(blobs) => blobs,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to find orphaned media blobs", vec![e.into()])
+        }
+    };
 
     // Calculate age and filter
     let current_time = std::time::SystemTime::now()
@@ -136,5 +164,5 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
         duration_ms
     );
 
-    Ok(summary)
+    GrimoireResponse::success("Orphaned blobs cleanup completed", summary)
 }

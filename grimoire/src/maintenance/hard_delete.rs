@@ -3,6 +3,7 @@
 
 use crate::database;
 use crate::error::GrimoireResult;
+use crate::response::GrimoireResponse;
 use std::time::Instant;
 use time::OffsetDateTime;
 
@@ -90,7 +91,17 @@ impl HardDeleteSummary {
 /// Note: Blob cleanup is handled separately by filesystem sync, not here
 pub async fn hard_delete_old_records(
     options: HardDeleteOptions,
-) -> GrimoireResult<HardDeleteSummary> {
+) -> GrimoireResponse<HardDeleteSummary> {
+    match hard_delete_old_records_internal(options).await {
+        Ok(summary) => GrimoireResponse::success("Hard delete completed successfully", summary),
+        Err(e) => GrimoireResponse::failure("Hard delete operation failed", vec![e.into()]),
+    }
+}
+
+/// Internal implementation that returns Result
+async fn hard_delete_old_records_internal(
+    options: HardDeleteOptions,
+) -> Result<HardDeleteSummary, crate::error::GrimoireError> {
     let start_time = Instant::now();
 
     let current_time = std::time::SystemTime::now()
@@ -103,7 +114,7 @@ pub async fn hard_delete_old_records(
     let mut summary = HardDeleteSummary::new(cutoff_timestamp);
 
     if options.dry_run {
-        return dry_run_count(cutoff_timestamp).await;
+        return dry_run_count_internal(cutoff_timestamp).await;
     }
 
     let pool = database::connect().await?;
@@ -538,6 +549,13 @@ pub async fn hard_delete_old_records(
     summary.add_totals();
 
     Ok(summary)
+}
+
+/// Internal dry run function
+async fn dry_run_count_internal(
+    cutoff_timestamp: i64,
+) -> Result<HardDeleteSummary, crate::error::GrimoireError> {
+    dry_run_count(cutoff_timestamp).await
 }
 
 async fn dry_run_count(cutoff_timestamp: i64) -> GrimoireResult<HardDeleteSummary> {

@@ -3,12 +3,31 @@
 use super::MusicAction;
 use crate::blob_data::OrphanedBlobSummary;
 use crate::cli::utils::CommandOutput;
-use crate::error::GrimoireResult;
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::maintenance::{
     cleanup_orphaned_media_blobs_older_than, hard_delete_old_records,
     run_full_maintenance_with_options, HardDeleteOptions, HardDeleteSummary, MaintenanceResult,
 };
 use crate::media_blobz::{find_media_blob_references, MediaBlobReferences};
+use crate::response::GrimoireResponse;
+
+// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
+// TODO: Phase 5 will update CLI to use GrimoireResponse directly
+fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
+    if response.success {
+        response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "Response succeeded but contained no data".to_string(),
+            })
+    } else {
+        let error_messages: Vec<String> =
+            response.errors.iter().map(|e| e.detail.clone()).collect();
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("{}: {}", response.message, error_messages.join(", ")),
+        })
+    }
+}
 
 pub async fn handle_check_blob_references(
     action: MusicAction,
@@ -31,7 +50,8 @@ pub async fn handle_cleanup_orphaned_blobs(
         dry_run: _,
     } = action
     {
-        let summary = cleanup_orphaned_media_blobs_older_than(min_age_days as f64).await?;
+        let summary =
+            to_result(cleanup_orphaned_media_blobs_older_than(min_age_days as f64).await)?;
 
         let message = "Orphaned blob cleanup completed";
         Ok(CommandOutput::new(message, vec![summary]))
@@ -55,7 +75,7 @@ pub async fn handle_hard_delete_old_records(
             dry_run: false,
         };
 
-        let summary = hard_delete_old_records(options).await?;
+        let summary = to_result(hard_delete_old_records(options).await)?;
 
         let message = "Hard deletion completed";
         Ok(CommandOutput::new(message, vec![summary]))
@@ -78,7 +98,7 @@ pub async fn handle_run_maintenance(
             dry_run: false,
         };
 
-        let result = run_full_maintenance_with_options(options).await?;
+        let result = to_result(run_full_maintenance_with_options(options).await)?;
 
         let message = "Full maintenance completed";
         Ok(CommandOutput::new(message, vec![result]))
