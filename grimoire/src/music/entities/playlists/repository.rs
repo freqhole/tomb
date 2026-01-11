@@ -3,17 +3,26 @@
 
 use super::models::{CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError};
+use crate::response::GrimoireResponse;
 
 /// create a new playlist
-pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playlist> {
-    let pool = database::connect().await?;
+pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Playlist> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     let is_public = if req.is_public.unwrap_or(false) { 1 } else { 0 };
     let created_by_str = req.created_by_id.clone();
     let updated_by_str = req.created_by_id.clone();
 
-    let playlist_id = sqlx::query!(
+    let playlist_id = match sqlx::query!(
         r#"INSERT INTO playlistz (title, description, is_public, created_by_id, created_by, updated_by)
          VALUES (?, ?, ?, ?, ?, ?)
          RETURNING id"#,
@@ -25,11 +34,13 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
         updated_by_str
     )
     .fetch_one(&pool)
-    .await?
-    .id;
+    .await {
+        Ok(row) => row.id,
+        Err(e) => return GrimoireResponse::failure("Failed to create playlist", vec![ErrorDetail::from(e)]),
+    };
 
     // Fetch with song count
-    let playlist = sqlx::query_as!(
+    let playlist = match sqlx::query_as!(
         Playlist,
         r#"SELECT
             p.id as "id!",
@@ -52,17 +63,34 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResult<Playl
         playlist_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch created playlist",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(playlist)
+    GrimoireResponse::success("Playlist created successfully", playlist)
 }
 
 /// list all playlists (with song counts)
 /// this probably could be deleted since we have query_playlists
-pub async fn list_playlists() -> GrimoireResult<Vec<Playlist>> {
-    let pool = database::connect().await?;
+pub async fn list_playlists() -> GrimoireResponse<Vec<Playlist>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let playlists = sqlx::query_as!(
+    let playlists = match sqlx::query_as!(
         Playlist,
         r#"SELECT
             p.id as "id!",
@@ -85,16 +113,33 @@ pub async fn list_playlists() -> GrimoireResult<Vec<Playlist>> {
         ORDER BY p.created_at DESC"#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to list playlists",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(playlists)
+    GrimoireResponse::success("Playlists retrieved successfully", playlists)
 }
 
 /// get playlist by id
-pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
-    let pool = database::connect().await?;
+pub async fn get_playlist(id: &str) -> GrimoireResponse<Playlist> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let playlist = sqlx::query_as!(
+    let playlist_opt = match sqlx::query_as!(
         Playlist,
         r#"SELECT
             p.id as "id!",
@@ -117,10 +162,21 @@ pub async fn get_playlist(id: &str) -> GrimoireResult<Playlist> {
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::PlaylistNotFound { id: id.to_string() })?;
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get playlist", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(playlist)
+    match playlist_opt {
+        Some(playlist) => GrimoireResponse::success("Playlist retrieved successfully", playlist),
+        None => {
+            let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
+            GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)])
+        }
+    }
 }
 
 /// remove thumbnail from playlist and optionally clean up unused blob
@@ -128,31 +184,57 @@ pub async fn remove_playlist_thumbnail(
     id: &str,
     cleanup_unused_blob: bool,
     deleted_by: Option<String>,
-) -> GrimoireResult<Playlist> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<Playlist> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Get current thumbnail blob ID before removing it
-    let current_thumbnail_blob_id = sqlx::query!(
+    let current_thumbnail_blob_id_opt = match sqlx::query!(
         "SELECT thumbnail_blob_id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::PlaylistNotFound { id: id.to_string() })?
-    .thumbnail_blob_id;
+    .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to query playlist",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let current_thumbnail_blob_id = match current_thumbnail_blob_id_opt {
+        Some(row) => row.thumbnail_blob_id,
+        None => {
+            let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
+        }
+    };
 
     // Remove thumbnail from playlist
-    let rows_affected = sqlx::query!(
+    let rows_affected = match sqlx::query!(
         "UPDATE playlistz SET updated_at = unixepoch(), thumbnail_blob_id = NULL, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await {
+        Ok(result) => result.rows_affected(),
+        Err(e) => return GrimoireResponse::failure("Failed to remove thumbnail", vec![ErrorDetail::from(e)]),
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::PlaylistNotFound { id: id.to_string() });
+        let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
     // Optionally clean up unused media blob
@@ -178,15 +260,23 @@ pub async fn remove_playlist_thumbnail(
 }
 
 /// update playlist metadata
-pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireResult<Playlist> {
-    let pool = database::connect().await?;
+pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireResponse<Playlist> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Convert is_public boolean to integer for SQLite
     let is_public_int = req.is_public.map(|p| if p { 1 } else { 0 });
 
     // Single query that updates all provided fields using COALESCE
     // This keeps existing values when the request field is None
-    let rows_affected = sqlx::query!(
+    let rows_affected = match sqlx::query!(
         "UPDATE playlistz SET
             updated_at = unixepoch(),
             title = COALESCE(?, title),
@@ -203,112 +293,198 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await
+    {
+        Ok(result) => result.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to update playlist",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::PlaylistNotFound { id: id.to_string() });
+        let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
     // Fetch and return the updated playlist
-    let playlist = get_playlist(id).await?;
-    Ok(playlist)
+    get_playlist(id).await
 }
 
 /// soft delete a playlist
-pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let rows_affected = sqlx::query!(
+    let rows_affected = match sqlx::query!(
         "UPDATE playlistz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,
         deleted_by,
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await {
+        Ok(result) => result.rows_affected(),
+        Err(e) => return GrimoireResponse::failure("Failed to delete playlist", vec![ErrorDetail::from(e)]),
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::PlaylistNotFound { id: id.to_string() });
+        let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
-    Ok(())
+    GrimoireResponse::success("Playlist deleted successfully", ())
 }
 
 /// add songs to a playlist
-pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Verify playlist exists
-    sqlx::query!(
+    let playlist_exists = match sqlx::query!(
         "SELECT id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
         playlist_id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::PlaylistNotFound {
-        id: playlist_id.to_string(),
-    })?;
+    .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to verify playlist",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if playlist_exists.is_none() {
+        let err = GrimoireError::PlaylistNotFound {
+            id: playlist_id.to_string(),
+        };
+        return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
+    }
 
     // Add each song using auto-positioning trigger (position = -1)
     for song_id in song_ids.iter() {
         // Verify song exists
-        sqlx::query!(
+        let song_exists = match sqlx::query!(
             "SELECT id FROM songz WHERE id = ? AND deleted_at IS NULL",
             song_id
         )
         .fetch_optional(&pool)
-        .await?
-        .ok_or_else(|| GrimoireError::SongNotFound {
-            id: song_id.to_string(),
-        })?;
+        .await
+        {
+            Ok(row) => row,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to verify song",
+                    vec![ErrorDetail::from(e)],
+                )
+            }
+        };
+
+        if song_exists.is_none() {
+            let err = GrimoireError::SongNotFound {
+                id: song_id.to_string(),
+            };
+            return GrimoireResponse::failure("Song not found", vec![ErrorDetail::from(&err)]);
+        }
 
         // Use -1 to trigger auto-positioning
-        sqlx::query!(
+        if let Err(e) = sqlx::query!(
             "INSERT INTO playlist_songz (playlist_id, song_id, position)
              VALUES (?, ?, -1)",
             playlist_id,
             song_id
         )
         .execute(&pool)
-        .await?;
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to add song to playlist",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
-    Ok(())
+    GrimoireResponse::success("Songs added to playlist successfully", ())
 }
 
 /// remove songs from a playlist
 pub async fn remove_songs_from_playlist(
     playlist_id: &str,
     song_ids: Vec<String>,
-) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Verify playlist exists
-    sqlx::query!(
+    let playlist_exists = match sqlx::query!(
         "SELECT id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
         playlist_id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::PlaylistNotFound {
-        id: playlist_id.to_string(),
-    })?;
+    .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to verify playlist",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if playlist_exists.is_none() {
+        let err = GrimoireError::PlaylistNotFound {
+            id: playlist_id.to_string(),
+        };
+        return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
+    }
 
     // Remove songs
     for song_id in song_ids {
-        sqlx::query!(
+        if let Err(e) = sqlx::query!(
             "DELETE FROM playlist_songz WHERE playlist_id = ? AND song_id = ?",
             playlist_id,
             song_id
         )
         .execute(&pool)
-        .await?;
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to remove song from playlist",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
     // Reorder remaining songs to fill gaps
-    sqlx::query!(
+    if let Err(e) = sqlx::query!(
         r#"UPDATE playlist_songz
            SET position = (
                SELECT ROW_NUMBER() OVER (ORDER BY position)
@@ -320,16 +496,27 @@ pub async fn remove_songs_from_playlist(
         playlist_id
     )
     .execute(&pool)
-    .await?;
+    .await
+    {
+        return GrimoireResponse::failure("Failed to reorder songs", vec![ErrorDetail::from(e)]);
+    }
 
-    Ok(())
+    GrimoireResponse::success("Songs removed from playlist successfully", ())
 }
 
 /// get songs in a playlist
-pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResult<Vec<PlaylistSong>> {
-    let pool = database::connect().await?;
+pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResponse<Vec<PlaylistSong>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let playlist_songs = sqlx::query_as!(
+    let playlist_songs = match sqlx::query_as!(
         PlaylistSong,
         r#"SELECT
             ps.playlist_id as "playlist_id!",
@@ -343,9 +530,18 @@ pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResult<Vec<Playlis
         playlist_id
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(songs) => songs,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to get playlist songs",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(playlist_songs)
+    GrimoireResponse::success("Playlist songs retrieved successfully", playlist_songs)
 }
 
 /// update the position of a song in a playlist
@@ -354,7 +550,7 @@ pub async fn update_song_position(
     playlist_id: &str,
     song_id: &str,
     new_position: i64,
-) -> GrimoireResult<()> {
+) -> GrimoireResponse<()> {
     // Single song reordering - delegate to the multiple song function
     update_songs_position(playlist_id, &[song_id], new_position).await
 }
@@ -363,11 +559,19 @@ pub async fn update_songs_position(
     playlist_id: &str,
     song_ids: &[&str],
     new_position: i64,
-) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Step 1: Get all songs in playlist with their current positions
-    let all_songs = sqlx::query!(
+    let all_songs = match sqlx::query!(
         "SELECT s.id, ps.position
          FROM playlist_songz ps
          JOIN playlistz p ON ps.playlist_id = p.id
@@ -377,7 +581,16 @@ pub async fn update_songs_position(
         playlist_id
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(songs) => songs,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch playlist songs",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Step 2: Calculate new positions in Rust
     let mut final_positions = Vec::new();
@@ -412,21 +625,35 @@ pub async fn update_songs_position(
     }
 
     // Step 3: Use transaction for bulk update
-    let mut tx = pool.begin().await?;
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to begin transaction",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // First, move all songs to negative positions to avoid UNIQUE constraint conflicts
-    sqlx::query!(
+    if let Err(e) = sqlx::query!(
         "UPDATE playlist_songz
          SET position = -position
          WHERE playlist_id = ?",
         playlist_id
     )
     .execute(&mut *tx)
-    .await?;
+    .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to update song positions",
+            vec![ErrorDetail::from(e)],
+        );
+    }
 
     // Then update all positions to their final values
     for (song_id, position) in final_positions {
-        sqlx::query!(
+        if let Err(e) = sqlx::query!(
             "UPDATE playlist_songz
              SET position = ?
              WHERE playlist_id = ?
@@ -436,9 +663,21 @@ pub async fn update_songs_position(
             song_id
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to set final song positions",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
-    tx.commit().await?;
-    Ok(())
+    if let Err(e) = tx.commit().await {
+        return GrimoireResponse::failure(
+            "Failed to commit transaction",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success("Song positions updated successfully", ())
 }

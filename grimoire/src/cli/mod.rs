@@ -36,21 +36,6 @@ pub use wordlist::WordlistAction;
 use std::path::PathBuf;
 use utils::{CommandOutput, OutputFormat};
 
-/// Temporary helper to convert Result to CommandOutput
-/// This will be removed once all handlers return CommandOutput
-fn result_to_output<T: serde::Serialize + Default>(
-    result: Result<T, crate::error::GrimoireError>,
-) -> CommandOutput<T> {
-    match result {
-        Ok(data) => CommandOutput::success("Command completed", data),
-        Err(e) => CommandOutput::failure(
-            "Command failed",
-            vec![utils::ErrorDetail::from(&e)],
-            T::default(),
-        ),
-    }
-}
-
 #[derive(Parser)]
 #[command(name = "grimoire")]
 #[command(about = "A CLI for managing the grimoire system", long_about = None)]

@@ -7,7 +7,7 @@ use super::models::{
     ImportSongResult, SongImportError, SongImportErrorType,
 };
 use crate::database;
-use crate::error::{ErrorDetail, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::entities::{
     albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
     CreateGenreRequest, CreateSongRequest, Genre, Playlist, Song,
@@ -151,9 +151,13 @@ pub async fn import_song_with_metadata(
         created_by: req.created_by,
     };
 
-    let song = match songs::create_song(song_req).await {
-        Ok(s) => s,
-        Err(e) => return GrimoireResponse::failure("Failed to create song", vec![e.into()]),
+    let song_response = songs::create_song(song_req).await;
+    if !song_response.success {
+        return GrimoireResponse::failure("Failed to create song", song_response.errors);
+    }
+    let song = match song_response.data {
+        Some(s) => s,
+        None => return GrimoireResponse::failure("No song returned after creation", vec![]),
     };
 
     // 5. Create relationships (artist_songz, album_songz, artist_albumz)
@@ -239,9 +243,13 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
             name: req.name,
             created_by: req.created_by,
         };
-        let artist = match artists::create_artist(create_req).await {
-            Ok(a) => a,
-            Err(e) => return GrimoireResponse::failure("Failed to create artist", vec![e.into()]),
+        let artist_response = artists::create_artist(create_req).await;
+        if !artist_response.success {
+            return GrimoireResponse::failure("Failed to create artist", artist_response.errors);
+        }
+        let artist = match artist_response.data {
+            Some(a) => a,
+            None => return GrimoireResponse::failure("No artist returned after creation", vec![]),
         };
         GrimoireResponse::success("Artist created successfully", (artist, true))
     }
@@ -299,9 +307,13 @@ pub async fn find_or_create_album(req: AlbumImportRequest) -> GrimoireResponse<(
             genre_id: req.genre_id,
             created_by: req.created_by,
         };
-        let album = match albums::create_album(create_req).await {
-            Ok(a) => a,
-            Err(e) => return GrimoireResponse::failure("Failed to create album", vec![e.into()]),
+        let album_response = albums::create_album(create_req).await;
+        if !album_response.success {
+            return GrimoireResponse::failure("Failed to create album", album_response.errors);
+        }
+        let album = match album_response.data {
+            Some(a) => a,
+            None => return GrimoireResponse::failure("No album returned after creation", vec![]),
         };
         GrimoireResponse::success("Album created successfully", (album, true))
     }
@@ -339,9 +351,13 @@ pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool
         GrimoireResponse::success("Genre found", (genre, false))
     } else {
         let create_req = CreateGenreRequest { name };
-        let genre = match genres::create_genre(create_req).await {
-            Ok(g) => g,
-            Err(e) => return GrimoireResponse::failure("Failed to create genre", vec![e.into()]),
+        let genre_response = genres::create_genre(create_req).await;
+        if !genre_response.success {
+            return GrimoireResponse::failure("Failed to create genre", genre_response.errors);
+        }
+        let genre = match genre_response.data {
+            Some(g) => g,
+            None => return GrimoireResponse::failure("No genre returned after creation", vec![]),
         };
         GrimoireResponse::success("Genre created successfully", (genre, true))
     }
@@ -441,7 +457,20 @@ async fn find_or_create_album_for_artist(
             genre_id: req.genre_id,
             created_by: req.created_by,
         };
-        let album = albums::create_album(create_req).await?;
+        let album_response = albums::create_album(create_req).await;
+        if !album_response.success {
+            return Err(GrimoireError::ProcessingFailed {
+                message: album_response.message,
+            });
+        }
+        let album = match album_response.data {
+            Some(a) => a,
+            None => {
+                return Err(GrimoireError::ProcessingFailed {
+                    message: "No album returned after creation".to_string(),
+                })
+            }
+        };
 
         // Create artist-album relationship immediately
         create_artist_album_relationship(artist_id, &album.id).await?;
@@ -622,10 +651,17 @@ pub async fn get_or_create_playlist_by_name(
             is_public,
             created_by_id,
         };
-        let playlist = match create_playlist(create_req).await {
-            Ok(p) => p,
-            Err(e) => {
-                return GrimoireResponse::failure("Failed to create playlist", vec![e.into()])
+        let playlist_response = create_playlist(create_req).await;
+        if !playlist_response.success {
+            return GrimoireResponse::failure(
+                "Failed to create playlist",
+                playlist_response.errors,
+            );
+        }
+        let playlist = match playlist_response.data {
+            Some(p) => p,
+            None => {
+                return GrimoireResponse::failure("No playlist returned after creation", vec![])
             }
         };
         GrimoireResponse::success("Playlist created successfully", (playlist, true))
@@ -647,9 +683,13 @@ pub async fn update_song_with_relationships(
     };
 
     // Get the song
-    let song = match songs::get_song(song_id).await {
-        Ok(s) => s,
-        Err(e) => return GrimoireResponse::failure("Failed to get song", vec![e.into()]),
+    let song_response = songs::get_song(song_id).await;
+    if !song_response.success {
+        return GrimoireResponse::failure("Failed to get song", song_response.errors);
+    }
+    let song = match song_response.data {
+        Some(s) => s,
+        None => return GrimoireResponse::failure("Song not found", vec![]),
     };
 
     // Remove old relationships

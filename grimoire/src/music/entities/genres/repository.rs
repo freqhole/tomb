@@ -3,13 +3,22 @@
 
 use super::models::{CreateGenreRequest, CreateSubGenreRequest, Genre, GenreStat, SubGenre};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError};
+use crate::response::GrimoireResponse;
 
 /// create a new genre
-pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResult<Genre> {
-    let pool = database::connect().await?;
+pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResponse<Genre> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let genre = sqlx::query_as!(
+    let genre = match sqlx::query_as!(
         Genre,
         r#"INSERT INTO genrez (name, created_at)
          VALUES (?, unixepoch())
@@ -20,16 +29,30 @@ pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResult<Genre> {
         req.name
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(g) => g,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to create genre", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(genre)
+    GrimoireResponse::success("Genre created successfully", genre)
 }
 
 /// list all genres
-pub async fn list_genres() -> GrimoireResult<Vec<Genre>> {
-    let pool = database::connect().await?;
+pub async fn list_genres() -> GrimoireResponse<Vec<Genre>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let genres = sqlx::query_as!(
+    let genres = match sqlx::query_as!(
         Genre,
         r#"SELECT
             id as "id!",
@@ -40,17 +63,31 @@ pub async fn list_genres() -> GrimoireResult<Vec<Genre>> {
            ORDER BY name ASC"#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(g) => g,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list genres", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(genres)
+    GrimoireResponse::success("Genres retrieved successfully", genres)
 }
 
 /// query genres by name (for autocomplete)
-pub async fn query_genres(search: &str) -> GrimoireResult<Vec<Genre>> {
-    let pool = database::connect().await?;
+pub async fn query_genres(search: &str) -> GrimoireResponse<Vec<Genre>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
     let search_pattern = format!("%{}%", search);
 
-    let genres = sqlx::query_as!(
+    let genres = match sqlx::query_as!(
         Genre,
         r#"SELECT
             id as "id!",
@@ -63,16 +100,30 @@ pub async fn query_genres(search: &str) -> GrimoireResult<Vec<Genre>> {
         search_pattern
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(g) => g,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query genres", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(genres)
+    GrimoireResponse::success("Genre search completed successfully", genres)
 }
 
 /// get genre by id
-pub async fn get_genre(id: &str) -> GrimoireResult<Genre> {
-    let pool = database::connect().await?;
+pub async fn get_genre(id: &str) -> GrimoireResponse<Genre> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let genre = sqlx::query_as!(
+    let genre_opt = match sqlx::query_as!(
         Genre,
         r#"SELECT
             id as "id!",
@@ -83,17 +134,36 @@ pub async fn get_genre(id: &str) -> GrimoireResult<Genre> {
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::GenreNotFound { id: id.to_string() })?;
+    .await
+    {
+        Ok(g) => g,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get genre", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(genre)
+    match genre_opt {
+        Some(genre) => GrimoireResponse::success("Genre retrieved successfully", genre),
+        None => {
+            let err = GrimoireError::GenreNotFound { id: id.to_string() };
+            GrimoireResponse::failure("Genre not found", vec![ErrorDetail::from(&err)])
+        }
+    }
 }
 
 /// create a new sub-genre
-pub async fn create_sub_genre(req: CreateSubGenreRequest) -> GrimoireResult<SubGenre> {
-    let pool = database::connect().await?;
+pub async fn create_sub_genre(req: CreateSubGenreRequest) -> GrimoireResponse<SubGenre> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let sub_genre = sqlx::query_as!(
+    let sub_genre = match sqlx::query_as!(
         SubGenre,
         r#"INSERT INTO sub_genrez (name, parent_genre_id, created_at)
          VALUES (?, ?, unixepoch())
@@ -106,16 +176,33 @@ pub async fn create_sub_genre(req: CreateSubGenreRequest) -> GrimoireResult<SubG
         req.parent_genre_id
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(sg) => sg,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to create sub-genre",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(sub_genre)
+    GrimoireResponse::success("Sub-genre created successfully", sub_genre)
 }
 
 /// list all sub-genres
-pub async fn list_sub_genres() -> GrimoireResult<Vec<SubGenre>> {
-    let pool = database::connect().await?;
+pub async fn list_sub_genres() -> GrimoireResponse<Vec<SubGenre>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let sub_genres = sqlx::query_as!(
+    let sub_genres = match sqlx::query_as!(
         SubGenre,
         r#"SELECT
             id as "id!",
@@ -127,16 +214,33 @@ pub async fn list_sub_genres() -> GrimoireResult<Vec<SubGenre>> {
            ORDER BY name ASC"#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(sg) => sg,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to list sub-genres",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(sub_genres)
+    GrimoireResponse::success("Sub-genres retrieved successfully", sub_genres)
 }
 
 /// get sub-genre by id
-pub async fn get_sub_genre(id: &str) -> GrimoireResult<SubGenre> {
-    let pool = database::connect().await?;
+pub async fn get_sub_genre(id: &str) -> GrimoireResponse<SubGenre> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let sub_genre = sqlx::query_as!(
+    let sub_genre_opt = match sqlx::query_as!(
         SubGenre,
         r#"SELECT
             id as "id!",
@@ -148,19 +252,38 @@ pub async fn get_sub_genre(id: &str) -> GrimoireResult<SubGenre> {
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::SubGenreNotFound { id: id.to_string() })?;
+    .await
+    {
+        Ok(sg) => sg,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get sub-genre", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(sub_genre)
+    match sub_genre_opt {
+        Some(sub_genre) => GrimoireResponse::success("Sub-genre retrieved successfully", sub_genre),
+        None => {
+            let err = GrimoireError::SubGenreNotFound { id: id.to_string() };
+            GrimoireResponse::failure("Sub-genre not found", vec![ErrorDetail::from(&err)])
+        }
+    }
 }
 
 /// get genre statistics (song counts, album counts, etc.)
-pub async fn get_genre_stats() -> GrimoireResult<Vec<GenreStat>> {
-    let pool = database::connect().await?;
+pub async fn get_genre_stats() -> GrimoireResponse<Vec<GenreStat>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // For now, return basic stats from denormalized song data
     // TODO: Replace with normalized genre relationships when implemented
-    let stats = sqlx::query_as!(
+    let stats = match sqlx::query_as!(
         GenreStat,
         r#"SELECT
             g.name as "name!",
@@ -175,20 +298,37 @@ pub async fn get_genre_stats() -> GrimoireResult<Vec<GenreStat>> {
            ORDER BY g.name ASC"#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to get genre stats",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(stats)
+    GrimoireResponse::success("Genre stats retrieved successfully", stats)
 }
 
 /// find or create sub-genre by name (with parent genre)
 pub async fn find_or_create_sub_genre(
     name: String,
     parent_genre_id: String,
-) -> GrimoireResult<(SubGenre, bool)> {
-    let pool = database::connect().await?;
+) -> GrimoireResponse<(SubGenre, bool)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // try to find existing sub-genre (case-insensitive, with same parent)
-    let existing = sqlx::query_as!(
+    let existing = match sqlx::query_as!(
         SubGenre,
         r#"SELECT
             id as "id!",
@@ -201,26 +341,53 @@ pub async fn find_or_create_sub_genre(
         parent_genre_id
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(sg) => sg,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to query sub-genre",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     if let Some(sub_genre) = existing {
-        return Ok((sub_genre, false));
+        return GrimoireResponse::success("Sub-genre found", (sub_genre, false));
     }
 
     // create new sub-genre
-    let sub_genre = create_sub_genre(CreateSubGenreRequest {
+    let response = create_sub_genre(CreateSubGenreRequest {
         name,
         parent_genre_id: Some(parent_genre_id),
     })
-    .await?;
-    Ok((sub_genre, true))
+    .await;
+
+    if !response.success {
+        return GrimoireResponse::failure("Failed to create sub-genre", response.errors);
+    }
+
+    let sub_genre = match response.data {
+        Some(sg) => sg,
+        None => return GrimoireResponse::failure("No sub-genre returned after creation", vec![]),
+    };
+
+    GrimoireResponse::success("Sub-genre created successfully", (sub_genre, true))
 }
 
 /// list sub-genres for a parent genre
-pub async fn list_sub_genres_for_genre(parent_genre_id: &str) -> GrimoireResult<Vec<SubGenre>> {
-    let pool = database::connect().await?;
+pub async fn list_sub_genres_for_genre(parent_genre_id: &str) -> GrimoireResponse<Vec<SubGenre>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let sub_genres = sqlx::query_as!(
+    let sub_genres = match sqlx::query_as!(
         SubGenre,
         r#"SELECT
             id as "id!",
@@ -233,17 +400,34 @@ pub async fn list_sub_genres_for_genre(parent_genre_id: &str) -> GrimoireResult<
         parent_genre_id
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(sg) => sg,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to query sub-genres",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(sub_genres)
+    GrimoireResponse::success("Sub-genre search completed successfully", sub_genres)
 }
 
 /// query sub-genres by name (for autocomplete)
-pub async fn query_sub_genres(search: &str) -> GrimoireResult<Vec<SubGenre>> {
-    let pool = database::connect().await?;
+pub async fn query_sub_genres(search: &str) -> GrimoireResponse<Vec<SubGenre>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
     let search_pattern = format!("%{}%", search);
 
-    let sub_genres = sqlx::query_as!(
+    let sub_genres = match sqlx::query_as!(
         SubGenre,
         r#"SELECT
             id as "id!",
@@ -257,30 +441,56 @@ pub async fn query_sub_genres(search: &str) -> GrimoireResult<Vec<SubGenre>> {
         search_pattern
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(sg) => sg,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to query sub-genres",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(sub_genres)
+    GrimoireResponse::success("Sub-genre search completed successfully", sub_genres)
 }
 
 /// delete sub-genre by id
-pub async fn delete_sub_genre(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn delete_sub_genre(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Soft-delete the sub-genre
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    let rows_affected = sqlx::query!(
+    let rows_affected = match sqlx::query!(
         "UPDATE sub_genrez SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
         now,
         deleted_by,
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await
+    {
+        Ok(result) => result.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to delete sub-genre",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::SubGenreNotFound { id: id.to_string() });
+        let err = GrimoireError::SubGenreNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Sub-genre not found", vec![ErrorDetail::from(&err)]);
     }
 
-    Ok(())
+    GrimoireResponse::success("Sub-genre deleted successfully", ())
 }

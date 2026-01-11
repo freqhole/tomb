@@ -3,14 +3,23 @@
 
 use super::models::{CreateSongRequest, Song};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::remove_song_from_all_playlists;
+use crate::response::GrimoireResponse;
 
 /// create a new song
-pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
-    let pool = database::connect().await?;
+pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let song = sqlx::query_as!(
+    let song = match sqlx::query_as!(
         Song,
         "INSERT INTO songz (
             media_blob_id, title, track_number, disc_number, duration, year, bpm, key_signature, lyrics,
@@ -51,18 +60,35 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResult<Song> {
         req.created_by
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to create song",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(song)
+    GrimoireResponse::success("Song created successfully", song)
 }
 
 /// list all songs (non-deleted only)
-pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResult<Vec<Song>> {
-    let pool = database::connect().await?;
+pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResponse<Vec<Song>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
     let limit = limit.unwrap_or(100).min(1000) as i64;
     let offset = offset.unwrap_or(0) as i64;
 
-    let songs = sqlx::query_as!(
+    let songs = match sqlx::query_as!(
         Song,
         "SELECT
             id as \"id!\",
@@ -94,16 +120,30 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResu
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list songs", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(songs)
+    GrimoireResponse::success("Songs retrieved successfully", songs)
 }
 
 /// get song by id
-pub async fn get_song(id: &str) -> GrimoireResult<Song> {
-    let pool = database::connect().await?;
+pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let song = sqlx::query_as!(
+    let song_opt = match sqlx::query_as!(
         Song,
         "SELECT
             id as \"id!\",
@@ -132,39 +172,65 @@ pub async fn get_song(id: &str) -> GrimoireResult<Song> {
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::SongNotFound { id: id.to_string() })?;
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get song", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(song)
+    match song_opt {
+        Some(song) => GrimoireResponse::success("Song retrieved successfully", song),
+        None => {
+            let err = GrimoireError::SongNotFound { id: id.to_string() };
+            GrimoireResponse::failure("Song not found", vec![ErrorDetail::from(&err)])
+        }
+    }
 }
 
 /// soft delete a song
-pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
-    let rows_affected = sqlx::query!(
+pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let rows_affected = match sqlx::query!(
         "UPDATE songz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,
         deleted_by,
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await
+    {
+        Ok(result) => result.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to delete song",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::SongNotFound { id: id.to_string() });
+        let err = GrimoireError::SongNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Song not found", vec![ErrorDetail::from(&err)]);
     }
 
     // Remove song from all playlists when soft-deleting
-    match remove_song_from_all_playlists(id).await {
-        crate::GrimoireResponse { success: true, .. } => Ok(()),
-        response => {
-            let error_msg = if !response.errors.is_empty() {
-                response.errors[0].detail.clone()
-            } else {
-                response.message
-            };
-            Err(GrimoireError::ProcessingFailed { message: error_msg })
-        }
+    let playlist_removal = remove_song_from_all_playlists(id).await;
+    if !playlist_removal.success {
+        return GrimoireResponse::failure(
+            "Failed to remove song from playlists",
+            playlist_removal.errors,
+        );
     }
+
+    GrimoireResponse::success("Song deleted successfully", ())
 }

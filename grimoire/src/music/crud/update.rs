@@ -39,10 +39,11 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
     // verify all songs exist
     for song_id in &req.song_ids {
-        if let Err(err) = songs::get_song(song_id).await {
+        let song_response = songs::get_song(song_id).await;
+        if !song_response.success {
             return GrimoireResponse::failure(
                 &format!("Song not found: {}", song_id),
-                vec![err.into()],
+                song_response.errors,
             );
         }
     }
@@ -255,12 +256,19 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 name: sub_genre_name,
                 parent_genre_id: Some(parent_genre_id),
             };
-            match create_sub_genre(sub_genre_req).await {
-                Ok(new_sub_genre) => Some(new_sub_genre),
-                Err(err) => {
+            let sub_genre_response = create_sub_genre(sub_genre_req).await;
+            if !sub_genre_response.success {
+                return GrimoireResponse::failure(
+                    "Failed to create sub-genre",
+                    sub_genre_response.errors,
+                );
+            }
+            match sub_genre_response.data {
+                Some(new_sub_genre) => Some(new_sub_genre),
+                None => {
                     return GrimoireResponse::failure(
-                        "Failed to create sub-genre",
-                        vec![err.into()],
+                        "No sub-genre returned after creation",
+                        vec![],
                     );
                 }
             }
@@ -446,52 +454,69 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
     let mut tags_modified = false;
     if let Some(ref album) = album {
         if let Some(tag_names) = req.add_tags {
-            let tags = match find_or_create_tags(tag_names).await {
-                Ok(tags) => tags,
-                Err(err) => {
-                    return GrimoireResponse::failure(
-                        "Failed to find or create tags",
-                        vec![err.into()],
-                    );
+            let tags_response = find_or_create_tags(tag_names).await;
+            if !tags_response.success {
+                return GrimoireResponse::failure(
+                    "Failed to find or create tags",
+                    tags_response.errors,
+                );
+            }
+            let tags = match tags_response.data {
+                Some(t) => t,
+                None => {
+                    return GrimoireResponse::failure("No tags returned after creation", vec![])
                 }
             };
             let tag_ids: Vec<String> = tags.iter().map(|t| t.id.clone()).collect();
-            if let Err(err) = add_album_tags(&album.id, tag_ids).await {
-                return GrimoireResponse::failure("Failed to add album tags", vec![err.into()]);
+            let add_tags_response = add_album_tags(&album.id, tag_ids).await;
+            if !add_tags_response.success {
+                return GrimoireResponse::failure("Failed to add tags", add_tags_response.errors);
             }
             tags_modified = true;
         }
 
         if let Some(tag_names) = req.remove_tags {
-            let tags = match find_or_create_tags(tag_names).await {
-                Ok(tags) => tags,
-                Err(err) => {
-                    return GrimoireResponse::failure(
-                        "Failed to find or create tags",
-                        vec![err.into()],
-                    );
-                }
+            let tags_response = find_or_create_tags(tag_names).await;
+            if !tags_response.success {
+                return GrimoireResponse::failure(
+                    "Failed to find or create tags",
+                    tags_response.errors,
+                );
+            }
+            let tags = match tags_response.data {
+                Some(t) => t,
+                None => return GrimoireResponse::failure("No tags returned", vec![]),
             };
             let tag_ids: Vec<String> = tags.iter().map(|t| t.id.clone()).collect();
-            if let Err(err) = remove_album_tags(&album.id, tag_ids).await {
-                return GrimoireResponse::failure("Failed to remove album tags", vec![err.into()]);
+            let remove_tags_response = remove_album_tags(&album.id, tag_ids).await;
+            if !remove_tags_response.success {
+                return GrimoireResponse::failure(
+                    "Failed to remove tags",
+                    remove_tags_response.errors,
+                );
             }
             tags_modified = true;
         }
 
         if let Some(tag_names) = req.replace_tags {
-            let tags = match find_or_create_tags(tag_names).await {
-                Ok(tags) => tags,
-                Err(err) => {
-                    return GrimoireResponse::failure(
-                        "Failed to find or create tags",
-                        vec![err.into()],
-                    );
-                }
+            let tags_response = find_or_create_tags(tag_names).await;
+            if !tags_response.success {
+                return GrimoireResponse::failure(
+                    "Failed to find or create tags",
+                    tags_response.errors,
+                );
+            }
+            let tags = match tags_response.data {
+                Some(t) => t,
+                None => return GrimoireResponse::failure("No tags returned", vec![]),
             };
             let tag_ids: Vec<String> = tags.iter().map(|t| t.id.clone()).collect();
-            if let Err(err) = replace_album_tags(&album.id, tag_ids).await {
-                return GrimoireResponse::failure("Failed to replace album tags", vec![err.into()]);
+            let replace_tags_response = replace_album_tags(&album.id, tag_ids).await;
+            if !replace_tags_response.success {
+                return GrimoireResponse::failure(
+                    "Failed to replace tags",
+                    replace_tags_response.errors,
+                );
             }
             tags_modified = true;
         }

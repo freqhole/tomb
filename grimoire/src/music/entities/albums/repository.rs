@@ -4,16 +4,25 @@
 
 use super::models::{Album, CreateAlbumRequest};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError};
+use crate::response::GrimoireResponse;
 use time::OffsetDateTime;
 
 /// create a new album
-pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
-    let pool = database::connect().await?;
+pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     let album_type = req.album_type.unwrap_or_else(|| "album".to_string());
 
-    let album = sqlx::query_as!(
+    let album = match sqlx::query_as!(
         Album,
         r#"INSERT INTO albumz (title, album_type, release_date, release_date_precision, label, genre_id, created_by, updated_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -43,18 +52,35 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResult<Album> {
         req.created_by
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(a) => a,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to create album",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(album)
+    GrimoireResponse::success("Album created successfully", album)
 }
 
 /// list all albums (non-deleted only)
-pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireResult<Vec<Album>> {
-    let pool = database::connect().await?;
+pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireResponse<Vec<Album>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
     let limit = limit.unwrap_or(100).min(1000) as i64;
     let offset = offset.unwrap_or(0) as i64;
 
-    let albums = sqlx::query_as!(
+    let albums = match sqlx::query_as!(
         Album,
         r#"SELECT
             id as "id!",
@@ -80,16 +106,30 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
         offset
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(a) => a,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list albums", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(albums)
+    GrimoireResponse::success("Albums retrieved successfully", albums)
 }
 
 /// get album by id
-pub async fn get_album(id: &str) -> GrimoireResult<Album> {
-    let pool = database::connect().await?;
+pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let album = sqlx::query_as!(
+    let album_opt = match sqlx::query_as!(
         Album,
         r#"SELECT
             id as "id!",
@@ -112,41 +152,78 @@ pub async fn get_album(id: &str) -> GrimoireResult<Album> {
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::AlbumNotFound { id: id.to_string() })?;
+    .await
+    {
+        Ok(a) => a,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get album", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(album)
+    match album_opt {
+        Some(album) => GrimoireResponse::success("Album retrieved successfully", album),
+        None => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            GrimoireResponse::failure("Album not found", vec![ErrorDetail::from(&err)])
+        }
+    }
 }
 
 /// soft delete an album
-pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let rows_affected = sqlx::query!(
+    let rows_affected = match sqlx::query!(
         "UPDATE albumz SET deleted_at = unixepoch(), updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await
+    {
+        Ok(result) => result.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to delete album",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::AlbumNotFound { id: id.to_string() });
+        let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Album not found", vec![ErrorDetail::from(&err)]);
     }
 
     // Cascade: soft-delete all songs in this album and remove them from playlists
     let now = OffsetDateTime::now_utc().unix_timestamp();
-    let song_ids: Vec<String> = sqlx::query_scalar!(
+    let song_ids: Vec<String> = match sqlx::query_scalar!(
         r#"SELECT song_id as "song_id!" FROM album_songz WHERE album_id = ?"#,
         id
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch album songs",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     for song_id in &song_ids {
         // Soft-delete the song
-        sqlx::query!(
+        if let Err(e) = sqlx::query!(
             "UPDATE songz SET deleted_at = ?, updated_at = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
             now,
             now,
@@ -154,13 +231,25 @@ pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireResul
             song_id
         )
         .execute(&pool)
-        .await?;
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to delete album song",
+                vec![ErrorDetail::from(e)],
+            );
+        }
 
         // Remove from all playlists
-        sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+        if let Err(e) = sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
             .execute(&pool)
-            .await?;
+            .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to remove song from playlists",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
-    Ok(())
+    GrimoireResponse::success("Album deleted successfully", ())
 }

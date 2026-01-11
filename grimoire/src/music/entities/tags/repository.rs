@@ -3,14 +3,23 @@
 
 use super::models::{CreateTagRequest, Tag};
 use crate::database;
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::normalize_name;
+use crate::response::GrimoireResponse;
 
 /// create a new tag
-pub async fn create_tag(req: CreateTagRequest) -> GrimoireResult<Tag> {
-    let pool = database::connect().await?;
+pub async fn create_tag(req: CreateTagRequest) -> GrimoireResponse<Tag> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let tag = sqlx::query_as!(
+    let tag = match sqlx::query_as!(
         Tag,
         r#"INSERT INTO tagz (name, created_at)
          VALUES (?, unixepoch())
@@ -21,18 +30,32 @@ pub async fn create_tag(req: CreateTagRequest) -> GrimoireResult<Tag> {
         req.name
     )
     .fetch_one(&pool)
-    .await?;
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to create tag", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(tag)
+    GrimoireResponse::success("Tag created successfully", tag)
 }
 
 /// find existing tag by normalized name or create new one
-pub async fn find_or_create_tag(name: String) -> GrimoireResult<(Tag, bool)> {
-    let pool = database::connect().await?;
+pub async fn find_or_create_tag(name: String) -> GrimoireResponse<(Tag, bool)> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
     let normalized = normalize_name(&name);
 
     // try to find existing tag (case-insensitive)
-    let existing = sqlx::query_as!(
+    let existing = match sqlx::query_as!(
         Tag,
         r#"SELECT
             id as "id!",
@@ -43,32 +66,60 @@ pub async fn find_or_create_tag(name: String) -> GrimoireResult<(Tag, bool)> {
         normalized
     )
     .fetch_optional(&pool)
-    .await?;
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query tag", vec![ErrorDetail::from(e)])
+        }
+    };
 
     if let Some(tag) = existing {
-        return Ok((tag, false));
+        return GrimoireResponse::success("Tag found", (tag, false));
     }
 
     // create new tag
-    let tag = create_tag(CreateTagRequest { name }).await?;
-    Ok((tag, true))
+    let response = create_tag(CreateTagRequest { name }).await;
+    if !response.success {
+        return GrimoireResponse::failure("Failed to create tag", response.errors);
+    }
+
+    let tag = match response.data {
+        Some(t) => t,
+        None => return GrimoireResponse::failure("No tag returned after creation", vec![]),
+    };
+
+    GrimoireResponse::success("Tag created successfully", (tag, true))
 }
 
 /// find or create multiple tags
-pub async fn find_or_create_tags(names: Vec<String>) -> GrimoireResult<Vec<Tag>> {
+pub async fn find_or_create_tags(names: Vec<String>) -> GrimoireResponse<Vec<Tag>> {
     let mut tags = Vec::new();
     for name in names {
-        let (tag, _) = find_or_create_tag(name).await?;
-        tags.push(tag);
+        let response = find_or_create_tag(name).await;
+        if !response.success {
+            return GrimoireResponse::failure("Failed to find or create tag", response.errors);
+        }
+        if let Some((tag, _)) = response.data {
+            tags.push(tag);
+        }
     }
-    Ok(tags)
+    GrimoireResponse::success("Tags found or created successfully", tags)
 }
 
 /// list all tags
-pub async fn list_tags() -> GrimoireResult<Vec<Tag>> {
-    let pool = database::connect().await?;
+pub async fn list_tags() -> GrimoireResponse<Vec<Tag>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let tags = sqlx::query_as!(
+    let tags = match sqlx::query_as!(
         Tag,
         r#"SELECT
             id as "id!",
@@ -79,17 +130,31 @@ pub async fn list_tags() -> GrimoireResult<Vec<Tag>> {
            ORDER BY name ASC"#
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list tags", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(tags)
+    GrimoireResponse::success("Tags retrieved successfully", tags)
 }
 
 /// query tags by name (for autocomplete)
-pub async fn query_tags(search: &str) -> GrimoireResult<Vec<Tag>> {
-    let pool = database::connect().await?;
+pub async fn query_tags(search: &str) -> GrimoireResponse<Vec<Tag>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
     let search_pattern = format!("%{}%", search);
 
-    let tags = sqlx::query_as!(
+    let tags = match sqlx::query_as!(
         Tag,
         r#"SELECT
             id as "id!",
@@ -102,16 +167,30 @@ pub async fn query_tags(search: &str) -> GrimoireResult<Vec<Tag>> {
         search_pattern
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query tags", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(tags)
+    GrimoireResponse::success("Tag search completed successfully", tags)
 }
 
 /// get tag by id
-pub async fn get_tag(id: &str) -> GrimoireResult<Tag> {
-    let pool = database::connect().await?;
+pub async fn get_tag(id: &str) -> GrimoireResponse<Tag> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let tag = sqlx::query_as!(
+    let tag_opt = match sqlx::query_as!(
         Tag,
         r#"SELECT
             id as "id!",
@@ -122,40 +201,73 @@ pub async fn get_tag(id: &str) -> GrimoireResult<Tag> {
         id
     )
     .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::TagNotFound { id: id.to_string() })?;
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get tag", vec![ErrorDetail::from(e)])
+        }
+    };
 
-    Ok(tag)
+    match tag_opt {
+        Some(tag) => GrimoireResponse::success("Tag retrieved successfully", tag),
+        None => {
+            let err = GrimoireError::TagNotFound { id: id.to_string() };
+            GrimoireResponse::failure("Tag not found", vec![ErrorDetail::from(&err)])
+        }
+    }
 }
 
 /// delete tag by id (removes relationships too)
-pub async fn delete_tag(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn delete_tag(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // Soft-delete the tag
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    let rows_affected = sqlx::query!(
+    let rows_affected = match sqlx::query!(
         "UPDATE tagz SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
         now,
         deleted_by,
         id
     )
     .execute(&pool)
-    .await?
-    .rows_affected();
+    .await
+    {
+        Ok(result) => result.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to delete tag", vec![ErrorDetail::from(e)])
+        }
+    };
 
     if rows_affected == 0 {
-        return Err(GrimoireError::TagNotFound { id: id.to_string() });
+        let err = GrimoireError::TagNotFound { id: id.to_string() };
+        return GrimoireResponse::failure("Tag not found", vec![ErrorDetail::from(&err)]);
     }
 
-    Ok(())
+    GrimoireResponse::success("Tag deleted successfully", ())
 }
 
 /// get tags for an album
-pub async fn get_album_tags(album_id: &str) -> GrimoireResult<Vec<Tag>> {
-    let pool = database::connect().await?;
+pub async fn get_album_tags(album_id: &str) -> GrimoireResponse<Vec<Tag>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    let tags = sqlx::query_as!(
+    let tags = match sqlx::query_as!(
         Tag,
         r#"SELECT
             t.id as "id!",
@@ -168,56 +280,110 @@ pub async fn get_album_tags(album_id: &str) -> GrimoireResult<Vec<Tag>> {
         album_id
     )
     .fetch_all(&pool)
-    .await?;
+    .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to get album tags",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
-    Ok(tags)
+    GrimoireResponse::success("Album tags retrieved successfully", tags)
 }
 
 /// add tags to an album
-pub async fn add_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn add_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     for tag_id in tag_ids {
-        sqlx::query!(
+        if let Err(e) = sqlx::query!(
             "INSERT OR IGNORE INTO album_tagz (album_id, tag_id) VALUES (?, ?)",
             album_id,
             tag_id
         )
         .execute(&pool)
-        .await?;
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to add album tag",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
-    Ok(())
+    GrimoireResponse::success("Album tags added successfully", ())
 }
 
 /// remove tags from an album
-pub async fn remove_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn remove_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     for tag_id in tag_ids {
-        sqlx::query!(
+        if let Err(e) = sqlx::query!(
             "DELETE FROM album_tagz WHERE album_id = ? AND tag_id = ?",
             album_id,
             tag_id
         )
         .execute(&pool)
-        .await?;
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to remove album tag",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
-    Ok(())
+    GrimoireResponse::success("Album tags removed successfully", ())
 }
 
 /// replace all tags for an album
-pub async fn replace_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+pub async fn replace_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     // remove all existing tags
-    sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
+    if let Err(e) = sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
         .execute(&pool)
-        .await?;
+        .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to remove existing album tags",
+            vec![ErrorDetail::from(e)],
+        );
+    }
 
     // add new tags
-    add_album_tags(album_id, tag_ids).await?;
+    let response = add_album_tags(album_id, tag_ids).await;
+    if !response.success {
+        return GrimoireResponse::failure("Failed to add new album tags", response.errors);
+    }
 
-    Ok(())
+    GrimoireResponse::success("Album tags replaced successfully", ())
 }
