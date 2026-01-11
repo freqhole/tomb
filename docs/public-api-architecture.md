@@ -1,523 +1,282 @@
-# Grimoire Public API Architecture Plan
+# Grimoire Public API Refactor - Work Plan
 
-## Problem Statement
+> **Status:** Ready to start Phase 1
+>
+> **Goal:** Make grimoire's public API crystal clear through consistent patterns:
+>
+> - `pub` functions return `GrimoireResponse<T>`
+> - `pub(crate)` for internal implementation
+> - No inline `crate::` usage
+> - Clean, discoverable API
 
-Grimoire is a library with many public functions, but it's unclear what's public API vs internal implementation. We need to establish clear patterns for:
+**Background & decisions:** See [public-api-background.md](./public-api-background.md)
 
-1. **Visibility** - What's `pub` (public API) vs `pub(crate)` (internal)
-2. **Response types** - Consistent return types across all public functions
-3. **Import style** - No inline `crate::`, proper imports at top
-4. **Organization** - Clear structure so developers immediately understand the codebase
+## Quick Reference
 
-**Goal:** Make grimoire's public API crystal clear through Rust conventions, not documentation.
+**What's public API?** → Look at `grimoire/src/cli/` - everything CLI calls is public
 
-## Core Principle
+**Current structure that's working:**
 
-Grimoire is a **library**. Its public API should be obvious from the code itself:
+- `music/crud/mod.rs` - Perfect facade pattern (re-exports everything)
+- `service.rs` files - Contain public functions (need GrimoireResponse)
+- `entities/*/repository.rs` - Internal DB access (mark `pub(crate)`)
 
-- `pub fn` = Public API (anyone can use)
-- `pub(crate) fn` = Internal (only grimoire can use)
-- Private = Implementation detail (only this module)
+**Key decision: Users domain split (CONFIRMED)**
 
-## Current State
+```
+users/         → App accounts only (register, login, invites)
+music/users/   → Music-specific (favorites, ratings) - MOVE from users/
+```
 
-### What's Working
+## Phase 1: Foundation ✅
 
-- Public functions already exist throughout grimoire (e.g., `music::crud::update_songs`)
-- Request types exist with proper derives
-- Domain logic is well-organized by module
-- Functions are in logical files (update.rs, query.rs, etc.)
+- [x] Add `ErrorDetail` to `grimoire/src/error.rs`
+  - Move from `cli/utils.rs` or add new
+  - Implement `From<GrimoireError>` for `ErrorDetail`
+- [x] Create `grimoire/src/response.rs`
+  - Define `GrimoireResponse<T>` with success, message, data, errors
+  - Import `ErrorDetail` from error module
+- [x] Update `grimoire/src/lib.rs`
+  - Export response module
+  - Export error module publicly
+- [x] Update `cli/utils.rs` to re-export `ErrorDetail` for CLI compatibility
+- [x] Add `CommandOutput::from_grimoire_response()` helper for future CLI migration
 
-### What's Broken
+- [x] Test: Ensure everything compiles
 
-- **No visibility distinction** - Everything is `pub`, no `pub(crate)`
-- **Inconsistent return types** - Some `Result<T>`, some `CommandOutput<T>`, some print directly
-- **Inline `crate::`** - Makes code hard to read, dependencies unclear
-- **Unclear boundaries** - Can't tell what's public API vs internal helper
-- **No standard response wrapper** - Each function does its own thing
+## Phase 2: Users Module (Reference Implementation) ✅ / ❌
 
-### Example of Current Issues
+**Why first?** Hardest module - establishes all patterns for 95 files
+
+### Step 1: Domain Split ✅
+
+- [x] Create `grimoire/src/music/users/` directory
+- [x] Move `users/favorites.rs` → `music/users/favorites.rs`
+- [x] Move `users/ratings.rs` → `music/users/ratings.rs`
+- [x] Create `music/users/models.rs` - move UserFavorite, UserRating types
+- [x] Create `music/users/mod.rs` - re-export favorites, ratings
+- [x] Update `music/mod.rs` - add `pub mod users;`
+- [x] Update `users/models.rs` - keep only app types (User, Role, InviteCode)
+- [x] Update imports in favorites.rs and ratings.rs to use new module structure
+- [x] Add re-exports in users/mod.rs for backwards compatibility
+
+### Step 2: Update Visibility
+
+- [ ] `users/repository.rs` → mark as `pub(crate)`
+- [ ] Review `users/service.rs` - identify public functions
+
+### Step 3: Update Return Types (service.rs)
+
+For each public function in `users/service.rs`:
+
+- [ ] `register_user()` → `GrimoireResponse<UserCreatedResponse>`
+- [ ] `list_users()` → `GrimoireResponse<UserListResponse>`
+- [ ] `update_user()` → `GrimoireResponse<User>`
+- [ ] `delete_user()` → `GrimoireResponse<()>`
+- [ ] `generate_invite_codes()` → `GrimoireResponse<InviteCodesGeneratedResponse>`
+- [ ] `list_invite_codes()` → `GrimoireResponse<Vec<InviteCode>>`
+- [ ] `deactivate_invite_code()` → `GrimoireResponse<()>`
+
+Pattern for each:
 
 ```rust
-// grimoire/src/music/crud/update.rs
-use crate::music::crud::models::UpdateSongsRequest; // inline crate::
-use crate::error::GrimoireResult;                   // inline crate::
+pub async fn register_user(request: CreateUserRequest) -> GrimoireResponse<UserCreatedResponse> {
+    // Do work inline
+    let user = match create_user_in_db(request).await {
+        Ok(user) => user,
+        Err(err) => return GrimoireResponse::failure("Failed to create user", vec![err.into()]),
+    };
 
-pub async fn update_songs(request: UpdateSongsRequest) -> GrimoireResult<UpdateSongsResult> {
-    // ... calls internal helpers that are also pub
-    let result = internal_helper().await?; // This is pub but shouldn't be!
-    Ok(result)
-}
-
-pub async fn internal_helper() -> GrimoireResult<Something> {
-    // This is exposed publicly but it's just an implementation detail!
+    let response = UserCreatedResponse { /* ... */ };
+    GrimoireResponse::success("User created", response)
 }
 ```
 
-## Proposed Solution
+### Step 4: Update music/users/ Functions
 
-### 1. Create Standard Response Type
+- [ ] `favorites.rs` functions → `GrimoireResponse<T>`
+- [ ] `ratings.rs` functions → `GrimoireResponse<T>`
 
-```rust
-// grimoire/src/response.rs (NEW FILE)
-use serde::{Deserialize, Serialize};
+### Step 5: Clean Imports
 
-/// Standard response wrapper for all grimoire public APIs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrimoireResponse<T> {
-    /// Operation success status
-    pub success: bool,
-    /// Human-readable message
-    pub message: String,
-    /// Response data (Some if success, None if failure)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<T>,
-    /// Error details (empty if success)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub errors: Vec<ErrorDetail>,
-}
-
-impl<T> GrimoireResponse<T> {
-    pub fn success(message: impl Into<String>, data: T) -> Self {
-        Self {
-            success: true,
-            message: message.into(),
-            data: Some(data),
-            errors: vec![],
-        }
-    }
-
-    pub fn failure(message: impl Into<String>, errors: Vec<ErrorDetail>) -> Self {
-        Self {
-            success: false,
-            message: message.into(),
-            data: None,
-            errors,
-        }
-    }
-}
-
-/// Error detail (move from cli/utils.rs or keep there and re-export)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ErrorDetail {
-    #[serde(rename = "type")]
-    pub error_type: String,
-    pub title: String,
-    pub detail: String,
-}
-```
-
-### 2. Update Public Functions
-
-```rust
-// grimoire/src/music/crud/update.rs (AFTER REFACTOR)
-use super::models::UpdateSongsRequest; // Clean imports at top
-use crate::response::GrimoireResponse;
-use crate::error::GrimoireError;
-
-/// Public API: Update multiple songs
-/// This is the public interface - anyone can call this
-pub async fn update_songs(request: UpdateSongsRequest) -> GrimoireResponse<UpdateSongsResult> {
-    match execute_update(request).await {
-        Ok(result) => {
-            let message = format!("Updated {} songs", result.updated_count);
-            GrimoireResponse::success(message, result)
-        }
-        Err(err) => {
-            GrimoireResponse::failure("Failed to update songs", vec![err.into()])
-        }
-    }
-}
-
-/// Internal helper - only grimoire code can call this
-pub(crate) async fn execute_update(request: UpdateSongsRequest) -> Result<UpdateSongsResult, GrimoireError> {
-    // Implementation details
-    Ok(UpdateSongsResult { /* ... */ })
-}
-
-/// Private to this file only
-async fn validate_song_ids(ids: &[String]) -> Result<(), GrimoireError> {
-    // ...
-}
-```
-
-### 3. Use Rust Visibility Patterns
-
-```rust
-// Public API - External code can use
-pub async fn query_songs() -> GrimoireResponse<T>
-
-// Crate-internal - Only grimoire internals
-pub(crate) async fn query_songs_internal() -> Result<T, E>
-pub(crate) struct InternalHelper;
-
-// Module-internal - Only parent module
-pub(super) fn used_by_parent()
-
-// File-private (default)
-async fn validate_input()
-```
-
-### 4. Clean Import Style
-
-**Before:**
-
-```rust
-use crate::music::crud::models::UpdateSongsRequest;
-use crate::music::crud::query::query_songs;
-use crate::database::connect;
-use crate::error::GrimoireError;
-
-pub async fn some_function() {
-    let pool = crate::database::connect().await?; // NO!
-    crate::music::crud::update_songs(req).await?; // NO!
-}
-```
-
-**After:**
-
-```rust
-use super::models::UpdateSongsRequest;  // Same module
-use super::query::query_songs;          // Same parent
-use crate::database;                    // Top-level
-use crate::error::GrimoireError;
-
-pub async fn some_function() {
-    let pool = database::connect().await?;  // Clean!
-    query_songs(req).await?;                // Clean!
-}
-```
-
-### 5. Module Organization Pattern
-
-```
-music/crud/
-├── mod.rs           # Re-exports public API
-├── models.rs        # Public types
-├── update.rs        # Public: update_songs()
-├── query.rs         # Public: query_songs()
-├── import.rs        # Public: import_songs()
-└── helpers.rs       # pub(crate): shared internal code
-```
-
-```rust
-// grimoire/src/music/crud/mod.rs
-pub mod models;  // All request/response types
-
-// Public API functions
-mod update;
-mod query;
-mod import;
-
-pub use update::update_songs;
-pub use query::{query_songs, list_recent_songs};
-pub use import::import_song;
-
-// Internal helpers
-pub(crate) mod helpers;
-```
-
-## Implementation Plan
-
-### Phase 1: Foundation (Week 1)
-
-**Step 1: Create response type**
-
-- [ ] Create `grimoire/src/response.rs`
-- [ ] Define `GrimoireResponse<T>`
-- [ ] Move or re-export `ErrorDetail`
-- [ ] Implement `From<GrimoireError>` for `ErrorDetail`
-- [ ] Add to `grimoire/src/lib.rs`
-
-**Step 2: Document visibility patterns**
-
-- [ ] Create doc comment templates for `pub` functions
-- [ ] Create doc comment templates for `pub(crate)` functions
-- [ ] Document when to use each visibility level
-
-### Phase 2: Audit Existing Code (Week 1-2)
-
-**Step 1: Map the public API**
-
-- [ ] List all functions currently called by CLI
-- [ ] List all functions that should be public
-- [ ] Identify functions that should be `pub(crate)`
-- [ ] Document in a spreadsheet/table
-
-**Step 2: Identify patterns**
-
-- [ ] How many different return types exist?
-- [ ] Which modules need the most work?
-- [ ] Are there common helper functions to extract?
-
-### Phase 3: Refactor One Module (Reference Implementation)
-
-**Pick: `grimoire/src/users/` (smallest, most self-contained)**
-
-**Step 1: Update visibility**
-
-- [ ] Mark internal functions as `pub(crate)`
-- [ ] Keep public API as `pub`
-- [ ] Update mod.rs to clearly show what's exported
-
-**Step 2: Update return types**
-
-- [ ] Change public functions to return `GrimoireResponse<T>`
-- [ ] Keep internal functions returning `Result<T, E>`
-- [ ] Handle error conversion in public function
-
-**Step 3: Clean imports**
-
-- [ ] Remove all inline `crate::` usage
+- [ ] Remove all inline `crate::` usage in users/
+- [ ] Remove all inline `crate::` usage in music/users/
 - [ ] Add proper imports at top of files
-- [ ] Group imports logically (super, crate, std)
 
-**Step 4: Test**
+### Step 6: Update mod.rs
 
-- [ ] Ensure existing code still compiles
-- [ ] Update any calling code
-- [ ] Document the pattern
+- [ ] `users/mod.rs` - clean exports (app domain only)
+- [ ] `music/users/mod.rs` - clean exports
 
-**Example PR/Commit:**
+### Step 7: Test & Document
 
-```
-Refactor users module to use GrimoireResponse and visibility
+- [ ] Compile grimoire library
+- [ ] Document pattern used (save to `docs/completed/users-refactor.md`)
+- [ ] Note any edge cases discovered
 
-- Public API (pub): register_user, list_users, etc.
-- Internal (pub(crate)): UserService, UserRepository
-- Return GrimoireResponse<T> from all public functions
-- Clean imports, no inline crate::
-```
+**Checkpoint:** Users done = template established for all other modules
 
-### Phase 4: Apply Pattern to All Modules
+## Phase 3: Apply Pattern to All Modules ✅ / ❌
 
-For each module in priority order:
+**Use users as template. For each module:**
 
-1. `grimoire/src/jobs/`
-2. `grimoire/src/analytics/`
-3. `grimoire/src/wordlist/`
-4. `grimoire/src/music/crud/`
-5. `grimoire/src/music/scanner/`
-6. `grimoire/src/music/entities/`
+### Music Domain (51 files)
 
-**For each module:**
+**Music CRUD (8 files)** - Already well-organized
 
-- [ ] Update visibility (`pub` vs `pub(crate)`)
-- [ ] Change public functions to return `GrimoireResponse<T>`
-- [ ] Clean up imports
-- [ ] Update mod.rs to show clear exports
-- [ ] Test compilation
-- [ ] Document changes
+- [ ] `music/crud/query.rs` - public functions → GrimoireResponse
+- [ ] `music/crud/query_playlists.rs` - public functions → GrimoireResponse
+- [ ] `music/crud/update.rs` - public functions → GrimoireResponse
+- [ ] `music/crud/create_or_update.rs` - public functions → GrimoireResponse
+- [ ] `music/crud/delete.rs` - public functions → GrimoireResponse
+- [ ] `music/crud/deduplication.rs` - public utils (keep as-is or pub(crate))
+- [ ] Clean imports in all files
+- [ ] `music/crud/mod.rs` - already perfect facade, no changes needed
 
-### Phase 5: Verify Public API
+**Music Entities (20 files)** - Mostly internal
 
-**Step 1: Generate documentation**
+- [ ] All `repository.rs` → mark `pub(crate)`
+- [ ] All `models.rs` → public types (already re-exported by crud)
+- [ ] Public functions called by crud → update return types if needed
+- [ ] `playlists/thumbnail_helpers.rs` → `pub(crate)`
+- [ ] Clean imports
+
+**Music Scanner (5 files)**
+
+- [ ] `scanner/directory.rs` - public functions → GrimoireResponse
+- [ ] `scanner/service.rs` → `pub(crate)` or split
+- [ ] `scanner/import.rs` - determine public vs internal
+- [ ] Clean imports
+
+**Music Analytics (6 files)**
+
+- [ ] `analytics/events.rs` - public functions → GrimoireResponse
+- [ ] `analytics/queries.rs` - public functions → GrimoireResponse
+- [ ] `analytics/admin.rs` - public functions → GrimoireResponse
+- [ ] `analytics/feed.rs` - public functions → GrimoireResponse
+- [ ] Clean imports
+
+**Music MusicBrainz (6 files)**
+
+- [ ] `musicbrainz/client.rs` - public functions → GrimoireResponse
+- [ ] `musicbrainz/queries.rs` - public functions → GrimoireResponse
+- [ ] `musicbrainz/rate_limiter.rs` → `pub(crate)`
+- [ ] Clean imports
+
+**Music Root**
+
+- [ ] `music/mod.rs` - ensure clean exports
+
+### Application Domain (20 files)
+
+**Jobs (3 files)**
+
+- [ ] `jobs/service.rs` - public functions → GrimoireResponse
+- [ ] Clean imports
+
+**Wordlist (3 files)**
+
+- [ ] `wordlist/management.rs` - public functions → GrimoireResponse
+- [ ] `wordlist/service.rs` → `pub(crate)` or merge
+- [ ] Clean imports
+
+**Analytics (3 files)**
+
+- [ ] `analytics/events.rs` - public functions → GrimoireResponse
+- [ ] Clean imports
+
+**Maintenance (3 files)**
+
+- [ ] `maintenance/orphaned.rs` - public functions → GrimoireResponse
+- [ ] `maintenance/hard_delete.rs` - public functions → GrimoireResponse
+- [ ] Clean imports
+
+**Blob Storage (8 files)**
+
+- [ ] Determine public API surface
+- [ ] `media_blobz/service.rs` - public functions → GrimoireResponse
+- [ ] Mark helpers as `pub(crate)`
+- [ ] Clean imports
+
+### Core (4 files)
+
+- [ ] `config.rs` - review public types
+- [ ] `database.rs` → `pub(crate)`
+- [ ] `lib.rs` - review all exports
+- [ ] Clean imports
+
+**Total: 95 files**
+
+## Phase 4: Verify Public API ✅ / ❌
 
 - [ ] Run `cargo doc --no-deps`
-- [ ] Review public API documentation
+- [ ] Review generated documentation
 - [ ] Ensure only intended items are public
-- [ ] Add missing doc comments
+- [ ] Create `docs/public-api-summary.md` with all public functions
 
-**Step 2: Create public API summary**
+## Phase 5: Update CLI ✅ / ❌
 
-- [ ] Document all public modules
-- [ ] Document all public functions
-- [ ] Create usage examples
-- [ ] Add to main README
+**Now that library is clean, update CLI to use GrimoireResponse**
 
-### Phase 6: CLI Refactor (After Library is Clean)
+- [ ] Add `CommandOutput::from_grimoire_response()` in `cli/utils.rs`
+- [ ] Add `utils::print_output()` for single print point
+- [ ] Update `cli/users.rs` - call new public API
+- [ ] Update `cli/music/*` - call new public API
+- [ ] Update `cli/jobs.rs` - call new public API
+- [ ] Update all other CLI handlers
+- [ ] Simplify `cli/mod.rs` router - use single print function
+- [ ] Clean imports in all CLI files
 
-NOW that the library is clean with clear public APIs, update CLI:
-
-**Step 1: Update CLI to use GrimoireResponse**
-
-- [ ] Add conversion: `GrimoireResponse<T>` → `CommandOutput<T>`
-- [ ] Update CLI handlers to call public API
-- [ ] Remove any direct service/repository calls
-- [ ] Simplify CLI router
-
-**Step 2: Simplify CLI handlers**
-
-- [ ] Each handler just calls public API
-- [ ] Convert response
-- [ ] No business logic in CLI
-
-**Step 3: Test CLI**
+## Phase 6: Testing & Cleanup ✅ / ❌
 
 - [ ] Run all 55 integration tests
 - [ ] Fix any failures
-- [ ] Verify JSON output
-- [ ] Verify error handling
-
-### Phase 7: Final Cleanup
-
-- [ ] Remove any unused `pub` items
 - [ ] Run `cargo clippy` and fix warnings
 - [ ] Run `cargo fmt`
-- [ ] Update all documentation
-- [ ] Create ARCHITECTURE.md with patterns
+- [ ] Update main README with public API examples
 
-## File Structure (After Refactor)
+## Progress Tracking
+
+**Completed work:** Move to `docs/completed/`
+
+- Phase X completion notes
+- Edge cases discovered
+- Pattern variations used
+
+**Current status:**
 
 ```
-grimoire/src/
-├── lib.rs                    # Re-exports public modules
-├── response.rs               # NEW: GrimoireResponse<T>
-├── error.rs                  # GrimoireError + ErrorDetail
-├── config.rs                 # Public config types
-├── database.rs               # pub(crate) - internal
-│
-├── users/
-│   ├── mod.rs               # Re-exports public API clearly
-│   ├── models.rs            # PUBLIC: Request/Response types
-│   ├── register.rs          # PUBLIC: register_user()
-│   ├── list.rs              # PUBLIC: list_users()
-│   ├── service.rs           # pub(crate): Business logic
-│   ├── repository.rs        # pub(crate): Database
-│   ├── favorites.rs         # pub(crate) or private
-│   └── ratings.rs           # pub(crate) or private
-│
-├── jobs/
-│   ├── mod.rs               # Re-exports public API
-│   ├── models.rs            # PUBLIC
-│   ├── queue.rs             # PUBLIC: list_jobs(), run_job()
-│   ├── service.rs           # pub(crate)
-│   └── ...
-│
-├── music/
-│   ├── mod.rs
-│   ├── models.rs            # PUBLIC: Common types
-│   ├── crud/
-│   │   ├── mod.rs          # Re-exports public CRUD functions
-│   │   ├── models.rs       # PUBLIC: Request/Response
-│   │   ├── update.rs       # PUBLIC: update_songs()
-│   │   ├── query.rs        # PUBLIC: query_songs()
-│   │   ├── import.rs       # PUBLIC: import_song()
-│   │   └── helpers.rs      # pub(crate): Internal helpers
-│   ├── scanner/
-│   │   ├── mod.rs
-│   │   ├── scan.rs         # PUBLIC: scan_directory()
-│   │   └── processor.rs    # pub(crate)
-│   └── entities/
-│       ├── songs/
-│       ├── artists/
-│       └── ...
-│
-├── analytics/
-│   ├── mod.rs
-│   ├── models.rs            # PUBLIC
-│   ├── events.rs            # PUBLIC: record_event()
-│   ├── queries.rs           # PUBLIC: get_stats()
-│   └── repository.rs        # pub(crate)
-│
-├── wordlist/
-│   ├── mod.rs
-│   ├── generate.rs          # PUBLIC: generate_wordlist()
-│   └── validate.rs          # PUBLIC: validate_code()
-│
-└── cli/                      # EXTERNAL - uses public API
-    ├── mod.rs               # Router
-    ├── users.rs             # Thin wrapper
-    ├── jobs.rs              # Thin wrapper
-    ├── music/               # Organized by domain
-    └── utils.rs             # CLI-specific formatting
+Phase 1: [x] Complete
+Phase 2: [ ] Not started
+Phase 3: [ ] Not started
+Phase 4: [ ] Not started
+Phase 5: [ ] Not started
+Phase 6: [ ] Not started
 ```
 
-## Public API Contract (After Refactor)
+## Quick Commands
 
-```rust
-// Users
-use grimoire::users::{register_user, list_users};
-use grimoire::users::models::{CreateUserRequest, UserListResponse};
+```bash
+# Compile library only
+cargo build -p grimoire --lib
 
-let response = register_user(request).await;
-if response.success {
-    let user = response.data.unwrap();
-}
+# Run integration tests
+cargo test -p grimoire --test mod
 
-// Music
-use grimoire::music::crud::{update_songs, query_songs};
-use grimoire::music::crud::models::UpdateSongsRequest;
+# Generate docs
+cargo doc --no-deps --open
 
-let response = update_songs(request).await;
-
-// Jobs
-use grimoire::jobs::{list_jobs, run_processor};
-
-let response = list_jobs(params).await;
-
-// Analytics
-use grimoire::analytics::{record_event, get_user_stats};
-
-let response = record_event(event).await;
+# Run clippy
+cargo clippy -p grimoire
 ```
 
-## Benefits
+## Notes / Issues
 
-1. **Crystal clear** - `pub` vs `pub(crate)` makes API obvious
-2. **Consistent** - All public functions return `GrimoireResponse<T>`
-3. **Readable** - Clean imports, no inline `crate::`
-4. **Maintainable** - Clear what's public vs internal
-5. **Discoverable** - `cargo doc` shows clean public API
-6. **Testable** - Can test public API without internal knowledge
-7. **Reusable** - Future HTTP server uses same API
-8. **Professional** - Follows Rust best practices
+Use this section to track blockers, questions, or deviations from plan:
 
-## Design Decisions
+### Phase 1 Notes
 
-### Why GrimoireResponse<T>?
-
-- Consistent across all public functions
-- Always serializable
-- Works for both CLI and future HTTP
-- Doesn't require Result enum complexity
-- Clear success/failure with details
-
-### Why pub(crate) for services/repositories?
-
-- Makes boundaries explicit
-- Prevents external coupling to internals
-- Documentation clearly shows public API
-- Can refactor internals without breaking API
-
-### Why clean imports?
-
-- Easier to read
-- Standard Rust convention
-- Makes dependencies explicit
-- Easier to refactor
-
-### Why keep existing file organization?
-
-- Don't break what works
-- update.rs, query.rs, etc. already make sense
-- Just need to clarify visibility
-- Add response wrapper
-
-### Why do library refactor before CLI?
-
-- Library is the foundation
-- Clean library makes CLI trivial
-- Can test library independently
-- Patterns become obvious
-
-## Success Criteria
-
-- [ ] All public functions return `GrimoireResponse<T>`
-- [ ] All internal code marked `pub(crate)` or private
-- [ ] Zero inline `crate::` usage
-- [ ] `cargo doc` shows clean public API
-- [ ] All CLI tests pass
-- [ ] Can call any public function without seeing internals
-- [ ] New developers can immediately identify public API
-
-## Next Steps
-
-1. Get approval on this approach
-2. Create `grimoire/src/response.rs`
-3. Refactor users module as reference
-4. Review and iterate on pattern
-5. Apply to all other modules
-6. Update CLI to use clean API
-7. Run full test suite
-8. Document public API
+- ✅ Decided to keep `error_type` field name instead of renaming to `type` - clearer and simpler
+- ✅ Added `PartialEq` to `ErrorDetail` for testing support
+- ✅ Added helper methods to `CommandOutput` for future CLI migration
+- ✅ All foundation types compile and pass tests

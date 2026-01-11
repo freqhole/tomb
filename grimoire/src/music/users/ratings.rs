@@ -4,7 +4,8 @@
 //! Provides operations for setting, getting, and managing ratings with statistics.
 
 use crate::database;
-use crate::users::models::*;
+use crate::music::users::models::*;
+use crate::users::models::{AuthError, AuthResult};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -34,9 +35,6 @@ impl From<UserRatingRow> for UserRating {
         }
     }
 }
-
-/// Target types for ratings (re-export for convenience)
-pub use crate::users::models::RatingTarget;
 
 /// Rating statistics for a target
 #[derive(Debug, Clone, Serialize, Deserialize)]

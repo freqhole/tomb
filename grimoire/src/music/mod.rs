@@ -11,6 +11,7 @@ pub mod analytics;
 pub mod crud;
 pub mod musicbrainz;
 pub mod scanner;
+pub mod users;
 
 // re-export main workflow API
 pub use crud::*;
@@ -20,6 +21,9 @@ pub use scanner::*;
 
 // re-export musicbrainz APIs
 pub use musicbrainz::*;
+
+// re-export music-specific user functionality (explicit to avoid ambiguous globs)
+pub use users::{FavoritesService, RatingStats, RatingsService};
 
 // re-export core domain types for consumers
 pub use entities::{

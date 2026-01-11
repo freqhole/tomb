@@ -4,7 +4,8 @@
 //! Provides operations for setting, getting, and managing favorite status.
 
 use crate::database;
-use crate::users::models::*;
+use crate::music::users::models::*;
+use crate::users::models::{AuthError, AuthResult};
 use sqlx::Row;
 use time::OffsetDateTime;
 
@@ -29,9 +30,6 @@ impl From<UserFavoriteRow> for UserFavorite {
         }
     }
 }
-
-/// Target types for favorites (re-export for convenience)
-pub use crate::users::models::FavoriteTarget;
 
 /// Service for managing user favorites
 pub struct FavoritesService {}

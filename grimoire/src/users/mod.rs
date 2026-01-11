@@ -1,16 +1,16 @@
 //! User system module
 //!
-//! This module contains all user-related domain logic including
-//! user authentication, authorization, favorites, and ratings.
+//! This module contains application-level user domain logic including
+//! user authentication, authorization, and account management.
+//!
+//! Music-specific user functionality (favorites, ratings) has been moved
+//! to `music::users` module to maintain clear domain boundaries.
 
-pub mod favorites;
 pub mod models;
-pub mod ratings;
 pub mod repository;
 pub mod service;
 
 // Re-export commonly used types
-pub use favorites::{FavoriteTarget, FavoritesService};
 pub use models::{
     AuthError,
     CreateInviteCodeRequest,
@@ -20,20 +20,21 @@ pub use models::{
     InviteCodeInfoResponse,
     InviteCodeType,
     InviteCodesGeneratedResponse,
-    SetFavoriteRequest,
-    SetRatingRequest,
     UpdateUserRequest,
     User,
     UserCreatedResponse,
-    UserFavorite,
     UserInfoResponse,
     UserListResponse,
     UserQueryParams,
-    UserRating,
     UserRole,
     UserSession,
     WebAuthnCredential,
 };
-pub use ratings::{RatingStats, RatingTarget, RatingsService};
 pub use repository::UserRepository;
 pub use service::UserService;
+
+// Re-export music-specific user types from music::users for backwards compatibility
+pub use crate::music::users::{
+    FavoriteTarget, FavoritesService, RatingStats, RatingTarget, RatingsService,
+    SetFavoriteRequest, SetRatingRequest, UserFavorite, UserRating,
+};
