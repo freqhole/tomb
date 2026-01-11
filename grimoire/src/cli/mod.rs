@@ -141,8 +141,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let result = config::handle_command(action, format).await;
-            let output = result_to_output(result);
+            let output = config::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Jobs {
@@ -150,7 +149,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let output = jobs::handle_command(action, format).await;
+            let output = jobs::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Database {
@@ -158,8 +157,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let result = database::handle_command(action, format).await;
-            let output = result_to_output(result);
+            let output = database::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Music {
@@ -167,8 +165,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let result = music::handle_command(action, json_output).await;
-            let output = result_to_output(result);
+            let output = music::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Wordlist {
@@ -176,7 +173,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let output = wordlist::handle_command(action, format).await;
+            let output = wordlist::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Users {
@@ -184,8 +181,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let result = users::handle_command(action, format).await;
-            let output = result_to_output(result);
+            let output = users::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Maintenance {
@@ -193,7 +189,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let output = maintenance::handle_command(action, format).await;
+            let output = maintenance::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
         Commands::Analytics {
@@ -201,8 +197,7 @@ pub async fn run_cli() -> ! {
             json_output,
         } => {
             let format = OutputFormat::from_json_flag(json_output);
-            let result = analytics::handle_command(action, format).await;
-            let output = result_to_output(result);
+            let output = analytics::handle_command(action).await;
             utils::print_and_exit(output, format);
         }
     }

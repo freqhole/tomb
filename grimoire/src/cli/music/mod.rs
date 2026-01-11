@@ -7,7 +7,7 @@
 //! - maintenance: Maintenance operations (blob cleanup, hard delete)
 //! - musicbrainz: MusicBrainz API integration
 
-use crate::cli::utils::OutputFormat;
+use crate::cli::utils::CommandOutput;
 use crate::music::crud::QueryParams;
 use clap::Subcommand;
 
@@ -354,286 +354,104 @@ pub enum MusicAction {
 }
 
 /// Handle music commands
-pub async fn handle_command(action: MusicAction, json: bool) -> crate::error::GrimoireResult<()> {
-    let format = OutputFormat::from_json_flag(json);
-
-    // Execute command and catch errors to format them properly
-    let result = execute_music_command(action, format).await;
-
-    // If there was an error and JSON output is requested, format as JSON
-    if let Err(err) = result {
-        if json {
-            use crate::cli::utils::{CommandOutput, ErrorDetail};
-            let error_detail = ErrorDetail::from(&err);
-            let output: CommandOutput<Vec<()>> =
-                CommandOutput::failure("Command failed", vec![error_detail], vec![]);
-            print!("{}", output.format(format));
-            Ok(())
-        } else {
-            Err(err)
-        }
-    } else {
-        Ok(())
-    }
+pub async fn handle_command(action: MusicAction) -> CommandOutput<()> {
+    execute_music_command(action).await
 }
 
 /// Execute music command - internal helper
-async fn execute_music_command(
-    action: MusicAction,
-    format: OutputFormat,
-) -> crate::error::GrimoireResult<()> {
+async fn execute_music_command(action: MusicAction) -> CommandOutput<()> {
     match action {
         // Query commands
-        MusicAction::QuerySongs { .. } => {
-            let output = query::handle_query_songs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::QueryArtists { .. } => {
-            let output = query::handle_query_artists(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::QueryAlbums { .. } => {
-            let output = query::handle_query_albums(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::QueryGenres { .. } => {
-            let output = query::handle_query_genres(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::QueryPlaylists { .. } => {
-            let output = query::handle_query_playlists(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::QueryPlaylistSongs { .. } => {
-            let output = query::handle_query_playlist_songs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::QuerySongs { .. } => query::handle_query_songs(action).await,
+        MusicAction::QueryArtists { .. } => query::handle_query_artists(action).await,
+        MusicAction::QueryAlbums { .. } => query::handle_query_albums(action).await,
+        MusicAction::QueryGenres { .. } => query::handle_query_genres(action).await,
+        MusicAction::QueryPlaylists { .. } => query::handle_query_playlists(action).await,
+        MusicAction::QueryPlaylistSongs { .. } => query::handle_query_playlist_songs(action).await,
 
         // Song commands
-        MusicAction::RecentSongs { .. } => {
-            let output = songs::handle_recent_songs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::UpdateSongs { .. } => {
-            let output = songs::handle_update_songs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::RecentSongs { .. } => songs::handle_recent_songs(action).await,
+        MusicAction::UpdateSongs { .. } => songs::handle_update_songs(action).await,
 
         // Playlist commands
-        MusicAction::CreatePlaylist { .. } => {
-            let output = playlists::handle_create_playlist(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::AddSongsToPlaylist { .. } => {
-            let output = playlists::handle_add_songs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::UpdateSongPosition { .. } => {
-            let output = playlists::handle_update_position(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::DeletePlaylist { .. } => {
-            let output = playlists::handle_delete_playlist(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::UpdatePlaylist { .. } => {
-            let output = playlists::handle_update_playlist(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::CreatePlaylist { .. } => playlists::handle_create_playlist(action).await,
+        MusicAction::AddSongsToPlaylist { .. } => playlists::handle_add_songs(action).await,
+        MusicAction::UpdateSongPosition { .. } => playlists::handle_update_position(action).await,
+        MusicAction::DeletePlaylist { .. } => playlists::handle_delete_playlist(action).await,
+        MusicAction::UpdatePlaylist { .. } => playlists::handle_update_playlist(action).await,
         MusicAction::RemovePlaylistThumbnail { .. } => {
-            let output = playlists::handle_remove_thumbnail(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            playlists::handle_remove_thumbnail(action).await
         }
 
         // Maintenance commands
         MusicAction::CheckBlobReferences { .. } => {
-            let output = maintenance::handle_check_blob_references(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            maintenance::handle_check_blob_references(action).await
         }
         MusicAction::CleanupOrphanedBlobs { .. } => {
-            let output = maintenance::handle_cleanup_orphaned_blobs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            maintenance::handle_cleanup_orphaned_blobs(action).await
         }
         MusicAction::HardDeleteOldRecords { .. } => {
-            let output = maintenance::handle_hard_delete_old_records(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            maintenance::handle_hard_delete_old_records(action).await
         }
-        MusicAction::RunMaintenance { .. } => {
-            let output = maintenance::handle_run_maintenance(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::RunMaintenance { .. } => maintenance::handle_run_maintenance(action).await,
 
         // Album commands
-        MusicAction::ListAlbums { .. } => {
-            let output = query::handle_list_albums(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::GetAlbum { .. } => {
-            let output = query::handle_get_album(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::DeleteAlbum { .. } => {
-            let output = query::handle_delete_album(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::GetAlbumTags { .. } => {
-            let output = query::handle_get_album_tags(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListAlbums { .. } => query::handle_list_albums(action).await,
+        MusicAction::GetAlbum { .. } => query::handle_get_album(action).await,
+        MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await,
+        MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await,
 
         // Artist commands
-        MusicAction::ListArtists { .. } => {
-            let output = query::handle_list_artists(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::GetArtist { .. } => {
-            let output = query::handle_get_artist(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::DeleteArtist { .. } => {
-            let output = query::handle_delete_artist(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListArtists { .. } => query::handle_list_artists(action).await,
+        MusicAction::GetArtist { .. } => query::handle_get_artist(action).await,
+        MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await,
 
         // Song commands
-        MusicAction::ListSongs { .. } => {
-            let output = query::handle_list_songs(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::DeleteSong { .. } => {
-            let output = query::handle_delete_song(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListSongs { .. } => query::handle_list_songs(action).await,
+        MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await,
 
         // Additional playlist commands
-        MusicAction::ListPlaylists => {
-            let output = playlists::handle_list_playlists(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListPlaylists => playlists::handle_list_playlists(action).await,
         MusicAction::ListUserPlaylists { .. } => {
-            let output = playlists::handle_list_user_playlists(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            playlists::handle_list_user_playlists(action).await
         }
-        MusicAction::SearchPlaylists { .. } => {
-            let output = playlists::handle_search_playlists(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::SearchPlaylists { .. } => playlists::handle_search_playlists(action).await,
 
         // Genre commands
-        MusicAction::ListGenres => {
-            let output = query::handle_list_genres(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::GetGenre { .. } => {
-            let output = query::handle_get_genre(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::GetGenreStats { .. } => {
-            let output = query::handle_get_genre_stats(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListGenres => query::handle_list_genres(action).await,
+        MusicAction::GetGenre { .. } => query::handle_get_genre(action).await,
+        MusicAction::GetGenreStats { .. } => query::handle_get_genre_stats(action).await,
 
         // Sub-genre commands
-        MusicAction::ListSubGenres => {
-            let output = query::handle_list_sub_genres(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListSubGenres => query::handle_list_sub_genres(action).await,
         MusicAction::ListSubGenresForGenre { .. } => {
-            let output = query::handle_list_sub_genres_for_genre(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            query::handle_list_sub_genres_for_genre(action).await
         }
-        MusicAction::GetSubGenre { .. } => {
-            let output = query::handle_get_sub_genre(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::DeleteSubGenre { .. } => {
-            let output = query::handle_delete_sub_genre(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::GetSubGenre { .. } => query::handle_get_sub_genre(action).await,
+        MusicAction::DeleteSubGenre { .. } => query::handle_delete_sub_genre(action).await,
         MusicAction::FindOrCreateSubGenre { .. } => {
-            let output = query::handle_find_or_create_sub_genre(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            query::handle_find_or_create_sub_genre(action).await
         }
 
         // Tag commands
-        MusicAction::ListTags => {
-            let output = query::handle_list_tags(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::GetTag { .. } => {
-            let output = query::handle_get_tag(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::DeleteTag { .. } => {
-            let output = query::handle_delete_tag(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
-        MusicAction::QueryTagsSearch { .. } => {
-            let output = query::handle_query_tags_search(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::ListTags => query::handle_list_tags(action).await,
+        MusicAction::GetTag { .. } => query::handle_get_tag(action).await,
+        MusicAction::DeleteTag { .. } => query::handle_delete_tag(action).await,
+        MusicAction::QueryTagsSearch { .. } => query::handle_query_tags_search(action).await,
 
         // Additional query commands
-        MusicAction::QueryGenresSearch { .. } => {
-            let output = query::handle_query_genres_search(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
-        }
+        MusicAction::QueryGenresSearch { .. } => query::handle_query_genres_search(action).await,
         MusicAction::QuerySubGenresSearch { .. } => {
-            let output = query::handle_query_sub_genres_search(action).await?;
-            print!("{}", output.format(format));
-            Ok(())
+            query::handle_query_sub_genres_search(action).await
         }
 
         // MusicBrainz commands
-        MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action, format).await,
+        MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
 
         // User favorites commands
-        MusicAction::Favorites { action } => user_favorites::handle_command(action, format).await,
+        MusicAction::Favorites { action } => user_favorites::handle_command(action).await,
 
         // User ratings commands
-        MusicAction::Ratings { action } => user_ratings::handle_command(action, format).await,
+        MusicAction::Ratings { action } => user_ratings::handle_command(action).await,
     }
 }

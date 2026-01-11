@@ -1,28 +1,9 @@
 //! User favorites CLI commands (music domain)
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
-use crate::error::{GrimoireError, GrimoireResult};
-use crate::response::GrimoireResponse;
+use crate::cli::utils::CommandOutput;
+use crate::error::GrimoireError;
 use crate::users::{FavoriteTarget, FavoritesService, SetFavoriteRequest};
 use clap::Subcommand;
-
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
-}
 
 #[derive(Subcommand)]
 pub enum FavoritesAction {
@@ -65,7 +46,7 @@ pub enum FavoritesAction {
 }
 
 /// Handle favorites commands
-pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: FavoritesAction) -> CommandOutput<()> {
     let favorites_service = FavoritesService::new();
 
     match action {
@@ -74,7 +55,12 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
             target_type,
             target_id,
         } => {
-            let favorite_target = parse_favorite_target(&target_type)?;
+            let favorite_target = match parse_favorite_target(&target_type) {
+                Ok(target) => target,
+                Err(e) => {
+                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                }
+            };
 
             let request = SetFavoriteRequest {
                 user_id: user_id.clone(),
@@ -83,11 +69,13 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
                 is_favorite: true,
             };
 
-            to_result(favorites_service.set_favorite(&request).await)?;
+            let response = favorites_service.set_favorite(&request).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
             let message = format!("Favorite set: {} {}", target_type, target_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
+            CommandOutput::success(message, ())
         }
 
         FavoritesAction::Remove {
@@ -95,7 +83,12 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
             target_type,
             target_id,
         } => {
-            let favorite_target = parse_favorite_target(&target_type)?;
+            let favorite_target = match parse_favorite_target(&target_type) {
+                Ok(target) => target,
+                Err(e) => {
+                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                }
+            };
 
             let request = SetFavoriteRequest {
                 user_id: user_id.clone(),
@@ -104,11 +97,13 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
                 is_favorite: false,
             };
 
-            to_result(favorites_service.set_favorite(&request).await)?;
+            let response = favorites_service.set_favorite(&request).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
             let message = format!("Favorite removed: {} {}", target_type, target_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
+            CommandOutput::success(message, ())
         }
 
         FavoritesAction::List {
@@ -116,31 +111,39 @@ pub async fn handle_command(action: FavoritesAction, format: OutputFormat) -> Gr
             target_type,
             limit,
         } => {
-            let target_filter = target_type
-                .as_ref()
-                .map(|t| parse_favorite_target(t))
-                .transpose()?;
+            let target_filter = match target_type.as_ref() {
+                Some(t) => match parse_favorite_target(t) {
+                    Ok(target) => Some(target),
+                    Err(e) => {
+                        return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                    }
+                },
+                None => None,
+            };
 
-            let favorites = to_result(
-                favorites_service
-                    .get_user_favorites(&user_id, target_filter, Some(limit as u32), Some(0))
-                    .await,
-            )?;
+            let response = favorites_service
+                .get_user_favorites(&user_id, target_filter, Some(limit as u32), Some(0))
+                .await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(favorites) = response.data else {
+                return CommandOutput::failure("No favorites data returned", vec![], ());
+            };
 
             let message = format!(
                 "Found {} favorite{}",
                 favorites.len(),
                 if favorites.len() == 1 { "" } else { "s" }
             );
-            let output = CommandOutput::success(message, favorites);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, favorites).map_data(|_| ())
         }
     }
-
-    Ok(())
 }
 
-fn parse_favorite_target(target_type: &str) -> GrimoireResult<FavoriteTarget> {
+fn parse_favorite_target(target_type: &str) -> Result<FavoriteTarget, GrimoireError> {
     match target_type.to_lowercase().as_str() {
         "song" => Ok(FavoriteTarget::Song),
         "artist" => Ok(FavoriteTarget::Artist),

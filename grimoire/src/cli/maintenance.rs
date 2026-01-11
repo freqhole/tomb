@@ -1,6 +1,6 @@
 //! Maintenance operations CLI commands
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
+use crate::cli::utils::CommandOutput;
 use crate::maintenance::{
     cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
 };
@@ -46,7 +46,7 @@ pub enum MaintenanceAction {
 }
 
 /// Handle maintenance commands
-pub async fn handle_command(action: MaintenanceAction, _format: OutputFormat) -> CommandOutput<()> {
+pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<()> {
     match action {
         MaintenanceAction::CleanupOrphanedTags { dry_run } => {
             let response = cleanup_orphaned_tags(dry_run).await;

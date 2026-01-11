@@ -1,6 +1,6 @@
 //! Job queue management CLI commands
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
+use crate::cli::utils::CommandOutput;
 use crate::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
@@ -50,7 +50,7 @@ pub enum JobAction {
 }
 
 /// Handle job commands
-pub async fn handle_command(action: JobAction, _format: OutputFormat) -> CommandOutput<()> {
+pub async fn handle_command(action: JobAction) -> CommandOutput<()> {
     match action {
         JobAction::List { session_id, limit } => {
             let response = list_jobs(session_id.as_deref(), None, Some(limit as u32), None).await;

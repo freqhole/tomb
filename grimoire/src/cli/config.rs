@@ -1,8 +1,8 @@
 //! Configuration management CLI commands
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
+use crate::cli::utils::CommandOutput;
 use crate::config::{find_config, ConfigValidationResponse, GrimoireConfig};
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::error::GrimoireError;
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -16,19 +16,36 @@ pub enum ConfigAction {
 }
 
 /// Handle config commands
-pub async fn handle_command(action: ConfigAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: ConfigAction) -> CommandOutput<()> {
     match action {
         ConfigAction::Validate { config_path } => {
-            let path = find_config(config_path.map(std::path::PathBuf::from)).map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to find config: {}", e),
+            let path = match find_config(config_path.map(std::path::PathBuf::from)) {
+                Ok(p) => p,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to find config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
                 }
-            })?;
+            };
 
-            let config =
-                GrimoireConfig::load(&path).map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to load config: {}", e),
-                })?;
+            let config = match GrimoireConfig::load(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to load config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
 
             let response = ConfigValidationResponse {
                 valid: true,
@@ -40,10 +57,7 @@ pub async fn handle_command(action: ConfigAction, format: OutputFormat) -> Grimo
             };
 
             let message = format!("Configuration is valid: {}", path.display());
-            let output = CommandOutput::success(message, response);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, response).map_data(|_| ())
         }
     }
-
-    Ok(())
 }

@@ -1,108 +1,97 @@
 //! Music maintenance commands
 
 use super::MusicAction;
-use crate::blob_data::OrphanedBlobSummary;
 use crate::cli::utils::CommandOutput;
-use crate::error::{GrimoireError, GrimoireResult};
 use crate::maintenance::{
     cleanup_orphaned_media_blobs_older_than, hard_delete_old_records,
-    run_full_maintenance_with_options, HardDeleteOptions, HardDeleteSummary, MaintenanceResult,
+    run_full_maintenance_with_options, HardDeleteOptions,
 };
-use crate::media_blobz::{find_media_blob_references, MediaBlobReferences};
-use crate::response::GrimoireResponse;
+use crate::media_blobz::find_media_blob_references;
 
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
+pub async fn handle_check_blob_references(action: MusicAction) -> CommandOutput<()> {
+    let MusicAction::CheckBlobReferences { blob_id } = action;
+
+    let refs = match find_media_blob_references(&blob_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            return CommandOutput::failure(
+                "Failed to check blob references",
+                vec![crate::error::ErrorDetail::from(&e)],
+                (),
+            );
+        }
+    };
+
+    let message = format!("Media blob {} reference summary", blob_id);
+    CommandOutput::success(message, vec![refs]).map_data(|_| ())
 }
 
-pub async fn handle_check_blob_references(
-    action: MusicAction,
-) -> GrimoireResult<CommandOutput<Vec<MediaBlobReferences>>> {
-    if let MusicAction::CheckBlobReferences { blob_id } = action {
-        let refs = find_media_blob_references(&blob_id).await?;
-
-        let message = format!("Media blob {} reference summary", blob_id);
-        Ok(CommandOutput::new(message, vec![refs]))
-    } else {
-        unreachable!("handle_check_blob_references called with wrong action variant")
-    }
-}
-
-pub async fn handle_cleanup_orphaned_blobs(
-    action: MusicAction,
-) -> GrimoireResult<CommandOutput<Vec<OrphanedBlobSummary>>> {
-    if let MusicAction::CleanupOrphanedBlobs {
+pub async fn handle_cleanup_orphaned_blobs(action: MusicAction) -> CommandOutput<()> {
+    let MusicAction::CleanupOrphanedBlobs {
         min_age_days,
         dry_run: _,
-    } = action
-    {
-        let summary =
-            to_result(cleanup_orphaned_media_blobs_older_than(min_age_days as f64).await)?;
+    } = action;
 
-        let message = "Orphaned blob cleanup completed";
-        Ok(CommandOutput::new(message, vec![summary]))
-    } else {
-        unreachable!("handle_cleanup_orphaned_blobs called with wrong action variant")
+    let response = cleanup_orphaned_media_blobs_older_than(min_age_days as f64).await;
+    if !response.success {
+        return CommandOutput::failure(response.message, response.errors, ());
     }
+
+    let Some(summary) = response.data else {
+        return CommandOutput::failure("No summary data returned", vec![], ());
+    };
+
+    let message = "Orphaned blob cleanup completed";
+    CommandOutput::success(message, vec![summary]).map_data(|_| ())
 }
 
-pub async fn handle_hard_delete_old_records(
-    action: MusicAction,
-) -> GrimoireResult<CommandOutput<Vec<HardDeleteSummary>>> {
-    if let MusicAction::HardDeleteOldRecords {
+pub async fn handle_hard_delete_old_records(action: MusicAction) -> CommandOutput<()> {
+    let MusicAction::HardDeleteOldRecords {
         retention_days,
         keep_blob_data,
         dry_run: _,
-    } = action
-    {
-        let options = HardDeleteOptions {
-            retention_days: retention_days as u32,
-            delete_blob_data: !keep_blob_data,
-            dry_run: false,
-        };
+    } = action;
 
-        let summary = to_result(hard_delete_old_records(options).await)?;
+    let options = HardDeleteOptions {
+        retention_days: retention_days as u32,
+        delete_blob_data: !keep_blob_data,
+        dry_run: false,
+    };
 
-        let message = "Hard deletion completed";
-        Ok(CommandOutput::new(message, vec![summary]))
-    } else {
-        unreachable!("handle_hard_delete_old_records called with wrong action variant")
+    let response = hard_delete_old_records(options).await;
+    if !response.success {
+        return CommandOutput::failure(response.message, response.errors, ());
     }
+
+    let Some(summary) = response.data else {
+        return CommandOutput::failure("No summary data returned", vec![], ());
+    };
+
+    let message = "Hard deletion completed";
+    CommandOutput::success(message, vec![summary]).map_data(|_| ())
 }
 
-pub async fn handle_run_maintenance(
-    action: MusicAction,
-) -> GrimoireResult<CommandOutput<Vec<MaintenanceResult>>> {
-    if let MusicAction::RunMaintenance {
+pub async fn handle_run_maintenance(action: MusicAction) -> CommandOutput<()> {
+    let MusicAction::RunMaintenance {
         retention_days,
         dry_run: _,
-    } = action
-    {
-        let options = HardDeleteOptions {
-            retention_days: retention_days as u32,
-            delete_blob_data: true,
-            dry_run: false,
-        };
+    } = action;
 
-        let result = to_result(run_full_maintenance_with_options(options).await)?;
+    let options = HardDeleteOptions {
+        retention_days: retention_days as u32,
+        delete_blob_data: true,
+        dry_run: false,
+    };
 
-        let message = "Full maintenance completed";
-        Ok(CommandOutput::new(message, vec![result]))
-    } else {
-        unreachable!("handle_run_maintenance called with wrong action variant")
+    let response = run_full_maintenance_with_options(options).await;
+    if !response.success {
+        return CommandOutput::failure(response.message, response.errors, ());
     }
+
+    let Some(result) = response.data else {
+        return CommandOutput::failure("No result data returned", vec![], ());
+    };
+
+    let message = "Full maintenance completed";
+    CommandOutput::success(message, vec![result]).map_data(|_| ())
 }

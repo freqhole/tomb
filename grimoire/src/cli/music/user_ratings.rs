@@ -1,7 +1,7 @@
 //! User ratings CLI commands (music domain)
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::cli::utils::CommandOutput;
+use crate::error::GrimoireError;
 use crate::users::{RatingTarget, RatingsService, SetRatingRequest};
 use clap::Subcommand;
 
@@ -58,7 +58,7 @@ pub enum RatingsAction {
 }
 
 /// Handle ratings commands
-pub async fn handle_command(action: RatingsAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: RatingsAction) -> CommandOutput<()> {
     let ratings_service = RatingsService::new();
 
     match action {
@@ -68,7 +68,12 @@ pub async fn handle_command(action: RatingsAction, format: OutputFormat) -> Grim
             target_id,
             rating,
         } => {
-            let rating_target = parse_rating_target(&target_type)?;
+            let rating_target = match parse_rating_target(&target_type) {
+                Ok(target) => target,
+                Err(e) => {
+                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                }
+            };
 
             let request = SetRatingRequest {
                 user_id: user_id.clone(),
@@ -77,18 +82,23 @@ pub async fn handle_command(action: RatingsAction, format: OutputFormat) -> Grim
                 rating,
             };
 
-            ratings_service.set_rating(&request).await.map_err(|e| {
-                GrimoireError::ProcessingFailed {
-                    message: format!("Failed to set rating: {}", e),
+            match ratings_service.set_rating(&request).await {
+                Ok(_) => {
+                    let message = format!(
+                        "Rating set: {} {} - {} stars",
+                        target_type, target_id, rating
+                    );
+                    CommandOutput::success(message, ())
                 }
-            })?;
-
-            let message = format!(
-                "Rating set: {} {} - {} stars",
-                target_type, target_id, rating
-            );
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
+                Err(e) => CommandOutput::failure(
+                    "Failed to set rating",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
         }
 
         RatingsAction::Remove {
@@ -96,39 +106,63 @@ pub async fn handle_command(action: RatingsAction, format: OutputFormat) -> Grim
             target_type,
             target_id,
         } => {
-            let rating_target = parse_rating_target(&target_type)?;
+            let rating_target = match parse_rating_target(&target_type) {
+                Ok(target) => target,
+                Err(e) => {
+                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                }
+            };
 
-            ratings_service
+            match ratings_service
                 .remove_rating(&user_id, rating_target, &target_id)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to remove rating: {}", e),
-                })?;
-
-            let message = format!("Rating removed: {} {}", target_type, target_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
+            {
+                Ok(_) => {
+                    let message = format!("Rating removed: {} {}", target_type, target_id);
+                    CommandOutput::success(message, ())
+                }
+                Err(e) => CommandOutput::failure(
+                    "Failed to remove rating",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
         }
 
         RatingsAction::Stats {
             target_type,
             target_id,
         } => {
-            let rating_target = parse_rating_target(&target_type)?;
+            let rating_target = match parse_rating_target(&target_type) {
+                Ok(target) => target,
+                Err(e) => {
+                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                }
+            };
 
-            let stats = ratings_service
+            match ratings_service
                 .get_rating_stats(rating_target, &target_id)
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get rating stats: {}", e),
-                })?;
-
-            let message = format!(
-                "Rating stats for {} {}: {:.1} stars ({} ratings)",
-                target_type, target_id, stats.average_rating, stats.total_ratings
-            );
-            let output = CommandOutput::success(message, stats);
-            print!("{}", output.format(format));
+            {
+                Ok(stats) => {
+                    let message = format!(
+                        "Rating stats for {} {}: {:.1} stars ({} ratings)",
+                        target_type, target_id, stats.average_rating, stats.total_ratings
+                    );
+                    CommandOutput::success(message, stats).map_data(|_| ())
+                }
+                Err(e) => CommandOutput::failure(
+                    "Failed to get rating stats",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
         }
 
         RatingsAction::TopRated {
@@ -136,30 +170,40 @@ pub async fn handle_command(action: RatingsAction, format: OutputFormat) -> Grim
             min_ratings,
             limit,
         } => {
-            let rating_target = parse_rating_target(&target_type)?;
+            let rating_target = match parse_rating_target(&target_type) {
+                Ok(target) => target,
+                Err(e) => {
+                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
+                }
+            };
 
-            let items = ratings_service
+            match ratings_service
                 .get_top_rated(rating_target, Some(min_ratings as u64), Some(limit as u32))
                 .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("Failed to get top rated: {}", e),
-                })?;
-
-            let message = format!(
-                "Top {} rated {}{}",
-                items.len(),
-                target_type,
-                if items.len() == 1 { "" } else { "s" }
-            );
-            let output = CommandOutput::success(message, items);
-            print!("{}", output.format(format));
+            {
+                Ok(items) => {
+                    let message = format!(
+                        "Top {} rated {}{}",
+                        items.len(),
+                        target_type,
+                        if items.len() == 1 { "" } else { "s" }
+                    );
+                    CommandOutput::success(message, items).map_data(|_| ())
+                }
+                Err(e) => CommandOutput::failure(
+                    "Failed to get top rated",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
         }
     }
-
-    Ok(())
 }
 
-fn parse_rating_target(target_type: &str) -> GrimoireResult<RatingTarget> {
+fn parse_rating_target(target_type: &str) -> Result<RatingTarget, GrimoireError> {
     match target_type.to_lowercase().as_str() {
         "song" => Ok(RatingTarget::Song),
         "artist" => Ok(RatingTarget::Artist),

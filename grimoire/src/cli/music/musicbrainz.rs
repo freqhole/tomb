@@ -1,31 +1,12 @@
 //! MusicBrainz API integration commands
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
-use crate::error::{GrimoireError, GrimoireResult};
+use crate::cli::utils::CommandOutput;
+use crate::error::GrimoireError;
 use crate::music::musicbrainz::{
     MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
 };
-use crate::response::GrimoireResponse;
 use clap::Subcommand;
 use serde::Serialize;
-
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
-}
 
 #[derive(Subcommand)]
 pub enum MusicBrainzAction {
@@ -97,14 +78,24 @@ pub struct MusicBrainzSearchResults<T> {
 }
 
 /// Handle MusicBrainz commands
-pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<()> {
     // Create client with config (enabled for testing)
     let mut config = MusicBrainzConfig::default();
     config.enabled = true;
 
-    let client = MusicBrainzClient::new(config).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("Failed to create MusicBrainz client: {}", e),
-    })?;
+    let client = match MusicBrainzClient::new(config) {
+        Ok(c) => c,
+        Err(e) => {
+            return CommandOutput::failure(
+                "Failed to create MusicBrainz client",
+                vec![GrimoireError::ProcessingFailed {
+                    message: e.to_string(),
+                }
+                .into()],
+                (),
+            )
+        }
+    };
 
     match action {
         MusicBrainzAction::SearchSong {
@@ -126,16 +117,21 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
                 query = query.release(album_name);
             }
 
-            let results = to_result(client.search_recordings(&query).await)?;
+            let response = client.search_recordings(&query).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(results) = response.data else {
+                return CommandOutput::failure("No search results data returned", vec![], ());
+            };
 
             let message = format!(
                 "Found {} recordings (total: {})",
                 results.results.len(),
                 results.count
             );
-            let output_format = if json { OutputFormat::Json } else { format };
-            let output = CommandOutput::success(message, results);
-            print!("{}", output.format(output_format));
+            CommandOutput::success(message, results).map_data(|_| ())
         }
         MusicBrainzAction::SearchAlbum {
             query: query_text,
@@ -151,42 +147,67 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
             } else if let (Some(ref artist_name), Some(ref album_name)) = (&artist, &album) {
                 query = query.artist(artist_name).release(album_name);
             } else {
-                return Err(GrimoireError::ProcessingFailed {
-                    message: "Must provide either --query OR both --artist and --album".to_string(),
-                });
+                return CommandOutput::failure(
+                    "Must provide either --query OR both --artist and --album",
+                    vec![],
+                    (),
+                );
             }
 
-            let results = to_result(client.search_releases(&query).await)?;
+            let response = client.search_releases(&query).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(results) = response.data else {
+                return CommandOutput::failure("No search results data returned", vec![], ());
+            };
 
             let message = format!(
                 "Found {} releases (total: {})",
                 results.results.len(),
                 results.count
             );
-            let output_format = if json { OutputFormat::Json } else { format };
-            let output = CommandOutput::success(message, results);
-            print!("{}", output.format(output_format));
+            CommandOutput::success(message, results).map_data(|_| ())
         }
         MusicBrainzAction::GetRecording { recording_id } => {
-            let recording = to_result(client.get_recording(&recording_id).await)?;
+            let response = client.get_recording(&recording_id).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(recording) = response.data else {
+                return CommandOutput::failure("No recording data returned", vec![], ());
+            };
 
             let message = format!("Recording: {}", recording.title);
-            let output = CommandOutput::success(message, recording);
-            print!("{}", output.format(OutputFormat::Json));
+            CommandOutput::success(message, recording).map_data(|_| ())
         }
         MusicBrainzAction::GetRelease { release_id } => {
-            let release = to_result(client.get_release(&release_id).await)?;
+            let response = client.get_release(&release_id).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(release) = response.data else {
+                return CommandOutput::failure("No release data returned", vec![], ());
+            };
 
             let message = format!("Release: {}", release.title);
-            let output = CommandOutput::success(message, release);
-            print!("{}", output.format(OutputFormat::Json));
+            CommandOutput::success(message, release).map_data(|_| ())
         }
         MusicBrainzAction::GetCoverArt { release_id } => {
-            let cover_arts = to_result(client.get_cover_art(&release_id).await)?;
+            let response = client.get_cover_art(&release_id).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(cover_arts) = response.data else {
+                return CommandOutput::failure("No cover art data returned", vec![], ());
+            };
 
             let message = format!("Found {} cover art images", cover_arts.len());
-            let output = CommandOutput::success(message, cover_arts);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, cover_arts).map_data(|_| ())
         }
         MusicBrainzAction::SearchAlbumWithArt {
             query: query_text,
@@ -201,16 +222,24 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
             } else if let (Some(ref artist_name), Some(ref album_name)) = (&artist, &album) {
                 query = query.artist(artist_name).release(album_name);
             } else {
-                return Err(GrimoireError::ProcessingFailed {
-                    message: "Must provide either --query OR both --artist and --album".to_string(),
-                });
+                return CommandOutput::failure(
+                    "Must provide either --query OR both --artist and --album",
+                    vec![],
+                    (),
+                );
             }
 
-            let results = to_result(client.search_releases_with_cover_art(&query).await)?;
+            let response = client.search_releases_with_cover_art(&query).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(results) = response.data else {
+                return CommandOutput::failure("No search results data returned", vec![], ());
+            };
 
             let message = format!("Found {} releases with cover art", results.len());
-            let output = CommandOutput::success(message, results);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, results).map_data(|_| ())
         }
         MusicBrainzAction::TestConfig => {
             let config = client.config();
@@ -225,10 +254,7 @@ pub async fn handle_command(action: MusicBrainzAction, format: OutputFormat) -> 
             });
 
             let message = "MusicBrainz configuration is valid";
-            let output = CommandOutput::success(message, config_info);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, config_info).map_data(|_| ())
         }
     }
-
-    Ok(())
 }

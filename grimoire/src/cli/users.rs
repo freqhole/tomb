@@ -1,8 +1,6 @@
 //! User management CLI commands
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
-use crate::error::{GrimoireError, GrimoireResult};
-use crate::response::GrimoireResponse;
+use crate::cli::utils::CommandOutput;
 use crate::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse, InviteCodeType,
     InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,
@@ -10,24 +8,6 @@ use crate::users::{
 };
 use crate::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
 use clap::Subcommand;
-
-// Temporary adapter to convert GrimoireResponse to Result for CLI compatibility
-// TODO: Phase 5 will update CLI to use GrimoireResponse directly
-fn to_result<T>(response: GrimoireResponse<T>) -> GrimoireResult<T> {
-    if response.success {
-        response
-            .data
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "Response succeeded but contained no data".to_string(),
-            })
-    } else {
-        let error_messages: Vec<String> =
-            response.errors.iter().map(|e| e.detail.clone()).collect();
-        Err(GrimoireError::ProcessingFailed {
-            message: format!("{}: {}", response.message, error_messages.join(", ")),
-        })
-    }
-}
 
 #[derive(Subcommand)]
 pub enum UserAction {
@@ -120,7 +100,7 @@ fn parse_role(role_str: &str) -> UserRole {
 /// Convert any error to GrimoireError with context
 
 /// Handle user commands
-pub async fn handle_command(action: UserAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: UserAction) -> CommandOutput<()> {
     let service = UserService::new();
 
     match action {
@@ -131,17 +111,25 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             // Bootstrap mode: clear invite_code and ensure admin role
             if bootstrap {
                 if request.role != Some(UserRole::Admin) {
-                    return Err(GrimoireError::ProcessingFailed {
-                        message: "bootstrap flag can only be used with --role admin".to_string(),
-                    });
+                    return CommandOutput::failure(
+                        "bootstrap flag can only be used with --role admin",
+                        vec![],
+                        (),
+                    );
                 }
                 request.invite_code = None;
             }
 
-            // Bootstrap mode not supported with new API - just use regular registration
-            // First user should use an invite code generated manually in DB
-            let user = to_result(service.register_user(&request).await)?;
+            let response = service.register_user(&request).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
+            let Some(user) = response.data else {
+                return CommandOutput::failure("No user data returned", vec![], ());
+            };
+
+            let username = user.username.clone();
             let data = UserCreatedResponse {
                 id: user.id,
                 username: user.username,
@@ -149,9 +137,8 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 created_at: user.created_at,
             };
 
-            let message = format!("User created: {}", data.username);
-            let output = CommandOutput::success(message, data);
-            print!("{}", output.format(format));
+            let message = format!("User created: {}", username);
+            CommandOutput::success(message, data).map_data(|_| ())
         }
         UserAction::List {
             role,
@@ -171,7 +158,14 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
 
             let admin_user = cli_admin_user();
 
-            let users = to_result(service.list_users(&params, &admin_user).await)?;
+            let response = service.list_users(&params, &admin_user).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(users) = response.data else {
+                return CommandOutput::failure("No users data returned", vec![], ());
+            };
 
             let user_infos: Vec<UserInfoResponse> = users
                 .iter()
@@ -193,8 +187,7 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 data.total,
                 if data.total == 1 { "" } else { "s" }
             );
-            let output = CommandOutput::success(message, data);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, data).map_data(|_| ())
         }
         UserAction::Update { user_id, role } => {
             let user_role = role.as_deref().map(parse_role);
@@ -203,8 +196,16 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
 
             let admin_user = cli_admin_user();
 
-            let user = to_result(service.update_user(&user_id, &request, &admin_user).await)?;
+            let response = service.update_user(&user_id, &request, &admin_user).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
+            let Some(user) = response.data else {
+                return CommandOutput::failure("No user data returned", vec![], ());
+            };
+
+            let username = user.username.clone();
             let data = UserCreatedResponse {
                 id: user.id,
                 username: user.username,
@@ -212,18 +213,19 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 created_at: user.updated_at,
             };
 
-            let message = format!("User updated: {}", data.username);
-            let output = CommandOutput::success(message, data);
-            print!("{}", output.format(format));
+            let message = format!("User updated: {}", username);
+            CommandOutput::success(message, data).map_data(|_| ())
         }
         UserAction::Delete { user_id } => {
             let admin_user = cli_admin_user();
 
-            to_result(service.delete_user(&user_id, &admin_user).await)?;
+            let response = service.delete_user(&user_id, &admin_user).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
             let message = format!("User deleted: {}", user_id);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
+            CommandOutput::success(message, ())
         }
         UserAction::GenerateInvites {
             count,
@@ -231,9 +233,13 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
             code_type,
             expires_hours,
         } => {
+            // If wordlist not initialized, initialize with default config
             if !is_initialized() {
                 let config = ManagementWordlistConfig::default();
-                to_result(initialize_wordlist(&config))?;
+                let response = initialize_wordlist(&config);
+                if !response.success {
+                    return CommandOutput::failure(response.message, response.errors, ());
+                }
             }
 
             let invite_type = code_type
@@ -251,11 +257,16 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
 
             let admin_user = cli_admin_user();
 
-            let codes = to_result(
-                service
-                    .generate_invite_codes(&request, count as u32, word_count, &admin_user)
-                    .await,
-            )?;
+            let response = service
+                .generate_invite_codes(&request, count as u32, word_count, &admin_user)
+                .await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(codes) = response.data else {
+                return CommandOutput::failure("No invite codes data returned", vec![], ());
+            };
 
             let code_infos: Vec<InviteCodeInfoResponse> = codes
                 .iter()
@@ -275,32 +286,37 @@ pub async fn handle_command(action: UserAction, format: OutputFormat) -> Grimoir
                 data.count,
                 if data.count == 1 { "" } else { "s" }
             );
-            let output = CommandOutput::success(message, data);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, data).map_data(|_| ())
         }
         UserAction::ListInvites { active_only } => {
             let admin_user = cli_admin_user();
 
-            let codes = to_result(service.list_invite_codes(active_only, &admin_user).await)?;
+            let response = service.list_invite_codes(active_only, &admin_user).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+
+            let Some(codes) = response.data else {
+                return CommandOutput::failure("No invite codes data returned", vec![], ());
+            };
 
             let message = format!(
                 "Found {} invite code{}",
                 codes.len(),
                 if codes.len() == 1 { "" } else { "s" }
             );
-            let output = CommandOutput::success(message, codes);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, codes).map_data(|_| ())
         }
         UserAction::DeactivateInvite { code } => {
             let admin_user = cli_admin_user();
 
-            to_result(service.deactivate_invite_code(&code, &admin_user).await)?;
+            let response = service.deactivate_invite_code(&code, &admin_user).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
 
             let message = format!("Invite code deactivated: {}", code);
-            let output = CommandOutput::success(message, ());
-            print!("{}", output.format(format));
+            CommandOutput::success(message, ())
         }
     }
-
-    Ok(())
 }

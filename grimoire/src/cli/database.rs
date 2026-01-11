@@ -1,8 +1,7 @@
 //! Database operations CLI commands
 
-use crate::cli::utils::{CommandOutput, OutputFormat};
+use crate::cli::utils::CommandOutput;
 use crate::database::{DatabaseInfoResponse, DatabaseTestResponse, TableInfoResponse};
-use crate::error::GrimoireResult;
 use clap::Subcommand;
 use sqlx::Row;
 
@@ -15,13 +14,31 @@ pub enum DatabaseAction {
 }
 
 /// Handle database commands
-pub async fn handle_command(action: DatabaseAction, format: OutputFormat) -> GrimoireResult<()> {
+pub async fn handle_command(action: DatabaseAction) -> CommandOutput<()> {
     match action {
         DatabaseAction::Test => {
-            let pool = crate::database::connect().await?;
+            let pool = match crate::database::connect().await {
+                Ok(p) => p,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to connect to database",
+                        vec![e.into()],
+                        (),
+                    )
+                }
+            };
 
             // Test basic query
-            let result: (i64,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await?;
+            let result: (i64,) = match sqlx::query_as("SELECT 1").fetch_one(&pool).await {
+                Ok(r) => r,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to execute test query",
+                        vec![e.into()],
+                        (),
+                    )
+                }
+            };
             let connection_ok = result.0 == 1;
 
             // Check tables
@@ -72,8 +89,7 @@ pub async fn handle_command(action: DatabaseAction, format: OutputFormat) -> Gri
                 "Database connection test failed"
             };
 
-            let output = CommandOutput::success(message, result);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, result).map_data(|_| ())
         }
 
         DatabaseAction::Info => {
@@ -120,10 +136,7 @@ pub async fn handle_command(action: DatabaseAction, format: OutputFormat) -> Gri
             };
 
             let message = format!("Database: {}", db_path.display());
-            let output = CommandOutput::success(message, info);
-            print!("{}", output.format(format));
+            CommandOutput::success(message, info).map_data(|_| ())
         }
     }
-
-    Ok(())
 }
