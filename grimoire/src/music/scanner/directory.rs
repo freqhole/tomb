@@ -19,9 +19,6 @@ pub async fn scan_directory_and_create_jobs(
     max_depth: Option<u32>,
     file_extensions: Option<Vec<String>>,
 ) -> GrimoireResult<usize> {
-    println!("scanning directory: {}", path);
-    println!("recursive: {}", recursive);
-
     // Get audio extensions from config if not provided
     let audio_extensions = match file_extensions {
         Some(exts) => exts,
@@ -61,7 +58,6 @@ pub async fn scan_directory_and_create_jobs(
     }
 
     let file_count = audio_files.len();
-    println!("found {} audio files", file_count);
 
     // Create a processing job for each file
     for file_path in audio_files {

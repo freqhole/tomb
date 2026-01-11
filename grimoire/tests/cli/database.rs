@@ -14,7 +14,7 @@ fn test_database_test_connection() {
         "Should test database connection successfully"
     );
     assert!(
-        result["data"]["connected"].as_bool().unwrap(),
+        result["data"]["connection_ok"].as_bool().unwrap(),
         "Database should be connected"
     );
 }

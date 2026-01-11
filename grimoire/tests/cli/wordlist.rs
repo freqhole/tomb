@@ -28,8 +28,8 @@ fn test_wordlist_generate() {
 fn test_wordlist_validate() {
     let ctx = TestContext::from_snapshot();
 
-    // Validate the wordlist (assumes wordlist exists)
-    let result = ctx.run_json(&["wordlist", "validate"]);
+    // Validate the wordlist in data directory
+    let result = ctx.run_json(&["wordlist", "validate", "../data/wordlist.txt"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -41,8 +41,8 @@ fn test_wordlist_validate() {
 fn test_wordlist_stats() {
     let ctx = TestContext::from_snapshot();
 
-    // Get wordlist statistics
-    let result = ctx.run_json(&["wordlist", "stats"]);
+    // Get wordlist statistics from data directory
+    let result = ctx.run_json(&["wordlist", "stats", "../data/wordlist.txt"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -60,8 +60,15 @@ fn test_wordlist_stats() {
 fn test_wordlist_generate_code() {
     let ctx = TestContext::from_snapshot();
 
-    // Generate an invite code from the wordlist
-    let result = ctx.run_json(&["wordlist", "generate-code", "--word-count", "3"]);
+    // Generate an invite code from the wordlist in data directory
+    let result = ctx.run_json(&[
+        "wordlist",
+        "generate-code",
+        "--word-count",
+        "3",
+        "--wordlist-file",
+        "../data/wordlist.txt",
+    ]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -69,9 +76,11 @@ fn test_wordlist_generate_code() {
     );
 
     let data = &result["data"];
-    assert!(data["code"].is_string(), "Should return generated code");
+    assert!(data["codes"].is_array(), "Should return array of codes");
 
-    // Code should have 3 words separated by hyphens
-    let code = data["code"].as_str().unwrap();
+    // Get the first code and verify it has 3 words separated by hyphens
+    let codes = data["codes"].as_array().unwrap();
+    assert!(!codes.is_empty(), "Should have at least one code");
+    let code = codes[0].as_str().unwrap();
     assert_eq!(code.split('-').count(), 3, "Code should have 3 words");
 }

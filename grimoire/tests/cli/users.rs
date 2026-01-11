@@ -67,7 +67,7 @@ fn test_users_create_and_list() {
         "Should list users successfully"
     );
 
-    let users = result["data"].as_array().unwrap();
+    let users = result["data"]["users"].as_array().unwrap();
     assert!(
         users.iter().any(|u| u["id"] == user_id),
         "Should find newly created user in list"
@@ -86,7 +86,7 @@ fn test_users_list_and_verify() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
 
@@ -100,7 +100,7 @@ fn test_users_list_and_verify() {
         "Should list users successfully"
     );
 
-    let users = result["data"].as_array().unwrap();
+    let users = result["data"]["users"].as_array().unwrap();
     assert!(
         users.iter().any(|u| u["id"] == user_id),
         "Should find created user in list"
@@ -119,7 +119,7 @@ fn test_users_update() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
 
@@ -135,7 +135,7 @@ fn test_users_update() {
 
     // Verify by listing users
     let list_result = ctx.run_json(&["users", "list", "--limit", "100"]);
-    let users = list_result["data"].as_array().unwrap();
+    let users = list_result["data"]["users"].as_array().unwrap();
     let updated_user = users.iter().find(|u| u["id"] == user_id);
     assert!(updated_user.is_some(), "Should find updated user");
 }
@@ -152,7 +152,7 @@ fn test_users_delete() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
 

@@ -99,7 +99,7 @@ fn test_music_error_cases() {
     assert_eq!(result["success"], false);
     let errors = result["errors"].as_array().unwrap();
     assert!(!errors.is_empty());
-    assert_eq!(errors[0]["type"], "album_not_found");
+    assert_eq!(errors[0]["error_type"], "album_not_found");
 }
 
 #[test]

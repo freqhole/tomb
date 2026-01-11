@@ -16,7 +16,7 @@ fn test_maintenance_cleanup_orphaned_tags() {
 
     let data = &result["data"];
     assert!(
-        data["deleted"].is_number() || data["removed"].is_number(),
+        data["tags_deleted"].is_number(),
         "Should have deletion count"
     );
 }
@@ -35,7 +35,7 @@ fn test_maintenance_cleanup_orphaned_genres() {
 
     let data = &result["data"];
     assert!(
-        data["deleted"].is_number() || data["removed"].is_number(),
+        data["genres_deleted"].is_number(),
         "Should have deletion count"
     );
 }
@@ -54,7 +54,7 @@ fn test_maintenance_cleanup_orphaned_sub_genres() {
 
     let data = &result["data"];
     assert!(
-        data["deleted"].is_number() || data["removed"].is_number(),
+        data["sub_genres_deleted"].is_number(),
         "Should have deletion count"
     );
 }

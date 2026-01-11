@@ -85,12 +85,6 @@ pub fn initialize_wordlist(config: &WordlistConfig) -> GrimoireResponse<()> {
         );
     }
 
-    tracing::info!(
-        "Wordlist initialized successfully: {} words from {}",
-        WORDLIST.get().unwrap().len(),
-        config.file_path
-    );
-
     GrimoireResponse::success("Wordlist initialized successfully", ())
 }
 
@@ -204,12 +198,6 @@ fn validate_wordlist_internal(
             duplicates
         )));
     }
-
-    tracing::debug!(
-        "Wordlist validation passed: {} words, entropy: {:.1} bits",
-        words.len(),
-        (words.len() as f64).log2()
-    );
 
     Ok(())
 }

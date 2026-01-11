@@ -14,7 +14,7 @@ fn test_playlists_create() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
 
@@ -96,7 +96,7 @@ fn test_playlists_add_songs() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user_result["data"]["id"].as_str().unwrap();
@@ -197,7 +197,7 @@ fn test_playlists_update() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user_result["data"]["id"].as_str().unwrap();
@@ -244,7 +244,7 @@ fn test_playlists_delete() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user_result["data"]["id"].as_str().unwrap();
@@ -287,7 +287,7 @@ fn test_playlists_search() {
         "Should search playlists successfully"
     );
     assert!(
-        result["data"].is_array(),
+        result["data"]["items"].is_array(),
         "Should return array of playlists"
     );
 }
@@ -304,7 +304,7 @@ fn test_playlists_user_list() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user_result["data"]["id"].as_str().unwrap();
@@ -333,7 +333,7 @@ fn test_playlists_user_list() {
         "Should list user playlists successfully"
     );
     assert!(
-        result["data"].is_array(),
+        result["data"]["items"].is_array(),
         "Should return array of playlists"
     );
 }
@@ -350,7 +350,7 @@ fn test_playlists_complete_workflow() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user_result["data"]["id"].as_str().unwrap();

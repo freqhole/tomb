@@ -23,6 +23,6 @@
     "enabled": false
   },
   "logging": {
-    "level": "info"
+    "level": "warn"
   }
 }

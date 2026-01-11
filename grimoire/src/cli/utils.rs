@@ -307,21 +307,16 @@ fn format_as_table<T: Serialize>(items: &[T]) -> String {
 /// Print CommandOutput and exit with appropriate code
 ///
 /// This is the centralized output handler for all CLI commands:
-/// - Success: prints to stdout, exits 0
-/// - Failure: prints to stderr, exits 1
+/// - All output goes to stdout (for consistent piping/parsing)
+/// - Exit code indicates success (0) or failure (1)
 ///
 /// Use this at the top level of command dispatching to avoid repetitive
 /// error handling in every command handler.
 pub fn print_and_exit<T: Serialize>(output: CommandOutput<T>, format: OutputFormat) -> ! {
     let formatted = output.format(format);
 
-    if output.success {
-        println!("{}", formatted);
-        std::process::exit(0);
-    } else {
-        eprintln!("{}", formatted);
-        std::process::exit(1);
-    }
+    println!("{}", formatted);
+    std::process::exit(if output.success { 0 } else { 1 });
 }
 
 // ============================================================================

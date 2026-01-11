@@ -1,0 +1,52 @@
+# Example Wordlist for Invite Code Generation
+# This file contains silly, fun, and funny words for generating memorable invite codes
+# Copy this to wordlist.txt and customize as needed
+# Words should be 3-8 characters, easy to type, and entertaining
+# One word per line, no duplicates
+
+bacon
+banana
+burp
+cheese
+chicken
+clown
+cookie
+disco
+donkey
+dragon
+fart
+funky
+giggle
+goose
+hamster
+happy
+hippo
+jiggly
+kazoo
+llama
+mango
+monkey
+noodle
+octopus
+pickle
+pizza
+poodle
+potato
+rubber
+silly
+sloth
+snack
+snail
+spoon
+squirrel
+taco
+tickle
+tofu
+turkey
+waffle
+walrus
+wiggle
+wizard
+yodel
+zebra
+zoom

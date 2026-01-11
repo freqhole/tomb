@@ -30,9 +30,15 @@ fn test_jobs_stats() {
 
     // Stats should have counts for different statuses
     let data = &result["data"];
-    assert!(data["total"].is_number(), "Should have total count");
-    assert!(data["pending"].is_number(), "Should have pending count");
-    assert!(data["completed"].is_number(), "Should have completed count");
+    assert!(data["total_jobs"].is_number(), "Should have total count");
+    assert!(
+        data["pending_jobs"].is_number(),
+        "Should have pending count"
+    );
+    assert!(
+        data["completed_jobs"].is_number(),
+        "Should have completed count"
+    );
 }
 
 #[test]
@@ -99,5 +105,8 @@ fn test_jobs_process() {
     );
 
     let data = &result["data"];
-    assert!(data["processed"].is_number(), "Should have processed count");
+    assert!(
+        data["completed"].as_bool().is_some(),
+        "Should have completed status"
+    );
 }

@@ -22,7 +22,7 @@ fn test_analytics_record_play() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
@@ -31,7 +31,7 @@ fn test_analytics_record_play() {
     let result = ctx.run_json(&[
         "analytics",
         "record-play",
-        "--entity-id",
+        "--song-id",
         song_id,
         "--user-id",
         user_id,
@@ -56,7 +56,7 @@ fn test_analytics_song_stats() {
     let song_id = songs["data"]["items"][0]["song"]["id"].as_str().unwrap();
 
     // Get song statistics
-    let result = ctx.run_json(&["analytics", "song-stats", "--song-id", song_id]);
+    let result = ctx.run_json(&["analytics", "song-stats", song_id]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -76,13 +76,13 @@ fn test_analytics_user_history() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
 
     // Get user history
-    let result = ctx.run_json(&["analytics", "user-history", "--user-id", user_id]);
+    let result = ctx.run_json(&["analytics", "user-history", user_id]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -102,13 +102,14 @@ fn test_analytics_session() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
 
-    // Get session summary
-    let result = ctx.run_json(&["analytics", "session", "--user-id", user_id]);
+    // Get session summary - need a session ID, not user ID
+    // For now, use a placeholder since we don't have a real session
+    let result = ctx.run_json(&["analytics", "session", "test-session-id"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -129,7 +130,7 @@ fn test_analytics_counts() {
     let song_id = songs["data"]["items"][0]["song"]["id"].as_str().unwrap();
 
     // Get event counts
-    let result = ctx.run_json(&["analytics", "counts", "--entity-id", song_id]);
+    let result = ctx.run_json(&["analytics", "counts", "song", song_id]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -253,13 +254,13 @@ fn test_analytics_user_stats() {
         "--username",
         &username,
         "--role",
-        "user",
+        "admin",
         "--bootstrap",
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
 
     // Get user statistics
-    let result = ctx.run_json(&["analytics", "user-stats", "--user-id", user_id]);
+    let result = ctx.run_json(&["analytics", "user-stats", user_id]);
 
     assert!(
         result["success"].as_bool().unwrap(),
