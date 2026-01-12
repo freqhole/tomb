@@ -104,7 +104,8 @@ impl Drop for TestContext {
 /// cargo test setup -- --ignored --nocapture
 /// ```
 ///
-/// The `--ignored` flag means this test is normally skipped (marked with #[ignore])
+/// Helper function to set up test database with real music data
+/// Run with: cargo test setup -- --nocapture --include-ignored
 /// The `--nocapture` flag shows the println! output (cargo normally captures it)
 #[test]
 #[ignore]

@@ -115,7 +115,7 @@ fn test_analytics_session() {
             .unwrap()
             .as_millis()
     );
-    let user = ctx.run_json(&[
+    let _user = ctx.run_json(&[
         "users",
         "create",
         "--username",
@@ -124,7 +124,6 @@ fn test_analytics_session() {
         "admin",
         "--bootstrap",
     ]);
-    let user_id = user["data"]["id"].as_str().unwrap();
 
     // Get session summary - using a non-existent session ID, expect failure
     let result = ctx.run_json(&["analytics", "session", "session-id-does-not-exist"]);
