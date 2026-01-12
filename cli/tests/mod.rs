@@ -1,10 +1,20 @@
 //! Integration test infrastructure for Grimoire CLI
 //!
-//! This module provides utilities for testing the CLI by running commands
-//! against a real database snapshot.
+//! These tests validate the CLI by invoking the `freqhole` binary as a subprocess
+//! and verifying its output. This approach provides true end-to-end testing.
 //!
-//! Tests use the shared ../data/test.db file and run sequentially
-//! (--test-threads=1) to avoid conflicts.
+//! ## Test Database
+//!
+//! Tests use the shared `../data/test.db` file. Since tests run sequentially
+//! (`--test-threads=1`), there are no conflicts even when tests mutate data.
+//!
+//! ## Code Coverage
+//!
+//! When running with `cargo llvm-cov`, tests automatically use the instrumented
+//! binary from `target/llvm-cov-target/` and pass through coverage environment
+//! variables to capture execution data from subprocesses.
+//!
+//! Run coverage with: `make test-cli-coverage`
 
 use serde_json::Value;
 use std::path::PathBuf;
@@ -27,8 +37,7 @@ pub struct TestOutput {
 impl TestContext {
     /// Create new test context using shared test database
     ///
-    /// Tests use the shared ../data/test.db file.
-    /// Since tests run sequentially (--test-threads=1), mutations don't cause conflicts.
+    /// Verifies that `../data/test.db` exists before running tests.
     pub fn from_snapshot() -> Self {
         let test_config_path = PathBuf::from("tests/fixtures/test-config.jsonc");
 
@@ -51,30 +60,12 @@ impl TestContext {
         let mut full_args = vec!["--config", self.test_config_path.to_str().unwrap()];
         full_args.extend_from_slice(args);
 
-        // Find the binary - prefer llvm-cov instrumented binary for coverage
-        let bin_path = if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
-            path
-        } else {
-            // Check for instrumented binary first (when running with cargo-llvm-cov)
-            let mut coverage_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            coverage_path.pop();
-            coverage_path.push("target/llvm-cov-target/debug/freqhole");
-
-            if coverage_path.exists() {
-                coverage_path.to_string_lossy().to_string()
-            } else {
-                // Fallback: regular debug binary
-                let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                path.pop();
-                path.push("target/debug/freqhole");
-                path.to_string_lossy().to_string()
-            }
-        };
+        let bin_path = Self::find_binary();
 
         let mut cmd = Command::new(&bin_path);
         cmd.args(&full_args);
 
-        // Pass through LLVM coverage env vars so spawned process writes coverage data
+        // Pass through LLVM coverage env vars for subprocess coverage collection
         if let Ok(profile_file) = std::env::var("LLVM_PROFILE_FILE") {
             cmd.env("LLVM_PROFILE_FILE", profile_file);
         }
@@ -88,7 +79,7 @@ impl TestContext {
         }
     }
 
-    /// Run CLI command with --json-output, parse result
+    /// Run CLI command with --json-output, parse result as JSON
     pub fn run_json(&self, args: &[&str]) -> Value {
         // Insert --json-output after the command name (first arg)
         // e.g., ["database", "info"] -> ["database", "--json-output", "info"]
@@ -107,23 +98,51 @@ impl TestContext {
             )
         })
     }
+
+    /// Find the freqhole binary to execute
+    ///
+    /// Search order:
+    /// 1. CARGO_BIN_EXE_freqhole env var (set by cargo test)
+    /// 2. Instrumented binary at target/llvm-cov-target/debug/freqhole (for coverage)
+    /// 3. Regular debug binary at target/debug/freqhole
+    fn find_binary() -> String {
+        if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
+            return path;
+        }
+
+        // Check for instrumented binary (when running with cargo-llvm-cov)
+        let mut coverage_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        coverage_path.pop();
+        coverage_path.push("target/llvm-cov-target/debug/freqhole");
+
+        if coverage_path.exists() {
+            return coverage_path.to_string_lossy().to_string();
+        }
+
+        // Fallback: regular debug binary
+        let mut debug_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        debug_path.pop();
+        debug_path.push("target/debug/freqhole");
+        debug_path.to_string_lossy().to_string()
+    }
 }
 
-/// One-time setup: scan music and create test DB
+/// One-time setup: create test database from music directory
 ///
-/// Run this manually when you first set up testing:
+/// This test is marked `#[ignore]` and must be run explicitly:
 /// ```
 /// cargo test setup -- --ignored --nocapture
 /// ```
 ///
-/// Helper function to set up test database with real music data
-/// Run with: cargo test setup -- --nocapture --include-ignored
-/// The `--nocapture` flag shows the println! output (cargo normally captures it)
+/// It will:
+/// 1. Prompt for a music directory path
+/// 2. Scan the directory for audio files
+/// 3. Process the files and create `../data/test.db`
 #[test]
 #[ignore]
 fn setup() {
     println!("\n=== Grimoire Test Database Setup ===");
-    println!("This will create data/test.db for integration tests.");
+    println!("This will create ../data/test.db for integration tests.");
     println!("\nEnter path to music directory:");
 
     let mut input = String::new();
@@ -140,7 +159,7 @@ fn setup() {
         panic!("Path does not exist: {}", music_path);
     }
 
-    // Create data directory if it doesn't exist
+    // Create data directory if needed
     std::fs::create_dir_all("../data").expect("Failed to create data directory");
 
     let test_db_path = PathBuf::from("../data/test.db");
@@ -155,21 +174,13 @@ fn setup() {
 
     let test_config_path = PathBuf::from("tests/fixtures/test-config.jsonc");
 
-    // Helper to run commands during setup
+    // Helper to run CLI commands during setup
     let run_setup_command = |args: &[&str]| -> Value {
         let mut full_args = vec!["--config", test_config_path.to_str().unwrap()];
         full_args.extend_from_slice(args);
         full_args.push("--json-output");
 
-        // Use same binary path logic as run_cli
-        let bin_path = if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
-            path
-        } else {
-            let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            path.pop();
-            path.push("target/debug/freqhole");
-            path.to_string_lossy().to_string()
-        };
+        let bin_path = TestContext::find_binary();
 
         let output = Command::new(&bin_path)
             .args(&full_args)
@@ -181,7 +192,7 @@ fn setup() {
             .unwrap_or_else(|e| panic!("Invalid JSON response:\n{}\nError: {}", stdout, e))
     };
 
-    // Scan directory
+    // Scan directory for music files
     println!("Scanning directory: {}", music_path);
     let result = run_setup_command(&["jobs", "scan", music_path]);
 
@@ -191,7 +202,7 @@ fn setup() {
 
     println!("Scan job created: {}", result["data"]["job_id"]);
 
-    // Process jobs
+    // Process all jobs
     println!("\nProcessing jobs...");
     let result = run_setup_command(&["jobs", "run-processor", "--once", "--max-jobs", "1000"]);
 
@@ -201,7 +212,7 @@ fn setup() {
 
     println!("Processing complete");
 
-    // Verify data loaded
+    // Verify data was loaded
     println!("\nVerifying loaded data...");
     let result = run_setup_command(&["music", "query-songs", "--limit", "1"]);
     let count = result["data"]["total_count"].as_u64().unwrap();
@@ -212,5 +223,5 @@ fn setup() {
 
     println!("Total songs loaded: {}", count);
     println!("\nSnapshot saved to: {:?}", test_db_path);
-    println!("\nSetup complete! Now you can run tests with: cargo test");
+    println!("\nSetup complete! Run tests with: cargo test");
 }
