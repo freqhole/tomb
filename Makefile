@@ -201,7 +201,7 @@ test-cli-coverage: db-prepare
 	@echo "CLI Integration Test Coverage Report Generated"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo ""
-	@echo "  HTML Report: cli/coverage/index.html"
+	@echo "  HTML Report: cli/coverage/html/index.html"
 	@echo ""
 	@echo "Note: This covers CLI integration tests (not unit tests)"
 	@echo ""
