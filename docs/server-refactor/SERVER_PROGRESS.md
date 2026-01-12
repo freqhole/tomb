@@ -8,9 +8,13 @@ quick reference for tracking server refactor work.
 - `LEGACY_CODE_REUSE.md` - specific legacy code files to reuse (range requests, static files, etc)
 - `GRIMOIRE_TO_SERVER_ROUTES.md` - **complete checklist** of grimoire apis → server routes
 
-## current phase: phase 0 - preparation
+## current phase: phase 2 - authentication (in progress)
 
-**next action: optional har recording, then move server to legacyserver**
+**phase 0 complete**: ✅
+**phase 1 complete**: ✅
+**phase 2 grimoire work complete**: ✅ viewer role, api_key field, server config
+
+**next action: implement auth handlers and middleware**
 
 ## implementation workflow (updated priority)
 
@@ -24,43 +28,45 @@ quick reference for tracking server refactor work.
 
 ## quick checklist
 
-### phase 0: preparation & inventory
+### phase 0: preparation & inventory ✅ COMPLETE
 
 - [x] create refactor plan
-- [ ] optional: har recording of legacy webapp (recommended)
-- [ ] move server → legacyserver
-- [ ] update workspace cargo.toml
+- [x] move server → legacyserver
+- [x] update workspace cargo.toml (removed legacy packages)
+- [ ] optional: har recording of legacy webapp (deferred)
 - legacyserver is reference only (no need to maintain)
 
-### phase 1: foundation
+### phase 1: foundation ✅ COMPLETE
 
-- [ ] create new server package
-- [ ] setup cargo.toml with minimal deps
-- [ ] app state struct (no db pool)
-- [ ] error handling
-- [ ] basic middleware
+- [x] create new server package
+- [x] setup cargo.toml with minimal deps and webauthn feature flag
+- [x] app state struct (no db pool!)
+- [x] error handling (ApiError enum with IntoResponse)
+- [x] basic middleware (compression, cors, tracing)
+- [x] server.rs with start_server function
+- [x] routes.rs (empty router for now)
+- [x] main.rs (minimal entry point)
+- [x] binary compiles and runs
 
 ### phase 2: authentication
 
-- [ ] auth module structure
-- [ ] webauthn support (feature-gated)
-  - [ ] feature flag in Cargo.toml
-  - [ ] config validation (panic if enabled without feature)
-  - [ ] figure out sqlite migration from postgres
-- [ ] api key auth (needs db migration)
-- [ ] invite code auth
-- [ ] **add viewer role to grimoire**
-  - [ ] extend UserRole enum (admin, user, viewer)
-  - [ ] viewer = read-only (browse/play/favorite, no upload/edit/fetch)
-  - [ ] middleware checks role for mutation routes
-- [ ] auth middleware (nearly all routes require auth)
-- [ ] session storage in sqlite
+**grimoire work** ✅
+
+- [x] add viewer role to UserRole enum
+- [x] add api_key field to User model
+- [x] add ServerConfig to grimoire config
+- [x] update config files (config.jsonc, config.example.jsonc, test-config.jsonc)
+- [x] database migration (consolidated into 009_user_system.sql)
+
+**server work** (in progress)
+
+- [x] auth module structure (stubs created)
+- [x] config validation in AppState
+- [ ] implement session store initialization
+- [ ] implement auth middleware (require_auth, validate_origin)
+- [ ] implement auth handlers (whoami, invite redemption)
+- [ ] webauthn handlers (if feature enabled)
 - [ ] auth routes (~7 routes)
-- [ ] **investigate typescript codegen during this phase**
-  - [ ] test ts-rs, typeshare, or specta
-  - [ ] determine: wrapper types or annotate grimoire types?
-  - [ ] understand structural impact before phase 6
-- [ ] **goal: establish auth before route implementation**
 
 ### phase 3: typescript codegen investigation
 
@@ -198,6 +204,22 @@ quick reference for tracking server refactor work.
 - follow coding_principles.md (lowercase, simple, minimal)
 - **cli plumbing for all grimoire apis**: every new grimoire function needs cli wrapper
 - **minimal code**: remove redundant functions, keep only what's needed
+
+## config files to maintain
+
+when adding new config options, update all three files:
+
+- `assets/config/config.jsonc` - development config
+- `assets/config/config.example.jsonc` - example/template config with detailed comments
+- `cli/tests/fixtures/test-config.jsonc` - test config (minimal)
+
+## future config sections to implement
+
+the following config sections were stubbed out but need implementation:
+
+- [ ] `server.sessions` - session management settings (max_age, secure, same_site, http_only)
+- [ ] `server.auth.webauthn.rp_name` - human-readable name shown during authentication
+- [ ] `server.static_files` directory structure - may need public/private/assets distinction
 
 ## open questions
 

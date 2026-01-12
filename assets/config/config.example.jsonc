@@ -205,63 +205,67 @@
   },
 
   // ========================================
-  // Server-specific configuration
-  // (Only used by freqhole-server)
+  // Server configuration (optional)
+  // Only needed when running the HTTP server
   // ========================================
 
   "server": {
-    // HTTP server configuration
-    // Interface to bind to: 0.0.0.0 = all interfaces, 127.0.0.1 = localhost only
+    // Server host and port
+    // host: "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
     "host": "0.0.0.0",
-    // Port to listen on
-    "port": 8080,
+    "port": 3000,
 
-    // WebAuthn/FIDO2 authentication configuration
-    "webauthn": {
-      // Relying Party ID - MUST match your domain
-      // IMPORTANT: Cannot be changed after deployment!
-      "rp_id": "localhost",
-      // Human-readable name shown during authentication
-      "rp_name": "Freqhole Music Server",
-      // Allowed origin URLs for authentication (supports multiple domains)
-      "rp_origins": [
-        "http://localhost:8080",
-        "http://localhost:3003",
-        "http://localhost:5173"
+    // Authentication configuration
+    "auth": {
+      // Enable WebAuthn passkey authentication
+      // Note: requires binary built with --features webauthn (enabled by default)
+      // Set to false to disable passkey auth (API keys and invite codes still work)
+      "webauthn_enabled": true,
+
+      // WebAuthn origin configurations
+      // Each origin needs its own rp_id (domain) and rp_origin (full URL)
+      // Middleware validates incoming requests against this list
+      //
+      // rp_id: domain name (e.g., "example.com", "localhost")
+      // rp_origin: full URL (e.g., "https://app.example.com", "http://localhost:3000")
+      //
+      // IMPORTANT: Support multiple origins for dev/staging/prod environments
+      "webauthn_origins": [
+        {
+          "rp_id": "localhost",
+          "rp_origin": "http://localhost:3000"
+        },
+        {
+          "rp_id": "localhost",
+          "rp_origin": "http://localhost:5173"
+        }
+        // Add more origins as needed:
+        // {
+        //   "rp_id": "example.com",
+        //   "rp_origin": "https://music.example.com"
+        // }
       ]
+    },
+
+    // Static file serving
+    "static_files": {
+      // Enable serving static files (HTML, JS, CSS, etc.)
+      "enabled": true,
+      // Directory to serve from (relative to data_dir or absolute path)
+      "directory": "./static"
     },
 
     // CORS (Cross-Origin Resource Sharing) configuration
     "cors": {
-      // List of allowed origins for CORS requests
-      "allowed_origins": [
-        "http://localhost:8080",
-        "http://localhost:3003",
-        "http://localhost:5173"
-      ]
-    },
-
-    // Session management settings
-    "sessions": {
-      // Session duration in seconds
-      // Set to 0 or negative for sessions that never expire
-      "max_age_seconds": 3600,
-      // Use secure cookies (set true for HTTPS)
-      "secure": false,
-      // SameSite attribute: "strict", "lax", or "none"
-      "same_site": "strict",
-      // Prevent JavaScript access to session cookies
-      "http_only": true
-    },
-
-    // Static file serving configuration
-    "static_files": {
-      // Directory for public files (accessible to all)
-      "public_directory": "assets/public",
-      // Directory for private files (authentication required)
-      "private_directory": "assets/private",
-      // Main assets directory
-      "assets_directory": "assets"
+      // Enable CORS headers
+      "enabled": true
+      // Allowed origins (if not specified, uses auth.webauthn_origins)
+      // Uncomment to override:
+      // "allowed_origins": [
+      //   "http://localhost:3000",
+      //   "http://localhost:5173",
+      //   "https://music.example.com"
+      // ]
     }
   }
 }
@@ -273,3 +277,13 @@
 //   └── tmp/                 # Temporary files (created automatically)
 //       ├── uploads/
 //       └── processing/
+//
+// Authentication methods (all available, no config needed):
+//   1. WebAuthn passkeys (if webauthn_enabled=true and feature compiled)
+//   2. API keys (stored in user_accountz.api_key column)
+//   3. Invite codes (creates session cookie after redemption)
+//
+// User roles:
+//   - admin: full access (user management, analytics, etc.)
+//   - member: standard user (upload, edit, create playlists)
+//   - viewer: read-only (browse, play, favorite/rate only)

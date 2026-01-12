@@ -24,5 +24,20 @@
   },
   "logging": {
     "level": "warn"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3000,
+    "auth": {
+      "webauthn_enabled": false,
+      "webauthn_origins": []
+    },
+    "static_files": {
+      "enabled": false,
+      "directory": null
+    },
+    "cors": {
+      "enabled": false
+    }
   }
 }

@@ -184,48 +184,51 @@
   },
 
   // ========================================
-  // Server-specific configuration
-  // (Only used by freqhole-server)
+  // Server configuration (optional)
+  // Only needed when running the HTTP server
   // ========================================
 
   "server": {
-    // HTTP server configuration
-    "host": "0.0.0.0",
-    "port": 8080,
+    // Server host and port
+    "host": "127.0.0.1",
+    "port": 3000,
 
-    // WebAuthn/FIDO2 authentication configuration
-    "webauthn": {
-      "rp_id": "localhost",
-      "rp_name": "WebAuthn Demo",
-      "rp_origins": [
-        "http://localhost:8080",
-        "http://localhost:3003",
-        "http://localhost:5173"
+    // Authentication configuration
+    "auth": {
+      // Enable WebAuthn passkey authentication
+      // Note: requires binary built with --features webauthn (enabled by default)
+      "webauthn_enabled": true,
+
+      // WebAuthn origin configurations
+      // Each origin needs its own rp_id (domain) and rp_origin (full URL)
+      // Middleware validates incoming requests against this list
+      "webauthn_origins": [
+        {
+          "rp_id": "localhost",
+          "rp_origin": "http://localhost:3000"
+        },
+        {
+          "rp_id": "localhost",
+          "rp_origin": "http://localhost:5173"
+        }
       ]
+    },
+
+    // Static file serving
+    "static_files": {
+      // Enable serving static files (HTML, JS, CSS, etc.)
+      "enabled": true,
+      // Directory to serve from (relative to data_dir or absolute path)
+      "directory": "./static"
     },
 
     // CORS configuration
     "cors": {
-      "allowed_origins": [
-        "http://localhost:8080",
-        "http://localhost:3003",
-        "http://localhost:5173"
-      ]
-    },
-
-    // Session management settings
-    "sessions": {
-      "max_age_seconds": -1,
-      "secure": false,
-      "same_site": "strict",
-      "http_only": true
-    },
-
-    // Static file serving configuration
-    "static_files": {
-      "public_directory": "assets/public",
-      "private_directory": "assets/private",
-      "assets_directory": "assets"
+      // Enable CORS headers
+      "enabled": true,
+      // Allowed origins (if not specified, uses auth.webauthn_origins)
+      // Uncomment to override:
+      // "allowed_origins": ["http://localhost:3000", "http://localhost:5173"]
     }
   }
 }
