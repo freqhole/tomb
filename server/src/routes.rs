@@ -2,7 +2,7 @@
 
 use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
 
-use crate::{auth, state::AppState};
+use crate::{auth, state::AppState, static_files};
 
 /// build the application router
 ///
@@ -52,8 +52,9 @@ pub fn build_router() -> Router<AppState> {
         .merge(protected_routes);
 
     router
-    // TODO: add music routes
-    // TODO: add blob routes
-    // TODO: add health routes
-    // TODO: add static file routes
+        // TODO: add music routes
+        // TODO: add blob routes
+        // TODO: add health routes
+        // static files (fallback - serves anything not matched above)
+        .fallback(static_files::serve_static)
 }

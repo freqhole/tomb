@@ -2490,9 +2490,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "clap",
  "futures-util",
  "grimoire",
- "hex",
  "http",
  "http-body-util",
  "mime_guess",
