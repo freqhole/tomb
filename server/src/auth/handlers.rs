@@ -8,6 +8,10 @@ use crate::{
     auth::middleware::AuthenticatedUser, auth::session, error::ApiError, error::ApiResult,
 };
 
+// Re-export webauthn handlers when feature is enabled
+#[cfg(feature = "webauthn")]
+pub use crate::auth::freq_webauthn::{login_finish, login_start, register_finish, register_start};
+
 /// whoami response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WhoAmIResponse {
@@ -89,23 +93,3 @@ pub async fn redeem_invite(
         }
     })))
 }
-
-// TODO: webauthn handlers (phase 2)
-// - register_start (extracts validated origin from middleware)
-// - register_finish
-// - login_start (extracts validated origin from middleware)
-// - login_finish
-// - logout
-//
-// pattern for origin handling:
-//   1. middleware validates request Origin header against config.allowed_origins
-//   2. middleware injects validated origin into request extensions
-//   3. handler extracts ValidatedOrigin from extensions
-//   4. handler passes origin string to freq_webauthn methods
-//
-// this supports multiple origins (prod, staging, localhost) at runtime
-
-// TODO: invite code handler (phase 2)
-// - redeem_invite
-
-// TODO: api key validation (used by middleware, not a route)

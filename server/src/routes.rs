@@ -14,11 +14,44 @@ pub fn build_router() -> Router<AppState> {
         .route("/auth/logout", post(auth::handlers::logout))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
-    Router::new()
+    // webauthn routes (feature-gated, require origin validation)
+    #[cfg(feature = "webauthn")]
+    let webauthn_routes = Router::new()
+        .route(
+            "/auth/webauthn/register/start",
+            post(auth::handlers::register_start),
+        )
+        .route(
+            "/auth/webauthn/register/finish",
+            post(auth::handlers::register_finish),
+        )
+        .route(
+            "/auth/webauthn/login/start",
+            post(auth::handlers::login_start),
+        )
+        .route(
+            "/auth/webauthn/login/finish",
+            post(auth::handlers::login_finish),
+        )
+        .layer(axum_middleware::from_fn(auth::middleware::validate_origin));
+
+    #[cfg(feature = "webauthn")]
+    let router = Router::new()
+        // public routes (no auth required)
+        .route("/auth/invite", post(auth::handlers::redeem_invite))
+        // webauthn routes (require origin validation)
+        .merge(webauthn_routes)
+        // protected routes
+        .merge(protected_routes);
+
+    #[cfg(not(feature = "webauthn"))]
+    let router = Router::new()
         // public routes (no auth required)
         .route("/auth/invite", post(auth::handlers::redeem_invite))
         // protected routes
-        .merge(protected_routes)
+        .merge(protected_routes);
+
+    router
     // TODO: add music routes
     // TODO: add blob routes
     // TODO: add health routes

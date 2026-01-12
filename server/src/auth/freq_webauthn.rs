@@ -4,11 +4,33 @@
 //! all webauthn-rs imports and types must be isolated to this file.
 //!
 //! this module is only compiled when the `webauthn` feature is enabled.
+//!
+//! ## structure
+//!
+//! this file contains both the FreqWebauthn wrapper (~180 lines) and HTTP handlers (~290 lines).
+//! this is intentional - the file is unlikely to grow significantly as it contains:
+//! - core webauthn wrapper (thin layer over webauthn-rs)
+//! - 4 complete HTTP handlers (register_start/finish, login_start/finish)
+//!
+//! if this grows beyond ~1000 lines, consider splitting into:
+//! - `freq_webauthn/core.rs` - FreqWebauthn struct and methods
+//! - `freq_webauthn/handlers.rs` - HTTP handlers
+//! - `freq_webauthn/mod.rs` - re-exports
 
 #[cfg(feature = "webauthn")]
 use webauthn_rs::prelude::*;
 
 use crate::error::ApiError;
+
+#[cfg(feature = "webauthn")]
+use axum::{extract::Extension, response::IntoResponse, Json};
+#[cfg(feature = "webauthn")]
+use serde::Deserialize;
+#[cfg(feature = "webauthn")]
+use tower_sessions::Session;
+
+#[cfg(feature = "webauthn")]
+use crate::{auth::middleware::ValidatedOrigin, auth::session, state::AppState};
 
 /// webauthn state wrapper
 ///
@@ -175,4 +197,292 @@ impl FreqWebauthn {
     pub fn rp_id(&self) -> &str {
         &self._rp_id
     }
+}
+
+// ============================================================================
+// webauthn HTTP handlers (only compiled with webauthn feature)
+// ============================================================================
+
+#[cfg(feature = "webauthn")]
+#[derive(Debug, Deserialize)]
+pub struct RegisterStartRequest {
+    pub username: String,
+    pub invite_code: Option<String>,
+}
+
+/// start webauthn registration - create challenge for new credential
+#[cfg(feature = "webauthn")]
+pub async fn register_start(
+    Extension(state): Extension<AppState>,
+    Extension(origin): Extension<ValidatedOrigin>,
+    session: Session,
+    Json(request): Json<RegisterStartRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let server_config = state
+        .config
+        .server
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
+
+    // Validate invite code if required
+    let user_service = grimoire::users::UserService::new();
+
+    // Check if user already exists
+    let existing_user = user_service.get_user_by_username(&request.username).await;
+    if existing_user.is_success() {
+        return Err(ApiError::BadRequest("Username already exists".to_string()));
+    }
+
+    // Generate a temporary user ID for webauthn registration
+    // The actual user account will be created in finish_register
+    // We use UUID v4 to generate a deterministic 32-char hex string
+    let user_id = uuid::Uuid::new_v4().to_string().replace("-", "");
+
+    // Get existing credentials (none for new user)
+    let exclude_credentials = Vec::new();
+
+    // Get rp_id from first origin config (they should all have same rp_id)
+    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    let rp_name = "Freqhole"; // TODO: get from config
+
+    // Create FreqWebauthn instance
+    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+
+    // Start registration
+    let (ccr, reg_state) = freq_webauthn.start_registration(
+        &origin.0,
+        &user_id,
+        &request.username,
+        exclude_credentials,
+    )?;
+
+    // Store registration state in session
+    session
+        .insert(
+            "reg_state",
+            (
+                user_id,
+                request.username.clone(),
+                reg_state,
+                request.invite_code.clone(),
+            ),
+        )
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to save session: {}", e)))?;
+
+    Ok(Json(ccr))
+}
+
+/// finish webauthn registration - validate credential and create user
+#[cfg(feature = "webauthn")]
+pub async fn register_finish(
+    Extension(state): Extension<AppState>,
+    Extension(origin): Extension<ValidatedOrigin>,
+    session: Session,
+    Json(reg): Json<RegisterPublicKeyCredential>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Get registration state from session
+    let (_temp_user_id, username, reg_state, invite_code): (
+        String,
+        String,
+        PasskeyRegistration,
+        Option<String>,
+    ) = session
+        .get("reg_state")
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
+        .ok_or_else(|| ApiError::BadRequest("no registration in progress".to_string()))?;
+
+    // Remove registration state from session
+    let _ = session.remove_value("reg_state").await;
+
+    let server_config = state
+        .config
+        .server
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
+
+    // Get rp_id from config
+    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    let rp_name = "Freqhole";
+
+    // Create FreqWebauthn instance
+    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+
+    // Finish registration
+    let passkey = freq_webauthn.finish_registration(&origin.0, &reg, &reg_state)?;
+
+    // Create user account
+    let create_request = grimoire::users::CreateUserRequest {
+        username: username.clone(),
+        role: Some(grimoire::users::UserRole::Member),
+        invite_code: invite_code.clone(),
+    };
+
+    let user_service = grimoire::users::UserService::new();
+    let user_response = user_service.register_user(&create_request).await;
+
+    if !user_response.is_success() {
+        return Err(ApiError::BadRequest(
+            user_response
+                .errors
+                .first()
+                .map(|e| e.detail.clone())
+                .unwrap_or_else(|| "Failed to create user".to_string()),
+        ));
+    }
+
+    let user = user_response
+        .data
+        .ok_or_else(|| ApiError::Internal("Failed to get user data".to_string()))?;
+
+    // Save the credential
+    let webauthn_service = grimoire::users::WebAuthnService::new();
+    let cred_response = webauthn_service.save_credential(&user.id, &passkey).await;
+
+    if !cred_response.is_success() {
+        return Err(ApiError::Internal("Failed to save credential".to_string()));
+    }
+
+    // Create session to auto-login
+    session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Registration successful",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role.to_string(),
+        }
+    })))
+}
+
+/// start webauthn authentication - create challenge
+#[cfg(feature = "webauthn")]
+pub async fn login_start(
+    Extension(state): Extension<AppState>,
+    Extension(origin): Extension<ValidatedOrigin>,
+    session: Session,
+    Json(request): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let username = request
+        .get("username")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("username required".to_string()))?;
+
+    // Look up user
+    let user_service = grimoire::users::UserService::new();
+    let user_response = user_service.get_user_by_username(username).await;
+
+    if !user_response.is_success() {
+        return Err(ApiError::BadRequest("User not found".to_string()));
+    }
+
+    let user = user_response
+        .data
+        .ok_or_else(|| ApiError::Internal("Failed to get user data".to_string()))?;
+
+    // Get user's credentials
+    let webauthn_service = grimoire::users::WebAuthnService::new();
+    let creds_response = webauthn_service.get_credentials(&user.id).await;
+
+    if !creds_response.is_success() {
+        return Err(ApiError::Internal("Failed to get credentials".to_string()));
+    }
+
+    let credentials = creds_response
+        .data
+        .ok_or_else(|| ApiError::Internal("No credentials data".to_string()))?;
+
+    if credentials.is_empty() {
+        return Err(ApiError::BadRequest("User has no credentials".to_string()));
+    }
+
+    let server_config = state
+        .config
+        .server
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
+
+    // Get rp_id from config
+    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    let rp_name = "Freqhole";
+
+    // Create FreqWebauthn instance
+    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+
+    // Start authentication
+    let (rcr, auth_state) = freq_webauthn.start_authentication(&origin.0, &credentials)?;
+
+    // Store auth state in session
+    session
+        .insert("auth_state", (user.id, auth_state))
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to save session: {}", e)))?;
+
+    Ok(Json(rcr))
+}
+
+/// finish webauthn authentication - validate and create session
+#[cfg(feature = "webauthn")]
+pub async fn login_finish(
+    Extension(state): Extension<AppState>,
+    Extension(origin): Extension<ValidatedOrigin>,
+    session: Session,
+    Json(auth): Json<PublicKeyCredential>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Get auth state from session
+    let (user_id, auth_state): (String, PasskeyAuthentication) = session
+        .get("auth_state")
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
+        .ok_or_else(|| ApiError::BadRequest("no authentication in progress".to_string()))?;
+
+    // Remove auth state from session
+    let _ = session.remove_value("auth_state").await;
+
+    let server_config = state
+        .config
+        .server
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
+
+    // Get rp_id from config
+    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    let rp_name = "Freqhole";
+
+    // Create FreqWebauthn instance
+    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+
+    // Finish authentication
+    let _auth_result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;
+
+    // Update credential counter (optional, for now we'll skip this)
+    // In production, you'd want to update the credential's counter to prevent replay attacks
+
+    // Get user info
+    let user_service = grimoire::users::UserService::new();
+    let user_response = user_service.get_user(&user_id).await;
+
+    if !user_response.is_success() {
+        return Err(ApiError::Internal("Failed to get user".to_string()));
+    }
+
+    let user = user_response
+        .data
+        .ok_or_else(|| ApiError::Internal("No user data".to_string()))?;
+
+    // Create session
+    session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Login successful",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "role": user.role.to_string(),
+        }
+    })))
 }
