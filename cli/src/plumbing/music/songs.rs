@@ -1,10 +1,10 @@
 //! Music song commands
 
 use super::MusicAction;
-use crate::cli::utils::resolve_request;
-use crate::cli::utils::CommandOutput;
-use crate::music::crud::UpdateSongsRequest;
-use crate::music::crud::{list_recent_songs, update_songs};
+use grimoire::plumbing::utils::resolve_request;
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::music::crud::UpdateSongsRequest;
+use grimoire::music::crud::{list_recent_songs, update_songs};
 
 pub async fn handle_recent_songs(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::RecentSongs { limit } = action {

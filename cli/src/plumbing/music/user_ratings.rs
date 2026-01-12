@@ -1,8 +1,8 @@
 //! User ratings CLI commands (music domain)
 
-use crate::cli::utils::CommandOutput;
-use crate::error::GrimoireError;
-use crate::users::{RatingTarget, RatingsService, SetRatingRequest};
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::error::GrimoireError;
+use grimoire::users::{RatingTarget, RatingsService, SetRatingRequest};
 use clap::Subcommand;
 
 #[derive(Subcommand)]

@@ -1,8 +1,8 @@
 //! MusicBrainz API integration commands
 
-use crate::cli::utils::CommandOutput;
-use crate::error::GrimoireError;
-use crate::music::musicbrainz::{
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::error::GrimoireError;
+use grimoire::music::musicbrainz::{
     MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
 };
 use clap::Subcommand;

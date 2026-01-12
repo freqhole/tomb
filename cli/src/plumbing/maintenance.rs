@@ -1,7 +1,7 @@
 //! Maintenance operations CLI commands
 
-use crate::cli::utils::CommandOutput;
-use crate::maintenance::{
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::maintenance::{
     cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
 };
 use clap::Subcommand;

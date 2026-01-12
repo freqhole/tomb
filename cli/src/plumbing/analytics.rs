@@ -1,14 +1,14 @@
 //! Analytics operations CLI commands
 
-use crate::cli::utils::CommandOutput;
-use crate::music::analytics::{
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::music::analytics::{
     create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
     get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
     get_recent_listens, get_session_summary, get_song_play_analytics, get_song_play_count,
     get_top_albums, get_top_artists, get_top_songs, get_user_listening_history, get_user_stats,
     record_play_event,
 };
-use crate::music::crud::{query_songs, QueryParams};
+use grimoire::music::crud::{query_songs, QueryParams};
 use clap::Subcommand;
 use serde::Serialize;
 

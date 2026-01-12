@@ -1,12 +1,12 @@
 //! User management CLI commands
 
-use crate::cli::utils::CommandOutput;
-use crate::users::{
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse, InviteCodeType,
     InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,
     UserListResponse, UserQueryParams, UserRole, UserService,
 };
-use crate::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
+use grimoire::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
 use clap::Subcommand;
 
 #[derive(Subcommand)]

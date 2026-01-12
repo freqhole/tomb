@@ -1,12 +1,12 @@
 //! Music maintenance commands
 
 use super::MusicAction;
-use crate::cli::utils::CommandOutput;
-use crate::maintenance::{
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::maintenance::{
     cleanup_orphaned_media_blobs_older_than, hard_delete_old_records,
     run_full_maintenance_with_options, HardDeleteOptions,
 };
-use crate::media_blobz::find_media_blob_references;
+use grimoire::media_blobz::find_media_blob_references;
 
 pub async fn handle_check_blob_references(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::CheckBlobReferences { blob_id } = action {

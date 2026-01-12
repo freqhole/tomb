@@ -1,7 +1,7 @@
 //! Job queue management CLI commands
 
-use crate::cli::utils::CommandOutput;
-use crate::jobs::{
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
     ProcessJobCreatedResponse, ProcessorResponse, ScanDirectoryParams, ScanJobCreatedResponse,

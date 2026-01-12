@@ -7,8 +7,8 @@
 //! - maintenance: Maintenance operations (blob cleanup, hard delete)
 //! - musicbrainz: MusicBrainz API integration
 
-use crate::cli::utils::CommandOutput;
-use crate::music::crud::QueryParams;
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::music::crud::QueryParams;
 use clap::Subcommand;
 
 mod maintenance;

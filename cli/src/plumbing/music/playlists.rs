@@ -1,9 +1,9 @@
 //! Music playlist commands
 
 use super::MusicAction;
-use crate::cli::utils::resolve_request;
-use crate::cli::utils::CommandOutput;
-use crate::music::crud::{
+use grimoire::plumbing::utils::resolve_request;
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::music::crud::{
     add_songs_to_playlist, create_playlist, delete_playlist, list_playlists, list_user_playlists,
     remove_playlist_thumbnail, search_playlists, update_playlist, update_songs_position,
     AddSongsToPlaylistRequest, CreatePlaylistRequest, UpdatePlaylistRequest,

@@ -1,7 +1,7 @@
 //! Database operations CLI commands
 
-use crate::cli::utils::CommandOutput;
-use crate::database::{DatabaseInfoResponse, DatabaseTestResponse, TableInfoResponse};
+use grimoire::plumbing::utils::CommandOutput;
+use grimoire::database::{DatabaseInfoResponse, DatabaseTestResponse, TableInfoResponse};
 use clap::Subcommand;
 use sqlx::Row;
 

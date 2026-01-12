@@ -13,7 +13,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 // Re-export ErrorDetail for CLI code compatibility
-pub use crate::error::{ErrorDetail, GrimoireResult};
+pub use grimoire::error::{ErrorDetail, GrimoireResult};
 
 // ============================================================================
 // Time Formatting
