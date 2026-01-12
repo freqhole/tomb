@@ -1,9 +1,9 @@
 //! Configuration management CLI commands
 
 use crate::plumbing::utils::CommandOutput;
+use clap::Subcommand;
 use grimoire::config::{find_config, ConfigValidationResponse, GrimoireConfig};
 use grimoire::error::GrimoireError;
-use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
@@ -30,7 +30,6 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
                         .into()],
                         (),
                     )
-                    
                 }
             };
 
@@ -45,7 +44,6 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
                         .into()],
                         (),
                     )
-                    
                 }
             };
 

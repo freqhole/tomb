@@ -1,13 +1,13 @@
 //! Wordlist operations CLI commands
 
 use crate::plumbing::utils::CommandOutput;
+use clap::Subcommand;
 use grimoire::error::GrimoireError;
 use grimoire::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, InviteCodesResponse,
     ManagementWordlistConfig, WordlistConfig, WordlistConfigSummary, WordlistGeneratedResponse,
     WordlistService,
 };
-use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum WordlistAction {
@@ -84,8 +84,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                     }
                     .into()],
                     (),
-                )
-                ;
+                );
             }
 
             let content = match service.generate_wordlist_content(&config) {
@@ -99,7 +98,6 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    
                 }
             };
 
@@ -112,8 +110,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         }
                         .into()],
                         (),
-                    )
-                    ;
+                    );
                 }
             }
 
@@ -145,7 +142,6 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    
                 }
             };
 
@@ -176,7 +172,6 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
                         .into()],
                         (),
                     )
-                    
                 }
             };
 
@@ -197,8 +192,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
 
                 let response = initialize_wordlist(&config);
                 if !response.success {
-                    return CommandOutput::failure(response.message, response.errors, ())
-                        ;
+                    return CommandOutput::failure(response.message, response.errors, ());
                 }
             } else if !is_initialized() {
                 return CommandOutput::failure(
@@ -214,8 +208,7 @@ pub async fn handle_command(action: WordlistAction) -> CommandOutput<serde_json:
             for _ in 0..count {
                 let response = generate_word_code(word_count);
                 if !response.success {
-                    return CommandOutput::failure(response.message, response.errors, ())
-                        ;
+                    return CommandOutput::failure(response.message, response.errors, ());
                 }
                 if let Some(code) = response.data {
                     codes.push(code);

@@ -1,8 +1,8 @@
 {
   "app": {
-    "name": "Grimoire Test",
+    "name": "GRIMOIRE TEST",
     "version": "0.1.0",
-    "description": "Test configuration",
+    "description": "TEST CONFIGURATION",
     "id": "test-instance"
   },
   "data_dir": "../data",

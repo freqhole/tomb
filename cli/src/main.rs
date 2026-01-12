@@ -1,8 +1,8 @@
-//! Freqhole CLI
+//! FREQHOLE CLI
 //!
-//! User-friendly CLI for Freqhole music server
+//! CLI for FREQHOLE server
 //! - Setup: One-time setup command for initial configuration
-//! - Plumbing: All existing CLI commands (machine-readable, JSON output)
+//! - Plumbing: CLI commands wrapping grimoire public API
 
 mod commands;
 mod plumbing;

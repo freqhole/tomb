@@ -1,12 +1,12 @@
 //! Job queue management CLI commands
 
 use crate::plumbing::utils::CommandOutput;
+use clap::Subcommand;
 use grimoire::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
     ProcessJobCreatedResponse, ProcessorResponse, ScanDirectoryParams, ScanJobCreatedResponse,
 };
-use clap::Subcommand;
 use serde_json::json;
 
 #[derive(Subcommand)]
@@ -136,8 +136,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                     session_response.message,
                     session_response.errors,
                     (),
-                )
-                ;
+                );
             }
 
             let Some(session) = session_response.data else {
@@ -164,8 +163,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             let job_response = create_job(job_request).await;
 
             if !job_response.success {
-                return CommandOutput::failure(job_response.message, job_response.errors, ())
-                    ;
+                return CommandOutput::failure(job_response.message, job_response.errors, ());
             }
 
             let Some(job) = job_response.data else {
@@ -202,8 +200,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             let job_response = create_job(job_request).await;
 
             if !job_response.success {
-                return CommandOutput::failure(job_response.message, job_response.errors, ())
-                    ;
+                return CommandOutput::failure(job_response.message, job_response.errors, ());
             }
 
             let Some(job) = job_response.data else {

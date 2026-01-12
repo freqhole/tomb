@@ -1,13 +1,13 @@
 //! User management CLI commands
 
 use crate::plumbing::utils::CommandOutput;
+use clap::Subcommand;
 use grimoire::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse, InviteCodeType,
     InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,
     UserListResponse, UserQueryParams, UserRole, UserService,
 };
 use grimoire::wordlist::{initialize_wordlist, is_initialized, ManagementWordlistConfig};
-use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum UserAction {

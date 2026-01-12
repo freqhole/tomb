@@ -1,9 +1,9 @@
 //! User ratings CLI commands (music domain)
 
 use crate::plumbing::utils::CommandOutput;
+use clap::Subcommand;
 use grimoire::error::GrimoireError;
 use grimoire::users::{RatingTarget, RatingsService, SetRatingRequest};
-use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum RatingsAction {

@@ -1,4 +1,4 @@
-//! Setup command for initial Freqhole configuration
+//! Setup command for initial freqhole configuration
 
 use anyhow::Result;
 use clap::Args;
@@ -24,7 +24,7 @@ pub struct SetupArgs {
 }
 
 pub async fn run(args: SetupArgs) -> Result<()> {
-    println!("Freqhole Setup");
+    println!("FREQHOLE setup");
     println!();
     println!("Config file: {:?}", args.config);
     println!("Data directory: {:?}", args.data_dir);
@@ -38,13 +38,12 @@ pub async fn run(args: SetupArgs) -> Result<()> {
     }
 
     println!();
-    println!("TODO: Implement setup steps:");
+    println!("TODO(sorry): Implement setup steps:");
     println!("  1. Create config file");
     println!("  2. Initialize database");
     println!("  3. Generate wordlist");
     println!("  4. Set up directories");
     println!();
-    println!("Setup complete (stub)!");
 
     Ok(())
 }

@@ -8,8 +8,8 @@
 //! - musicbrainz: MusicBrainz API integration
 
 use crate::plumbing::utils::CommandOutput;
-use grimoire::music::crud::QueryParams;
 use clap::Subcommand;
+use grimoire::music::crud::QueryParams;
 
 mod maintenance;
 mod musicbrainz;
@@ -400,17 +400,17 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
         MusicAction::CheckBlobReferences { .. } => {
             maintenance::handle_check_blob_references(action)
                 .await
-                
+
         }
         MusicAction::CleanupOrphanedBlobs { .. } => {
             maintenance::handle_cleanup_orphaned_blobs(action)
                 .await
-                
+
         }
         MusicAction::HardDeleteOldRecords { .. } => {
             maintenance::handle_hard_delete_old_records(action)
                 .await
-                
+
         }
         MusicAction::RunMaintenance { .. } => maintenance::handle_run_maintenance(action)
             .await
@@ -452,7 +452,7 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
         MusicAction::ListSubGenresForGenre { .. } => {
             query::handle_list_sub_genres_for_genre(action)
                 .await
-                
+
         }
         MusicAction::GetSubGenre { .. } => query::handle_get_sub_genre(action).await,
         MusicAction::DeleteSubGenre { .. } => {
