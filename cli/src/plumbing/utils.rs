@@ -108,53 +108,8 @@ pub struct CommandOutput<T> {
 }
 
 impl<T> CommandOutput<T> {
-    /// Create new output with message and data (alias for success)
-    pub fn new(message: impl Into<String>, data: T) -> Self {
-        Self {
-            success: true,
-            message: message.into(),
-            data,
-            errors: vec![],
-        }
-    }
-
-    /// Convert a GrimoireResponse to CommandOutput
-    ///
-    /// For failed responses, requires a default data value since CommandOutput
-    /// always has data (while GrimoireResponse uses Option).
-    pub fn from_grimoire_response(
-        response: grimoire::response::GrimoireResponse<T>,
-        default_data: T,
-    ) -> Self {
-        Self {
-            success: response.success,
-            message: response.message,
-            data: response.data.unwrap_or(default_data),
-            errors: response.errors,
-        }
-    }
-
-    /// Map the data to a different type
-    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> CommandOutput<U> {
-        CommandOutput {
-            success: self.success,
-            message: self.message,
-            data: f(self.data),
-            errors: self.errors,
-        }
-    }
-}
-
-impl<T: Default> CommandOutput<T> {
-    /// Convert a GrimoireResponse to CommandOutput using T::default() for failures
-    pub fn from_grimoire_response_default(response: grimoire::response::GrimoireResponse<T>) -> Self {
-        Self {
-            success: response.success,
-            message: response.message,
-            data: response.data.unwrap_or_default(),
-            errors: response.errors,
-        }
-    }
+    // All helper methods removed - unused in current codebase
+    // CommandOutput instances are created directly in handler functions
 }
 
 impl CommandOutput<serde_json::Value> {
