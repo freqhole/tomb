@@ -162,21 +162,32 @@ impl<T: Serialize> CommandOutput<T> {
                     }
                 }
 
-                // Try to format data as TSV if it's serializable
-                // Convert to JSON value first to check if it's an array
+                // Try to format data as TSV table if it's an array, otherwise print as JSON
                 if let Ok(json_value) = serde_json::to_value(&self.data) {
+                    let mut printed_table = false;
+
+                    // If data is an array, try to format as TSV table
                     if let Some(array) = json_value.as_array() {
                         if !array.is_empty() {
                             output.push('\n');
-                            // Deserialize back to Vec<serde_json::Value> for TSV
                             if let Ok(items) = serde_json::from_value::<Vec<serde_json::Value>>(
                                 serde_json::Value::Array(array.clone()),
                             ) {
                                 let table = format_as_table(&items);
                                 if !table.is_empty() {
                                     output.push_str(&table);
+                                    printed_table = true;
                                 }
                             }
+                        }
+                    }
+
+                    // Fallback: print any non-array data as pretty JSON
+                    if !printed_table && !matches!(json_value, serde_json::Value::Null) {
+                        output.push('\n');
+                        if let Ok(pretty) = serde_json::to_string_pretty(&json_value) {
+                            output.push_str(&pretty);
+                            output.push('\n');
                         }
                     }
                 }

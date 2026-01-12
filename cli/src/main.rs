@@ -104,6 +104,12 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Initialize config once at startup (unless running setup command which doesn't need it)
+    if !matches!(cli.command, Commands::Setup(_)) {
+        grimoire::init_config(cli.config.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
+    }
+
     match cli.command {
         Commands::Setup(args) => {
             commands::setup::run(args).await?;
@@ -112,49 +118,49 @@ async fn main() -> Result<()> {
             action,
             json_output,
         } => {
-            plumbing::handle_config(action, json_output, cli.config).await?;
+            plumbing::handle_config(action, json_output).await?;
         }
         Commands::Jobs {
             action,
             json_output,
         } => {
-            plumbing::handle_jobs(action, json_output, cli.config).await?;
+            plumbing::handle_jobs(action, json_output).await?;
         }
         Commands::Database {
             action,
             json_output,
         } => {
-            plumbing::handle_database(action, json_output, cli.config).await?;
+            plumbing::handle_database(action, json_output).await?;
         }
         Commands::Music {
             action,
             json_output,
         } => {
-            plumbing::handle_music(action, json_output, cli.config).await?;
+            plumbing::handle_music(action, json_output).await?;
         }
         Commands::Wordlist {
             action,
             json_output,
         } => {
-            plumbing::handle_wordlist(action, json_output, cli.config).await?;
+            plumbing::handle_wordlist(action, json_output).await?;
         }
         Commands::Users {
             action,
             json_output,
         } => {
-            plumbing::handle_users(action, json_output, cli.config).await?;
+            plumbing::handle_users(action, json_output).await?;
         }
         Commands::Maintenance {
             action,
             json_output,
         } => {
-            plumbing::handle_maintenance(action, json_output, cli.config).await?;
+            plumbing::handle_maintenance(action, json_output).await?;
         }
         Commands::Analytics {
             action,
             json_output,
         } => {
-            plumbing::handle_analytics(action, json_output, cli.config).await?;
+            plumbing::handle_analytics(action, json_output).await?;
         }
     }
 
