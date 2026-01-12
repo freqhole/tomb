@@ -109,6 +109,17 @@ impl UserService {
         }
     }
 
+    /// Get user by API key (for authentication)
+    pub async fn get_user_by_api_key(&self, api_key: &str) -> GrimoireResponse<User> {
+        match self.repository.find_user_by_api_key(api_key).await {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => {
+                GrimoireResponse::failure("User not found", vec![AuthError::InvalidApiKey.into()])
+            }
+            Err(err) => GrimoireResponse::failure("Failed to get user", vec![err.into()]),
+        }
+    }
+
     /// Update user account
     pub async fn update_user(
         &self,

@@ -1,7 +1,7 @@
 //! authentication middleware
 
 use axum::{
-    extract::{Request, State},
+    extract::{Extension, Request},
     http::HeaderMap,
     middleware::Next,
     response::Response,
@@ -22,7 +22,7 @@ pub struct ValidatedOrigin(pub String);
 /// injected into request extensions by auth middleware
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
-    pub user_id: uuid::Uuid,
+    pub user_id: String,
     pub username: String,
     pub role: grimoire::users::UserRole,
 }
@@ -32,7 +32,6 @@ pub struct AuthenticatedUser {
 /// validates session cookie or api key header
 /// injects AuthenticatedUser into request extensions
 pub async fn require_auth(
-    State(_state): State<AppState>,
     session: Session,
     mut request: Request,
     next: Next,
@@ -51,10 +50,18 @@ pub async fn require_auth(
     // Try API key authentication
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
-            if let Some(_api_key) = auth_str.strip_prefix("Bearer ") {
-                // TODO: validate api_key via grimoire
-                // for now, return unauthorized
-                return Err(ApiError::Unauthorized);
+            if let Some(api_key) = auth_str.strip_prefix("Bearer ") {
+                // Validate API key via grimoire
+                let response = grimoire::users::find_user_by_api_key(api_key).await;
+                if let Some(user) = response.data {
+                    let auth_user = AuthenticatedUser {
+                        user_id: user.id,
+                        username: user.username,
+                        role: user.role,
+                    };
+                    request.extensions_mut().insert(auth_user);
+                    return Ok(next.run(request).await);
+                }
             }
         }
     }
@@ -69,40 +76,54 @@ pub async fn require_auth(
 ///
 /// this allows supporting multiple origins (prod, staging, localhost) at runtime
 pub async fn validate_origin(
-    State(_state): State<AppState>,
-    _headers: HeaderMap,
-    request: Request,
+    Extension(state): Extension<AppState>,
+    headers: HeaderMap,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    // TODO: implement origin validation
-    // 1. extract Origin header from request
-    // 2. check against config.allowed_origins list
-    // 3. if match found, inject ValidatedOrigin(origin) into request.extensions_mut()
-    // 4. if no match, return error (for webauthn routes) or allow (for other routes)
-    //
-    // pattern:
-    //   if let Some(origin) = headers.get("origin") {
-    //       let origin_str = origin.to_str().map_err(|_| ApiError::BadRequest("invalid origin header"))?;
-    //       if config.allowed_origins.contains(&origin_str.to_string()) {
-    //           request.extensions_mut().insert(ValidatedOrigin(origin_str.to_string()));
-    //       } else {
-    //           return Err(ApiError::BadRequest("origin not allowed"));
-    //       }
-    //   }
+    // Extract Origin header
+    let origin = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| ApiError::BadRequest("missing or invalid origin header".to_string()))?;
 
-    Ok(next.run(request).await)
+    // Check if webauthn is enabled
+    let server_config = state
+        .config
+        .server
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
+
+    if !server_config.auth.webauthn_enabled {
+        return Err(ApiError::BadRequest("webauthn not enabled".to_string()));
+    }
+
+    // Check if origin matches any configured origin
+    let matching_origin = server_config
+        .auth
+        .webauthn_origins
+        .iter()
+        .find(|o| o.rp_origin == origin);
+
+    if let Some(_origin_config) = matching_origin {
+        // Valid origin - inject into extensions for handler use
+        request
+            .extensions_mut()
+            .insert(ValidatedOrigin(origin.to_string()));
+        Ok(next.run(request).await)
+    } else {
+        Err(ApiError::BadRequest(format!(
+            "origin '{}' not allowed for webauthn",
+            origin
+        )))
+    }
 }
 
 /// optional authentication middleware
 ///
 /// similar to require_auth but allows requests to proceed without auth
 /// injects AuthenticatedUser only if valid auth provided
-pub async fn optional_auth(
-    State(_state): State<AppState>,
-    session: Session,
-    mut request: Request,
-    next: Next,
-) -> Response {
+pub async fn optional_auth(session: Session, mut request: Request, next: Next) -> Response {
     // Try session authentication
     if let Ok(Some(session_data)) = session::load_session(&session).await {
         let user = AuthenticatedUser {
@@ -114,7 +135,21 @@ pub async fn optional_auth(
     }
 
     // If no session, try API key (silently fail if neither)
-    // TODO: implement API key validation
+    if let Some(auth_header) = request.headers().get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(api_key) = auth_str.strip_prefix("Bearer ") {
+                let response = grimoire::users::find_user_by_api_key(api_key).await;
+                if let Some(user) = response.data {
+                    let auth_user = AuthenticatedUser {
+                        user_id: user.id,
+                        username: user.username,
+                        role: user.role,
+                    };
+                    request.extensions_mut().insert(auth_user);
+                }
+            }
+        }
+    }
 
     next.run(request).await
 }

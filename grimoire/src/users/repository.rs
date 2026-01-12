@@ -136,6 +136,25 @@ impl UserRepository {
         Ok(user.map(User::from))
     }
 
+    /// Find a user by API key
+    pub async fn find_user_by_api_key(&self, api_key: &str) -> AuthResult<Option<User>> {
+        let pool = database::connect().await?;
+
+        let user = sqlx::query_as!(
+            UserRow,
+            r#"
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            FROM user_accountz
+            WHERE api_key = ?1 AND deleted_at IS NULL
+            "#,
+            api_key
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(user.map(User::from))
+    }
+
     /// Update a user account
     pub async fn update_user(
         &self,

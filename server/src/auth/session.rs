@@ -4,21 +4,20 @@
 //! uses tower-sessions (store initialized by grimoire)
 
 use tower_sessions::Session;
-use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
 
 /// session data for authenticated user
 #[derive(Debug, Clone)]
 pub struct SessionData {
-    pub user_id: Uuid,
+    pub user_id: String,
     pub username: String,
     pub role: String,
 }
 
 impl SessionData {
     /// create new session data
-    pub fn new(user_id: Uuid, username: String, role: String) -> Self {
+    pub fn new(user_id: String, username: String, role: String) -> Self {
         Self {
             user_id,
             username,
@@ -60,8 +59,6 @@ pub async fn load_session(session: &Session) -> ApiResult<Option<SessionData>> {
 
     match (user_id, username, role) {
         (Some(user_id), Some(username), Some(role)) => {
-            let user_id = Uuid::parse_str(&user_id)
-                .map_err(|e| ApiError::Internal(format!("invalid user_id in session: {}", e)))?;
             Ok(Some(SessionData::new(user_id, username, role)))
         }
         _ => Ok(None),

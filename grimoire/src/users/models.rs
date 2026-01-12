@@ -305,6 +305,9 @@ pub enum AuthError {
     #[error("Admin access required")]
     AdminRequired,
 
+    #[error("Invalid API key")]
+    InvalidApiKey,
+
     #[error("Invalid username: {reason}")]
     InvalidUsername { reason: String },
 
@@ -348,6 +351,7 @@ impl From<AuthError> for ErrorDetail {
             AuthError::AuthenticationRequired => "authentication_required",
             AuthError::InsufficientPermissions => "insufficient_permissions",
             AuthError::AdminRequired => "admin_required",
+            AuthError::InvalidApiKey => "invalid_api_key",
             AuthError::InvalidUsername { .. } => "invalid_username",
             AuthError::WebAuthn(_) => "webauthn_error",
             AuthError::Database(_) => "database_error",

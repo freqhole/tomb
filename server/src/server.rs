@@ -2,6 +2,7 @@
 
 use std::net::SocketAddr;
 
+use axum::extract::Extension;
 use tokio::net::TcpListener;
 use tower_http::{
     compression::CompressionLayer,
@@ -23,6 +24,7 @@ pub async fn start_server(state: AppState, host: &str, port: u16) -> Result<(), 
 
     // build router with state
     let app = routes::build_router()
+        .layer(Extension(state.clone())) // Add state as extension for middleware
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
