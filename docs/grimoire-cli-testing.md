@@ -14,6 +14,115 @@ export DATABASE_URL="sqlite:/Users/edward/src/github/freqhole/tomb/data/grimoire
 
 **Note**: Favorites and ratings commands require existing songs, artists, or albums in the database. If you don't have any music data imported yet, the favorites/ratings commands will work but operate on non-existent targets. Import some music files first using the music scanner for full testing.
 
+## Integration Testing
+
+The Grimoire CLI has automated integration tests that use a real database snapshot. These tests verify that commands work end-to-end with actual data.
+
+### Running Integration Tests
+
+```bash
+# Run all integration tests (requires test.db snapshot)
+cargo test -p grimoire --test mod
+
+# Run specific test module
+cargo test -p grimoire --test mod cli::music
+
+# Run specific test
+cargo test -p grimoire --test mod test_music_query_basic
+
+# Show test output (useful for debugging)
+cargo test -p grimoire --test mod -- --nocapture
+
+# List all available tests
+cargo test -p grimoire --test mod -- --list
+```
+
+### One-Time Setup: Create Test Database
+
+The first time you run tests, you need to create a test database snapshot:
+
+```bash
+# Run the setup test (prompts for music directory)
+cargo test -p grimoire setup -- --ignored --nocapture
+
+# Alternative: Copy existing database
+cp data/grimoire.db data/test.db
+```
+
+The `--ignored` flag runs tests marked with `#[ignore]` (normally skipped).
+The `--nocapture` flag shows `println!` output.
+
+### Test Database Location
+
+- Test DB: `data/test.db`
+- Test config: `grimoire/tests/fixtures/test-config.jsonc`
+- Each test gets its own temporary copy (no interference between tests)
+
+### Writing New Tests
+
+Tests are located in `grimoire/tests/cli/`. Example structure:
+
+```rust
+use crate::TestContext;
+
+#[test]
+fn test_my_feature() {
+    let ctx = TestContext::from_snapshot();
+
+    // Run command with JSON output
+    let result = ctx.run_json(&["music", "query-songs", "--limit", "5"]);
+
+    // Assert on JSON structure
+    assert!(result["success"].as_bool().unwrap());
+    assert!(result["data"]["items"].as_array().unwrap().len() > 0);
+}
+```
+
+### Using Custom Snapshots
+
+You can test with different database snapshots:
+
+```rust
+// Use a specific backup file
+let ctx = TestContext::from_snapshot_file("../data/grimoire.db.backup-20260108-172727");
+```
+
+### Running with Coverage
+
+```bash
+# Install cargo-llvm-cov (one-time)
+cargo install cargo-llvm-cov
+
+# Run tests with coverage report
+cargo llvm-cov --html --open
+
+# Generate coverage for CI
+cargo llvm-cov --lcov --output-path coverage.lcov
+```
+
+### Test Results
+
+Current test status:
+
+- ✅ **35 total tests** (12 passing, 22 failing, 1 setup test)
+- ✅ **Music**: 5/5 passing
+- ✅ **Jobs**: 3/11 passing (list, scan, scan with options)
+- ✅ **Playlists**: 3/13 passing (list, query, query songs)
+- ❌ **Users**: 0/7 passing (need CLI error handling fixes)
+- ✅ Error cases return JSON with `--json-output`
+- ✅ Tests complete in <1 second
+
+**Test Modules:**
+
+- `grimoire/tests/cli/music.rs` - Music query and operations
+- `grimoire/tests/cli/jobs.rs` - Job queue management
+- `grimoire/tests/cli/playlists.rs` - Playlist CRUD operations
+- `grimoire/tests/cli/users.rs` - User management
+
+Many tests are stubbed and need CLI command adjustments to pass. The passing tests verify that the basic test infrastructure works correctly.
+
+See [cli-plumbing-plan4-testing.md](./cli-plumbing-plan4-testing.md) for detailed testing strategy.
+
 ## User System Testing
 
 ### 1. Generate Invite Codes
