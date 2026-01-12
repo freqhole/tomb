@@ -9,6 +9,7 @@
 pub mod models;
 pub mod repository;
 pub mod service;
+pub mod webauthn;
 
 // Re-export commonly used types
 pub use models::{
@@ -31,6 +32,7 @@ pub use models::{
     WebAuthnCredential,
 };
 pub use service::UserService;
+pub use webauthn::WebAuthnService;
 
 // Re-export music-specific user types from music::users for backwards compatibility
 pub use crate::music::users::{

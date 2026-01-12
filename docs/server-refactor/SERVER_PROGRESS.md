@@ -13,9 +13,11 @@ quick reference for tracking server refactor work.
 **phase 0 complete**: ✅
 **phase 1 complete**: ✅
 **phase 2 grimoire work complete**: ✅ viewer role, api_key field, server config
-**phase 2 server core complete**: ✅ middleware, handlers, routes (webauthn TODO)
+**phase 2 server core complete**: ✅ middleware, handlers, routes
 
-**next action: implement webauthn handlers (feature-gated)**
+**phase 2 remaining**: webauthn handlers (register/login flows) - **REQUIRED before Phase 3**
+
+**next action: implement webauthn handlers in `server/src/auth/freq_webauthn.rs`**
 
 ## implementation workflow (updated priority)
 
@@ -71,7 +73,15 @@ quick reference for tracking server refactor work.
 - [x] auth handlers implemented (whoami, invite redemption, logout)
 - [x] auth routes wired up (3 public + protected routes)
 - [x] AppState added as Extension for middleware access
-- [ ] webauthn handlers (feature-gated, deferred)
+- [ ] **webauthn handlers (REQUIRED - do not defer)**
+  - [ ] `POST /auth/webauthn/register/start` - begin passkey registration
+  - [ ] `POST /auth/webauthn/register/finish` - complete passkey registration
+  - [ ] `POST /auth/webauthn/login/start` - begin passkey authentication
+  - [ ] `POST /auth/webauthn/login/finish` - complete passkey authentication
+  - [ ] implement in `server/src/auth/freq_webauthn.rs` (webauthn-rs isolated here)
+  - [ ] use `ValidatedOrigin` from middleware for multi-origin support
+  - [ ] feature-gated with runtime config check
+  - [ ] **note**: this is core authentication, not optional!
 
 ### phase 3: typescript codegen investigation
 
@@ -234,14 +244,15 @@ the following config sections were stubbed out but need implementation:
 - verify query functions fully replace list for all entities (not just songs)
 - viewer role: can they favorite existing playlists or fully read-only?
 - codegen: wrapper types or annotate grimoire types directly?
-- webauthn implementation: do we need it for phase 2 or defer to later?
 
 ## implementation reminders
 
-- **foundation → auth → codegen investigation → patterns → bulk routes**
-- **investigate codegen in phase 3** (after auth, before bulk routes)
+- **foundation → auth (COMPLETE with webauthn) → codegen investigation → patterns → bulk routes**
+- **complete webauthn in phase 2** - required for authentication system to be functional
+- **investigate codegen in phase 3** (after auth fully complete, before bulk routes)
 - **✅ viewer role added to grimoire** during phase 2 (auth)
 - **✅ API key auth implemented** - grimoire provides find_user_by_api_key
+- **🔴 webauthn handlers required** - do not skip, this is primary auth method
 - **verify query vs list equivalence** as you implement routes
 - har recording recommended (can do before or after initial routes)
 - webauthn must be feature-gated for arm6 builds

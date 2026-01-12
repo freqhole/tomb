@@ -2,7 +2,7 @@
 
 -- User accounts with roles and soft delete support
 CREATE TABLE user_accountz (
-  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   username TEXT UNIQUE NOT NULL,
   role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'member', 'viewer')),
   api_key TEXT UNIQUE,
