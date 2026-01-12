@@ -1,6 +1,6 @@
 //! Job queue management CLI commands
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::jobs::{
     create_job, create_job_session, get_queue_stats, list_jobs, CreateJobRequest,
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
@@ -227,9 +227,9 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             };
 
             let response = if once {
-                crate::jobs::run_job_processor_once(max_jobs as u32).await
+                grimoire::jobs::run_job_processor_once(max_jobs as u32).await
             } else {
-                crate::jobs::run_job_processor().await
+                grimoire::jobs::run_job_processor().await
             };
 
             if !response.success {

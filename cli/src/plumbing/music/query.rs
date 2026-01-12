@@ -1,7 +1,7 @@
 //! Music query commands
 
 use super::MusicAction;
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::music::crud::{
     delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,
     find_or_create_sub_genre, get_album, get_album_tags, get_artist, get_genre, get_genre_stats,

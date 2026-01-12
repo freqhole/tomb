@@ -1,6 +1,6 @@
 //! User favorites CLI commands (music domain)
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::error::GrimoireError;
 use grimoire::users::{FavoriteTarget, FavoritesService, SetFavoriteRequest};
 use clap::Subcommand;

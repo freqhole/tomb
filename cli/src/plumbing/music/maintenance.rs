@@ -1,7 +1,7 @@
 //! Music maintenance commands
 
 use super::MusicAction;
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::maintenance::{
     cleanup_orphaned_media_blobs_older_than, hard_delete_old_records,
     run_full_maintenance_with_options, HardDeleteOptions,
@@ -15,7 +15,7 @@ pub async fn handle_check_blob_references(action: MusicAction) -> CommandOutput<
             Err(e) => {
                 return CommandOutput::failure(
                     "Failed to check blob references",
-                    vec![crate::error::ErrorDetail::from(&e)],
+                    vec![grimoire::error::ErrorDetail::from(&e)],
                     (),
                 );
             }

@@ -189,17 +189,19 @@ pub async fn run_cli() -> ! {
 }
 
 // Public handler functions for use in main.rs
+// All handlers initialize config once before processing
+
+fn init_and_format(config: Option<PathBuf>, json_output: bool) -> anyhow::Result<OutputFormat> {
+    grimoire::init_config(config).map_err(|e| anyhow::anyhow!("{}", e))?;
+    Ok(OutputFormat::from_json_flag(json_output))
+}
 
 pub async fn handle_config(
     action: ConfigAction,
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    // Initialize config if provided
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = config::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -209,10 +211,7 @@ pub async fn handle_jobs(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = jobs::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -222,10 +221,7 @@ pub async fn handle_database(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = database::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -235,10 +231,7 @@ pub async fn handle_music(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = music::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -248,10 +241,7 @@ pub async fn handle_wordlist(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = wordlist::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -261,10 +251,7 @@ pub async fn handle_users(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = users::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -274,10 +261,7 @@ pub async fn handle_maintenance(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = maintenance::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
@@ -287,10 +271,7 @@ pub async fn handle_analytics(
     json_output: bool,
     config: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    if let Some(config_path) = config {
-        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    let format = OutputFormat::from_json_flag(json_output);
+    let format = init_and_format(config, json_output)?;
     let output = analytics::handle_command(action).await;
     utils::print_and_exit(output, format);
 }

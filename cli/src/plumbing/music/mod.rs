@@ -7,7 +7,7 @@
 //! - maintenance: Maintenance operations (blob cleanup, hard delete)
 //! - musicbrainz: MusicBrainz API integration
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::music::crud::QueryParams;
 use clap::Subcommand;
 
@@ -72,7 +72,7 @@ pub enum MusicAction {
 
         /// Individual fields
         #[command(flatten)]
-        request: crate::music::CreatePlaylistRequest,
+        request: grimoire::music::CreatePlaylistRequest,
     },
     /// Add songs to a playlist
     AddSongsToPlaylist {
@@ -82,7 +82,7 @@ pub enum MusicAction {
 
         /// Individual fields
         #[command(flatten)]
-        request: crate::music::AddSongsToPlaylistRequest,
+        request: grimoire::music::AddSongsToPlaylistRequest,
     },
     /// Update song position in playlist
     UpdateSongPosition {
@@ -114,7 +114,7 @@ pub enum MusicAction {
 
         /// Individual fields
         #[command(flatten)]
-        request: crate::music::UpdatePlaylistRequest,
+        request: grimoire::music::UpdatePlaylistRequest,
     },
     /// Remove playlist thumbnail
     RemovePlaylistThumbnail {
@@ -174,7 +174,7 @@ pub enum MusicAction {
 
         /// Individual fields
         #[command(flatten)]
-        request: crate::music::crud::UpdateSongsRequest,
+        request: grimoire::music::crud::UpdateSongsRequest,
     },
     /// MusicBrainz operations
     MusicBrainz {

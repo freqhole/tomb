@@ -1,8 +1,8 @@
 //! Music playlist commands
 
 use super::MusicAction;
-use grimoire::plumbing::utils::resolve_request;
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::resolve_request;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::music::crud::{
     add_songs_to_playlist, create_playlist, delete_playlist, list_playlists, list_user_playlists,
     remove_playlist_thumbnail, search_playlists, update_playlist, update_songs_position,
@@ -20,7 +20,7 @@ pub async fn handle_create_playlist(action: MusicAction) -> CommandOutput<serde_
             Err(e) => {
                 return CommandOutput::failure(
                     "Invalid request",
-                    vec![crate::error::ErrorDetail::from(&e)],
+                    vec![grimoire::error::ErrorDetail::from(&e)],
                     (),
                 );
             }
@@ -63,7 +63,7 @@ pub async fn handle_add_songs(action: MusicAction) -> CommandOutput<serde_json::
             Err(e) => {
                 return CommandOutput::failure(
                     "Invalid request",
-                    vec![crate::error::ErrorDetail::from(&e)],
+                    vec![grimoire::error::ErrorDetail::from(&e)],
                     (),
                 );
             }
@@ -139,7 +139,7 @@ pub async fn handle_update_playlist(action: MusicAction) -> CommandOutput<serde_
             Err(e) => {
                 return CommandOutput::failure(
                     "Invalid request",
-                    vec![crate::error::ErrorDetail::from(&e)],
+                    vec![grimoire::error::ErrorDetail::from(&e)],
                     (),
                 );
             }

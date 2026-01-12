@@ -51,7 +51,7 @@ pub fn resolve_request<T: DeserializeOwned>(
 ) -> GrimoireResult<T> {
     match json_input {
         Some(json) => {
-            serde_json::from_str(&json).map_err(|e| crate::error::GrimoireError::Validation {
+            serde_json::from_str(&json).map_err(|e| grimoire::error::GrimoireError::Validation {
                 field: "json_input".to_string(),
                 message: format!("Invalid JSON: {}", e),
             })
@@ -64,7 +64,7 @@ pub fn resolve_request<T: DeserializeOwned>(
 // Error Formatting
 // ============================================================================
 
-// ErrorDetail is now defined in crate::error and re-exported from crate root
+// ErrorDetail is now defined in grimoire::error and re-exported from crate root
 
 // ============================================================================
 // Output Formatting
@@ -123,7 +123,7 @@ impl<T> CommandOutput<T> {
     /// For failed responses, requires a default data value since CommandOutput
     /// always has data (while GrimoireResponse uses Option).
     pub fn from_grimoire_response(
-        response: crate::response::GrimoireResponse<T>,
+        response: grimoire::response::GrimoireResponse<T>,
         default_data: T,
     ) -> Self {
         Self {
@@ -147,7 +147,7 @@ impl<T> CommandOutput<T> {
 
 impl<T: Default> CommandOutput<T> {
     /// Convert a GrimoireResponse to CommandOutput using T::default() for failures
-    pub fn from_grimoire_response_default(response: crate::response::GrimoireResponse<T>) -> Self {
+    pub fn from_grimoire_response_default(response: grimoire::response::GrimoireResponse<T>) -> Self {
         Self {
             success: response.success,
             message: response.message,

@@ -1,7 +1,7 @@
 //! Configuration management CLI commands
 
-use grimoire::plumbing::utils::CommandOutput;
-use crate::config::{find_config, ConfigValidationResponse, GrimoireConfig};
+use crate::plumbing::utils::CommandOutput;
+use grimoire::config::{find_config, ConfigValidationResponse, GrimoireConfig};
 use grimoire::error::GrimoireError;
 use clap::Subcommand;
 

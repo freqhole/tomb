@@ -151,8 +151,10 @@ impl GrimoireConfig {
     }
 }
 
-/// Initialize global config (call once at app startup)
-pub fn init_config(config: GrimoireConfig) -> Result<(), ConfigError> {
+/// Initialize global config from file path (call once at app startup)
+pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
+    let config_path = find_config(path)?;
+    let config = GrimoireConfig::load(config_path)?;
     CONFIG
         .set(config)
         .map_err(|_| ConfigError::AlreadyInitialized)?;

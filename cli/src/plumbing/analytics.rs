@@ -1,6 +1,6 @@
 //! Analytics operations CLI commands
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::music::analytics::{
     create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
     get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
@@ -355,7 +355,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 _ => {
                     return CommandOutput::failure(
                         "Invalid entity_type",
-                        vec![crate::error::ErrorDetail {
+                        vec![grimoire::error::ErrorDetail {
                             error_type: "validation_error".to_string(),
                             title: "Invalid entity type".to_string(),
                             detail: "Must be 'song', 'album', or 'artist'".to_string(),

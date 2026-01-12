@@ -1,18 +1,18 @@
 //! Maintenance operations CLI commands
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
+use clap::Subcommand;
 use grimoire::maintenance::{
     cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
 };
-use clap::Subcommand;
 use serde::Serialize;
 
 /// Combined summary for all cleanup operations
 #[derive(Serialize)]
 struct AllCleanupSummary {
-    tags: crate::maintenance::OrphanedTagsSummary,
-    genres: crate::maintenance::OrphanedGenresSummary,
-    sub_genres: crate::maintenance::OrphanedSubGenresSummary,
+    tags: grimoire::maintenance::OrphanedTagsSummary,
+    genres: grimoire::maintenance::OrphanedGenresSummary,
+    sub_genres: grimoire::maintenance::OrphanedSubGenresSummary,
     total_found: u32,
     total_deleted: u32,
 }
@@ -94,23 +94,19 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_js
             // Cleanup tags
             let tags_response = cleanup_orphaned_tags(dry_run).await;
             if !tags_response.success {
-                return CommandOutput::failure(tags_response.message, tags_response.errors, ())
-                    ;
+                return CommandOutput::failure(tags_response.message, tags_response.errors, ());
             }
             let Some(tags_summary) = tags_response.data else {
-                return CommandOutput::failure("No tags summary data returned", vec![], ())
-                    ;
+                return CommandOutput::failure("No tags summary data returned", vec![], ());
             };
 
             // Cleanup genres
             let genres_response = cleanup_orphaned_genres(dry_run).await;
             if !genres_response.success {
-                return CommandOutput::failure(genres_response.message, genres_response.errors, ())
-                    ;
+                return CommandOutput::failure(genres_response.message, genres_response.errors, ());
             }
             let Some(genres_summary) = genres_response.data else {
-                return CommandOutput::failure("No genres summary data returned", vec![], ())
-                    ;
+                return CommandOutput::failure("No genres summary data returned", vec![], ());
             };
 
             // Cleanup sub-genres
@@ -120,12 +116,10 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_js
                     sub_genres_response.message,
                     sub_genres_response.errors,
                     (),
-                )
-                ;
+                );
             }
             let Some(sub_genres_summary) = sub_genres_response.data else {
-                return CommandOutput::failure("No sub-genres summary data returned", vec![], ())
-                    ;
+                return CommandOutput::failure("No sub-genres summary data returned", vec![], ());
             };
 
             // Create combined summary

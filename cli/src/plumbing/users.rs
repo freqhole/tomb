@@ -1,6 +1,6 @@
 //! User management CLI commands
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeInfoResponse, InviteCodeType,
     InviteCodesGeneratedResponse, UpdateUserRequest, User, UserCreatedResponse, UserInfoResponse,

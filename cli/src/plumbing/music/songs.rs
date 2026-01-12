@@ -1,8 +1,8 @@
 //! Music song commands
 
 use super::MusicAction;
-use grimoire::plumbing::utils::resolve_request;
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::resolve_request;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::music::crud::UpdateSongsRequest;
 use grimoire::music::crud::{list_recent_songs, update_songs};
 
@@ -36,7 +36,7 @@ pub async fn handle_update_songs(action: MusicAction) -> CommandOutput<serde_jso
             Err(e) => {
                 return CommandOutput::failure(
                     "Invalid request",
-                    vec![crate::error::ErrorDetail::from(&e)],
+                    vec![grimoire::error::ErrorDetail::from(&e)],
                     (),
                 );
             }

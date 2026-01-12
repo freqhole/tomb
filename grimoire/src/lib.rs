@@ -7,6 +7,7 @@ pub mod analytics;
 pub mod blob_data;
 pub mod config;
 mod database;
+pub mod dbinfo;
 pub mod error;
 pub mod jobs;
 pub mod maintenance;
@@ -19,6 +20,9 @@ pub mod wordlist;
 // re-export only domain types, no database internals
 pub use analytics::{record_event, record_events_batch, MediaEvent, MediaEventType};
 pub use config::{find_config, init_config, ConfigError, GrimoireConfig};
+pub use dbinfo::{
+    get_database_info, test_database, DatabaseInfoResponse, DatabaseTestResponse, TableInfoResponse,
+};
 pub use error::{ErrorDetail, GrimoireError, GrimoireResult};
 pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
 pub use music::{Album, Artist, Song};

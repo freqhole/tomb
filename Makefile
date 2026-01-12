@@ -168,18 +168,18 @@ db-prepare: db-migrate
 test-cli: db-prepare
 	@if [ -z "$(TEST)" ]; then \
 		echo "Running all CLI integration tests..."; \
-		cd grimoire && cargo test --test '*' -- --test-threads=1; \
+		cd cli && cargo test --test '*' -- --test-threads=1; \
 	else \
 		echo "Running tests matching: $(TEST)"; \
-		cd grimoire && cargo test --test '*' $(TEST) -- --test-threads=1 --nocapture; \
+		cd cli && cargo test --test '*' $(TEST) -- --test-threads=1 --nocapture; \
 	fi
 
 test-cli-list:
 	@echo "Available CLI integration tests:"
 	@echo ""
-	@cd grimoire && cargo test --test '*' -- --list 2>&1 | grep ": test$$" | sed 's/: test$$//' | sort
+	@cd cli && cargo test --test '*' -- --list 2>&1 | grep ": test$$" | sed 's/: test$$//' | sort
 	@echo ""
-	@echo "Total:" $$(cd grimoire && cargo test --test '*' -- --list 2>&1 | grep ": test$$" | wc -l | xargs) "tests"
+	@echo "Total:" $$(cd cli && cargo test --test '*' -- --list 2>&1 | grep ": test$$" | wc -l | xargs) "tests"
 
 test-cli-coverage: db-prepare
 	@echo "Generating coverage report for CLI integration tests..."
@@ -190,18 +190,18 @@ test-cli-coverage: db-prepare
 		echo ""; \
 		exit 1; \
 	fi
-	@mkdir -p grimoire/coverage
+	@mkdir -p cli/coverage
 	@echo ""
 	@echo "Running CLI integration tests with coverage instrumentation..."
-	@cd grimoire && cargo llvm-cov --html --output-dir coverage \
+	@cd cli && cargo llvm-cov --html --output-dir coverage \
 		--test '*' \
 		-- --test-threads=1
 	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo " CLI Integration Test Coverage Report Generated"
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "CLI Integration Test Coverage Report Generated"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo ""
-	@echo "  HTML Report: grimoire/coverage/index.html"
+	@echo "  HTML Report: cli/coverage/index.html"
 	@echo ""
 	@echo "Note: This covers CLI integration tests (not unit tests)"
 	@echo ""

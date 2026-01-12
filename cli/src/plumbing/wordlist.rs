@@ -1,6 +1,6 @@
 //! Wordlist operations CLI commands
 
-use grimoire::plumbing::utils::CommandOutput;
+use crate::plumbing::utils::CommandOutput;
 use grimoire::error::GrimoireError;
 use grimoire::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, InviteCodesResponse,
