@@ -1,31 +1,20 @@
 [package]
 name = "cli"
-version = "0.0.1"
-authors = [
-  "edward sharp <edward@edwardsharp.net",
-]
+version = "0.1.0"
 edition = "2021"
-license = "MIT"
+
+[[bin]]
+name = "freqhole"
+path = "src/main.rs"
 
 [dependencies]
-clap.workspace = true
-rand.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-sqlx.workspace = true
-thiserror.workspace = true
-time.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-uuid.workspace = true
-inquire.workspace = true
-colored = "2.0"
-console = "0.15"
-image = "0.24"
-sha2.workspace = true
-server = { path = "../server" }
-legacylib = { path = "../legacylib" }
+grimoire = { path = "../grimoire" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
 
-[features]
-default = []
+[dev-dependencies]
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }

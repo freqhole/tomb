@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "server", "legacylib", "grimoire"]
+members = ["legacycli", "server", "legacylib", "grimoire", "cli"]
 resolver = "2"
 
 [workspace.dependencies]
