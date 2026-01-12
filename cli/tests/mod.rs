@@ -51,21 +51,35 @@ impl TestContext {
         let mut full_args = vec!["--config", self.test_config_path.to_str().unwrap()];
         full_args.extend_from_slice(args);
 
-        // Find the binary - cargo sets CARGO_BIN_EXE_<name> for each binary
+        // Find the binary - prefer llvm-cov instrumented binary for coverage
         let bin_path = if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
             path
         } else {
-            // Fallback: look in target/debug
-            let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            path.pop(); // Go to workspace root
-            path.push("target/debug/freqhole");
-            path.to_string_lossy().to_string()
+            // Check for instrumented binary first (when running with cargo-llvm-cov)
+            let mut coverage_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            coverage_path.pop();
+            coverage_path.push("target/llvm-cov-target/debug/freqhole");
+
+            if coverage_path.exists() {
+                coverage_path.to_string_lossy().to_string()
+            } else {
+                // Fallback: regular debug binary
+                let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+                path.pop();
+                path.push("target/debug/freqhole");
+                path.to_string_lossy().to_string()
+            }
         };
 
-        let output = Command::new(&bin_path)
-            .args(&full_args)
-            .output()
-            .expect("Failed to execute CLI");
+        let mut cmd = Command::new(&bin_path);
+        cmd.args(&full_args);
+
+        // Pass through LLVM coverage env vars so spawned process writes coverage data
+        if let Ok(profile_file) = std::env::var("LLVM_PROFILE_FILE") {
+            cmd.env("LLVM_PROFILE_FILE", profile_file);
+        }
+
+        let output = cmd.output().expect("Failed to execute CLI");
 
         TestOutput {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),

@@ -26,3 +26,4 @@ data/dev.db
 /data
 /grimoire/data
 /cli/coverage/
+*.profraw

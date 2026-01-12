@@ -193,8 +193,10 @@ test-cli-coverage: db-prepare
 	@mkdir -p cli/coverage
 	@echo ""
 	@echo "Running CLI integration tests with coverage instrumentation..."
+	@echo "Note: Tests spawn instrumented binary, coverage data collected from subprocesses"
 	@cd cli && cargo llvm-cov --html --output-dir coverage \
-		--test '*' \
+		--bin freqhole \
+		test --test '*' \
 		-- --test-threads=1
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -203,5 +205,5 @@ test-cli-coverage: db-prepare
 	@echo ""
 	@echo "  HTML Report: cli/coverage/html/index.html"
 	@echo ""
-	@echo "Note: This covers CLI integration tests (not unit tests)"
+	@echo "Note: this covers CLI integration tests (not unit tests)!"
 	@echo ""
