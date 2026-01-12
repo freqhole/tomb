@@ -14,6 +14,10 @@ use clap::{Parser, Subcommand};
 #[command(name = "freqhole")]
 #[command(about = "Freqhole music server CLI", long_about = None)]
 struct Cli {
+    /// Optional path to config file
+    #[arg(long, global = true)]
+    config: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -28,11 +32,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::ConfigAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// Job queue management
@@ -40,11 +41,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::JobAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// Database operations
@@ -52,11 +50,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::DatabaseAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// Music query operations
@@ -64,11 +59,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::MusicAction,
         /// Output as JSON (applies to list/query commands)
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// Wordlist operations
@@ -76,11 +68,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::WordlistAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// User management operations
@@ -88,11 +77,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::UserAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// Maintenance operations
@@ -100,11 +86,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::MaintenanceAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 
     /// Analytics operations
@@ -112,11 +95,8 @@ enum Commands {
         #[command(subcommand)]
         action: plumbing::AnalyticsAction,
         /// Output as JSON
-        #[arg(long, global = true)]
+        #[arg(long)]
         json_output: bool,
-        /// Optional path to config file
-        #[arg(long, global = true)]
-        config: Option<std::path::PathBuf>,
     },
 }
 
@@ -131,58 +111,50 @@ async fn main() -> Result<()> {
         Commands::Config {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_config(action, json_output, config).await?;
+            plumbing::handle_config(action, json_output, cli.config).await?;
         }
         Commands::Jobs {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_jobs(action, json_output, config).await?;
+            plumbing::handle_jobs(action, json_output, cli.config).await?;
         }
         Commands::Database {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_database(action, json_output, config).await?;
+            plumbing::handle_database(action, json_output, cli.config).await?;
         }
         Commands::Music {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_music(action, json_output, config).await?;
+            plumbing::handle_music(action, json_output, cli.config).await?;
         }
         Commands::Wordlist {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_wordlist(action, json_output, config).await?;
+            plumbing::handle_wordlist(action, json_output, cli.config).await?;
         }
         Commands::Users {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_users(action, json_output, config).await?;
+            plumbing::handle_users(action, json_output, cli.config).await?;
         }
         Commands::Maintenance {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_maintenance(action, json_output, config).await?;
+            plumbing::handle_maintenance(action, json_output, cli.config).await?;
         }
         Commands::Analytics {
             action,
             json_output,
-            config,
         } => {
-            plumbing::handle_analytics(action, json_output, config).await?;
+            plumbing::handle_analytics(action, json_output, cli.config).await?;
         }
     }
 

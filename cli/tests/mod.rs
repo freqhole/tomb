@@ -63,7 +63,20 @@ impl TestContext {
         let mut full_args = vec!["--config", self.test_config_path.to_str().unwrap()];
         full_args.extend_from_slice(args);
 
-        let output = Command::new(env!("CARGO_BIN_EXE_freqhole"))
+        // Find the binary - cargo sets CARGO_BIN_EXE_<name> for each binary
+        // Since our binary is named "freqhole" in a package named "cli",
+        // we need to look for it in the target directory
+        let bin_path = if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
+            path
+        } else {
+            // Fallback: look in target/debug
+            let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            path.pop(); // Go to workspace root
+            path.push("target/debug/freqhole");
+            path.to_string_lossy().to_string()
+        };
+
+        let output = Command::new(&bin_path)
             .args(&full_args)
             .output()
             .expect("Failed to execute CLI");
@@ -77,8 +90,14 @@ impl TestContext {
 
     /// Run CLI command with --json-output, parse result
     pub fn run_json(&self, args: &[&str]) -> Value {
-        let mut json_args = args.to_vec();
-        json_args.push("--json-output");
+        // Insert --json-output after the command name (first arg)
+        // e.g., ["database", "info"] -> ["database", "--json-output", "info"]
+        let mut json_args = Vec::new();
+        if !args.is_empty() {
+            json_args.push(args[0]);
+            json_args.push("--json-output");
+            json_args.extend_from_slice(&args[1..]);
+        }
 
         let output = self.run_cli(&json_args);
         serde_json::from_str(&output.stdout).unwrap_or_else(|e| {
@@ -152,7 +171,17 @@ fn setup() {
         full_args.extend_from_slice(args);
         full_args.push("--json-output");
 
-        let output = Command::new(env!("CARGO_BIN_EXE_grimoire"))
+        // Use same binary path logic as run_cli
+        let bin_path = if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
+            path
+        } else {
+            let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            path.pop();
+            path.push("target/debug/freqhole");
+            path.to_string_lossy().to_string()
+        };
+
+        let output = Command::new(&bin_path)
             .args(&full_args)
             .output()
             .expect("Failed to execute CLI");
