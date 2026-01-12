@@ -1,8 +1,8 @@
-# Grimoire CLI Integration Tests
+# grimoire CLI integration tests
 
-This directory contains comprehensive integration tests for all Grimoire CLI commands.
+integration tests for Grimoire CLI commands.
 
-## Quick Start
+## QUICK START
 
 ```bash
 # From the grimoire/ directory:
@@ -25,45 +25,7 @@ make test-cli-coverage
 open coverage/index.html  # View the HTML report
 ```
 
-## Test Status
-
-**76 tests total, 73 passing (96% success rate, 1 ignored, 2 known issues)**
-
-### Coverage by Module
-
-- ✅ **Config** (1 test) - Configuration validation
-- ✅ **Database** (2 tests) - Database info and connectivity
-- ✅ **Jobs** (5 tests) - Job listing, scanning, processing, stats
-- ✅ **Users** (7 tests) - User CRUD, invite codes
-- ✅ **Maintenance** (5 tests) - Cleanup operations
-- ✅ **Analytics** (15 tests) - All analytics commands
-- ✅ **Wordlist** (4 tests) - Wordlist operations
-- ✅ **Playlists** (12 tests) - Playlist CRUD and search
-- ✅ **Music** (24 tests) - Music queries, CRUD, search
-
-## Test Structure
-
-```
-tests/
-├── README.md              # This file
-├── mod.rs                 # TestContext and shared utilities
-├── fixtures/
-│   ├── test-config.jsonc  # Test configuration
-│   └── test.db            # SQLite snapshot (copied per test)
-└── cli/
-    ├── mod.rs
-    ├── analytics.rs       # Analytics command tests
-    ├── config.rs          # Config command tests
-    ├── database.rs        # Database command tests
-    ├── jobs.rs            # Job command tests
-    ├── maintenance.rs     # Maintenance command tests
-    ├── music.rs           # Music command tests
-    ├── playlists.rs       # Playlist command tests
-    ├── users.rs           # User command tests
-    └── wordlist.rs        # Wordlist command tests
-```
-
-## Test Infrastructure
+## TEST INFRASTRUCTURE
 
 ### TestContext
 
@@ -102,9 +64,9 @@ let result = ctx.run_json(&["database", "info"]);
 // }
 ```
 
-## Writing New Tests
+## WRITING NEW TESTS
 
-### Basic Test Pattern
+### BASIC TEST PATTERN
 
 ```rust
 #[test]
@@ -123,7 +85,7 @@ fn test_my_command() {
 }
 ```
 
-### Sequential Test Pattern
+### SEQUENTIAL TEST PATTERN
 
 ```rust
 #[test]
@@ -147,7 +109,7 @@ fn test_workflow() {
 }
 ```
 
-### Testing Error Cases
+### TESTING ERROR CASES
 
 ```rust
 #[test]
@@ -161,91 +123,35 @@ fn test_error_handling() {
 }
 ```
 
-## Test Guidelines
+## DEBUGGING TESTS
 
-### DO ✅
-
-- Use `TestContext::from_snapshot()` for isolation
-- Use `--json-output` for structured assertions
-- Test both success and error cases
-- Use meaningful test data
-- Clean up after destructive operations (if needed)
-- Use timestamps for unique usernames/codes
-
-### DON'T ❌
-
-- Share state between tests
-- Hardcode IDs or paths
-- Test implementation details
-- Skip error case testing
-- Use long UUIDs in usernames (50 char limit)
-
-## Debugging Tests
-
-### Run with output
+### run with output
 
 ```bash
 make test-cli TEST=test_name
 ```
 
-### Run single test
+### run a single test
 
 ```bash
 make test-cli TEST=playlist_create
 ```
 
-### Run all tests in a module
+### run all tests in a module
 
 ```bash
 make test-cli TEST=analytics
 make test-cli TEST=music
 ```
 
-### Check test binary
+### check test binary
 
 ```bash
 # The tests run the grimoire binary, make sure it's built:
 cargo build --bin grimoire
 ```
 
-## Common Issues
-
-### "Binary not found"
-
-Make sure the grimoire binary is built:
-
-```bash
-cargo build --bin grimoire
-```
-
-### "Database locked"
-
-Tests must run with `--test-threads=1`:
-
-```bash
-cargo test --test '*' -- --test-threads=1
-```
-
-### "Username too long"
-
-Use timestamps instead of UUIDs:
-
-```rust
-let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-let username = format!("user{}", timestamp);
-```
-
-### JSON parsing errors
-
-Check that no logging is going to stdout. Logs should go to stderr or be disabled in test config:
-
-```jsonc
-"logging": {
-  "level": "warn"  // or "error"
-}
-```
-
-## Coverage
+## COVERAGE
 
 Generate coverage report for CLI integration tests:
 
@@ -260,27 +166,4 @@ make test-cli-coverage
 open coverage/index.html
 ```
 
-**Important:** Coverage reports show CLI integration test coverage only. Unit tests are not included.
-
-## Local Development
-
-All tests run locally with Makefile commands. No CI setup required for development.
-
-## Documentation
-
-For detailed testing strategy and patterns, see:
-
-- [docs/cli-plumbing-plan4-testing.md](../../docs/cli-plumbing-plan4-testing.md)
-
-## Contributing
-
-When adding new CLI commands:
-
-1. Add at least a stub test that verifies the command runs
-2. Test both success and error cases
-3. Use `TestContext::from_snapshot()` for isolation
-4. Update this README if you add new test patterns
-
-## Questions?
-
-See the main testing documentation or ask in the project Discord/Slack.
+**note:** Coverage reports show CLI integration test coverage only. Unit tests are not included.
