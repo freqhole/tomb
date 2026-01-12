@@ -13,8 +13,9 @@ quick reference for tracking server refactor work.
 **phase 0 complete**: ✅
 **phase 1 complete**: ✅
 **phase 2 grimoire work complete**: ✅ viewer role, api_key field, server config
+**phase 2 server core complete**: ✅ middleware, handlers, routes (webauthn TODO)
 
-**next action: implement auth handlers and middleware**
+**next action: implement webauthn handlers (feature-gated)**
 
 ## implementation workflow (updated priority)
 
@@ -65,11 +66,12 @@ quick reference for tracking server refactor work.
 - [x] session store initialization (grimoire::sessions::init_session_store)
 - [x] session helpers (save_session, load_session, delete_session)
 - [x] auth middleware (require_auth with session + api key support)
-- [ ] implement validate_origin middleware
-- [ ] implement API key validation via grimoire
-- [ ] implement auth handlers (whoami, invite redemption, logout)
-- [ ] webauthn handlers (if feature enabled)
-- [ ] auth routes (~7 routes)
+- [x] validate_origin middleware (checks Origin header against config)
+- [x] API key validation via grimoire (find_user_by_api_key)
+- [x] auth handlers implemented (whoami, invite redemption, logout)
+- [x] auth routes wired up (3 public + protected routes)
+- [x] AppState added as Extension for middleware access
+- [ ] webauthn handlers (feature-gated, deferred)
 
 ### phase 3: typescript codegen investigation
 
@@ -232,12 +234,14 @@ the following config sections were stubbed out but need implementation:
 - verify query functions fully replace list for all entities (not just songs)
 - viewer role: can they favorite existing playlists or fully read-only?
 - codegen: wrapper types or annotate grimoire types directly?
+- webauthn implementation: do we need it for phase 2 or defer to later?
 
 ## implementation reminders
 
 - **foundation → auth → codegen investigation → patterns → bulk routes**
 - **investigate codegen in phase 3** (after auth, before bulk routes)
-- **add viewer role to grimoire** during phase 2 (auth)
+- **✅ viewer role added to grimoire** during phase 2 (auth)
+- **✅ API key auth implemented** - grimoire provides find_user_by_api_key
 - **verify query vs list equivalence** as you implement routes
 - har recording recommended (can do before or after initial routes)
 - webauthn must be feature-gated for arm6 builds
