@@ -11,6 +11,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: handles http range requests for audio/video seeking
 
 **key features**:
+
 - parses `Range: bytes=X-Y` headers
 - returns `206 Partial Content` responses
 - handles multi-range requests
@@ -20,6 +21,7 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/blobs/range.rs` and `server/src/static_filez/range.rs`
 
 **notes**:
+
 - already handles edge cases (invalid ranges, out of bounds, etc)
 - tested with various browsers and audio players
 - essential for smooth audio playback experience
@@ -33,6 +35,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: serves static files with proper mime types, caching, compression
 
 **key features**:
+
 - mime type detection via mime_guess
 - etag generation and validation
 - conditional requests (if-none-match, if-modified-since)
@@ -43,10 +46,18 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/static_filez/handlers.rs`
 
 **notes**:
+
 - handles web app files (index.html, js, css, etc)
 - proper cache headers for assets vs html
 - integrates with range_handler for media files
 - already handles spa routing (fallback to index.html)
+
+**implementation priority**:
+
+- **phase 4 (establish patterns)** - implement basic static file serving early for testing routes with HTML pages
+- start with simplified version (mime types, basic headers)
+- add full features (etag, compression, range requests) later if needed
+- requires config: `static_files_enabled` (bool) + `static_files_dir` (path)
 
 ---
 
@@ -57,6 +68,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: streams media blobs from database with range support
 
 **key features**:
+
 - streams blob data efficiently (no full load to memory)
 - integrates range request support
 - proper content-type headers
@@ -65,6 +77,7 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/blobs/handlers.rs`
 
 **notes**:
+
 - critical for audio playback
 - works with grimoire media_blobz
 - already optimized for large files
@@ -78,6 +91,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: webauthn registration and authentication flows
 
 **key features**:
+
 - passkey registration (start/finish)
 - authentication challenge (start/finish)
 - credential storage and verification
@@ -86,6 +100,7 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/auth/webauthn.rs` (if feature enabled)
 
 **notes**:
+
 - uses webauthn-rs crate
 - **important**: legacy uses postgres, need to adapt for sqlite
 - session storage strategy needs review
@@ -100,6 +115,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: authentication middleware for protected routes
 
 **key features**:
+
 - validates session cookies
 - extracts authenticated user
 - injects user into request extensions
@@ -108,6 +124,7 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/auth/middleware.rs`
 
 **notes**:
+
 - clean separation of concerns
 - works with axum extractors
 - adaptable to multiple auth methods (not just webauthn)
@@ -121,6 +138,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: multipart file upload handling
 
 **key features**:
+
 - streams file uploads (no full load to memory)
 - validates mime types
 - generates sha256 checksums
@@ -130,6 +148,7 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/upload/handlers.rs`
 
 **notes**:
+
 - handles large file uploads efficiently
 - already integrated with music scanner
 - deduplication via sha256
@@ -143,6 +162,7 @@ this document identifies specific legacy server code that should be reused in th
 **what it does**: proxies musicbrainz api requests
 
 **key features**:
+
 - search releases
 - get release details by mbid
 - rate limiting compliance
@@ -151,6 +171,7 @@ this document identifies specific legacy server code that should be reused in th
 **reuse in**: `server/src/musicbrainz/handlers.rs`
 
 **notes**:
+
 - respects musicbrainz rate limits
 - caching reduces api calls
 - already works with grimoire musicbrainz module
@@ -217,7 +238,7 @@ where
     S: Send + Sync,
 {
     type Rejection = ApiError;
-    
+
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         // extract from session or api key
     }

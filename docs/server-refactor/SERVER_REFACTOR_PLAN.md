@@ -25,10 +25,13 @@ complete rewrite of server package using refactored grimoire library. legacy ser
 
 **implementation workflow**:
 
-1. **auth first**: feature-flagged webauthn, api keys, invite codes
-2. **establish patterns**: implement 2-3 routes to validate approach
-3. **rapid implementation**: grimoire wrappers should be shallow/simple
-4. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
+1. **foundation first**: create server skeleton, app state, error handling
+2. **auth second**: feature-flagged webauthn, api keys, invite codes, viewer role
+3. **codegen investigation**: test codegen approach with 2-3 types before bulk routes
+4. **establish patterns**: implement 2-3 sample routes + static file serving for testing
+5. **grimoire prep**: move fetch_music, audit APIs (can overlap with patterns)
+6. **rapid implementation**: grimoire wrappers should be shallow/simple
+7. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
 
 ## overview
 
@@ -196,9 +199,245 @@ extract all routes from legacy server to determine what's actually needed:
 - many are half-baked or redundant
 - need to reduce to essential set (~30-40 routes)
 
-## phase 1: grimoire preparation
+## phase 1: new server foundation
 
-### 1.1: move download/fetch_music to grimoire
+### 1.1: create new server package
+
+```
+server/
+├── Cargo.toml
+├── src/
+│   ├── main.rs           # binary entry, arg parsing
+│   ├── lib.rs            # library exports
+│   ├── server.rs         # server startup/shutdown
+│   ├── state.rs          # app state
+│   ├── error.rs          # error types
+│   └── routes.rs         # route composition
+```
+
+#### dependencies (minimal)
+
+- axum - web framework
+- tokio - async runtime
+- tower-http - middleware (cors, compression, tracing)
+- serde/serde_json - serialization
+- grimoire - domain logic
+- webauthn-rs - auth (feature-gated)
+- time - timestamps
+- tracing/tracing-subscriber - logging
+
+#### features
+
+```toml
+[features]
+default = ["webauthn"]
+webauthn = ["dep:webauthn-rs"]
+```
+
+### 1.2: app state design
+
+```rust
+pub struct AppState {
+    // no db pool! grimoire handles connections
+    config: Arc<GrimoireConfig>,
+    webauthn: Option<Arc<Webauthn>>, // if feature enabled
+    session_store: Arc<SessionStore>,
+}
+```
+
+### 1.3: error handling
+
+- simple error enum
+- map grimoire errors to http status codes
+- consistent json error responses
+
+### 1.4: middleware stack
+
+- request logging
+- authentication middleware (require_auth)
+- compression
+- cors (configurable)
+
+## phase 2: authentication system
+
+### 2.1: auth module structure
+
+```
+server/src/auth/
+├── mod.rs          # public api
+├── handlers.rs     # route handlers
+├── middleware.rs   # auth middleware
+├── session.rs      # session management
+└── webauthn.rs     # webauthn logic (if feature enabled)
+```
+
+### 2.2: authentication methods
+
+#### method 1: webauthn (feature-gated)
+
+- start registration → finish registration
+- start authentication → finish authentication
+- session cookie on success
+
+#### method 2: api key
+
+- `Authorization: Bearer <api_key>` header
+- stored in grimoire users table
+- validate via grimoire
+- **note: needs db migration for api_key column**
+- respects user role permissions
+
+#### method 3: invite code cookie
+
+- `POST /auth/invite` with code in body
+- validates invite code via grimoire
+- if webauthn disabled: issue session cookie directly
+- if webauthn enabled: require passkey registration
+- **note: webauthn-rs with sqlite (not postgres) - needs migration strategy**
+
+### 2.3: user roles
+
+extend grimoire user roles to support permissions:
+
+**existing roles**:
+
+- admin - full access to everything
+- user - standard user access
+
+**new role to add**:
+
+- viewer - read-only access
+  - can browse/search/play music
+  - can favorite/rate music
+  - **cannot** upload/fetch music
+  - **cannot** edit music metadata
+  - **cannot** create/edit playlists (maybe can favorite existing playlists?)
+
+**implementation**:
+
+- add to grimoire `UserRole` enum
+- middleware checks role for mutation routes
+- query routes generally available to all roles
+
+### 2.4: auth routes
+
+- `POST /auth/invite` - redeem invite code
+- `POST /auth/register/start` - start webauthn registration (if enabled)
+- `POST /auth/register/finish` - finish webauthn registration (if enabled)
+- `POST /auth/login/start` - start webauthn login (if enabled)
+- `POST /auth/login/finish` - finish webauthn login (if enabled)
+- `POST /auth/logout` - logout
+- `GET /auth/whoami` - current user info (includes role)
+
+## phase 3: typescript codegen investigation
+
+**important**: investigate codegen approach early to avoid structural pain later
+
+### 3.1: early investigation (do during/after auth phase)
+
+- evaluate crates: `ts-rs`, `typeshare`, `specta`
+- determine: does codegen affect how we structure types?
+- test with 2-3 example types from grimoire
+- understand: can we use grimoire types directly or need wrapper types?
+- document findings before implementing many routes
+
+**questions to answer**:
+
+- do grimoire types need #[derive(TypeScript)] annotations?
+- can we generate from grimoire types or only server types?
+- how does it handle nested/generic types?
+- what's the impact on existing grimoire code?
+
+**workflow**:
+
+- investigate during/after auth implementation (phase 2)
+- test with sample types before phase 6 (bulk routes)
+- if codegen needs wrapper types, establish pattern early
+- if codegen works with grimoire types directly, proceed as planned
+
+### 3.2: document findings
+
+- create small test to validate approach
+- document which crate to use and why
+- document type annotation strategy
+- establish wrapper pattern if needed
+- defer full implementation to phase 8
+
+## phase 4: establish patterns with sample routes
+
+### 4.1: music module structure
+
+clear separation of concerns:
+
+```
+server/src/
+├── blobs/          # app-wide blob operations (not music-specific)
+│   ├── mod.rs
+│   ├── handlers.rs # stream handler
+│   └── range.rs    # range request support
+└── music/          # music domain only
+    ├── mod.rs
+    ├── songs.rs    # song crud, query, search
+    ├── albums.rs   # album summaries, tracks
+    ├── artists.rs  # artist list, artist songs
+    ├── playlists.rs # playlist crud, songs, reorder
+    ├── search.rs   # unified music search
+    └── filters.rs  # filter/facet endpoints
+```
+
+**key principle**: `blobs/` is domain-agnostic (works for any blob - music, future photos, etc).
+`music/` is strictly music domain operations that happen to reference blobs.
+
+### 4.2: implement 2-3 sample routes
+
+- `POST /api/songs/query` - query songs (uses grimoire::music::crud::query_songs)
+- `POST /api/playlists/create` - create playlist (uses grimoire::music::crud::create_playlist)
+- `POST /api/favorites/set` - set favorite (uses grimoire::music::users::FavoritesService)
+
+### 4.3: verify patterns
+
+- handlers reuse grimoire request/response types directly
+- error handling maps grimoire errors to HTTP responses consistently
+- auth middleware injects user and enforces roles
+- CLI plumbing for these grimoire calls exists and works
+- codegen approach works (if investigated in phase 3)
+
+### 4.4: static file serving (for testing)
+
+**important**: implement early to enable testing with simple HTML pages
+
+```
+server/src/static_filez/
+├── mod.rs
+└── handlers.rs
+```
+
+- serve static HTML/JS/CSS files for testing routes
+- basic mime type detection
+- configurable enable/disable flag
+- configurable directory path
+- **reuse legacy static file handler** (see `LEGACY_CODE_REUSE.md`)
+- range request support NOT needed yet (defer to phase 7 if needed)
+
+routes:
+
+- `GET /*path` - serve static files (only if enabled in config)
+
+### 4.5: validation criteria
+
+- shallow wrappers work well
+- grimoire types reused directly (or codegen wrapper approach validated)
+- error handling consistent
+- auth middleware works
+- role-based permissions work (viewer can't create playlist)
+- static file serving works for testing HTML pages
+- **once validated, proceed to phase 6 for bulk implementation**
+
+## phase 5: grimoire preparation
+
+**note**: can be done in parallel with phase 4 or deferred until needed
+
+### 5.1: move download/fetch_music to grimoire
 
 - [ ] create `grimoire/src/music/fetch_music/` module
 - [ ] move external command logic from `server/download/jobs.rs`
@@ -216,7 +455,7 @@ extract all routes from legacy server to determine what's actually needed:
   - `fetch status <job_id>` - check job status
   - `fetch list` - list fetch jobs
 
-### 1.2: audit existing grimoire api (avoid duplication!)
+### 5.2: audit existing grimoire api (avoid duplication!)
 
 **critical**: grimoire already has most functionality. audit before adding anything new.
 
@@ -259,7 +498,7 @@ existing grimoire apis:
 
 - [ ] job queue system ✓
 
-### 1.3: identify actual gaps (minimal additions only)
+### 5.3: identify actual gaps (minimal additions only)
 
 only add new apis if genuinely missing:
 
@@ -288,162 +527,11 @@ only add new apis if genuinely missing:
 - only remove list functions after confirming query functions are equivalent
 - document any differences discovered
 
-## phase 2: new server foundation
+## phase 6: rapid route implementation
 
-### 2.1: create new server package
+**note: should be straightforward after patterns established in phase 4**
 
-```
-server/
-├── Cargo.toml
-├── src/
-│   ├── main.rs           # binary entry, arg parsing
-│   ├── lib.rs            # library exports
-│   ├── server.rs         # server startup/shutdown
-│   ├── state.rs          # app state
-│   ├── error.rs          # error types
-│   └── routes.rs         # route composition
-```
-
-#### dependencies (minimal)
-
-- axum - web framework
-- tokio - async runtime
-- tower-http - middleware (cors, compression, tracing)
-- serde/serde_json - serialization
-- grimoire - domain logic
-- webauthn-rs - auth (feature-gated)
-- time - timestamps
-- tracing/tracing-subscriber - logging
-
-#### features
-
-```toml
-[features]
-default = ["webauthn"]
-webauthn = ["dep:webauthn-rs"]
-```
-
-### 2.2: app state design
-
-```rust
-pub struct AppState {
-    // no db pool! grimoire handles connections
-    config: Arc<GrimoireConfig>,
-    webauthn: Option<Arc<Webauthn>>, // if feature enabled
-    session_store: Arc<SessionStore>,
-}
-```
-
-### 2.3: error handling
-
-- simple error enum
-- map grimoire errors to http status codes
-- consistent json error responses
-
-### 2.4: middleware stack
-
-- request logging
-- authentication middleware (require_auth)
-- compression
-- cors (configurable)
-
-## phase 3: authentication system
-
-### 3.1: auth module structure
-
-```
-server/src/auth/
-├── mod.rs          # public api
-├── handlers.rs     # route handlers
-├── middleware.rs   # auth middleware
-├── session.rs      # session management
-└── webauthn.rs     # webauthn logic (if feature enabled)
-```
-
-### 3.2: authentication methods
-
-#### method 1: webauthn (feature-gated)
-
-- start registration → finish registration
-- start authentication → finish authentication
-- session cookie on success
-
-#### method 2: api key
-
-- `Authorization: Bearer <api_key>` header
-- stored in grimoire users table
-- validate via grimoire
-- **note: needs db migration for api_key column**
-- respects user role permissions
-
-#### method 3: invite code cookie
-
-- `POST /auth/invite` with code in body
-- validates invite code via grimoire
-- if webauthn disabled: issue session cookie directly
-- if webauthn enabled: require passkey registration
-- **note: webauthn-rs with sqlite (not postgres) - needs migration strategy**
-
-### 3.3: user roles
-
-extend grimoire user roles to support permissions:
-
-**existing roles**:
-
-- admin - full access to everything
-- user - standard user access
-
-**new role to add**:
-
-- viewer - read-only access
-  - can browse/search/play music
-  - can favorite/rate music
-  - **cannot** upload/fetch music
-  - **cannot** edit music metadata
-  - **cannot** create/edit playlists (maybe can favorite existing playlists?)
-
-**implementation**:
-
-- add to grimoire `UserRole` enum
-- middleware checks role for mutation routes
-- query routes generally available to all roles
-
-### 3.4: auth routes
-
-- `POST /auth/invite` - redeem invite code
-- `POST /auth/register/start` - start webauthn registration (if enabled)
-- `POST /auth/register/finish` - finish webauthn registration (if enabled)
-- `POST /auth/login/start` - start webauthn login (if enabled)
-- `POST /auth/login/finish` - finish webauthn login (if enabled)
-- `POST /auth/logout` - logout
-- `GET /auth/whoami` - current user info (includes role)
-
-## phase 4: music api routes
-
-### 4.1: music module structure
-
-clear separation of concerns:
-
-```
-server/src/
-├── blobs/          # app-wide blob operations (not music-specific)
-│   ├── mod.rs
-│   ├── handlers.rs # stream handler
-│   └── range.rs    # range request support
-└── music/          # music domain only
-    ├── mod.rs
-    ├── songs.rs    # song crud, query, search
-    ├── albums.rs   # album summaries, tracks
-    ├── artists.rs  # artist list, artist songs
-    ├── playlists.rs # playlist crud, songs, reorder
-    ├── search.rs   # unified music search
-    └── filters.rs  # filter/facet endpoints
-```
-
-**key principle**: `blobs/` is domain-agnostic (works for any blob - music, future photos, etc).
-`music/` is strictly music domain operations that happen to reference blobs.
-
-### 4.2: core song routes
+### 6.1: core song routes
 
 - `POST /api/songs/query` - query/filter/search songs (POST with body, not GET)
 - `POST /api/songs/get` - get song by id (or keep GET if simple)
@@ -453,14 +541,14 @@ server/src/
 
 **note: prefer POST over GET for all list/query endpoints to avoid query param issues**
 
-### 4.3: artist routes
+### 6.2: artist routes
 
 - `POST /api/artists/query` - query/list artists
 - `POST /api/artists/search` - search artists
 - `POST /api/artists/get` - get artist by name
 - `POST /api/artists/songs` - get artist songs
 
-### 4.4: album routes
+### 6.3: album routes
 
 - `POST /api/albums/query` - query/list albums
 - `POST /api/albums/search` - search albums
@@ -469,7 +557,7 @@ server/src/
 - `POST /api/albums/favorite` - bulk favorite album
 - `POST /api/albums/favorite-status` - album favorite status
 
-### 4.5: playlist routes
+### 6.4: playlist routes
 
 - `POST /api/playlists/query` - query/list playlists
 - `POST /api/playlists/create` - create playlist
@@ -483,7 +571,7 @@ server/src/
 - `POST /api/playlists/preferences` - update preference
 - `POST /api/playlists/transfer-ownership` - transfer ownership
 
-### 4.6: search/filter routes
+### 6.5: search/filter routes
 
 - `POST /api/search` - unified search
 - `POST /api/filters/tags` - all tags
@@ -492,15 +580,15 @@ server/src/
 - `POST /api/filters/artists` - all artists
 - `POST /api/filters/years` - all years
 
-### 4.7: analytics/history routes
+### 6.6: analytics/history routes
 
 - `POST /api/history/listening` - get listening history
 - `POST /api/feed/activity` - get activity feed
 - `POST /api/analytics/event` - record event (or use grimoire directly)
 
-## phase 5: supporting features
+## phase 7: supporting features
 
-### 5.1: blob streaming
+### 7.1: blob streaming
 
 ```
 server/src/blobs/
@@ -514,7 +602,7 @@ server/src/blobs/
 - support range requests for audio seeking
 - **reuse existing range request implementation from legacyserver**
 
-### 5.2: file upload
+### 7.2: file upload
 
 ```
 server/src/upload/
@@ -526,7 +614,7 @@ server/src/upload/
 - store via grimoire media_blobz
 - extract metadata, create song via grimoire
 
-### 5.3: musicbrainz proxy
+### 7.3: musicbrainz proxy
 
 ```
 server/src/musicbrainz/
@@ -538,7 +626,7 @@ server/src/musicbrainz/
 - `GET /api/musicbrainz/release/{mbid}` - get release
 - call grimoire musicbrainz module
 
-### 5.4: fetch music (yt-dlp)
+### 7.4: fetch music (yt-dlp)
 
 ```
 server/src/fetch/
@@ -550,20 +638,15 @@ server/src/fetch/
 - `GET /api/fetch/jobs/{id}` - job status
 - call grimoire fetch_music module
 
-### 5.5: static files
+### 7.5: static file range requests (optional)
 
-```
-server/src/static_filez/
-├── mod.rs
-├── handlers.rs
-└── range.rs
-```
+**note**: basic static file serving implemented in phase 4. this adds range request support if needed.
 
-- serve web app files
-- range request support
-- mime type detection
+- add range request support to static_filez (see `LEGACY_CODE_REUSE.md`)
+- only needed if serving large static media files
+- for HTML/JS/CSS, range requests not required
 
-### 5.6: health checks
+### 7.6: health checks
 
 ```
 server/src/health/
@@ -575,7 +658,7 @@ server/src/health/
 - `GET /health/ready` - readiness (check db)
 - `GET /health/live` - liveness
 
-### 5.7: jobs status
+### 7.7: jobs status
 
 ```
 server/src/jobs/
@@ -587,39 +670,17 @@ server/src/jobs/
 - `POST /api/jobs/list` - list user's jobs
 - async job tracking (not realtime/websocket, just polling)
 
-## phase 6: typescript client generation
+## phase 8: typescript client generation (deferred)
 
-### 6.1: early codegen investigation (before too much code)
+**note**: full implementation deferred until core functionality complete. Investigation done in phase 3.
 
-**important**: investigate codegen approach early to avoid structural pain later
-
-- evaluate crates: `ts-rs`, `typeshare`, `specta`
-- determine: does codegen affect how we structure types?
-- test with 2-3 example types from grimoire
-- understand: can we use grimoire types directly or need wrapper types?
-- document findings before implementing many routes
-
-**questions to answer**:
-
-- do grimoire types need #[derive(TypeScript)] annotations?
-- can we generate from grimoire types or only server types?
-- how does it handle nested/generic types?
-- what's the impact on existing grimoire code?
-
-**workflow**:
-
-- investigate during/after auth implementation (phase 3)
-- test with sample types before phase 5 (bulk routes)
-- if codegen needs wrapper types, establish pattern early
-- if codegen works with grimoire types directly, proceed as planned
-
-### 6.2: setup typescript codegen (deferred)
+### 8.1: setup typescript codegen
 
 - choose crate based on investigation findings
 - prefer: derive macros on request/response types
 - output: `server/codegen/client.ts`
 
-### 6.3: annotate types
+### 8.2: annotate types
 
 add typescript derive to all request/response types:
 
@@ -630,13 +691,13 @@ pub struct CreateSongRequest { ... }
 
 **note**: may need to add annotations to grimoire types if codegen investigation shows that's the best approach
 
-### 6.4: generate zod schemas
+### 8.3: generate zod schemas
 
 - generate zod schemas from rust types
 - runtime validation for requests
 - type safety for responses
 
-### 6.5: generate fetch client
+### 8.4: generate fetch client
 
 generate typescript client:
 
@@ -651,15 +712,15 @@ export const api = {
 }
 ```
 
-### 6.6: codegen workflow
+### 8.5: codegen workflow
 
 - `cargo build --features codegen` generates types
 - commit generated `client.ts` to repo
 - ci verifies generated code is up to date
 
-## phase 7: configuration & deployment
+## phase 9: configuration & deployment
 
-### 7.1: server configuration
+### 9.1: server configuration
 
 extend `GrimoireConfig`:
 
@@ -668,6 +729,7 @@ extend `GrimoireConfig`:
   "server": {
     "host": "127.0.0.1",
     "port": 3000,
+    "static_files_enabled": true,
     "static_files_dir": "./static",
     "cors_origins": ["http://localhost:5173"],
   },
@@ -680,7 +742,12 @@ extend `GrimoireConfig`:
 }
 ```
 
-### 7.2: cli + server binary
+**static file config**:
+
+- `static_files_enabled`: bool - enable/disable static file serving (default: true)
+- `static_files_dir`: path - directory to serve files from (required if enabled)
+
+### 9.2: cli + server binary
 
 eventually merge into single `freqhole` binary:
 
@@ -694,15 +761,15 @@ enum Command {
 }
 ```
 
-### 7.3: deployment artifacts
+### 9.3: deployment artifacts
 
 - single binary: `freqhole`
 - `freqhole server` - start server
 - `freqhole music scan` - run cli commands
 
-### phase 10: testing & migration
+## phase 10: testing & migration
 
-### 8.1: integration tests
+### 10.1: integration tests
 
 **note: lean on cli integration tests, no need for extensive server tests**
 
@@ -710,7 +777,7 @@ enum Command {
 - auth flow verification
 - key route functionality
 
-### 8.2: har recording approach (do this early!)
+### 10.2: har recording approach (do this early!)
 
 **important: do this before phase 4 (building routes) to identify priorities**
 
@@ -771,7 +838,7 @@ for route, count in freq.most_common():
 - helps identify gaps after implementing grimoire public api routes
 - **workflow: implement grimoire-backed routes first, then har analysis to find gaps**
 
-### 8.3: migration checklist
+### 10.3: migration checklist
 
 compare legacy vs new implementation:
 
@@ -784,7 +851,7 @@ compare legacy vs new implementation:
 - [ ] search/filters working
 - [ ] webapp compatibility
 
-### 8.4: migration checklist
+### 10.4: migration checklist (duplicate - remove?)
 
 compare legacy vs new implementation:
 
@@ -799,15 +866,15 @@ compare legacy vs new implementation:
 
 **note: breaking changes are acceptable**
 
-## phase 9: cleanup & documentation
+## phase 11: cleanup & documentation
 
-### 9.1: remove legacy code
+### 11.1: remove legacy code
 
 - [ ] delete `legacyserver/` once migration complete
 - [ ] delete `legacylib/` once grimoire migration complete
 - [ ] delete `legacycli/` once cli migration complete
 
-### 9.2: minimal documentation
+### 11.2: minimal documentation
 
 - [ ] configuration reference
 - [ ] deployment examples (systemd, docker)
@@ -1065,13 +1132,7 @@ required for seek in browser audio players.
 - [ ] move server → legacyserver
 - [ ] update workspace config
 
-### phase 1: grimoire prep
-
-- [ ] move download to grimoire as fetch_music
-- [ ] verify grimoire api coverage
-- [ ] add missing grimoire apis
-
-### phase 2: foundation
+### phase 1: foundation
 
 - [ ] create new server package
 - [ ] setup dependencies
@@ -1079,7 +1140,7 @@ required for seek in browser audio players.
 - [ ] error handling
 - [ ] middleware stack
 
-### phase 3: auth
+### phase 2: auth
 
 - [ ] auth module structure
 - [ ] webauthn (feature-gated)
@@ -1088,7 +1149,29 @@ required for seek in browser audio players.
 - [ ] middleware
 - [ ] routes
 
-### phase 4: music api
+### phase 3: codegen investigation
+
+- [ ] test ts-rs, typeshare, or specta
+- [ ] determine wrapper types vs annotate grimoire
+- [ ] document findings
+
+### phase 4: establish patterns
+
+- [ ] implement 2-3 sample routes
+- [ ] verify shallow wrapper approach
+- [ ] validate codegen approach
+- [ ] implement static file serving (for testing with HTML)
+  - [ ] add static_files_enabled + static_files_dir to config
+  - [ ] basic static file handler (no range requests yet)
+  - [ ] serve simple HTML test pages
+
+### phase 5: grimoire prep
+
+- [ ] move download to grimoire as fetch_music
+- [ ] verify grimoire api coverage
+- [ ] add missing grimoire apis
+
+### phase 6: music api routes
 
 - [ ] songs routes
 - [ ] albums routes
@@ -1097,16 +1180,16 @@ required for seek in browser audio players.
 - [ ] search routes
 - [ ] filters routes
 
-### phase 5: supporting
+### phase 7: supporting features
 
 - [ ] blob streaming
 - [ ] file upload
 - [ ] musicbrainz proxy
-- [ ] fetch music
-- [ ] static files
+- [ ] fetch music routes
+- [ ] static file range requests (optional - only if needed)
 - [ ] health checks
 
-### phase 6: typescript (defer to later)
+### phase 8: typescript codegen (deferred)
 
 - [ ] setup codegen (ts-rs or specta)
 - [ ] annotate types
@@ -1116,20 +1199,20 @@ required for seek in browser audio players.
 
 **note: not immediate priority, defer until core functionality complete**
 
-### phase 9: config & deploy
+### phase 9: configuration & deployment
 
 - [ ] server config
 - [ ] merge cli + server binary
 - [ ] deployment artifacts
 
-### phase 8: testing
+### phase 10: testing & migration
 
 - [ ] integration tests
 - [ ] har recording
 - [ ] migration checklist
 - [ ] performance testing
 
-### phase 11: cleanup
+### phase 11: cleanup & documentation
 
 - [ ] delete legacy packages
 - [ ] minimal documentation
@@ -1139,23 +1222,38 @@ required for seek in browser audio players.
 
 1. **optional but recommended**: har recording of legacy webapp (phase 0)
 2. complete phase 0: move server to legacyserver
-3. phase 1: move download to grimoire as fetch_music
-4. phase 2: create minimal server skeleton
-5. **phase 3: authentication (START HERE - top priority)**
+3. **phase 1: foundation (START HERE)**
+   - create server package skeleton
+   - app state, error handling, middleware
+4. **phase 2: authentication**
    - feature-flagged webauthn
    - api key auth
    - invite code auth
    - config validation
    - add viewer role to grimoire
-   - **investigate codegen approach during this phase**
+5. **phase 3: codegen investigation**
+   - test codegen approach with 2-3 types
+   - determine wrapper strategy
+   - document findings before bulk routes
 6. **phase 4: establish patterns with 2-3 sample routes**
    - verify shallow wrapper approach works
+   - validate codegen approach
    - once validated, remaining routes should be mechanical
-7. **phase 5: rapid route implementation**
+7. **phase 5: grimoire preparation (can overlap with phase 4)**
+   - move fetch_music to grimoire
+   - audit existing APIs
+   - identify gaps
+8. **phase 6: rapid route implementation**
    - see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist
    - shallow grimoire wrappers
-   - should go quickly
-8. iterate through remaining phases
+   - should go quickly after patterns established
+9. iterate through remaining phases (7-11)
+   </text>
+
+<old_text line=1165>
+
+- **auth first**: start with authentication (feature-flagged webauthn)
+- **investigate codegen early**: test approach before implementing many routes
 
 **key insight**: grimoire wrappers should be shallow/simple. establish patterns first, then bulk implementation should be straightforward.
 
@@ -1163,11 +1261,14 @@ work in small increments, ask about ambiguities before implementing.
 
 ## key reminders
 
-- **auth first**: start with authentication (feature-flagged webauthn)
-- **investigate codegen early**: test approach before implementing many routes
+- **foundation first**: create server skeleton before auth (phase 1)
+- **auth second**: implement authentication with feature-flagged webauthn (phase 2)
+- **investigate codegen early**: test approach in phase 3 before bulk routes (phase 6)
+- **establish patterns**: implement 2-3 routes in phase 4 to validate approach
+- **static files early**: add basic static file serving in phase 4 for testing with HTML
+- **grimoire prep flexible**: phase 5 can overlap with phase 4 or be deferred
+- **viewer role**: add read-only role during auth phase (no upload/edit/fetch)
 - **verify query vs list**: confirm query functions can replace list functions
-- **viewer role**: add read-only role (no upload/edit/fetch)
-- **establish patterns**: implement 2-3 routes first to validate approach
 - **shallow wrappers**: grimoire wrappers should be simple/mechanical
 - **see checklist**: `GRIMOIRE_TO_SERVER_ROUTES.md` has complete route mapping
 - **audit before adding**: grimoire already has most features - check first!

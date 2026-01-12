@@ -14,10 +14,13 @@ quick reference for tracking server refactor work.
 
 ## implementation workflow (updated priority)
 
-1. **auth first** (phase 3) - feature-flagged webauthn, api keys, invite codes
-2. **establish patterns** - implement 2-3 sample routes to validate approach
-3. **rapid implementation** - shallow grimoire wrappers (should be straightforward)
-4. **see checklist** - `GRIMOIRE_TO_SERVER_ROUTES.md` has complete mapping
+1. **foundation first** (phase 1) - create server skeleton, app state, error handling
+2. **auth second** (phase 2) - feature-flagged webauthn, api keys, invite codes, viewer role
+3. **codegen investigation** (phase 3) - test codegen approach with 2-3 types
+4. **establish patterns** (phase 4) - implement 2-3 sample routes + static file serving for testing
+5. **grimoire prep** (phase 5) - move fetch_music, audit APIs (can overlap with phase 4)
+6. **rapid implementation** (phase 6) - shallow grimoire wrappers (should be straightforward)
+7. **see checklist** - `GRIMOIRE_TO_SERVER_ROUTES.md` has complete mapping
 
 ## quick checklist
 
@@ -29,24 +32,7 @@ quick reference for tracking server refactor work.
 - [ ] update workspace cargo.toml
 - legacyserver is reference only (no need to maintain)
 
-### phase 1: grimoire preparation
-
-- [ ] move download to grimoire as fetch_music
-  - [ ] rename to generic "fetch from url" (no yt-dlp mentions)
-  - [ ] add config: enabled, output_dir, precheck_command, fetch_command
-  - [ ] integrate with grimoire jobs system
-  - [ ] add CLI plumbing: fetch url, fetch status, fetch list
-- [ ] **audit existing grimoire apis first** - avoid duplication!
-  - [ ] music::crud has query_songs, query_artists, query_albums, search_songs ✓
-  - [ ] music::users has FavoritesService, RatingsService ✓
-  - [ ] music::analytics has listening_history, feed, play_analytics ✓
-  - [ ] identify redundant functions (list vs query - prefer query!)
-- [ ] identify actual gaps (minimal additions only)
-  - [ ] check grimoire api against server route needs
-  - [ ] only add if genuinely missing
-  - [ ] **rule: every new grimoire public api needs cli plumbing wrapper**
-
-### phase 2: foundation
+### phase 1: foundation
 
 - [ ] create new server package
 - [ ] setup cargo.toml with minimal deps
@@ -54,7 +40,7 @@ quick reference for tracking server refactor work.
 - [ ] error handling
 - [ ] basic middleware
 
-### phase 3: authentication ⭐ START HERE - TOP PRIORITY
+### phase 2: authentication
 
 - [ ] auth module structure
 - [ ] webauthn support (feature-gated)
@@ -73,8 +59,16 @@ quick reference for tracking server refactor work.
 - [ ] **investigate typescript codegen during this phase**
   - [ ] test ts-rs, typeshare, or specta
   - [ ] determine: wrapper types or annotate grimoire types?
-  - [ ] understand structural impact before phase 5
-- [ ] **goal: establish server foundation before route implementation**
+  - [ ] understand structural impact before phase 6
+- [ ] **goal: establish auth before route implementation**
+
+### phase 3: typescript codegen investigation
+
+- [ ] **do this after auth, before bulk routes**
+- [ ] test ts-rs, typeshare, or specta with 2-3 sample types
+- [ ] determine: wrapper types or annotate grimoire types?
+- [ ] document findings and establish pattern
+- [ ] defer full implementation to phase 8
 
 ### phase 4: establish patterns with sample routes
 
@@ -82,15 +76,39 @@ quick reference for tracking server refactor work.
   - [ ] `POST /api/songs/query` - query songs (uses grimoire::music::crud::query_songs)
   - [ ] `POST /api/playlists/create` - create playlist (uses grimoire::music::crud::create_playlist)
   - [ ] `POST /api/favorites/set` - set favorite (uses grimoire::music::users::FavoritesService)
+- [ ] **implement static file serving for testing**
+  - [ ] add `static_files_enabled` + `static_files_dir` to config
+  - [ ] basic static file handler (reuse legacy code, no range requests yet)
+  - [ ] serve simple HTML test pages
 - [ ] verify patterns:
   - [ ] shallow wrappers work well
   - [ ] grimoire types reused directly (or codegen wrapper approach)
   - [ ] error handling consistent
   - [ ] auth middleware works
   - [ ] role-based permissions work (viewer can't create playlist)
-- [ ] **once validated, proceed to phase 5 for bulk implementation**
+  - [ ] static file serving works for testing
+- [ ] **once validated, proceed to phase 6 for bulk implementation**
 
-### phase 5: rapid route implementation
+### phase 5: grimoire preparation
+
+**note: can be done in parallel with phase 4 or deferred until needed**
+
+- [ ] move download to grimoire as fetch_music
+  - [ ] rename to generic "fetch from url" (no yt-dlp mentions)
+  - [ ] add config: enabled, output_dir, precheck_command, fetch_command
+  - [ ] integrate with grimoire jobs system
+  - [ ] add CLI plumbing: fetch url, fetch status, fetch list
+- [ ] **audit existing grimoire apis first** - avoid duplication!
+  - [ ] music::crud has query_songs, query_artists, query_albums, search_songs ✓
+  - [ ] music::users has FavoritesService, RatingsService ✓
+  - [ ] music::analytics has listening_history, feed, play_analytics ✓
+  - [ ] identify redundant functions (list vs query - prefer query!)
+- [ ] identify actual gaps (minimal additions only)
+  - [ ] check grimoire api against server route needs
+  - [ ] only add if genuinely missing
+  - [ ] **rule: every new grimoire public api needs cli plumbing wrapper**
+
+### phase 6: rapid route implementation
 
 - [ ] **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
 - [ ] songs routes (3-4 routes)
@@ -107,17 +125,19 @@ quick reference for tracking server refactor work.
   - [ ] only remove list functions after verification
 - [ ] after routes built: har analysis to identify gaps
 
-### phase 5: supporting features
+### phase 7: supporting features
 
 - [ ] blob streaming with range support (reuse legacy code)
 - [ ] file upload
 - [ ] musicbrainz proxy
 - [ ] fetch music routes (generic external command)
-- [ ] static files handler (reuse legacy code)
+- [ ] static file range requests (optional - only if needed for large static media)
 - [ ] health checks
 - [ ] jobs status routes (for async job tracking)
 
-### phase 6: typescript client (defer to later)
+### phase 8: typescript client implementation (deferred)
+
+**note: investigation done in phase 3, full implementation deferred**
 
 - [ ] setup ts-rs or specta
 - [ ] annotate request/response types
@@ -125,22 +145,20 @@ quick reference for tracking server refactor work.
 - [ ] generate fetch client
 - [ ] ci verification
 
-**note: not immediate priority, focus on core functionality first**
-
-### phase 7: configuration
+### phase 9: configuration & deployment
 
 - [ ] extend grimoire config for server
 - [ ] merge cli + server binary
 - [ ] deployment docs
 
-### phase 8: testing & migration
+### phase 10: testing & migration
 
 - [ ] minimal smoke tests (lean on cli tests)
 - [ ] har analysis (if not done earlier)
 - [ ] webapp compatibility testing
 - [ ] breaking changes acceptable
 
-### phase 9: cleanup
+### phase 11: cleanup & documentation
 
 - [ ] delete legacyserver/
 - [ ] delete legacylib/
@@ -156,11 +174,14 @@ quick reference for tracking server refactor work.
 
 ## key principles
 
-- **auth first**: start with authentication system (feature-flagged webauthn)
-- **add viewer role**: read-only user (browse/play/favorite, no upload/edit)
-- **investigate codegen early**: test approach during phase 3 to avoid pain later
+- **foundation first**: create server skeleton (phase 1)
+- **auth second**: implement authentication system with feature-flagged webauthn (phase 2)
+- **add viewer role**: read-only user during auth phase (browse/play/favorite, no upload/edit)
+- **investigate codegen early**: test approach in phase 3 before bulk routes (phase 6)
+- **establish patterns**: implement 2-3 routes in phase 4 to validate approach
+- **static files early**: add basic static file serving in phase 4 for testing with HTML
+- **grimoire prep flexible**: phase 5 can overlap with phase 4 or be deferred
 - **verify query vs list**: confirm query functions fully replace list before removing
-- **establish patterns**: implement 2-3 routes to validate approach
 - **shallow wrappers**: grimoire wrappers should be simple/mechanical
 - **see checklist**: `GRIMOIRE_TO_SERVER_ROUTES.md` for complete route mapping
 - **audit before adding**: grimoire already has most features - check first!
@@ -189,9 +210,9 @@ quick reference for tracking server refactor work.
 
 ## implementation reminders
 
-- **auth first, then patterns, then bulk routes**
-- **investigate codegen during phase 3** (before too much route code)
-- **add viewer role to grimoire** during phase 3
+- **foundation → auth → codegen investigation → patterns → bulk routes**
+- **investigate codegen in phase 3** (after auth, before bulk routes)
+- **add viewer role to grimoire** during phase 2 (auth)
 - **verify query vs list equivalence** as you implement routes
 - har recording recommended (can do before or after initial routes)
 - webauthn must be feature-gated for arm6 builds
