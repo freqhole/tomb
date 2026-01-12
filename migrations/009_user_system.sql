@@ -4,7 +4,8 @@
 CREATE TABLE user_accountz (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
   username TEXT UNIQUE NOT NULL,
-  role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'member', 'viewer')),
+  api_key TEXT UNIQUE,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   deleted_at INTEGER
@@ -95,6 +96,7 @@ CREATE UNIQUE INDEX idx_user_accountz_username ON user_accountz(username);
 CREATE INDEX idx_user_accountz_role ON user_accountz(role);
 CREATE INDEX idx_user_accountz_created_at ON user_accountz(created_at DESC);
 CREATE INDEX idx_user_accountz_active ON user_accountz(deleted_at) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_user_accountz_api_key ON user_accountz(api_key) WHERE api_key IS NOT NULL;
 
 -- Indexes for invite_codez
 CREATE UNIQUE INDEX idx_invite_codez_code ON invite_codez(code);
@@ -126,3 +128,24 @@ CREATE INDEX idx_user_ratingz_target ON user_ratingz(target_type, target_id);
 CREATE INDEX idx_user_ratingz_rating ON user_ratingz(rating);
 CREATE INDEX idx_user_ratingz_updated ON user_ratingz(updated_at DESC);
 CREATE INDEX idx_user_ratingz_user_type ON user_ratingz(user_id, target_type);
+
+-- ============================================================================
+-- Soft-delete support for metadata tables (genrez, sub_genrez, tagz)
+-- ============================================================================
+
+-- Add deleted_at and deleted_by to genrez
+ALTER TABLE genrez ADD COLUMN deleted_at INTEGER;
+ALTER TABLE genrez ADD COLUMN deleted_by TEXT;
+
+-- Add deleted_at and deleted_by to sub_genrez
+ALTER TABLE sub_genrez ADD COLUMN deleted_at INTEGER;
+ALTER TABLE sub_genrez ADD COLUMN deleted_by TEXT;
+
+-- Add deleted_at and deleted_by to tagz
+ALTER TABLE tagz ADD COLUMN deleted_at INTEGER;
+ALTER TABLE tagz ADD COLUMN deleted_by TEXT;
+
+-- Create indexes for efficient querying of non-deleted items
+CREATE INDEX idx_genrez_deleted_at ON genrez(deleted_at);
+CREATE INDEX idx_sub_genrez_deleted_at ON sub_genrez(deleted_at);
+CREATE INDEX idx_tagz_deleted_at ON tagz(deleted_at);

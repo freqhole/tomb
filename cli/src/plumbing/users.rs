@@ -83,6 +83,7 @@ fn cli_admin_user() -> User {
         id: "cli-admin".to_string(),
         username: "cli".to_string(),
         role: UserRole::Admin,
+        api_key: None,
         created_at: 0,
         updated_at: 0,
         deleted_at: None,

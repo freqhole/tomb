@@ -14,6 +14,7 @@ struct UserRow {
     id: String,
     username: String,
     role: String,
+    api_key: Option<String>,
     created_at: i64,
     updated_at: i64,
     deleted_at: Option<i64>,
@@ -25,6 +26,7 @@ impl From<UserRow> for User {
             id: row.id,
             username: row.username,
             role: UserRole::from(row.role),
+            api_key: row.api_key,
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
@@ -83,7 +85,7 @@ impl UserRepository {
             r#"
             INSERT INTO user_accountz (username, role, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4)
-            RETURNING id as "id!", username as "username!", role as "role!", created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
             "#,
             request.username,
             role,
@@ -103,7 +105,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
             FROM user_accountz
             WHERE id = ?1
             "#,
@@ -122,7 +124,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
             FROM user_accountz
             WHERE username = ?1
             "#,
@@ -251,6 +253,7 @@ impl UserRepository {
                 id: row.get("id"),
                 username: row.get("username"),
                 role: UserRole::from(row.get::<String, _>("role")),
+                api_key: row.get("api_key"),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
                 deleted_at: row.get("deleted_at"),

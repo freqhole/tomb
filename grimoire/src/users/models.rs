@@ -18,6 +18,8 @@ pub enum UserRole {
     /// Regular authenticated user
     #[default]
     Member,
+    /// Read-only viewer (can browse/play/favorite, cannot upload/edit/fetch)
+    Viewer,
 }
 
 impl UserRole {
@@ -26,19 +28,9 @@ impl UserRole {
         matches!(self, UserRole::Admin)
     }
 
-    /// Check if this role can access analytics
-    pub fn can_access_analytics(&self) -> bool {
-        self.is_admin()
-    }
-
-    /// Check if this role can manage invite codes
-    pub fn can_manage_invites(&self) -> bool {
-        self.is_admin()
-    }
-
-    /// Check if this role can manage other users
-    pub fn can_manage_users(&self) -> bool {
-        self.is_admin()
+    /// Check if this role is viewer (read-only)
+    pub fn is_viewer(&self) -> bool {
+        matches!(self, UserRole::Viewer)
     }
 }
 
@@ -47,6 +39,7 @@ impl fmt::Display for UserRole {
         match self {
             UserRole::Admin => write!(f, "admin"),
             UserRole::Member => write!(f, "member"),
+            UserRole::Viewer => write!(f, "viewer"),
         }
     }
 }
@@ -55,6 +48,7 @@ impl From<String> for UserRole {
     fn from(s: String) -> Self {
         match s.to_lowercase().as_str() {
             "admin" => UserRole::Admin,
+            "viewer" => UserRole::Viewer,
             _ => UserRole::Member,
         }
     }
@@ -66,6 +60,7 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub role: UserRole,
+    pub api_key: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
@@ -77,19 +72,9 @@ impl User {
         self.role.is_admin()
     }
 
-    /// Check if this user can access analytics
-    pub fn can_access_analytics(&self) -> bool {
-        self.role.can_access_analytics()
-    }
-
-    /// Check if this user can manage invite codes
-    pub fn can_manage_invites(&self) -> bool {
-        self.role.can_manage_invites()
-    }
-
-    /// Check if this user can manage other users
-    pub fn can_manage_users(&self) -> bool {
-        self.role.can_manage_users()
+    /// Check if this user is a viewer (read-only)
+    pub fn is_viewer(&self) -> bool {
+        self.role.is_viewer()
     }
 
     /// Check if this user account is soft-deleted
@@ -408,22 +393,26 @@ mod tests {
     fn test_user_role_permissions() {
         let admin = UserRole::Admin;
         let member = UserRole::Member;
+        let viewer = UserRole::Viewer;
 
+        // admin permissions
         assert!(admin.is_admin());
-        assert!(admin.can_access_analytics());
-        assert!(admin.can_manage_invites());
-        assert!(admin.can_manage_users());
+        assert!(!admin.is_viewer());
 
+        // member permissions
         assert!(!member.is_admin());
-        assert!(!member.can_access_analytics());
-        assert!(!member.can_manage_invites());
-        assert!(!member.can_manage_users());
+        assert!(!member.is_viewer());
+
+        // viewer permissions (read-only)
+        assert!(!viewer.is_admin());
+        assert!(viewer.is_viewer());
     }
 
     #[test]
     fn test_user_role_display() {
         assert_eq!(UserRole::Admin.to_string(), "admin");
         assert_eq!(UserRole::Member.to_string(), "member");
+        assert_eq!(UserRole::Viewer.to_string(), "viewer");
     }
 
     #[test]
@@ -431,6 +420,8 @@ mod tests {
         assert_eq!(UserRole::from("admin".to_string()), UserRole::Admin);
         assert_eq!(UserRole::from("ADMIN".to_string()), UserRole::Admin);
         assert_eq!(UserRole::from("member".to_string()), UserRole::Member);
+        assert_eq!(UserRole::from("viewer".to_string()), UserRole::Viewer);
+        assert_eq!(UserRole::from("VIEWER".to_string()), UserRole::Viewer);
         assert_eq!(UserRole::from("unknown".to_string()), UserRole::Member);
     }
 

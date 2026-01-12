@@ -26,6 +26,9 @@ pub struct GrimoireConfig {
     pub musicbrainz: MusicBrainzConfig,
     /// Logging configuration
     pub logging: LoggingConfig,
+    /// Server configuration (optional - only needed for server mode)
+    #[serde(default)]
+    pub server: Option<ServerConfig>,
 }
 
 /// Application metadata
@@ -95,6 +98,88 @@ pub struct MusicBrainzConfig {
 pub struct LoggingConfig {
     /// Log level: trace, debug, info, warn, error
     pub level: String,
+}
+
+/// Server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    /// Server host to bind to
+    pub host: String,
+    /// Server port to bind to
+    pub port: u16,
+    /// Authentication configuration
+    pub auth: AuthConfig,
+    /// Static file serving configuration
+    pub static_files: StaticFilesConfig,
+    /// CORS configuration
+    pub cors: CorsConfig,
+}
+
+/// Authentication configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConfig {
+    /// Enable WebAuthn passkey authentication (requires binary built with webauthn feature)
+    pub webauthn_enabled: bool,
+    /// WebAuthn origin configurations (each origin needs its own rp_id and rp_origin)
+    #[serde(default)]
+    pub webauthn_origins: Vec<WebAuthnOriginConfig>,
+}
+
+/// WebAuthn origin configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebAuthnOriginConfig {
+    /// Relying party ID (domain name, e.g., "example.com", "localhost")
+    pub rp_id: String,
+    /// Relying party origin (full URL, e.g., "https://app.example.com", "http://localhost:3000")
+    pub rp_origin: String,
+}
+
+impl WebAuthnOriginConfig {
+    /// Get just the origin string for validation
+    pub fn origin(&self) -> &str {
+        &self.rp_origin
+    }
+}
+
+/// Static file serving configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticFilesConfig {
+    /// Enable static file serving
+    pub enabled: bool,
+    /// Directory to serve static files from (relative to data_dir or absolute)
+    pub directory: Option<PathBuf>,
+}
+
+/// CORS configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorsConfig {
+    /// Enable CORS
+    pub enabled: bool,
+    /// Allowed origins (if not specified, uses auth.webauthn_origins as allowed origins)
+    pub allowed_origins: Option<Vec<String>>,
+}
+
+impl ServerConfig {
+    /// Get all allowed origins (from webauthn configs or cors config)
+    pub fn get_allowed_origins(&self) -> Vec<String> {
+        if let Some(cors_origins) = &self.cors.allowed_origins {
+            cors_origins.clone()
+        } else {
+            self.auth
+                .webauthn_origins
+                .iter()
+                .map(|c| c.rp_origin.clone())
+                .collect()
+        }
+    }
+
+    /// Find webauthn config for a given origin
+    pub fn find_webauthn_config(&self, origin: &str) -> Option<&WebAuthnOriginConfig> {
+        self.auth
+            .webauthn_origins
+            .iter()
+            .find(|c| c.rp_origin == origin)
+    }
 }
 
 impl GrimoireConfig {
@@ -272,6 +357,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".to_string(),
             },
+            server: None,
         };
 
         assert_eq!(config.database_path(), PathBuf::from("/data/test.db"));
@@ -306,6 +392,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "invalid".to_string(),
             },
+            server: None,
         };
 
         assert!(config.validate().is_err());
@@ -338,6 +425,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".to_string(),
             },
+            server: None,
         };
 
         assert!(config.validate().is_err());

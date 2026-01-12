@@ -117,7 +117,7 @@ impl UserService {
         requesting_user: &User,
     ) -> GrimoireResponse<User> {
         // Check permissions - only admins can change roles, users can update themselves
-        if request.role.is_some() && !requesting_user.can_manage_users() {
+        if request.role.is_some() && !requesting_user.is_admin() {
             return GrimoireResponse::failure(
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
@@ -139,7 +139,7 @@ impl UserService {
     /// Delete user account (soft delete)
     pub async fn delete_user(&self, user_id: &str, requesting_user: &User) -> GrimoireResponse<()> {
         // Only admins can delete users, or users can delete themselves
-        if user_id != requesting_user.id && !requesting_user.can_manage_users() {
+        if user_id != requesting_user.id && !requesting_user.is_admin() {
             return GrimoireResponse::failure(
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
@@ -159,7 +159,7 @@ impl UserService {
         requesting_user: &User,
     ) -> GrimoireResponse<Vec<User>> {
         // Only admins can list all users
-        if !requesting_user.can_manage_users() {
+        if !requesting_user.is_admin() {
             return GrimoireResponse::failure(
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
@@ -181,7 +181,7 @@ impl UserService {
         requesting_user: &User,
     ) -> GrimoireResponse<Vec<InviteCode>> {
         // Only admins can create invite codes
-        if !requesting_user.can_manage_invites() {
+        if !requesting_user.is_admin() {
             return GrimoireResponse::failure(
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
@@ -252,7 +252,7 @@ impl UserService {
         requesting_user: &User,
     ) -> GrimoireResponse<Vec<InviteCode>> {
         // Only admins can list invite codes
-        if !requesting_user.can_manage_invites() {
+        if !requesting_user.is_admin() {
             return GrimoireResponse::failure(
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
@@ -274,7 +274,7 @@ impl UserService {
         requesting_user: &User,
     ) -> GrimoireResponse<()> {
         // Only admins can deactivate invite codes
-        if !requesting_user.can_manage_invites() {
+        if !requesting_user.is_admin() {
             return GrimoireResponse::failure(
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
