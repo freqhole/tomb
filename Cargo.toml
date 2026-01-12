@@ -1,5 +1,5 @@
 [workspace]
-members = ["legacycli", "legacyserver", "legacylib", "grimoire", "cli"]
+members = ["grimoire", "cli", "server"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -36,7 +36,7 @@ tower-http = { version = "0.6", features = ["fs", "compression-gzip", "compressi
 tower-sessions = "0.14"
 tower-sessions-sqlx-store = { version = "0.15", features = ["postgres"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 url = "2.4"
 uuid = { version = "1.0", features = ["v4", "serde"] }
