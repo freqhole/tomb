@@ -5,7 +5,7 @@
 # Use SQLx offline mode by default for compilation
 # This avoids needing a database connection during builds
 # Override with SQLX_OFFLINE=false when you want online mode
-SQLX_OFFLINE = "true"
+# SQLX_OFFLINE = "true"
 
 [build]
 # Number of parallel jobs, defaults to # of CPUs
