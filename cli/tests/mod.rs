@@ -2,6 +2,9 @@
 //!
 //! This module provides utilities for testing the CLI by running commands
 //! against a real database snapshot.
+//!
+//! Tests use the shared ../data/test.db file and run sequentially
+//! (--test-threads=1) to avoid conflicts.
 
 use serde_json::Value;
 use std::path::PathBuf;
@@ -12,7 +15,6 @@ pub mod cli;
 /// Test context for running CLI commands
 pub struct TestContext {
     pub test_config_path: PathBuf,
-    pub test_db_path: PathBuf,
 }
 
 /// Output from a CLI command
@@ -23,39 +25,25 @@ pub struct TestOutput {
 }
 
 impl TestContext {
-    /// Create new test context from snapshot
-    /// Copies test.db to a temporary location for this test
-    pub fn from_snapshot() -> Self {
-        Self::from_snapshot_file("../data/test.db")
-    }
-
-    /// Create new test context from a specific snapshot file
-    /// Useful for testing with different data sets or production snapshots
+    /// Create new test context using shared test database
     ///
-    /// The snapshot file is ALWAYS copied - never modified directly
-    pub fn from_snapshot_file(snapshot_path: &str) -> Self {
+    /// Tests use the shared ../data/test.db file.
+    /// Since tests run sequentially (--test-threads=1), mutations don't cause conflicts.
+    pub fn from_snapshot() -> Self {
         let test_config_path = PathBuf::from("tests/fixtures/test-config.jsonc");
-        let source_db = PathBuf::from(snapshot_path);
 
-        if !source_db.exists() {
+        // Verify snapshot exists
+        let snapshot_path = PathBuf::from("../data/test.db");
+        if !snapshot_path.exists() {
             panic!(
                 "Snapshot DB not found at {:?}. \n\
-                For default test.db, run: cargo test setup -- --ignored --nocapture\n\
-                Or copy an existing DB: cp ../data/grimoire.db ../data/test.db",
-                source_db
+                Create it with: cargo test setup -- --ignored --nocapture\n\
+                Or copy existing: cp ../data/grimoire.db ../data/test.db",
+                snapshot_path
             );
         }
 
-        // Create a unique temp DB for this test (ensures snapshot is never modified)
-        let temp_db =
-            std::env::temp_dir().join(format!("grimoire-test-{}.db", uuid::Uuid::new_v4()));
-        std::fs::copy(&source_db, &temp_db)
-            .unwrap_or_else(|e| panic!("Failed to copy snapshot {:?}: {}", source_db, e));
-
-        Self {
-            test_config_path,
-            test_db_path: temp_db,
-        }
+        Self { test_config_path }
     }
 
     /// Run CLI command with test config, return raw output
@@ -64,8 +52,6 @@ impl TestContext {
         full_args.extend_from_slice(args);
 
         // Find the binary - cargo sets CARGO_BIN_EXE_<name> for each binary
-        // Since our binary is named "freqhole" in a package named "cli",
-        // we need to look for it in the target directory
         let bin_path = if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
             path
         } else {
@@ -106,13 +92,6 @@ impl TestContext {
                 output.stdout, output.stderr, e
             )
         })
-    }
-}
-
-impl Drop for TestContext {
-    fn drop(&mut self) {
-        // Cleanup temp DB copy
-        let _ = std::fs::remove_file(&self.test_db_path);
     }
 }
 
@@ -159,9 +138,6 @@ fn setup() {
     }
 
     println!("\nCreating test database...");
-
-    // Create a temporary DB for setup
-    let temp_db = std::env::temp_dir().join(format!("grimoire-setup-{}.db", uuid::Uuid::new_v4()));
 
     let test_config_path = PathBuf::from("tests/fixtures/test-config.jsonc");
 
@@ -221,13 +197,6 @@ fn setup() {
     }
 
     println!("Total songs loaded: {}", count);
-
-    // Copy temp DB to permanent test DB location
-    std::fs::copy(&temp_db, &test_db_path).expect("Failed to save test DB");
-
-    // Clean up temp DB
-    let _ = std::fs::remove_file(&temp_db);
-
     println!("\nSnapshot saved to: {:?}", test_db_path);
     println!("\nSetup complete! Now you can run tests with: cargo test");
 }

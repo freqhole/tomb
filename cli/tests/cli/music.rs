@@ -102,19 +102,7 @@ fn test_music_error_cases() {
     assert_eq!(errors[0]["error_type"], "album_not_found");
 }
 
-#[test]
-fn test_with_custom_snapshot() {
-    // Example: use a different snapshot file (like a production backup)
-    // This demonstrates using from_snapshot_file() instead of from_snapshot()
-    let ctx = TestContext::from_snapshot_file("../data/grimoire.db.backup-20260108-172727");
-
-    // Query should work with any snapshot that has the expected schema
-    let result = ctx.run_json(&["music", "query-songs", "--limit", "1"]);
-    assert!(result["success"].as_bool().unwrap());
-
-    // The snapshot is copied to temp location - never modified
-    // Multiple tests can safely use the same snapshot file
-}
+// Note: With simplified approach, all tests use the shared ../data/test.db snapshot
 
 #[test]
 fn test_music_genres() {

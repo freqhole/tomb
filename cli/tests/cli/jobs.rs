@@ -45,51 +45,27 @@ fn test_jobs_stats() {
 fn test_jobs_scan() {
     let ctx = TestContext::from_snapshot();
 
-    // Create a temporary directory for testing
-    let temp_dir =
-        std::env::temp_dir().join(format!("grimoire-test-scan-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    // Create a dummy file
-    std::fs::write(temp_dir.join("test.txt"), "test content").unwrap();
-
-    // Scan the directory
-    let result = ctx.run_json(&["jobs", "scan", temp_dir.to_str().unwrap()]);
+    // Just scan the existing data directory - simple!
+    let result = ctx.run_json(&["jobs", "scan", "../data"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
         "Should create scan job successfully"
     );
     assert!(result["data"]["job_id"].is_string(), "Should return job ID");
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
 fn test_jobs_scan_with_options() {
     let ctx = TestContext::from_snapshot();
 
-    let temp_dir =
-        std::env::temp_dir().join(format!("grimoire-test-scan-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    // Scan with recursive option
-    let result = ctx.run_json(&[
-        "jobs",
-        "scan",
-        temp_dir.to_str().unwrap(),
-        "--recursive",
-        "true",
-    ]);
+    // Scan the existing data directory with recursive option
+    let result = ctx.run_json(&["jobs", "scan", "../data", "--recursive", "true"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
         "Should create scan job with options"
     );
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
