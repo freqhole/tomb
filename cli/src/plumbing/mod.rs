@@ -188,6 +188,113 @@ pub async fn run_cli() -> ! {
     }
 }
 
+// Public handler functions for use in main.rs
+
+pub async fn handle_config(
+    action: ConfigAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    // Initialize config if provided
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = config::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_jobs(
+    action: JobAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = jobs::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_database(
+    action: DatabaseAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = database::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_music(
+    action: MusicAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = music::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_wordlist(
+    action: WordlistAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = wordlist::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_users(
+    action: UserAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = users::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_maintenance(
+    action: MaintenanceAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = maintenance::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_analytics(
+    action: AnalyticsAction,
+    json_output: bool,
+    config: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(config_path) = config {
+        grimoire::init_config(&config_path).map_err(|e| anyhow::anyhow!("{}", e))?;
+    }
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = analytics::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

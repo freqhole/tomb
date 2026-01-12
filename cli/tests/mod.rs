@@ -63,7 +63,7 @@ impl TestContext {
         let mut full_args = vec!["--config", self.test_config_path.to_str().unwrap()];
         full_args.extend_from_slice(args);
 
-        let output = Command::new(env!("CARGO_BIN_EXE_grimoire"))
+        let output = Command::new(env!("CARGO_BIN_EXE_freqhole"))
             .args(&full_args)
             .output()
             .expect("Failed to execute CLI");

@@ -5,7 +5,6 @@
 
 pub mod analytics;
 pub mod blob_data;
-pub mod cli;
 pub mod config;
 mod database;
 pub mod error;
