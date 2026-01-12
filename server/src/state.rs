@@ -10,42 +10,39 @@ pub struct AppState {
     /// grimoire configuration
     pub config: Arc<grimoire::config::GrimoireConfig>,
 
-    /// webauthn instance (if feature enabled)
-    #[cfg(feature = "webauthn")]
-    pub webauthn: Option<Arc<webauthn_rs::Webauthn>>,
-
     /// session store for authentication
     pub session_store: Arc<dyn tower_sessions::SessionStore>,
+    // TODO: add auth state when implementing phase 2
+    // will be isolated to auth module, no webauthn-rs types here
 }
 
 impl AppState {
     /// create new app state
     pub fn new(
         config: grimoire::config::GrimoireConfig,
-        #[cfg(feature = "webauthn")] webauthn: Option<webauthn_rs::Webauthn>,
         session_store: impl tower_sessions::SessionStore + 'static,
     ) -> Self {
         Self {
             config: Arc::new(config),
-            #[cfg(feature = "webauthn")]
-            webauthn: webauthn.map(Arc::new),
             session_store: Arc::new(session_store),
         }
     }
 
     /// validate configuration at startup
     ///
-    /// panics if configuration is invalid (e.g., webauthn enabled without feature)
+    /// validates that config settings are compatible with build features
     pub fn validate(&self) -> Result<(), String> {
-        // check webauthn config vs feature flag
-        #[cfg(not(feature = "webauthn"))]
-        {
-            // if webauthn feature is disabled, config must not enable it
-            // TODO: add config field check when we add server config
-            // if config.auth.webauthn_enabled {
-            //     return Err("webauthn enabled in config but binary built without webauthn feature".to_string());
-            // }
-        }
+        // webauthn validation: config-based gating with build-time check
+        // TODO: uncomment when server config is added
+        // #[cfg(not(feature = "webauthn"))]
+        // {
+        //     if self.config.server.auth.webauthn_enabled {
+        //         return Err(
+        //             "webauthn enabled in config but binary built without webauthn feature. \
+        //              rebuild with --features webauthn or disable in config".to_string()
+        //         );
+        //     }
+        // }
 
         Ok(())
     }

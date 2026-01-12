@@ -2,6 +2,7 @@
 //!
 //! http server for freqhole music system
 
+pub mod auth;
 pub mod error;
 pub mod routes;
 pub mod server;

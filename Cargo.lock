@@ -2488,6 +2488,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "futures-util",
  "grimoire",
  "http",
  "http-body-util",
