@@ -21,6 +21,12 @@
 # note: [cross](https://github.com/cross-rs/cross) didn't love the openssl deps :/
 # also note: .PHONY targetz are kinda silly ¯\_(ツ)_/¯
 
+# Include .env file if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 VERSION := $(shell grep '^version = ' server/Cargo.toml | head -1 | cut -d '"' -f 2)
 BUILD_DIR := target/freqhole/$(VERSION)
 CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
@@ -45,7 +51,7 @@ build:
 	cargo build --package cli --target $(CURRENT_TARGET) $(RELEASE_MODE)
 	cp target/$(CURRENT_TARGET)/release/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
 	cp target/$(CURRENT_TARGET)/release/cli $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
-	@echo "✓ Binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
+	@echo "Binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
 # debug build
 .PHONY: build-debug
@@ -57,7 +63,7 @@ build-debug:
 	cargo build --package cli --target $(CURRENT_TARGET)
 	cp target/$(CURRENT_TARGET)/debug/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
 	cp target/$(CURRENT_TARGET)/debug/cli $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
-	@echo "✓ Debug binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
+	@echo "Debug binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
 # docker-based raspi build
 .PHONY: build-pi
@@ -111,15 +117,91 @@ info:
 	@echo "Pi targets: $(PI_32_TARGET), $(PI_64_TARGET)"
 	@echo "Linux targets: $(X86_64_TARGET)"
 	@echo ""
-	@echo "Available targets:"
+	@echo "Build Commands:"
 	@echo "  make build         - Build for current platform (release)"
 	@echo "  make build-debug   - Build for current platform (debug)"
 	@echo "  make build-pi      - Build for Raspberry Pi using Docker"
 	@echo "  make build-linux   - Build for x86_64 Linux using Docker"
 	@echo "  make build-all     - Build for all targets (current + cross-compilation)"
 	@echo "  make clean         - Clean build artifacts"
-	@echo "  make info          - Show this information"
+	@echo ""
+	@echo "Database Commands:"
+	@echo "  make db-reset      - Remove database and run migrations"
+	@echo "  make db-migrate    - Run database migrations"
+	@echo "  make db-prepare    - Prepare sqlx query cache"
+	@echo ""
+	@echo "CLI Testing Commands:"
+	@echo "  make test-cli              - Run all CLI integration tests"
+	@echo "  make test-cli TEST=pattern - Run specific test or pattern"
+	@echo "  make test-cli-list         - List all CLI tests"
+	@echo "  make test-cli-coverage     - Generate coverage report"
+	@echo ""
+	@echo "Info:"
+	@echo "  make help/info     - Show this information"
 	@echo ""
 
 .PHONY: help
 help: info
+
+# Database commands (from grimoire)
+.PHONY: db-reset db-migrate db-prepare
+db-reset:
+	@echo "Resetting database..."
+	rm -f $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
+	mkdir -p data
+	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
+	cd grimoire && DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
+	@echo "Database reset complete!"
+
+db-migrate:
+	@echo "Running migrations..."
+	mkdir -p data
+	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
+	cd grimoire && DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
+
+db-prepare: db-migrate
+	@echo "Preparing sqlx query cache..."
+	cd grimoire && DATABASE_URL=$(DATABASE_URL) cargo sqlx prepare
+
+# CLI Testing commands (from grimoire)
+.PHONY: test-cli test-cli-list test-cli-coverage
+test-cli: db-prepare
+	@if [ -z "$(TEST)" ]; then \
+		echo "Running all CLI integration tests..."; \
+		cd grimoire && cargo test --test '*' -- --test-threads=1; \
+	else \
+		echo "Running tests matching: $(TEST)"; \
+		cd grimoire && cargo test --test '*' $(TEST) -- --test-threads=1 --nocapture; \
+	fi
+
+test-cli-list:
+	@echo "Available CLI integration tests:"
+	@echo ""
+	@cd grimoire && cargo test --test '*' -- --list 2>&1 | grep ": test$$" | sed 's/: test$$//' | sort
+	@echo ""
+	@echo "Total:" $$(cd grimoire && cargo test --test '*' -- --list 2>&1 | grep ": test$$" | wc -l | xargs) "tests"
+
+test-cli-coverage: db-prepare
+	@echo "Generating coverage report for CLI integration tests..."
+	@if ! command -v cargo-llvm-cov >/dev/null 2>&1; then \
+		echo ""; \
+		echo "Error: cargo-llvm-cov not found. Install with:"; \
+		echo "  cargo install cargo-llvm-cov"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@mkdir -p grimoire/coverage
+	@echo ""
+	@echo "Running CLI integration tests with coverage instrumentation..."
+	@cd grimoire && cargo llvm-cov --html --output-dir coverage \
+		--test '*' \
+		-- --test-threads=1
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo " CLI Integration Test Coverage Report Generated"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "  HTML Report: grimoire/coverage/index.html"
+	@echo ""
+	@echo "Note: This covers CLI integration tests (not unit tests)"
+	@echo ""
