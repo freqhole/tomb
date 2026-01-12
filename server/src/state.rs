@@ -18,13 +18,15 @@ pub struct AppState {
 
 impl AppState {
     /// create new app state
+    ///
+    /// session_store should be initialized via grimoire::sessions::init_session_store()
     pub fn new(
         config: grimoire::config::GrimoireConfig,
-        session_store: impl tower_sessions::SessionStore + 'static,
+        session_store: std::sync::Arc<dyn tower_sessions::SessionStore>,
     ) -> Self {
         Self {
             config: Arc::new(config),
-            session_store: Arc::new(session_store),
+            session_store,
         }
     }
 

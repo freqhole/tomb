@@ -1010,6 +1010,8 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tokio",
+ "tower-sessions",
+ "tower-sessions-sqlx-store",
  "tracing",
  "tracing-subscriber",
  "url",

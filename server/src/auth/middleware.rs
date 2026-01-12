@@ -6,10 +6,11 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use tower_sessions::Session;
 
-use crate::{error::ApiError, state::AppState};
+use crate::{auth::session, error::ApiError, state::AppState};
 
-/// validated origin extracted from request
+/// validated webauthn origin config extracted from request
 ///
 /// middleware validates the request Origin header against config.allowed_origins
 /// and injects this into request extensions for webauthn handlers to use
@@ -23,7 +24,7 @@ pub struct ValidatedOrigin(pub String);
 pub struct AuthenticatedUser {
     pub user_id: uuid::Uuid,
     pub username: String,
-    pub role: String, // TODO: use grimoire UserRole enum once viewer role added
+    pub role: grimoire::users::UserRole,
 }
 
 /// require authentication middleware
@@ -32,17 +33,32 @@ pub struct AuthenticatedUser {
 /// injects AuthenticatedUser into request extensions
 pub async fn require_auth(
     State(_state): State<AppState>,
-    _request: Request,
-    _next: Next,
+    session: Session,
+    mut request: Request,
+    next: Next,
 ) -> Result<Response, ApiError> {
-    // TODO: implement auth validation
-    // 1. check for session cookie
-    // 2. check for Authorization: Bearer <api_key> header
-    // 3. validate via grimoire
-    // 4. inject AuthenticatedUser into request.extensions_mut()
-    // 5. return Unauthorized if no valid auth found
+    // Try session authentication first
+    if let Some(session_data) = session::load_session(&session).await? {
+        let user = AuthenticatedUser {
+            user_id: session_data.user_id,
+            username: session_data.username,
+            role: grimoire::users::UserRole::from(session_data.role),
+        };
+        request.extensions_mut().insert(user);
+        return Ok(next.run(request).await);
+    }
 
-    // placeholder: fail all requests until auth implemented
+    // Try API key authentication
+    if let Some(auth_header) = request.headers().get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(_api_key) = auth_str.strip_prefix("Bearer ") {
+                // TODO: validate api_key via grimoire
+                // for now, return unauthorized
+                return Err(ApiError::Unauthorized);
+            }
+        }
+    }
+
     Err(ApiError::Unauthorized)
 }
 
@@ -83,12 +99,22 @@ pub async fn validate_origin(
 /// injects AuthenticatedUser only if valid auth provided
 pub async fn optional_auth(
     State(_state): State<AppState>,
-    request: Request,
+    session: Session,
+    mut request: Request,
     next: Next,
 ) -> Response {
-    // TODO: implement optional auth
-    // same as require_auth but doesn't fail if no auth found
-    // just doesn't inject AuthenticatedUser
+    // Try session authentication
+    if let Ok(Some(session_data)) = session::load_session(&session).await {
+        let user = AuthenticatedUser {
+            user_id: session_data.user_id,
+            username: session_data.username,
+            role: grimoire::users::UserRole::from(session_data.role),
+        };
+        request.extensions_mut().insert(user);
+    }
+
+    // If no session, try API key (silently fail if neither)
+    // TODO: implement API key validation
 
     next.run(request).await
 }

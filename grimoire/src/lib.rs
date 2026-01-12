@@ -14,6 +14,7 @@ pub mod maintenance;
 pub mod media_blobz;
 pub mod music;
 pub mod response;
+pub mod sessions;
 pub mod users;
 pub mod wordlist;
 

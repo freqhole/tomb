@@ -62,9 +62,12 @@ quick reference for tracking server refactor work.
 
 - [x] auth module structure (stubs created)
 - [x] config validation in AppState
-- [ ] implement session store initialization
-- [ ] implement auth middleware (require_auth, validate_origin)
-- [ ] implement auth handlers (whoami, invite redemption)
+- [x] session store initialization (grimoire::sessions::init_session_store)
+- [x] session helpers (save_session, load_session, delete_session)
+- [x] auth middleware (require_auth with session + api key support)
+- [ ] implement validate_origin middleware
+- [ ] implement API key validation via grimoire
+- [ ] implement auth handlers (whoami, invite redemption, logout)
 - [ ] webauthn handlers (if feature enabled)
 - [ ] auth routes (~7 routes)
 
