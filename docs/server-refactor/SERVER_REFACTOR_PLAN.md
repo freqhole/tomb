@@ -367,9 +367,15 @@ server/src/
 
 ### 4.2: implement 2-3 sample routes
 
-- `POST /api/songs/query` - query songs (uses grimoire::music::crud::query_songs)
-- `POST /api/playlists/create` - create playlist (uses grimoire::music::crud::create_playlist)
-- `POST /api/favorites/set` - set favorite (uses grimoire::music::users::FavoritesService)
+**routes to implement**:
+
+- `POST /api/playlists` - create playlist (uses grimoire::music::entities::playlists::create_playlist)
+- `GET /api/playlists/:id` - get playlist by id
+- `POST /api/artists` - create artist (uses grimoire::music::entities::artists::create_artist)
+
+**note**: deprecated legacy routes to avoid implementing:
+
+- `list_songs` - use `query_songs` instead (POST /api/songs/query with query params)
 
 ### 4.3: verify patterns
 
@@ -662,6 +668,12 @@ server/src/jobs/
 - commit generated `client.ts` to repo
 - ci verifies generated code is up to date
 
+### outstanding client-side tasks
+
+- [ ] add `api.ts` with hand-written wrapper functions (one per route, optional convenience layer)
+- [ ] add `test.ts` integration test harness to exercise generated client
+- [ ] ci check that verifies generated output is up to date
+
 ## phase 9: configuration & deployment
 
 ### 9.1: server configuration
@@ -811,6 +823,18 @@ compare legacy vs new implementation:
 **note: breaking changes are acceptable**
 
 ## phase 11: cleanup & documentation
+
+### 11.0: feature development guide
+
+- [ ] create `docs/HOW_TO_ADD_FEATURE.md` guide covering:
+  - adding new grimoire functions (grimoire/src/...)
+  - adding cli plumbing commands (cli/src/plumbing/...)
+  - adding server routes with inventory registration (server/src/...)
+  - annotating types with `#[derive(ZodSchema)]`
+  - registering types in grimoire api_registry
+  - running codegen to generate typescript client
+  - workflow validation checklist
+- [ ] use upcoming fetch/download migration as case study to validate guide completeness
 
 ### 11.1: remove legacy code
 
