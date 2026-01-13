@@ -1,11 +1,11 @@
-//! API handlers - normal Axum handlers with simple inventory registration
+//! api handlers - normal axum handlers with simple inventory registration
 
 use crate::server::route_def::{Method, RouteInfo};
 use crate::types::*;
 use axum::{extract::Path, Json};
 
 // =============================================================================
-// Music - Playlist Handlers
+// music - playlist handlers
 // =============================================================================
 
 pub async fn list_playlists(Json(params): Json<QueryParams>) -> Json<Vec<PlaylistQueryResult>> {
@@ -68,8 +68,8 @@ inventory::submit! {
 }
 
 pub async fn delete_playlist(Path(id): Path<String>) -> Json<bool> {
-    println!("Deleting playlist: {}", id);
-    // In a real app, this would delete from DB and return success/failure
+    println!("deleting playlist: {}", id);
+    // in a real app, this would delete from db and return success/failure
     Json(true)
 }
 
@@ -87,12 +87,12 @@ pub async fn add_songs_to_playlist(
     Json(req): Json<AddSongsToPlaylistRequest>,
 ) -> Json<PlaylistUpdateResult> {
     println!(
-        "Adding {} songs to playlist: {}",
+        "adding {} songs to playlist: {}",
         req.songs.len(),
         req.playlist_id
     );
 
-    // In a real app, this would update the database
+    // in a real app, this would update the database
     Json(PlaylistUpdateResult {
         playlist_id: req.playlist_id,
         total_songs: 10 + req.songs.len() as u32,
@@ -113,7 +113,7 @@ inventory::submit! {
 }
 
 // =============================================================================
-// Music - Song Handlers
+// music - song handlers
 // =============================================================================
 
 pub async fn list_songs(Json(params): Json<QueryParams>) -> Json<Vec<Song>> {
@@ -159,7 +159,7 @@ inventory::submit! {
 }
 
 // =============================================================================
-// Music - Album Handlers
+// music - album handlers
 // =============================================================================
 
 pub async fn list_albums(Json(params): Json<QueryParams>) -> Json<Vec<Album>> {
@@ -207,7 +207,7 @@ inventory::submit! {
 }
 
 // =============================================================================
-// User Handlers
+// user handlers
 // =============================================================================
 
 pub async fn create_user(Json(req): Json<CreateUserRequest>) -> Json<User> {
@@ -251,9 +251,9 @@ inventory::submit! {
     }
 }
 
-// Minimal test handler with no Path extraction
+// minimal test handler with no path extraction
 pub async fn get_user_test() -> &'static str {
-    println!("MINIMAL TEST HANDLER CALLED!");
+    println!("minimal test handler called!");
     "test response"
 }
 

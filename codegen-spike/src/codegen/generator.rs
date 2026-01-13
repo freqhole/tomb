@@ -1,4 +1,4 @@
-//! TypeScript client generator - outputs route config + schemas
+//! typescript client generator - outputs route config + schemas
 
 use crate::server::route_def::{self, RouteInfo};
 use std::collections::HashSet;
@@ -10,7 +10,7 @@ fn generate_schema_file(routes: &[RouteInfo]) -> Result<String, Box<dyn std::err
 
     crate::types::register_all_types(&mut generator, &mut registered);
 
-    // Validate all route types are registered
+    // validate all route types are registered
     for route in routes {
         if let Some(t) = extract_type(route.request_type) {
             if !registered.contains(&t) {
@@ -28,7 +28,7 @@ fn generate_schema_file(routes: &[RouteInfo]) -> Result<String, Box<dyn std::err
 }
 
 fn extract_type(rust_type: &str) -> Option<String> {
-    // Primitives don't need registration
+    // primitives don't need registration
     if rust_type == "String"
         || rust_type == "bool"
         || rust_type == "i32"
@@ -57,7 +57,7 @@ fn extract_type(rust_type: &str) -> Option<String> {
 
 fn generate_routes_file(routes: &[RouteInfo]) -> String {
     let mut output = String::from(
-        "// Generated route config\nimport * as s from './schema';\nimport { z } from 'zod';\n\n",
+        "// generated route config\nimport * as s from './schema';\nimport { z } from 'zod';\n\n",
     );
     output.push_str("export const routes = {\n");
 
@@ -84,7 +84,7 @@ fn schema_ref(rust_type: &str) -> String {
         return "null".to_string();
     }
 
-    // Handle primitives
+    // handle primitives
     match rust_type {
         "bool" => return "z.boolean()".to_string(),
         "i32" | "i64" | "u32" | "u64" | "f32" | "f64" => return "z.number()".to_string(),
@@ -110,6 +110,6 @@ pub fn generate_all() -> Result<(), Box<dyn std::error::Error>> {
     let routes_config = generate_routes_file(&routes);
     std::fs::write("freqhole-api-client/src/codegen/routes.ts", routes_config)?;
 
-    println!("✓ Generated codegen/schema.ts and codegen/routes.ts");
+    println!("generated codegen/schema.ts and codegen/routes.ts");
     Ok(())
 }

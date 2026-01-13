@@ -1,213 +1,345 @@
-# API Client Codegen Spike
+# api client codegen spike
 
-A working prototype for generating type-safe TypeScript API clients from Rust route definitions.
+generates type-safe typescript api clients from rust route definitions with runtime validation.
 
-## Current Status: Working Prototype
-
-This spike successfully demonstrates:
-- Single source of truth for API routes (`src/server/routes.rs`)
-- Type-safe route definitions using Rust types
-- Axum server that uses the route registry
-- TypeScript client generator with Zod validation
-- Clean separation between server and codegen concerns
-
-## Quick Start
+## quick start
 
 ```bash
-# Generate TypeScript client and typecheck
-make all
-
-# Start the server
-make server
-
-# Clean generated files
-make clean
+make all      # generate client + typecheck
+make server   # start axum server
+make test     # run integration tests
+make clean    # remove generated files
 ```
 
-Then open `freqhole-api-client/test.html` in a browser to test the API.
+## architecture
 
-## Project Structure
+### data flow
+
+```
+rust handler (handlers.rs)
+  + inventory::submit! metadata
+  |
+  +---> axum router (mod.rs)
+  |
+  +---> codegen (generator.rs)
+          |
+          v
+        generated typescript
+          - schema.ts (zod schemas)
+          - routes.ts (route config)
+          |
+          v
+        hand-written client (client.ts)
+          - dynamic fetch wrapper
+```
+
+### generation strategy
+
+instead of generating fetch functions for each route:
+
+1. generate data (route config + zod schemas)
+2. write one dynamic client that handles all routes
+3. get full type safety via typescript generics
+
+## project structure
 
 ```
 codegen-spike/
 ├── src/
-│   ├── types/              # Domain types (like grimoire)
-│   │   ├── music.rs        # Music domain (Playlist, Song, Album)
-│   │   └── users.rs        # User domain (User, LoginRequest, etc)
+│   ├── types/
+│   │   ├── music.rs          # domain types (playlist, song, album)
+│   │   ├── users.rs          # user domain types
+│   │   └── mod.rs            # manual type registry
 │   ├── server/
-│   │   ├── route_def.rs    # Route infrastructure (Method, RouteDefinition, macros)
-│   │   ├── routes.rs       # ROUTE REGISTRY - single source of truth!
-│   │   ├── handlers.rs     # Axum handlers (mock implementations)
-│   │   └── mod.rs          # Router builder
+│   │   ├── handlers.rs       # handlers + inventory::submit! blocks
+│   │   ├── route_def.rs      # routeinfo struct + inventory collection
+│   │   └── mod.rs            # router builder
 │   ├── codegen/
-│   │   ├── generator.rs    # Main codegen orchestration
-│   │   ├── templates.rs    # TypeScript r# format! strings
+│   │   ├── generator.rs      # generates schema.ts + routes.ts
 │   │   └── mod.rs
-│   └── main.rs             # Entry point (server or codegen mode)
+│   └── main.rs
+│
 ├── freqhole-api-client/
-│   ├── package.json        # Static npm config
-│   ├── test.html           # Test page
-│   └── src/                # Generated code (cleaned on rebuild)
-└── Makefile                # One command: make all
+│   ├── src/
+│   │   ├── client.ts         # hand-written dynamic client
+│   │   └── codegen/          # generated (don't edit)
+│   │       ├── schema.ts
+│   │       └── routes.ts
+│   ├── test.ts               # integration tests + usage examples
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── Makefile
+└── README.md
 ```
 
-## Key Design Patterns
+## adding a new route
 
-### Route Registry (Single Source of Truth)
+example: endpoint to add songs to a playlist
 
-All routes defined in `src/server/routes.rs`:
+### 1. define types (src/types/music.rs)
 
 ```rust
-pub mod playlists {
-    pub fn routes() -> HashMap<&'static str, RouteDefinition> {
-        routes![
-            route!(
-                "list",                              // Key for HashMap
-                "listPlaylists",                     // Function name
-                "/api/music/playlists/list",         // Path
-                Method::POST,                        // HTTP method
-                "music/playlists",                   // Module path for TS
-                QueryParams,                         // Request type
-                Vec<PlaylistQueryResult>             // Response type
-            ),
-            route!(
-                "get",
-                "getPlaylist",
-                "/api/music/playlists/{id}",         // Note: {id} not :id
-                Method::GET,
-                "music/playlists",
-                String,
-                Playlist
-            ),
-        ]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SongPosition {
+    pub song_id: String,
+    pub position: u32,
+    pub added_by: String,
+    pub added_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AddSongsToPlaylistRequest {
+    pub playlist_id: String,
+    pub songs: Vec<SongPosition>,
+    pub replace_existing: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PlaylistUpdateResult {
+    pub playlist_id: String,
+    pub total_songs: u32,
+    pub songs_added: u32,
+    pub songs_skipped: u32,
+    pub updated_at: i64,
+}
+```
+
+### 2. register types (src/types/mod.rs)
+
+```rust
+pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
+    // ... existing types ...
+
+    gen.add_schema::<SongPosition>("SongPosition");
+    registered.insert("SongPosition".to_string());
+
+    gen.add_schema::<AddSongsToPlaylistRequest>("AddSongsToPlaylistRequest");
+    registered.insert("AddSongsToPlaylistRequest".to_string());
+
+    gen.add_schema::<PlaylistUpdateResult>("PlaylistUpdateResult");
+    registered.insert("PlaylistUpdateResult".to_string());
+}
+```
+
+### 3. add handler (src/server/handlers.rs)
+
+```rust
+pub async fn add_songs_to_playlist(
+    Json(req): Json<AddSongsToPlaylistRequest>,
+) -> Json<PlaylistUpdateResult> {
+    // implementation
+    Json(result)
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "add_songs_to_playlist",
+        path: "/api/music/playlists/add-songs",
+        method: Method::POST,
+        request_type: "AddSongsToPlaylistRequest",
+        response_type: "PlaylistUpdateResult",
     }
 }
 ```
 
-### Server Uses Routes
-
-In `src/server/mod.rs`:
+### 4. register route (src/server/mod.rs)
 
 ```rust
-let playlist_routes = playlists::routes();
-
 Router::new()
-    .route(&playlist_routes["list"].path, post(handlers::list_playlists))
-    .route(&playlist_routes["get"].path, get(handlers::get_playlist))
+    // ... existing routes ...
+    .route(r["add_songs_to_playlist"].path, post(handlers::add_songs_to_playlist))
 ```
 
-### Codegen Uses Routes
+### 5. add test (freqhole-api-client/test.ts)
 
-In `src/codegen/generator.rs`:
+```typescript
+await test("add_songs_to_playlist - add songs with metadata", async () => {
+  const result = await client.call<PlaylistUpdateResult>(
+    "add_songs_to_playlist",
+    {
+      playlist_id: "my-playlist",
+      songs: [
+        {
+          song_id: "song-1",
+          position: 0,
+          added_by: "user",
+          added_at: 1704067200,
+        },
+        {
+          song_id: "song-2",
+          position: 1,
+          added_by: "user",
+          added_at: 1704067200,
+        },
+      ],
+      replace_existing: false,
+    },
+  );
 
-```rust
-let all_routes = routes::all_routes();
-codegen::generate_all(all_routes)?;
+  if (!result.success) {
+    throw new Error(`validation failed: ${result.error.message}`);
+  }
+
+  // full type safety on result.data
+  console.log(`added ${result.data.songs_added} songs`);
+});
 ```
 
-### TypeScript Templates
+### 6. regenerate
 
-Isolated in `src/codegen/templates.rs` for easy editing. All `r#` format strings live here.
-
-## Current Issues to Address
-
-### 1. Import Path Complexity
-
-The generated code has nested directories which makes TypeScript imports complex:
-
-```
-src/
-├── types.ts
-├── config.ts
-├── api/
-│   ├── music/
-│   │   ├── playlists/index.ts  // imports from ../../../types.ts
-│   │   ├── songs/index.ts
-│   │   └── albums/index.ts
-│   └── users/index.ts
-└── index.ts
-```
-
-**Proposed Solution**: Generate just 2 flat files:
-- `schema.ts` - All Zod schemas and types
-- `api-client.ts` - All fetch functions in one file with namespace structure
-
-This eliminates import path headaches and makes the generator much simpler.
-
-### 2. Macro Complexity
-
-The `route!` and `routes!` macros work but could be simpler. Consider if plain HashMap construction is more readable.
-
-### 3. Path Parameters
-
-Currently `{id}` in paths like `/api/users/{id}` are handled as `String` params. Need proper path parameter extraction.
-
-## Next Steps
-
-1. **Simplify codegen output to 2 files** (most important!)
-   - `schema.ts` - one file with all Zod schemas
-   - `api-client.ts` - one file with all fetch functions
-   - Use namespace objects like: `api.music.playlists.list()`
-
-2. **Clean up route macro syntax**
-   - Maybe remove macro complexity if it's not helping
-
-3. **Add path parameter handling**
-   - Parse `{id}` from paths
-   - Generate proper TypeScript function signatures
-
-4. **Test with real grimoire types**
-   - Apply pattern to actual server routes
-   - Verify it scales to 50+ routes
-
-## Running Examples
-
-### Generate and test:
 ```bash
 make all
-make server
-# Open freqhole-api-client/test.html in browser
 ```
 
-### Test a route manually:
+typescript client now has the new endpoint with full type safety and runtime validation.
+
+## implementation details
+
+### route registration
+
+handlers register metadata via inventory::submit!:
+
+```rust
+pub async fn get_playlist(Path(id): Path<String>) -> Json<Playlist> {
+    Json(Playlist { id, title: "my playlist".to_string(), description: None })
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_playlist",
+        path: "/api/music/playlists/{id}",
+        method: Method::GET,
+        request_type: "String",
+        response_type: "Playlist",
+    }
+}
+```
+
+inventory crate collects these at compile time across all modules.
+
+### type registry
+
+manual registry in src/types/mod.rs:
+
+```rust
+pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
+    gen.add_schema::<Playlist>("Playlist");
+    registered.insert("Playlist".to_string());
+
+    gen.add_schema::<Song>("Song");
+    registered.insert("Song".to_string());
+    // etc
+}
+```
+
+generator validates all route types are registered and fails fast with clear errors.
+
+### code generation
+
+outputs two files:
+
+**schema.ts** - zod schemas from rust types:
+
+```typescript
+export const PlaylistSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+});
+export type Playlist = z.infer<typeof PlaylistSchema>;
+```
+
+**routes.ts** - route configuration:
+
+```typescript
+export const routes = {
+  get_playlist: {
+    method: "GET",
+    path: "/api/music/playlists/{id}",
+    req: null,
+    resp: s.PlaylistSchema,
+  },
+  // ... all other routes
+};
+```
+
+### dynamic client
+
+single hand-written function handles all routes:
+
+```typescript
+async function call<T>(
+  baseUrl: string,
+  routeName: keyof typeof routes,
+  params?: any,
+): Promise<SafeParseResult<T>> {
+  const route = routes[routeName];
+
+  // validate request
+  if (route.req && params) {
+    const validated = route.req.safeParse(params);
+    if (!validated.success) return { success: false, error: validated.error };
+  }
+
+  // interpolate path params
+  let url = baseUrl + route.path.replace(/\{(\w+)\}/g, (_, key) => params[key]);
+
+  // fetch
+  const response = await fetch(url, { method: route.method, ... });
+  const data = await response.json();
+
+  // validate response
+  return route.resp.safeParse(data);
+}
+```
+
+## commands
+
 ```bash
-curl -X POST http://localhost:3000/api/music/playlists/list \
-  -H 'Content-Type: application/json' \
-  -d '{"limit": 10}'
+make          # clean + codegen + typecheck
+make server   # start axum server on :3000
+make test     # start server + run integration tests
+make clean    # remove generated files
 ```
 
-### Add a new route:
-1. Add type to `src/types/music.rs` with `#[derive(ZodSchema)]`
-2. Add route to `src/server/routes.rs` in appropriate module
-3. Add handler to `src/server/handlers.rs`
-4. Wire handler in `src/server/mod.rs`
-5. Run `make all` - client auto-updates!
+## example usage
 
-## Important Files
+```typescript
+import { createClient } from "./src/client.js";
+import type { Playlist, PlaylistUpdateResult } from "./src/codegen/schema.js";
 
-- `src/server/routes.rs` - **THE ROUTE REGISTRY** - edit this to add routes
-- `src/codegen/templates.rs` - All TypeScript template strings
-- `src/codegen/generator.rs` - Orchestration logic
-- `freqhole-api-client/test.html` - Test UI
+const client = createClient("http://localhost:3000");
 
-## Design Philosophy
+// get playlist
+const playlist = await client.call<Playlist>("get_playlist", {
+  id: "playlist-123",
+});
 
-- **Simplicity over cleverness** - prefer boring code
-- **Fewer files = better** - 2 generated files instead of 20
-- **No manual sync** - define once, generate everywhere
-- **Compiler help** - type-safe route definitions
-- **Edit templates easily** - keep r# strings isolated
+if (playlist.success) {
+  console.log(playlist.data.title); // full type safety
+}
 
-## Known Working
+// add songs
+const result = await client.call<PlaylistUpdateResult>(
+  "add_songs_to_playlist",
+  {
+    playlist_id: "my-playlist",
+    songs: [
+      {
+        song_id: "song-1",
+        position: 0,
+        added_by: "user",
+        added_at: Date.now(),
+      },
+    ],
+    replace_existing: false,
+  },
+);
 
-✅ Type-safe route definitions with `std::any::type_name`
-✅ Axum server using route registry
-✅ Zod schema generation
-✅ Functional fetch wrappers
-✅ Test HTML page
-✅ Makefile with one command
-✅ Clean separation of concerns
-
-## Ready for Next Iteration
-
-The core pattern works! Now simplify the output to 2 files and it's ready to apply to the real codebase.
+if (!result.success) {
+  console.error("validation failed:", result.error.issues);
+} else {
+  console.log(`added ${result.data.songs_added} songs`);
+}
+```

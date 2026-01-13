@@ -1,4 +1,4 @@
-//! User domain types (simplified from grimoire)
+//! user domain types (simplified from grimoire)
 
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;

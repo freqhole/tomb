@@ -1,4 +1,4 @@
-// Hand-written API client - wraps generated routes with fetch + Zod validation
+// hand-written api client - wraps generated routes with fetch + zod validation
 import { routes } from "./codegen/routes.js";
 import { z } from "zod";
 
@@ -20,8 +20,8 @@ async function call<T>(
 ): Promise<SafeParseResult<T>> {
   const route = routes[routeName] as RouteConfig;
 
-  // For GET requests, params are used for path interpolation (not validated)
-  // For POST/PUT/etc, validate request body with safeParse
+  // for get requests, params are used for path interpolation (not validated)
+  // for post/put/etc, validate request body with safeparse
   if (route.method !== "GET" && route.req && params !== undefined) {
     const validated = route.req.safeParse(params);
     if (!validated.success) {
@@ -30,7 +30,7 @@ async function call<T>(
     params = validated.data;
   }
 
-  // Interpolate path params (e.g. /users/{id} -> /users/123)
+  // interpolate path params (e.g. /users/{id} -> /users/123)
   let url = baseUrl + route.path;
   if (params && url.includes("{")) {
     url = url.replace(/\{(\w+)\}/g, (_, key) => {
@@ -38,13 +38,13 @@ async function call<T>(
     });
   }
 
-  // Make request
+  // make request
   const options: RequestInit = {
     method: route.method,
     headers: { "Content-Type": "application/json" },
   };
 
-  // Only send body for POST/PUT/PATCH methods
+  // only send body for post/put/patch methods
   if (route.method !== "GET" && route.method !== "DELETE" && params) {
     options.body = JSON.stringify(params);
   }
@@ -67,7 +67,7 @@ async function call<T>(
 
     const data = await response.json();
 
-    // Validate response with safeParse
+    // validate response with safeparse
     return route.resp.safeParse(data) as SafeParseResult<T>;
   } catch (err) {
     return {

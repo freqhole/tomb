@@ -1,4 +1,4 @@
-// Integration tests and usage examples for the Freqhole API client
+// integration tests and usage examples for the freqhole api client
 import { createClient } from "./src/client.js";
 import type {
   User,
@@ -13,12 +13,12 @@ import type {
 const client = createClient("http://localhost:3000");
 
 async function main() {
-  console.log("Running Freqhole API Client Integration Tests\n");
+  console.log("running freqhole api client integration tests\n");
 
   let passed = 0;
   let failed = 0;
 
-  // Helper to run a test
+  // helper to run a test
   async function test(name: string, fn: () => Promise<void>) {
     try {
       await fn();
@@ -33,10 +33,10 @@ async function main() {
   }
 
   // =============================================================================
-  // User API Tests
+  // user api tests
   // =============================================================================
 
-  await test("create_user - Create a new user account", async () => {
+  await test("create_user - create a new user account", async () => {
     const result = await client.call<User>("create_user", {
       username: "testuser",
       password: "securepass123",
@@ -44,46 +44,46 @@ async function main() {
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (result.data.username !== "testuser") {
-      throw new Error("Username mismatch");
+      throw new Error("username mismatch");
     }
   });
 
-  await test("login - Authenticate and get API key", async () => {
+  await test("login - authenticate and get api key", async () => {
     const result = await client.call<LoginResponse>("login", {
       username: "testuser",
       password: "securepass123",
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!result.data.api_key) {
-      throw new Error("No API key returned");
+      throw new Error("no api key returned");
     }
   });
 
-  await test("get_user - Fetch user by ID", async () => {
+  await test("get_user - fetch user by id", async () => {
     const result = await client.call<User>("get_user", { id: "user-123" });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!result.data.username) {
-      throw new Error("No username in response");
+      throw new Error("no username in response");
     }
   });
 
   // =============================================================================
-  // Music - Album API Tests
+  // music - album api tests
   // =============================================================================
 
-  await test("list_albums - Query albums with filters", async () => {
+  await test("list_albums - query albums with filters", async () => {
     const result = await client.call<Album[]>("list_albums", {
       q: "rock",
       limit: 10,
@@ -91,31 +91,31 @@ async function main() {
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!Array.isArray(result.data)) {
-      throw new Error("Expected array response");
+      throw new Error("expected array response");
     }
   });
 
-  await test("get_album - Fetch specific album", async () => {
+  await test("get_album - fetch specific album", async () => {
     const result = await client.call<Album>("get_album", { id: "album-456" });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!result.data.title) {
-      throw new Error("No title in response");
+      throw new Error("no title in response");
     }
   });
 
   // =============================================================================
-  // Music - Song API Tests
+  // music - song api tests
   // =============================================================================
 
-  await test("list_songs - Query songs with pagination", async () => {
+  await test("list_songs - query songs with pagination", async () => {
     const result = await client.call<Song[]>("list_songs", {
       q: "love",
       limit: 20,
@@ -123,31 +123,31 @@ async function main() {
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!Array.isArray(result.data)) {
-      throw new Error("Expected array response");
+      throw new Error("expected array response");
     }
   });
 
-  await test("get_song - Fetch specific song", async () => {
+  await test("get_song - fetch specific song", async () => {
     const result = await client.call<Song>("get_song", { id: "song-789" });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!result.data.title || !result.data.artist_name) {
-      throw new Error("Missing song fields");
+      throw new Error("missing song fields");
     }
   });
 
   // =============================================================================
-  // Music - Playlist API Tests
+  // music - playlist api tests
   // =============================================================================
 
-  await test("create_playlist - Create a new playlist", async () => {
+  await test("create_playlist - create a new playlist", async () => {
     const result = await client.call<Playlist>("create_playlist", {
       id: "playlist-new",
       title: "My Awesome Playlist",
@@ -155,29 +155,29 @@ async function main() {
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (result.data.title !== "My Awesome Playlist") {
-      throw new Error("Title mismatch");
+      throw new Error("title mismatch");
     }
   });
 
-  await test("get_playlist - Fetch specific playlist", async () => {
+  await test("get_playlist - fetch specific playlist", async () => {
     const result = await client.call<Playlist>("get_playlist", {
       id: "playlist-123",
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!result.data.title) {
-      throw new Error("No title in response");
+      throw new Error("no title in response");
     }
   });
 
-  await test("list_playlists - Query playlists", async () => {
+  await test("list_playlists - query playlists", async () => {
     const result = await client.call<PlaylistQueryResult[]>("list_playlists", {
       q: null,
       limit: 15,
@@ -185,41 +185,41 @@ async function main() {
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (!Array.isArray(result.data)) {
-      throw new Error("Expected array response");
+      throw new Error("expected array response");
     }
 
-    // Check playlist query result structure
+    // check playlist query result structure
     if (result.data.length > 0) {
       const first = result.data[0];
       if (!first.playlist || typeof first.song_count !== "number") {
-        throw new Error("Invalid playlist query result structure");
+        throw new Error("invalid playlist query result structure");
       }
     }
   });
 
-  await test("delete_playlist - Delete a playlist", async () => {
+  await test("delete_playlist - delete a playlist", async () => {
     const result = await client.call<boolean>("delete_playlist", {
       id: "playlist-to-delete",
     });
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (typeof result.data !== "boolean") {
-      throw new Error("Expected boolean response");
+      throw new Error("expected boolean response");
     }
 
     if (result.data !== true) {
-      throw new Error("Delete operation should return true");
+      throw new Error("delete operation should return true");
     }
   });
 
-  await test("add_songs_to_playlist - Add songs with metadata", async () => {
+  await test("add_songs_to_playlist - add songs with metadata", async () => {
     const result = await client.call<PlaylistUpdateResult>(
       "add_songs_to_playlist",
       {
@@ -249,11 +249,11 @@ async function main() {
     );
 
     if (!result.success) {
-      throw new Error(`Validation failed: ${result.error.message}`);
+      throw new Error(`validation failed: ${result.error.message}`);
     }
 
     if (result.data.playlist_id !== "my-playlist") {
-      throw new Error("Playlist ID mismatch");
+      throw new Error("playlist id mismatch");
     }
 
     if (result.data.songs_added !== 3) {
@@ -261,12 +261,12 @@ async function main() {
     }
 
     if (result.data.total_songs < 3) {
-      throw new Error("Total songs should be at least 3");
+      throw new Error("total songs should be at least 3");
     }
   });
 
   // =============================================================================
-  // Summary
+  // summary
   // =============================================================================
 
   console.log(`\n${passed} passed, ${failed} failed`);

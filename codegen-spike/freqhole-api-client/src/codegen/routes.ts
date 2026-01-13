@@ -1,4 +1,4 @@
-// Generated route config
+// generated route config
 import * as s from './schema';
 import { z } from 'zod';
 
