@@ -1,8 +1,6 @@
 //! Route definition infrastructure
 //! Core types and macros for defining API routes
 
-use std::collections::HashMap;
-
 /// HTTP method
 #[derive(Debug, Clone, Copy)]
 pub enum Method {
@@ -28,6 +26,7 @@ impl Method {
 /// Route definition
 #[derive(Debug, Clone)]
 pub struct RouteDefinition {
+    pub key: &'static str,
     pub name: &'static str,
     pub path: &'static str,
     pub method: Method,
@@ -44,6 +43,7 @@ macro_rules! route {
         (
             $key,
             $crate::server::route_def::RouteDefinition {
+                key: $key,
                 name: $name,
                 path: $path,
                 method: $method,

@@ -3,52 +3,194 @@
 
 use crate::server::route_def::RouteDefinition;
 use crate::types::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use zod_gen::ZodGenerator;
 
 use super::templates::*;
 
 // =============================================================================
+// Type Collection
+// =============================================================================
+
+/// Extract the base type name from a Rust type string
+/// e.g., "alloc::vec::Vec<codegen_spike::types::music::Song>" -> "Song"
+fn extract_base_type(rust_type: &str) -> Option<String> {
+    // Handle Vec<T>
+    if let Some(inner) = rust_type.strip_prefix("alloc::vec::Vec<") {
+        let inner = inner.strip_suffix('>').unwrap_or(inner);
+        return extract_base_type(inner);
+    }
+
+    // Handle Option<T>
+    if let Some(inner) = rust_type.strip_prefix("core::option::Option<") {
+        let inner = inner.strip_suffix('>').unwrap_or(inner);
+        return extract_base_type(inner);
+    }
+
+    // Skip primitive types
+    if rust_type == "String" || rust_type == "alloc::string::String" {
+        return None;
+    }
+
+    // Extract just the type name from full path
+    Some(
+        rust_type
+            .split("::")
+            .last()
+            .unwrap_or(rust_type)
+            .to_string(),
+    )
+}
+
+/// Collect all unique type names from routes
+fn collect_types_from_routes(routes: &[RouteDefinition]) -> Vec<String> {
+    let mut types = HashSet::new();
+
+    for route in routes {
+        if let Some(t) = extract_base_type(route.request_type) {
+            types.insert(t);
+        }
+        if let Some(t) = extract_base_type(route.response_type) {
+            types.insert(t);
+        }
+    }
+
+    let mut sorted: Vec<_> = types.into_iter().collect();
+    sorted.sort();
+    sorted
+}
+
+// =============================================================================
 // Zod Schema Generation
 // =============================================================================
 
-fn generate_types_file() -> Result<String, Box<dyn std::error::Error>> {
+fn generate_schema_file(routes: &[RouteDefinition]) -> Result<String, Box<dyn std::error::Error>> {
+    // Collect types from routes
+    let type_names = collect_types_from_routes(routes);
+
     let mut generator = ZodGenerator::new();
 
-    // Music types
-    generator.add_schema::<QueryParams>("QueryParams");
-    generator.add_schema::<Playlist>("Playlist");
-    generator.add_schema::<PlaylistQueryResult>("PlaylistQueryResult");
-    generator.add_schema::<Song>("Song");
-    generator.add_schema::<Album>("Album");
+    // Add schemas for each type (in practice, we'd map these dynamically)
+    // For now, we map known types - later this could use reflection or a registry
+    for type_name in &type_names {
+        match type_name.as_str() {
+            "QueryParams" => generator.add_schema::<QueryParams>("QueryParams"),
+            "Playlist" => generator.add_schema::<Playlist>("Playlist"),
+            "PlaylistQueryResult" => {
+                generator.add_schema::<PlaylistQueryResult>("PlaylistQueryResult")
+            }
+            "Song" => generator.add_schema::<Song>("Song"),
+            "Album" => generator.add_schema::<Album>("Album"),
+            "User" => generator.add_schema::<User>("User"),
+            "CreateUserRequest" => generator.add_schema::<CreateUserRequest>("CreateUserRequest"),
+            "LoginRequest" => generator.add_schema::<LoginRequest>("LoginRequest"),
+            "LoginResponse" => generator.add_schema::<LoginResponse>("LoginResponse"),
+            _ => eprintln!("Warning: Unknown type {}", type_name),
+        }
+    }
 
-    // User types
-    generator.add_schema::<User>("User");
-    generator.add_schema::<CreateUserRequest>("CreateUserRequest");
-    generator.add_schema::<LoginRequest>("LoginRequest");
-    generator.add_schema::<LoginResponse>("LoginResponse");
-
-    let mut output = types_header();
+    let mut output = schema_header();
     output.push_str(&generator.generate());
+
+    // Note: zod_gen already generates the type exports, so we don't add them again
 
     Ok(output)
 }
 
 // =============================================================================
-// Module Generation
+// API Client Generation
 // =============================================================================
 
-fn generate_module_client(
-    module_name: &str,
-    parent_path: &str,
+fn generate_api_client_file(
     routes: &[RouteDefinition],
-) -> String {
-    let mut output = module_header(module_name, parent_path);
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut output = api_client_header();
+
+    // Generate functions for each route
+    output.push_str(
+        "// ============================================================================\n",
+    );
+    output.push_str("// API Functions\n");
+    output.push_str(
+        "// ============================================================================\n\n",
+    );
 
     for route in routes {
         output.push_str(&client_function(route));
         output.push('\n');
     }
+
+    // Generate namespace structure
+    output.push_str(&generate_namespace_structure(routes));
+
+    Ok(output)
+}
+
+/// Generate the namespace structure from routes
+fn generate_namespace_structure(routes: &[RouteDefinition]) -> String {
+    // Group routes by module path
+    let mut grouped: HashMap<String, Vec<&RouteDefinition>> = HashMap::new();
+    for route in routes {
+        grouped
+            .entry(route.module_path.to_string())
+            .or_insert_with(Vec::new)
+            .push(route);
+    }
+
+    let mut output = String::new();
+    output.push_str(
+        "// ============================================================================\n",
+    );
+    output.push_str("// API Namespace\n");
+    output.push_str(
+        "// ============================================================================\n\n",
+    );
+
+    output.push_str("export const api = {\n");
+
+    // Build music namespace
+    output.push_str("  music: {\n");
+
+    // Playlists
+    if let Some(routes) = grouped.get("music/playlists") {
+        output.push_str("    playlists: {\n");
+        for route in routes {
+            output.push_str(&format!("      {}: {},\n", route.key, route.name));
+        }
+        output.push_str("    },\n");
+    }
+
+    // Songs
+    if let Some(routes) = grouped.get("music/songs") {
+        output.push_str("    songs: {\n");
+        for route in routes {
+            output.push_str(&format!("      {}: {},\n", route.key, route.name));
+        }
+        output.push_str("    },\n");
+    }
+
+    // Albums
+    if let Some(routes) = grouped.get("music/albums") {
+        output.push_str("    albums: {\n");
+        for route in routes {
+            output.push_str(&format!("      {}: {},\n", route.key, route.name));
+        }
+        output.push_str("    },\n");
+    }
+
+    output.push_str("  },\n");
+
+    // Users namespace
+    if let Some(routes) = grouped.get("users") {
+        output.push_str("  users: {\n");
+        for route in routes {
+            output.push_str(&format!("    {}: {},\n", route.key, route.name));
+        }
+        output.push_str("  },\n");
+    }
+
+    output.push_str("};\n\n");
+    output.push_str("export default api;\n");
 
     output
 }
@@ -60,67 +202,23 @@ fn generate_module_client(
 pub fn generate_all(routes: Vec<RouteDefinition>) -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Generating TypeScript Client ===\n");
 
-    // Create directory structure
-    std::fs::create_dir_all("freqhole-api-client/src/api/music/playlists")?;
-    std::fs::create_dir_all("freqhole-api-client/src/api/music/songs")?;
-    std::fs::create_dir_all("freqhole-api-client/src/api/music/albums")?;
-    std::fs::create_dir_all("freqhole-api-client/src/api/users")?;
+    // Create output directory
+    std::fs::create_dir_all("freqhole-api-client/src")?;
 
-    // 1. Generate config
-    let config_code = config();
-    std::fs::write("freqhole-api-client/src/config.ts", config_code)?;
-    println!("✓ Generated: src/config.ts");
+    // 1. Generate schema.ts (all Zod schemas + TypeScript types)
+    let schema_code = generate_schema_file(&routes)?;
+    std::fs::write("freqhole-api-client/src/schema.ts", schema_code)?;
+    println!("✓ Generated: src/schema.ts");
 
-    // 2. Generate types + Zod schemas
-    let types_code = generate_types_file()?;
-    std::fs::write("freqhole-api-client/src/types.ts", types_code)?;
-    println!("✓ Generated: src/types.ts");
+    // 2. Generate api-client.ts (all fetch functions + namespace)
+    let api_client_code = generate_api_client_file(&routes)?;
+    std::fs::write("freqhole-api-client/src/api-client.ts", api_client_code)?;
+    println!("✓ Generated: src/api-client.ts");
 
-    // 3. Group routes by module path
-    let mut modules: HashMap<String, Vec<RouteDefinition>> = HashMap::new();
-    for route in routes {
-        modules
-            .entry(route.module_path.to_string())
-            .or_insert_with(Vec::new)
-            .push(route);
-    }
-
-    // 4. Generate each module
-    for (module_path, module_routes) in modules {
-        let module_name = module_path.split('/').last().unwrap();
-        let parent = module_path
-            .split('/')
-            .take(module_path.split('/').count() - 1)
-            .collect::<Vec<_>>()
-            .join("/");
-
-        let client_code = generate_module_client(module_name, &parent, &module_routes);
-        let file_path = format!("freqhole-api-client/src/api/{}/index.ts", module_path);
-        std::fs::write(&file_path, client_code)?;
-        println!("✓ Generated: src/api/{}/index.ts", module_path);
-    }
-
-    // 5. Generate music namespace index
-    let music_index = namespace_index(&["playlists", "songs", "albums"], false);
-    std::fs::write("freqhole-api-client/src/api/music/index.ts", music_index)?;
-    println!("✓ Generated: src/api/music/index.ts");
-
-    // 6. Generate api namespace index
-    let api_index = namespace_index(&["music", "users"], false);
-    std::fs::write("freqhole-api-client/src/api/index.ts", api_index)?;
-    println!("✓ Generated: src/api/index.ts");
-
-    // 7. Generate root index with namespaced exports
-    let root_index_code = root_index();
-    std::fs::write("freqhole-api-client/src/index.ts", root_index_code)?;
-    println!("✓ Generated: src/index.ts");
-
-    // 8. Generate tsconfig.json
-    let tsconfig_code = tsconfig();
-    std::fs::write("freqhole-api-client/tsconfig.json", tsconfig_code)?;
-    println!("✓ Generated: tsconfig.json");
-
-    println!("\nTypeScript client generated successfully!");
+    println!("\n✨ TypeScript client generated successfully!");
+    println!("\nGenerated files:");
+    println!("  - schema.ts      (Zod schemas + TypeScript types)");
+    println!("  - api-client.ts  (API functions + namespace)");
     println!("\nNext steps:");
     println!("  cd freqhole-api-client");
     println!("  npm install");
