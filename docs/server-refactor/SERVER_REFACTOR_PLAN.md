@@ -1069,29 +1069,28 @@ required for seek in browser audio players.
 
 ## phase checklist
 
-### phase 0: preparation (current)
+### phase 0: preparation ✓
 
 - [x] create refactor plan
-- [ ] **optional: har recording of legacy webapp to identify active routes**
-- [ ] move server → legacyserver
-- [ ] update workspace config
+- [x] move server → legacyserver
+- [x] update workspace config
 
-### phase 1: foundation
+### phase 1: foundation ✓
 
-- [ ] create new server package
-- [ ] setup dependencies
-- [ ] app state struct
-- [ ] error handling
-- [ ] middleware stack
+- [x] create new server package
+- [x] setup dependencies
+- [x] app state struct
+- [x] error handling
+- [x] middleware stack
 
-### phase 2: auth
+### phase 2: auth ✓
 
-- [ ] auth module structure
-- [ ] webauthn (feature-gated)
-- [ ] api key auth
-- [ ] invite code auth
-- [ ] middleware
-- [ ] routes
+- [x] auth module structure
+- [x] webauthn (feature-gated)
+- [x] api key auth
+- [x] invite code auth
+- [x] middleware
+- [x] routes (5 routes with inventory::submit!)
 
 ### phase 3: codegen investigation
 
@@ -1191,32 +1190,20 @@ wrapper functions are hand-written but follow mechanical pattern (one per route)
 
 ## next steps
 
-1. **optional but recommended**: har recording of legacy webapp (phase 0)
-2. complete phase 0: move server to legacyserver
-3. **phase 1: foundation (START HERE)**
-   - create server package skeleton
-   - app state, error handling, middleware
-4. **phase 2: authentication**
-   - feature-flagged webauthn
-   - api key auth
-   - invite code auth
-   - config validation
-   - add viewer role to grimoire
-5. **phase 4: establish patterns with 2-3 sample routes**
+1. **phase 4: establish patterns (START HERE)**
+   - add 2-3 more music routes with inventory::submit!
    - verify shallow wrapper approach works
    - once validated, remaining routes should be mechanical
-6. **phase 5: grimoire preparation (can overlap with phase 4)**
+2. **phase 5: grimoire preparation (can overlap with phase 4)**
    - move fetch_music to grimoire
    - audit existing APIs
    - identify gaps
-7. **phase 6: rapid route implementation**
+3. **phase 6: rapid route implementation**
    - see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist
    - shallow grimoire wrappers
    - should go quickly after patterns established
-8. iterate through remaining phases (7, 9-11)
+4. iterate through remaining phases (7, 9-11)
    </text>
-
-<old_text line=1165>
 
 - **auth first**: start with authentication (feature-flagged webauthn)
 - **codegen complete**: client-codegen system ready for new routes
