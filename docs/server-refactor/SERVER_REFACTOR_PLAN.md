@@ -329,39 +329,16 @@ extend grimoire user roles to support permissions:
 - `POST /auth/logout` - logout
 - `GET /auth/whoami` - current user info (includes role)
 
-## phase 3: typescript codegen investigation
+## phase 3: typescript codegen investigation ✓
 
-**important**: investigate codegen approach early to avoid structural pain later
+### implementation
 
-### 3.1: early investigation (do during/after auth phase)
-
-- evaluate crates: `ts-rs`, `typeshare`, `specta`
-- determine: does codegen affect how we structure types?
-- test with 2-3 example types from grimoire
-- understand: can we use grimoire types directly or need wrapper types?
-- document findings before implementing many routes
-
-**questions to answer**:
-
-- do grimoire types need #[derive(TypeScript)] annotations?
-- can we generate from grimoire types or only server types?
-- how does it handle nested/generic types?
-- what's the impact on existing grimoire code?
-
-**workflow**:
-
-- investigate during/after auth implementation (phase 2)
-- test with sample types before phase 6 (bulk routes)
-- if codegen needs wrapper types, establish pattern early
-- if codegen works with grimoire types directly, proceed as planned
-
-### 3.2: document findings
-
-- create small test to validate approach
-- document which crate to use and why
-- document type annotation strategy
-- establish wrapper pattern if needed
-- defer full implementation to phase 8
+- using `zod_gen` + `inventory` for route registration
+- grimoire types get `#[derive(ZodSchema)]`
+- routes register via `inventory::submit!` with metadata
+- codegen in `client-codegen/` workspace package
+- generates: schema.ts (zod) + routes.ts (config) + hand-written client.ts
+- see: `client-codegen/README.md` for details
 
 ## phase 4: establish patterns with sample routes
 
@@ -670,50 +647,17 @@ server/src/jobs/
 - `POST /api/jobs/list` - list user's jobs
 - async job tracking (not realtime/websocket, just polling)
 
-## phase 8: typescript client generation (deferred)
+## phase 8: typescript client generation ✓
 
-**note**: full implementation deferred until core functionality complete. Investigation done in phase 3.
+### implementation complete
 
-### 8.1: setup typescript codegen
-
-- choose crate based on investigation findings
-- prefer: derive macros on request/response types
-- output: `server/codegen/client.ts`
-
-### 8.2: annotate types
-
-add typescript derive to all request/response types:
-
-```rust
-#[derive(Serialize, Deserialize, TypeScriptType)]
-pub struct CreateSongRequest { ... }
-```
-
-**note**: may need to add annotations to grimoire types if codegen investigation shows that's the best approach
-
-### 8.3: generate zod schemas
-
-- generate zod schemas from rust types
-- runtime validation for requests
-- type safety for responses
-
-### 8.4: generate fetch client
-
-generate typescript client:
-
-```typescript
-export const api = {
-  songs: {
-    query: (params: SongQueryParams) => fetch(...),
-    get: (id: string) => fetch(...),
-    // ...
-  },
-  // ...
-}
-```
-
-### 8.5: codegen workflow
-
+- `client-codegen/` workspace package with codegen binary
+- grimoire types use `#[derive(ZodSchema)]`
+- routes register via `inventory::submit!` in handlers
+- run: `cd client-codegen && make all`
+- output: `freqhole-api-client/src/codegen/`
+- hand-written dynamic client in `client.ts`
+- 6 routes implemented (5 auth, 1 music)
 - `cargo build --features codegen` generates types
 - commit generated `client.ts` to repo
 - ci verifies generated code is up to date
@@ -1151,9 +1095,9 @@ required for seek in browser audio players.
 
 ### phase 3: codegen investigation
 
-- [ ] test ts-rs, typeshare, or specta
-- [ ] determine wrapper types vs annotate grimoire
-- [ ] document findings
+- [x] codegen system complete (zod_gen + inventory)
+- [x] grimoire types annotated with ZodSchema
+- [x] client-codegen workspace package created
 
 ### phase 4: establish patterns
 
@@ -1189,15 +1133,42 @@ required for seek in browser audio players.
 - [ ] static file range requests (optional - only if needed)
 - [ ] health checks
 
-### phase 8: typescript codegen (deferred)
+### phase 8: typescript codegen ✓
 
-- [ ] setup codegen (ts-rs or specta)
-- [ ] annotate types
-- [ ] generate schemas
-- [ ] generate client
-- [ ] ci integration
+- [x] codegen system (zod_gen + inventory)
+- [x] grimoire types with ZodSchema
+- [x] client-codegen workspace package
+- [x] generate schemas + routes
+- [x] hand-written dynamic client
+- [ ] hand-written wrapper functions for each route
 
-**note: not immediate priority, defer until core functionality complete**
+**wrapper functions task**:
+create `client-codegen/freqhole-api-client/src/api.ts` with typed wrappers:
+
+```typescript
+import { createClient } from "./client.js";
+import type * as s from "./codegen/schema.js";
+
+export function createApi(baseUrl: string) {
+  const client = createClient(baseUrl);
+
+  return {
+    auth: {
+      whoami: () => client.call<s.WhoAmIResponse>("auth", "whoami"),
+      logout: () => client.call("auth", "logout"),
+      // etc - one wrapper per route
+    },
+    music: {
+      listPlaylists: (params: s.QueryParams) =>
+        client.call<s.PlaylistQueryResult[]>("music", "list_playlists", params),
+      // etc
+    },
+  };
+}
+```
+
+this provides clean api: `api.auth.whoami()` instead of `client.call('auth', 'whoami')`
+wrapper functions are hand-written but follow mechanical pattern (one per route)
 
 ### phase 9: configuration & deployment
 
@@ -1231,29 +1202,24 @@ required for seek in browser audio players.
    - invite code auth
    - config validation
    - add viewer role to grimoire
-5. **phase 3: codegen investigation**
-   - test codegen approach with 2-3 types
-   - determine wrapper strategy
-   - document findings before bulk routes
-6. **phase 4: establish patterns with 2-3 sample routes**
+5. **phase 4: establish patterns with 2-3 sample routes**
    - verify shallow wrapper approach works
-   - validate codegen approach
    - once validated, remaining routes should be mechanical
-7. **phase 5: grimoire preparation (can overlap with phase 4)**
+6. **phase 5: grimoire preparation (can overlap with phase 4)**
    - move fetch_music to grimoire
    - audit existing APIs
    - identify gaps
-8. **phase 6: rapid route implementation**
+7. **phase 6: rapid route implementation**
    - see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist
    - shallow grimoire wrappers
    - should go quickly after patterns established
-9. iterate through remaining phases (7-11)
+8. iterate through remaining phases (7, 9-11)
    </text>
 
 <old_text line=1165>
 
 - **auth first**: start with authentication (feature-flagged webauthn)
-- **investigate codegen early**: test approach before implementing many routes
+- **codegen complete**: client-codegen system ready for new routes
 
 **key insight**: grimoire wrappers should be shallow/simple. establish patterns first, then bulk implementation should be straightforward.
 
@@ -1263,7 +1229,7 @@ work in small increments, ask about ambiguities before implementing.
 
 - **foundation first**: create server skeleton before auth (phase 1)
 - **auth second**: implement authentication with feature-flagged webauthn (phase 2)
-- **investigate codegen early**: test approach in phase 3 before bulk routes (phase 6)
+- **codegen complete**: client-codegen system ready (phase 3/8 done)
 - **establish patterns**: implement 2-3 routes in phase 4 to validate approach
 - **static files early**: add basic static file serving in phase 4 for testing with HTML
 - **grimoire prep flexible**: phase 5 can overlap with phase 4 or be deferred

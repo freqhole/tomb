@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
 use time::OffsetDateTime;
+use zod_gen_derive::ZodSchema;
 
 /// User roles in the system with hierarchical levels
 ///
@@ -520,4 +521,38 @@ pub struct InviteCodesGeneratedResponse {
 pub struct InviteCodeInfoResponse {
     pub code: String,
     pub expires_at: Option<i64>,
+}
+
+// ============================================================================
+// API Response Types (for typescript codegen)
+// ============================================================================
+
+/// whoami response - returns current authenticated user info
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct WhoAmIResponse {
+    pub user_id: String,
+    pub username: String,
+    pub role: String,
+}
+
+/// api key status response - check if user has an api key
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ApiKeyStatusResponse {
+    pub has_api_key: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key_preview: Option<String>,
+}
+
+/// api key regenerate response - returns new api key
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ApiKeyRegenerateResponse {
+    pub api_key: String,
+    pub message: String,
+}
+
+/// redeem invite code request
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RedeemInviteRequest {
+    pub invite_code: String,
+    pub username: String,
 }

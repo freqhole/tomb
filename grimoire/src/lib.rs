@@ -4,6 +4,7 @@
 //! provides centralized domain logic for music metadata and blob storage.
 
 pub mod analytics;
+pub mod api_registry;
 pub mod blob_data;
 pub mod config;
 mod database;

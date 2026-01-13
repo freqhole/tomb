@@ -2,6 +2,7 @@
 //! request/response types for high-level workflows
 
 use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::MediaBlob;
 use crate::music::{Album, Artist, Genre, Song};
@@ -135,7 +136,7 @@ pub enum SongImportErrorType {
 }
 
 /// unified query parameters for all entity queries
-#[derive(Debug, Clone, Serialize, Deserialize, clap::Parser)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, clap::Parser)]
 pub struct QueryParams {
     /// Full-text search query
     #[arg(long)]
@@ -282,7 +283,7 @@ pub struct GenreQueryResult {
 }
 
 /// playlist with optional aggregated metadata for query results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct PlaylistQueryResult {
     pub playlist: crate::music::Playlist,
     pub song_count: i64,

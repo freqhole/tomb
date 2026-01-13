@@ -1,8 +1,11 @@
 //! authentication route handlers
 
 use axum::{extract::Extension, response::IntoResponse, Json};
-use grimoire::users::UserService;
-use serde::{Deserialize, Serialize};
+use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::users::{
+    ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, UserService,
+    WhoAmIResponse,
+};
 use tower_sessions::Session;
 
 use crate::{
@@ -12,14 +15,6 @@ use crate::{
 // Re-export webauthn handlers when feature is enabled
 #[cfg(feature = "webauthn")]
 pub use crate::auth::freq_webauthn::{login_finish, login_start, register_finish, register_start};
-
-/// whoami response
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WhoAmIResponse {
-    pub user_id: String,
-    pub username: String,
-    pub role: String,
-}
 
 /// whoami handler - returns current authenticated user
 ///
@@ -33,6 +28,17 @@ pub async fn whoami(Extension(user): Extension<AuthenticatedUser>) -> ApiResult<
     Ok(Json(response))
 }
 
+inventory::submit! {
+    RouteInfo {
+        name: "whoami",
+        path: "/auth/whoami",
+        method: Method::GET,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "WhoAmIResponse",
+    }
+}
+
 /// logout handler - destroys current session
 ///
 /// requires authentication middleware
@@ -43,19 +49,15 @@ pub async fn logout(session: Session) -> ApiResult<impl IntoResponse> {
     })))
 }
 
-/// api key status response
-#[derive(Debug, Serialize)]
-pub struct ApiKeyStatusResponse {
-    pub has_api_key: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_key_preview: Option<String>,
-}
-
-/// api key regenerate response
-#[derive(Debug, Serialize)]
-pub struct ApiKeyRegenerateResponse {
-    pub api_key: String,
-    pub message: String,
+inventory::submit! {
+    RouteInfo {
+        name: "logout",
+        path: "/auth/logout",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "serde_json::Value",
+    }
 }
 
 /// get api key status - check if current user has an api key
@@ -96,6 +98,28 @@ pub async fn api_key_status(
     Ok(Json(response))
 }
 
+inventory::submit! {
+    RouteInfo {
+        name: "regenerate_api_key",
+        path: "/auth/api-key/regenerate",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "ApiKeyRegenerateResponse",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "api_key_status",
+        path: "/auth/api-key/status",
+        method: Method::GET,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "ApiKeyStatusResponse",
+    }
+}
+
 /// regenerate api key - generate new api key for current user
 ///
 /// requires authentication middleware
@@ -128,13 +152,6 @@ pub async fn regenerate_api_key(
     };
 
     Ok(Json(response))
-}
-
-/// redeem invite code request
-#[derive(Debug, Deserialize)]
-pub struct RedeemInviteRequest {
-    pub invite_code: String,
-    pub username: String,
 }
 
 /// redeem invite handler - creates new user and session from invite code
@@ -180,4 +197,15 @@ pub async fn redeem_invite(
             "role": user.role.to_string(),
         }
     })))
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "redeem_invite",
+        path: "/auth/invite",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "RedeemInviteRequest",
+        response_type: "serde_json::Value",
+    }
 }

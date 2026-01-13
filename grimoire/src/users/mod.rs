@@ -13,6 +13,9 @@ pub mod webauthn;
 
 // Re-export commonly used types
 pub use models::{
+    // API response types
+    ApiKeyRegenerateResponse,
+    ApiKeyStatusResponse,
     AuthError,
     CreateInviteCodeRequest,
     CreateUserRequest,
@@ -21,6 +24,7 @@ pub use models::{
     InviteCodeInfoResponse,
     InviteCodeType,
     InviteCodesGeneratedResponse,
+    RedeemInviteRequest,
     UpdateUserRequest,
     User,
     UserCreatedResponse,
@@ -30,6 +34,7 @@ pub use models::{
     UserRole,
     UserSession,
     WebAuthnCredential,
+    WhoAmIResponse,
 };
 pub use service::UserService;
 pub use webauthn::WebAuthnService;

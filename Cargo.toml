@@ -1,5 +1,5 @@
 [workspace]
-members = ["grimoire", "cli", "server"]
+members = ["grimoire", "cli", "server", "client-codegen"]
 resolver = "2"
 
 [workspace.dependencies]

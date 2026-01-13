@@ -1,6 +1,7 @@
 //! Playlist handlers
 
 use axum::{extract::Extension, Json};
+use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{query_playlists, QueryParams};
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
@@ -16,4 +17,15 @@ pub async fn list_playlists(
         .data
         .ok_or_else(|| ApiError::Internal(response.message))
         .map(|data| Json(serde_json::to_value(data).unwrap()))
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "list_playlists",
+        path: "/api/playlists/list",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "Vec<PlaylistQueryResult>",
+    }
 }

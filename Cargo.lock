@@ -461,6 +461,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "client-codegen"
+version = "0.1.0"
+dependencies = [
+ "grimoire",
+ "inventory",
+ "serde",
+ "serde_json",
+ "server",
+ "zod_gen",
+]
+
+[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1007,6 +1019,7 @@ dependencies = [
  "hex",
  "humantime",
  "image",
+ "inventory",
  "json5",
  "lofty",
  "mime_guess",
@@ -1032,6 +1045,8 @@ dependencies = [
  "uuid",
  "walkdir",
  "webauthn-rs",
+ "zod_gen",
+ "zod_gen_derive",
 ]
 
 [[package]]
@@ -1384,6 +1399,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc61209c082fbeb19919bee74b176221b27223e27b65d781eb91af24eb1fb46e"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]
@@ -2508,6 +2532,7 @@ dependencies = [
  "grimoire",
  "http",
  "http-body-util",
+ "inventory",
  "mime_guess",
  "reqwest",
  "serde",
@@ -4063,6 +4088,28 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "zod_gen"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b9de76cf9f61522ec21f5021385d708915325f3b2c9dcae07f0ee3f505f6786"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "zod_gen_derive"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f62e2d508ef0421844989853c22729a0d73a933ceafdce76d19ec58bfc83483"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "zod_gen",
 ]
 
 [[package]]

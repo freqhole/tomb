@@ -2,9 +2,10 @@
 
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
 
 /// playlist model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
 pub struct Playlist {
     pub id: String,
     pub title: String,

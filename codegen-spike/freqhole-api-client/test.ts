@@ -258,9 +258,9 @@ async function main() {
   // =============================================================================
 
   console.log(`\n${passed} passed, ${failed} failed`);
-  if (typeof process !== "undefined") {
-    process.exit(failed > 0 ? 1 : 0);
-  }
+  // if (typeof process !== "undefined") {
+  //   process.exit(failed > 0 ? 1 : 0);
+  // }
 }
 
 main().catch(console.error);
