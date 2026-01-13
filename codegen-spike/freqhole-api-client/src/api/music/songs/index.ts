@@ -25,7 +25,7 @@ export async function listSongs(params: QueryParams): Promise<Song[]> {
 }
 
 export async function getSong(params: String): Promise<Song> {
-  const response = await fetch(`${getBaseUrl()}/api/music/songs/:id`, {
+  const response = await fetch(`${getBaseUrl()}/api/music/songs/{id}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',

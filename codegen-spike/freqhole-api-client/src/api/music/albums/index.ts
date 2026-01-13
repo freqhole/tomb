@@ -6,7 +6,7 @@ import { getBaseUrl } from '../../../config';
 import * as types from '../../../types';
 
 export async function getAlbum(params: String): Promise<Album> {
-  const response = await fetch(`${getBaseUrl()}/api/music/albums/:id`, {
+  const response = await fetch(`${getBaseUrl()}/api/music/albums/{id}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',

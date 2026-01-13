@@ -25,7 +25,7 @@ export async function login(params: LoginRequest): Promise<LoginResponse> {
 }
 
 export async function getUser(params: String): Promise<User> {
-  const response = await fetch(`${getBaseUrl()}/api/users/:id`, {
+  const response = await fetch(`${getBaseUrl()}/api/users/{id}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',

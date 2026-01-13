@@ -1,6 +1,7 @@
 //! Server module - Axum server setup
 
 pub mod handlers;
+pub mod route_def;
 pub mod routes;
 
 use axum::{
