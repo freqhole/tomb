@@ -31,7 +31,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("loading config from: {}", args.config);
 
     // initialize grimoire config globally
-    grimoire::config::init_config(Some(args.config.clone().into()));
+    grimoire::config::init_config(Some(args.config.clone().into()))
+        .map_err(|e| anyhow::anyhow!("failed to initialize config: {}", e))?;
 
     let config = grimoire::config::GrimoireConfig::load(&args.config)
         .map_err(|e| anyhow::anyhow!("failed to load config: {}", e))?;

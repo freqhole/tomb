@@ -4,7 +4,7 @@
 CREATE TABLE user_accountz (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   username TEXT UNIQUE NOT NULL,
-  role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'member', 'viewer')),
+  role TEXT DEFAULT 'member' CHECK (role IN ('root', 'admin', 'member', 'viewer')),
   api_key TEXT UNIQUE,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),

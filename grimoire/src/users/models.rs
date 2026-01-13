@@ -9,23 +9,48 @@ use std::fmt;
 use thiserror::Error;
 use time::OffsetDateTime;
 
-/// User roles in the system
+/// User roles in the system with hierarchical levels
+///
+/// Lower numbers = higher privilege
+/// Gaps between levels allow future role insertion
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum UserRole {
-    /// System administrator with full access
+    /// Root user - highest level access (level 0)
+    Root,
+    /// System administrator with full access (level 10)
     Admin,
-    /// Regular authenticated user
+    /// Regular authenticated user (level 20)
     #[default]
     Member,
-    /// Read-only viewer (can browse/play/favorite, cannot upload/edit/fetch)
+    /// Read-only viewer (can browse/play/favorite, cannot upload/edit/fetch) (level 30)
     Viewer,
 }
 
 impl UserRole {
-    /// Check if this role has admin privileges
+    /// Get the privilege level for this role (lower = higher privilege)
+    pub const fn level(&self) -> u8 {
+        match self {
+            UserRole::Root => 0,
+            UserRole::Admin => 10,
+            UserRole::Member => 20,
+            UserRole::Viewer => 30,
+        }
+    }
+
+    /// Check if this role has at least the privilege level of another role
+    pub fn has_privilege(&self, required: UserRole) -> bool {
+        self.level() <= required.level()
+    }
+
+    /// Check if this role is root
+    pub fn is_root(&self) -> bool {
+        matches!(self, UserRole::Root)
+    }
+
+    /// Check if this role has admin privileges (root or admin)
     pub fn is_admin(&self) -> bool {
-        matches!(self, UserRole::Admin)
+        self.level() <= UserRole::Admin.level()
     }
 
     /// Check if this role is viewer (read-only)
@@ -34,9 +59,23 @@ impl UserRole {
     }
 }
 
+impl PartialOrd for UserRole {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for UserRole {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // reverse ordering: lower level = higher privilege
+        self.level().cmp(&other.level())
+    }
+}
+
 impl fmt::Display for UserRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            UserRole::Root => write!(f, "root"),
             UserRole::Admin => write!(f, "admin"),
             UserRole::Member => write!(f, "member"),
             UserRole::Viewer => write!(f, "viewer"),
@@ -47,6 +86,7 @@ impl fmt::Display for UserRole {
 impl From<String> for UserRole {
     fn from(s: String) -> Self {
         match s.to_lowercase().as_str() {
+            "root" => UserRole::Root,
             "admin" => UserRole::Admin,
             "viewer" => UserRole::Viewer,
             _ => UserRole::Member,
