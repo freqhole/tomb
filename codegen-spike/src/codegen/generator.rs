@@ -28,7 +28,16 @@ fn generate_schema_file(routes: &[RouteInfo]) -> Result<String, Box<dyn std::err
 }
 
 fn extract_type(rust_type: &str) -> Option<String> {
-    if rust_type == "String" {
+    // Primitives don't need registration
+    if rust_type == "String"
+        || rust_type == "bool"
+        || rust_type == "i32"
+        || rust_type == "i64"
+        || rust_type == "u32"
+        || rust_type == "u64"
+        || rust_type == "f32"
+        || rust_type == "f64"
+    {
         return None;
     }
     if let Some(start) = rust_type.find("Vec<") {
@@ -47,7 +56,9 @@ fn extract_type(rust_type: &str) -> Option<String> {
 }
 
 fn generate_routes_file(routes: &[RouteInfo]) -> String {
-    let mut output = String::from("// Generated route config\nimport * as s from './schema';\n\n");
+    let mut output = String::from(
+        "// Generated route config\nimport * as s from './schema';\nimport { z } from 'zod';\n\n",
+    );
     output.push_str("export const routes = {\n");
 
     for route in routes {
@@ -71,6 +82,13 @@ fn generate_routes_file(routes: &[RouteInfo]) -> String {
 fn schema_ref(rust_type: &str) -> String {
     if rust_type == "String" {
         return "null".to_string();
+    }
+
+    // Handle primitives
+    match rust_type {
+        "bool" => return "z.boolean()".to_string(),
+        "i32" | "i64" | "u32" | "u64" | "f32" | "f64" => return "z.number()".to_string(),
+        _ => {}
     }
 
     let clean = rust_type.split("::").last().unwrap_or(rust_type);

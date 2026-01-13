@@ -67,6 +67,22 @@ inventory::submit! {
     }
 }
 
+pub async fn delete_playlist(Path(id): Path<String>) -> Json<bool> {
+    println!("Deleting playlist: {}", id);
+    // In a real app, this would delete from DB and return success/failure
+    Json(true)
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "delete_playlist",
+        path: "/api/music/playlists/{id}",
+        method: Method::DELETE,
+        request_type: "String",
+        response_type: "bool",
+    }
+}
+
 // =============================================================================
 // Music - Song Handlers
 // =============================================================================

@@ -44,7 +44,8 @@ async function call<T>(
     headers: { "Content-Type": "application/json" },
   };
 
-  if (route.method !== "GET" && params) {
+  // Only send body for POST/PUT/PATCH methods
+  if (route.method !== "GET" && route.method !== "DELETE" && params) {
     options.body = JSON.stringify(params);
   }
 

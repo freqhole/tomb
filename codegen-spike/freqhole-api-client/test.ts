@@ -200,6 +200,24 @@ async function main() {
     }
   });
 
+  await test("delete_playlist - Delete a playlist", async () => {
+    const result = await client.call<boolean>("delete_playlist", {
+      id: "playlist-to-delete",
+    });
+
+    if (!result.success) {
+      throw new Error(`Validation failed: ${result.error.message}`);
+    }
+
+    if (typeof result.data !== "boolean") {
+      throw new Error("Expected boolean response");
+    }
+
+    if (result.data !== true) {
+      throw new Error("Delete operation should return true");
+    }
+  });
+
   // =============================================================================
   // Summary
   // =============================================================================
