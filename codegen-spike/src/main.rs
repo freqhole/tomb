@@ -57,7 +57,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_codegen() -> Result<(), Box<dyn std::error::Error>> {
-    let all_routes = routes::all_routes();
-    codegen::generate_all(all_routes)?;
+    let definitions = routes::define_routes();
+    codegen::generate_all(definitions)?;
     Ok(())
 }

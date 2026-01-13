@@ -40,15 +40,12 @@ export async function listPlaylists(params: schema.QueryParams): Promise<schema.
   return schema.PlaylistQueryResultSchema.array().parse(data);
 }
 
-export async function createPlaylist(params: schema.Playlist): Promise<schema.Playlist> {
-  const validated = schema.PlaylistSchema.parse(params);
-
-  const response = await fetch(`${getBaseUrl()}/api/music/playlists`, {
-    method: 'POST',
+export async function getPlaylist(params: string): Promise<schema.Playlist> {
+  const response = await fetch(`${getBaseUrl()}/api/music/playlists/{id}`, {
+    method: 'GET',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(validated),
   });
 
   if (!response.ok) {
@@ -59,12 +56,15 @@ export async function createPlaylist(params: schema.Playlist): Promise<schema.Pl
   return schema.PlaylistSchema.parse(data);
 }
 
-export async function getPlaylist(params: string): Promise<schema.Playlist> {
-  const response = await fetch(`${getBaseUrl()}/api/music/playlists/{id}`, {
-    method: 'GET',
+export async function createPlaylist(params: schema.Playlist): Promise<schema.Playlist> {
+  const validated = schema.PlaylistSchema.parse(params);
+
+  const response = await fetch(`${getBaseUrl()}/api/music/playlists`, {
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
+    body: JSON.stringify(validated),
   });
 
   if (!response.ok) {
@@ -110,22 +110,6 @@ export async function getSong(params: string): Promise<schema.Song> {
   return schema.SongSchema.parse(data);
 }
 
-export async function getAlbum(params: string): Promise<schema.Album> {
-  const response = await fetch(`${getBaseUrl()}/api/music/albums/{id}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return schema.AlbumSchema.parse(data);
-}
-
 export async function listAlbums(params: schema.QueryParams): Promise<schema.Album[]> {
   const validated = schema.QueryParamsSchema.parse(params);
 
@@ -143,6 +127,41 @@ export async function listAlbums(params: schema.QueryParams): Promise<schema.Alb
 
   const data = await response.json();
   return schema.AlbumSchema.array().parse(data);
+}
+
+export async function getAlbum(params: string): Promise<schema.Album> {
+  const response = await fetch(`${getBaseUrl()}/api/music/albums/{id}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return schema.AlbumSchema.parse(data);
+}
+
+export async function createUser(params: schema.CreateUserRequest): Promise<schema.User> {
+  const validated = schema.CreateUserRequestSchema.parse(params);
+
+  const response = await fetch(`${getBaseUrl()}/api/users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(validated),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return schema.UserSchema.parse(data);
 }
 
 export async function login(params: schema.LoginRequest): Promise<schema.LoginResponse> {
@@ -180,25 +199,6 @@ export async function getUser(params: string): Promise<schema.User> {
   return schema.UserSchema.parse(data);
 }
 
-export async function createUser(params: schema.CreateUserRequest): Promise<schema.User> {
-  const validated = schema.CreateUserRequestSchema.parse(params);
-
-  const response = await fetch(`${getBaseUrl()}/api/users`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(validated),
-  });
-
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return schema.UserSchema.parse(data);
-}
-
 // ============================================================================
 // API Namespace
 // ============================================================================
@@ -207,22 +207,22 @@ export const api = {
   music: {
     playlists: {
       list: listPlaylists,
-      create: createPlaylist,
       get: getPlaylist,
+      create: createPlaylist,
     },
     songs: {
       list: listSongs,
       get: getSong,
     },
     albums: {
-      get: getAlbum,
       list: listAlbums,
+      get: getAlbum,
     },
   },
   users: {
+    create: createUser,
     login: login,
     get: getUser,
-    create: createUser,
   },
 };
 
