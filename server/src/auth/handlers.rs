@@ -1,6 +1,7 @@
 //! authentication route handlers
 
 use axum::{extract::Extension, response::IntoResponse, Json};
+use grimoire::users::UserService;
 use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
 
@@ -40,6 +41,93 @@ pub async fn logout(session: Session) -> ApiResult<impl IntoResponse> {
     Ok(Json(serde_json::json!({
         "message": "logged out successfully"
     })))
+}
+
+/// api key status response
+#[derive(Debug, Serialize)]
+pub struct ApiKeyStatusResponse {
+    pub has_api_key: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key_preview: Option<String>,
+}
+
+/// api key regenerate response
+#[derive(Debug, Serialize)]
+pub struct ApiKeyRegenerateResponse {
+    pub api_key: String,
+    pub message: String,
+}
+
+/// get api key status - check if current user has an api key
+///
+/// requires authentication middleware
+pub async fn api_key_status(
+    Extension(user): Extension<AuthenticatedUser>,
+) -> ApiResult<impl IntoResponse> {
+    let service = UserService::new();
+
+    let user_response = service.get_user(&user.user_id).await;
+    if !user_response.is_success() {
+        return Err(ApiError::Unauthorized);
+    }
+
+    let user_data = user_response
+        .data
+        .ok_or_else(|| ApiError::Internal("User data missing".to_string()))?;
+
+    let has_key = user_data.api_key.is_some() && !user_data.api_key.as_ref().unwrap().is_empty();
+    let api_key_preview = if has_key {
+        user_data.api_key.as_ref().map(|k| {
+            if k.len() >= 16 {
+                format!("{}...{}", &k[..8], &k[k.len() - 8..])
+            } else {
+                "***".to_string()
+            }
+        })
+    } else {
+        None
+    };
+
+    let response = ApiKeyStatusResponse {
+        has_api_key: has_key,
+        api_key_preview,
+    };
+
+    Ok(Json(response))
+}
+
+/// regenerate api key - generate new api key for current user
+///
+/// requires authentication middleware
+pub async fn regenerate_api_key(
+    Extension(user): Extension<AuthenticatedUser>,
+) -> ApiResult<impl IntoResponse> {
+    let service = UserService::new();
+
+    let api_key_response = service.generate_api_key(&user.user_id).await;
+    if !api_key_response.is_success() {
+        return Err(ApiError::Internal(format!(
+            "Failed to generate API key: {}",
+            api_key_response.message
+        )));
+    }
+
+    let updated_user = api_key_response.data.ok_or_else(|| {
+        ApiError::Internal("User data missing after API key generation".to_string())
+    })?;
+
+    let api_key = updated_user
+        .api_key
+        .ok_or_else(|| ApiError::Internal("API key not generated".to_string()))?;
+
+    let response = ApiKeyRegenerateResponse {
+        api_key: api_key.clone(),
+        message:
+            "API key regenerated successfully. Save this key securely - it won't be shown again."
+                .to_string(),
+    };
+
+    Ok(Json(response))
 }
 
 /// redeem invite code request

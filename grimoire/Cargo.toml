@@ -33,7 +33,7 @@ json5 = "0.4"
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"
-sea-query = { version = "0.30", features = ["backend-sqlite"] }
+sea-query = { version = "0.30", features = ["backend-sqlite", "thread-safe"] }
 sea-query-sqlx = { version = "0.8.0-rc.11", features = ["sqlx-sqlite"] }
 
 tracing-subscriber = "0.3"

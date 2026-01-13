@@ -19,6 +19,11 @@ pub enum UserAction {
         #[arg(long)]
         bootstrap: bool,
     },
+    /// API key management
+    ApiKey {
+        #[command(subcommand)]
+        action: ApiKeyAction,
+    },
     /// List users
     List {
         /// Filter by role
@@ -74,6 +79,25 @@ pub enum UserAction {
     DeactivateInvite {
         /// Invite code
         code: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ApiKeyAction {
+    /// Generate or regenerate an API key for a user
+    Generate {
+        /// Username to generate key for
+        username: String,
+    },
+    /// Revoke (clear) a user's API key
+    Revoke {
+        /// Username to revoke key for
+        username: String,
+    },
+    /// Show API key status for a user
+    ShowStatus {
+        /// Username to check
+        username: String,
     },
 }
 
@@ -319,5 +343,106 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             let message = format!("Invite code deactivated: {}", code);
             CommandOutput::success(message, ())
         }
+        UserAction::ApiKey { action } => match action {
+            ApiKeyAction::Generate { username } => {
+                // Find user by username
+                let user_response = service.get_user_by_username(&username).await;
+                if !user_response.success {
+                    return CommandOutput::failure(user_response.message, user_response.errors, ());
+                }
+
+                let Some(user) = user_response.data else {
+                    return CommandOutput::failure("User not found", vec![], ());
+                };
+
+                // Generate API key
+                let api_key_response = service.generate_api_key(&user.id).await;
+                if !api_key_response.success {
+                    return CommandOutput::failure(
+                        api_key_response.message,
+                        api_key_response.errors,
+                        (),
+                    );
+                }
+
+                let Some(updated_user) = api_key_response.data else {
+                    return CommandOutput::failure("No user data returned", vec![], ());
+                };
+
+                let Some(api_key) = &updated_user.api_key else {
+                    return CommandOutput::failure("API key not generated", vec![], ());
+                };
+
+                let data = serde_json::json!({
+                    "user_id": updated_user.id,
+                    "username": updated_user.username,
+                    "api_key": api_key,
+                });
+
+                let message = format!(
+                    "API key generated for user: {}\n\nIMPORTANT: Save this key securely!\n\nTest with:\ncurl -H 'Authorization: Bearer {}' http://localhost:8080/auth/whoami",
+                    username, api_key
+                );
+                CommandOutput::success(message, data)
+            }
+            ApiKeyAction::Revoke { username } => {
+                // Find user by username
+                let user_response = service.get_user_by_username(&username).await;
+                if !user_response.success {
+                    return CommandOutput::failure(user_response.message, user_response.errors, ());
+                }
+
+                let Some(user) = user_response.data else {
+                    return CommandOutput::failure("User not found", vec![], ());
+                };
+
+                if user.api_key.is_none() {
+                    return CommandOutput::failure("User does not have an API key", vec![], ());
+                }
+
+                // Revoke API key using service method
+                let revoke_response = service.revoke_api_key(&user.id).await;
+                if !revoke_response.success {
+                    return CommandOutput::failure(
+                        revoke_response.message,
+                        revoke_response.errors,
+                        (),
+                    );
+                }
+
+                let message = format!("API key revoked for user: {}", username);
+                CommandOutput::success(message, ())
+            }
+            ApiKeyAction::ShowStatus { username } => {
+                // Find user by username
+                let user_response = service.get_user_by_username(&username).await;
+                if !user_response.success {
+                    return CommandOutput::failure(user_response.message, user_response.errors, ());
+                }
+
+                let Some(user) = user_response.data else {
+                    return CommandOutput::failure("User not found", vec![], ());
+                };
+
+                let has_key = user.api_key.is_some() && !user.api_key.as_ref().unwrap().is_empty();
+                let data = serde_json::json!({
+                    "user_id": user.id,
+                    "username": user.username,
+                    "has_api_key": has_key,
+                    "api_key_preview": if has_key {
+                        user.api_key.as_ref().map(|k| format!("{}...{}", &k[..8], &k[k.len()-8..]))
+                    } else {
+                        None
+                    }
+                });
+
+                let message = if has_key {
+                    format!("User {} has an active API key", username)
+                } else {
+                    format!("User {} does not have an API key", username)
+                };
+                CommandOutput::success(message, data)
+            }
+        },
     }
 }

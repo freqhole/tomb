@@ -2,7 +2,7 @@
 
 use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
 
-use crate::{auth, state::AppState, static_files};
+use crate::{auth, music, state::AppState, static_files};
 
 /// build the application router
 ///
@@ -12,6 +12,16 @@ pub fn build_router() -> Router<AppState> {
     let protected_routes = Router::new()
         .route("/auth/whoami", get(auth::handlers::whoami))
         .route("/auth/logout", post(auth::handlers::logout))
+        .route("/auth/api-key/status", get(auth::handlers::api_key_status))
+        .route(
+            "/auth/api-key/regenerate",
+            post(auth::handlers::regenerate_api_key),
+        )
+        // music routes
+        .route(
+            "/api/playlists/list",
+            post(music::playlists::list_playlists),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)

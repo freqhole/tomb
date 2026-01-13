@@ -4,6 +4,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod music;
 pub mod routes;
 pub mod server;
 pub mod state;

@@ -177,6 +177,16 @@ impl UserService {
         }
     }
 
+    /// Revoke (clear) a user's API key
+    ///
+    /// Sets the API key to an empty string, effectively revoking it
+    pub async fn revoke_api_key(&self, user_id: &str) -> GrimoireResponse<User> {
+        match self.repository.set_api_key(user_id, "").await {
+            Ok(user) => GrimoireResponse::success("API key revoked successfully", user),
+            Err(err) => GrimoireResponse::failure("Failed to revoke API key", vec![err.into()]),
+        }
+    }
+
     /// Generate a cryptographically secure random API key
     ///
     /// Returns a 64-character hexadecimal string (32 bytes of entropy)

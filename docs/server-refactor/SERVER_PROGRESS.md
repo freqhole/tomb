@@ -8,16 +8,21 @@ quick reference for tracking server refactor work.
 - `LEGACY_CODE_REUSE.md` - specific legacy code files to reuse (range requests, static files, etc)
 - `GRIMOIRE_TO_SERVER_ROUTES.md` - **complete checklist** of grimoire apis → server routes
 
-## current phase: phase 2 - authentication (in progress)
+## current phase: phase 2.5 - api key management (in progress)
 
 **phase 0 complete**: ✅
 **phase 1 complete**: ✅
-**phase 2 grimoire work complete**: ✅ viewer role, api_key field, server config
-**phase 2 server core complete**: ✅ middleware, handlers, routes
+**phase 2 complete**: ✅ authentication system fully working!
 
-**phase 2 remaining**: webauthn handlers (register/login flows) - **REQUIRED before Phase 3**
+- ✅ session layer working
+- ✅ webauthn handlers (register/login flows) tested and working
+- ✅ api key generation implemented
+- ✅ middleware and auth working
+- ✅ database queries refactored to use compile-time checked sqlx patterns
 
-**next action: implement webauthn handlers in `server/src/auth/freq_webauthn.rs`**
+**phase 2.5 in progress**: api key management cli commands + endpoints
+
+**next action: implement api key management commands and endpoints**
 
 ## implementation workflow (updated priority)
 
@@ -61,27 +66,54 @@ quick reference for tracking server refactor work.
 - [x] update config files (config.jsonc, config.example.jsonc, test-config.jsonc)
 - [x] database migration (consolidated into 009_user_system.sql)
 
-**server work** (in progress)
+**server work** ✅ COMPLETE
 
 - [x] auth module structure (stubs created)
 - [x] config validation in AppState
 - [x] session store initialization (grimoire::sessions::init_session_store)
+- [x] SessionManagerLayer added to router (fixed session extraction)
 - [x] session helpers (save_session, load_session, delete_session)
 - [x] auth middleware (require_auth with session + api key support)
 - [x] validate_origin middleware (checks Origin header against config)
 - [x] API key validation via grimoire (find_user_by_api_key)
+- [x] API key generation (generate_api_key in UserService)
 - [x] auth handlers implemented (whoami, invite redemption, logout)
 - [x] auth routes wired up (3 public + protected routes)
 - [x] AppState added as Extension for middleware access
-- [ ] **webauthn handlers (REQUIRED - do not defer)**
-  - [ ] `POST /auth/webauthn/register/start` - begin passkey registration
-  - [ ] `POST /auth/webauthn/register/finish` - complete passkey registration
-  - [ ] `POST /auth/webauthn/login/start` - begin passkey authentication
-  - [ ] `POST /auth/webauthn/login/finish` - complete passkey authentication
-  - [ ] implement in `server/src/auth/freq_webauthn.rs` (webauthn-rs isolated here)
-  - [ ] use `ValidatedOrigin` from middleware for multi-origin support
-  - [ ] feature-gated with runtime config check
-  - [ ] **note**: this is core authentication, not optional!
+- [x] **webauthn handlers COMPLETE**
+  - [x] `POST /auth/webauthn/register/start` - begin passkey registration
+  - [x] `POST /auth/webauthn/register/finish` - complete passkey registration
+  - [x] `POST /auth/webauthn/login/start` - begin passkey authentication
+  - [x] `POST /auth/webauthn/login/finish` - complete passkey authentication
+  - [x] implemented in `server/src/auth/freq_webauthn.rs` (webauthn-rs isolated here)
+  - [x] uses `ValidatedOrigin` from middleware for multi-origin support
+  - [x] feature-gated with runtime config check
+  - [x] **tested and working via browser!**
+
+**database improvements** ✅
+
+- [x] refactored `list_users` from string concatenation to compile-time checked query
+- [x] uses `sqlx::query_as!` with static SQL and NULL handling pattern
+- [x] added non-null assertions (!) for required columns
+
+### phase 2.5: api key management (in progress)
+
+**cli commands**
+
+- [ ] `freqhole user api-key generate <username>` - generate api key for existing user
+- [ ] `freqhole user api-key revoke <username>` - revoke/clear api key
+- [ ] `freqhole user list --show-api-keys` - list users with api key status
+
+**api endpoints**
+
+- [ ] `POST /auth/api-key/regenerate` - authenticated user regenerates their own key
+- [ ] `GET /auth/api-key/status` - check if current user has an api key
+
+**grimoire support** (already done!)
+
+- [x] `UserRepository::set_api_key()` - update user's api key
+- [x] `UserService::generate_api_key()` - generate secure random key
+- [x] setup command generates api key for root user
 
 ### phase 3: typescript codegen investigation
 
