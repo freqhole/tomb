@@ -34,4 +34,13 @@ pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<Strin
 
     gen.add_schema::<LoginResponse>("LoginResponse");
     registered.insert("LoginResponse".to_string());
+
+    gen.add_schema::<SongPosition>("SongPosition");
+    registered.insert("SongPosition".to_string());
+
+    gen.add_schema::<AddSongsToPlaylistRequest>("AddSongsToPlaylistRequest");
+    registered.insert("AddSongsToPlaylistRequest".to_string());
+
+    gen.add_schema::<PlaylistUpdateResult>("PlaylistUpdateResult");
+    registered.insert("PlaylistUpdateResult".to_string());
 }

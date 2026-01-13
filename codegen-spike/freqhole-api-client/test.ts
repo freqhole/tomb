@@ -7,6 +7,7 @@ import type {
   Song,
   Playlist,
   PlaylistQueryResult,
+  PlaylistUpdateResult,
 } from "./src/codegen/schema.js";
 
 const client = createClient("http://localhost:3000");
@@ -215,6 +216,52 @@ async function main() {
 
     if (result.data !== true) {
       throw new Error("Delete operation should return true");
+    }
+  });
+
+  await test("add_songs_to_playlist - Add songs with metadata", async () => {
+    const result = await client.call<PlaylistUpdateResult>(
+      "add_songs_to_playlist",
+      {
+        playlist_id: "my-playlist",
+        songs: [
+          {
+            song_id: "song-1",
+            position: 0,
+            added_by: "user-123",
+            added_at: 1704067200,
+          },
+          {
+            song_id: "song-2",
+            position: 1,
+            added_by: "user-123",
+            added_at: 1704067200,
+          },
+          {
+            song_id: "song-3",
+            position: 2,
+            added_by: "user-123",
+            added_at: 1704067200,
+          },
+        ],
+        replace_existing: false,
+      },
+    );
+
+    if (!result.success) {
+      throw new Error(`Validation failed: ${result.error.message}`);
+    }
+
+    if (result.data.playlist_id !== "my-playlist") {
+      throw new Error("Playlist ID mismatch");
+    }
+
+    if (result.data.songs_added !== 3) {
+      throw new Error(`Expected 3 songs added, got ${result.data.songs_added}`);
+    }
+
+    if (result.data.total_songs < 3) {
+      throw new Error("Total songs should be at least 3");
     }
   });
 

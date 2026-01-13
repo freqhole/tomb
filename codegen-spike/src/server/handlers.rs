@@ -83,6 +83,35 @@ inventory::submit! {
     }
 }
 
+pub async fn add_songs_to_playlist(
+    Json(req): Json<AddSongsToPlaylistRequest>,
+) -> Json<PlaylistUpdateResult> {
+    println!(
+        "Adding {} songs to playlist: {}",
+        req.songs.len(),
+        req.playlist_id
+    );
+
+    // In a real app, this would update the database
+    Json(PlaylistUpdateResult {
+        playlist_id: req.playlist_id,
+        total_songs: 10 + req.songs.len() as u32,
+        songs_added: req.songs.len() as u32,
+        songs_skipped: 0,
+        updated_at: 1234567890,
+    })
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "add_songs_to_playlist",
+        path: "/api/music/playlists/add-songs",
+        method: Method::POST,
+        request_type: "AddSongsToPlaylistRequest",
+        response_type: "PlaylistUpdateResult",
+    }
+}
+
 // =============================================================================
 // Music - Song Handlers
 // =============================================================================
