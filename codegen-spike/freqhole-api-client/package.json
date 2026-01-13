@@ -1,0 +1,14 @@
+{
+  "name": "freqhole-api-client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "zod": "^4.3.5"
+  }
+}
