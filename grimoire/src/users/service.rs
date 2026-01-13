@@ -7,6 +7,7 @@ use crate::response::GrimoireResponse;
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
 use crate::wordlist::generate_word_code;
+use rand::Rng;
 
 /// Service for user-related business operations
 pub struct UserService {
@@ -161,6 +162,28 @@ impl UserService {
             Ok(_) => GrimoireResponse::success("User deleted successfully", ()),
             Err(err) => GrimoireResponse::failure("Failed to delete user", vec![err.into()]),
         }
+    }
+
+    /// Generate and set a secure API key for a user
+    ///
+    /// Returns the user with the newly generated API key
+    pub async fn generate_api_key(&self, user_id: &str) -> GrimoireResponse<User> {
+        // Generate a secure random API key (32 bytes = 64 hex characters)
+        let api_key = Self::generate_secure_api_key();
+
+        match self.repository.set_api_key(user_id, &api_key).await {
+            Ok(user) => GrimoireResponse::success("API key generated successfully", user),
+            Err(err) => GrimoireResponse::failure("Failed to generate API key", vec![err.into()]),
+        }
+    }
+
+    /// Generate a cryptographically secure random API key
+    ///
+    /// Returns a 64-character hexadecimal string (32 bytes of entropy)
+    fn generate_secure_api_key() -> String {
+        let mut rng = rand::thread_rng();
+        let bytes: [u8; 32] = rng.gen();
+        hex::encode(bytes)
     }
 
     /// List users with pagination and filtering

@@ -992,6 +992,7 @@ dependencies = [
  "base64 0.21.7",
  "bigdecimal",
  "clap",
+ "hex",
  "humantime",
  "image",
  "json5",

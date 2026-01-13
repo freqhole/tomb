@@ -16,6 +16,7 @@ tower-sessions-sqlx-store = { workspace = true, features = ["sqlite"] }
 uuid = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
+hex = { workspace = true }
 lofty = { workspace = true }
 walkdir = { workspace = true }
 image = { workspace = true }

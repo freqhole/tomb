@@ -5,7 +5,6 @@
 
 use crate::database;
 use crate::users::models::*;
-use sqlx::Row;
 use time::OffsetDateTime;
 
 /// Database row struct for user_accountz table
@@ -201,6 +200,31 @@ impl UserRepository {
             .ok_or(AuthError::UserNotFound)
     }
 
+    /// Set or update a user's API key
+    pub async fn set_api_key(&self, user_id: &str, api_key: &str) -> AuthResult<User> {
+        let pool = database::connect().await?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+
+        sqlx::query!(
+            r#"
+            UPDATE user_accountz
+            SET api_key = ?1, updated_at = ?2
+            WHERE id = ?3
+            "#,
+            api_key,
+            now,
+            user_id
+        )
+        .execute(&pool)
+        .await?;
+
+        // Return the updated user
+        self.find_user_by_id(user_id)
+            .await?
+            .ok_or(AuthError::UserNotFound)
+    }
+
     /// Soft delete a user account
     pub async fn delete_user(&self, user_id: &str) -> AuthResult<()> {
         let pool = database::connect().await?;
@@ -226,58 +250,33 @@ impl UserRepository {
     pub async fn list_users(&self, params: &UserQueryParams) -> AuthResult<Vec<User>> {
         let pool = database::connect().await?;
 
-        let mut query = "SELECT id, username, role, created_at, updated_at, deleted_at FROM user_accountz WHERE 1=1".to_string();
-        let mut bind_params: Vec<String> = Vec::new();
+        // Use static query with SQL NULL handling for optional filters
+        let username_pattern = params.username.as_ref().map(|u| format!("%{}%", u));
+        let role_str = params.role.as_ref().map(|r| r.to_string());
+        let include_deleted = params.include_deleted.unwrap_or(false);
 
-        // Filter by username
-        if let Some(username) = &params.username {
-            query.push_str(&format!(" AND username LIKE ?{}", bind_params.len() + 1));
-            bind_params.push(format!("%{}%", username));
-        }
+        let rows = sqlx::query_as!(
+            UserRow,
+            r#"
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            FROM user_accountz
+            WHERE (?1 IS NULL OR username LIKE ?1)
+              AND (?2 IS NULL OR role = ?2)
+              AND (?3 = 1 OR deleted_at IS NULL)
+            ORDER BY created_at DESC
+            LIMIT COALESCE(?4, -1)
+            OFFSET COALESCE(?5, 0)
+            "#,
+            username_pattern,
+            role_str,
+            include_deleted,
+            params.limit,
+            params.offset
+        )
+        .fetch_all(&pool)
+        .await?;
 
-        // Filter by role
-        if let Some(role) = &params.role {
-            query.push_str(&format!(" AND role = ?{}", bind_params.len() + 1));
-            bind_params.push(role.to_string());
-        }
-
-        // Filter deleted users
-        if !params.include_deleted.unwrap_or(false) {
-            query.push_str(" AND deleted_at IS NULL");
-        }
-
-        // Order and pagination
-        query.push_str(" ORDER BY created_at DESC");
-
-        if let Some(limit) = params.limit {
-            query.push_str(&format!(" LIMIT ?{}", bind_params.len() + 1));
-            bind_params.push(limit.to_string());
-        }
-
-        if let Some(offset) = params.offset {
-            query.push_str(&format!(" OFFSET ?{}", bind_params.len() + 1));
-            bind_params.push(offset.to_string());
-        }
-
-        let mut sqlx_query = sqlx::query(&query);
-        for param in &bind_params {
-            sqlx_query = sqlx_query.bind(param);
-        }
-
-        let rows = sqlx_query.fetch_all(&pool).await?;
-
-        let users: Vec<User> = rows
-            .into_iter()
-            .map(|row| User {
-                id: row.get("id"),
-                username: row.get("username"),
-                role: UserRole::from(row.get::<String, _>("role")),
-                api_key: row.get("api_key"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                deleted_at: row.get("deleted_at"),
-            })
-            .collect();
+        let users: Vec<User> = rows.into_iter().map(|row| row.into()).collect();
 
         Ok(users)
     }

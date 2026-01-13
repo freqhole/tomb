@@ -162,14 +162,11 @@ export class ApiClient {
   }
 
   // WebAuthn Registration Flow
-  async registerStart(username, inviteCode) {
+  async registerStart(username, invite_code) {
     const config = API_SPEC.endpoints.registerStart;
     const url = `${this.baseUrl}${config.path}`;
-    const body = { username };
-    if (inviteCode) {
-      body.invite_code = inviteCode;
-    }
-
+    // flatten invite_code cuz we hackin'!
+    const body = { username, invite_code: invite_code.invite_code };
     return this.request(config.method, url, {
       body,
       endpoint: "registerStart",
@@ -232,7 +229,7 @@ export class ApiClient {
     const url = `${this.baseUrl}${config.path}`;
 
     return this.request(config.method, url, {
-      body: { invite_code: inviteCode, username },
+      body: { inviteCode, username },
       endpoint: "redeemInvite",
     });
   }

@@ -9,6 +9,7 @@ use tower_http::{
     cors::CorsLayer,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
+use tower_sessions::SessionManagerLayer;
 use tracing::Level;
 
 use crate::{routes, state::AppState, ApiError};
@@ -22,9 +23,13 @@ pub async fn start_server(state: AppState, host: &str, port: u16) -> Result<(), 
         .validate()
         .map_err(|e| ApiError::Internal(format!("invalid configuration: {}", e)))?;
 
+    // extract session store before building router (needs to be moved)
+    let session_store = state.session_store.clone();
+
     // build router with state
     let app = routes::build_router()
         .layer(Extension(state.clone())) // Add state as extension for middleware
+        .layer(SessionManagerLayer::new(session_store)) // Enable session extraction
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

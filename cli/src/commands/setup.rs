@@ -137,14 +137,30 @@ pub async fn run(args: SetupArgs) -> Result<()> {
     println!();
     println!("generating api key...");
 
-    // TODO: implement api key generation in grimoire
-    // for now, just note that it needs to be done
-    println!("   WARNING: api key generation not yet implemented");
-    println!("   you can add an api key to the database manually:");
-    println!(
-        "   UPDATE user_accountz SET api_key = 'your-random-key-here' WHERE id = '{}'",
-        user.id
-    );
+    let api_key_response = service.generate_api_key(&user.id).await;
+
+    if !api_key_response.is_success() {
+        println!("   WARNING: failed to generate api key");
+        if let Some(error) = api_key_response.errors.first() {
+            println!("   {}", error.detail);
+        }
+    } else if let Some(updated_user) = api_key_response.data {
+        if let Some(api_key) = &updated_user.api_key {
+            println!("   api key generated");
+            println!();
+            println!("API KEY:");
+            println!();
+            println!("   {}", api_key);
+            println!();
+            println!("   IMPORTANT: Save this API key securely!");
+            println!("   You can use it to authenticate API requests:");
+            println!(
+                "   curl -H 'Authorization: Bearer {}' http://localhost:8080/auth/whoami",
+                api_key
+            );
+            println!();
+        }
+    }
 
     // 7. generate one invite code
     println!();

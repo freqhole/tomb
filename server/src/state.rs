@@ -1,6 +1,7 @@
 //! application state
 
 use std::sync::Arc;
+use tower_sessions_sqlx_store::SqliteStore;
 
 /// application state shared across all handlers
 ///
@@ -11,7 +12,7 @@ pub struct AppState {
     pub config: Arc<grimoire::config::GrimoireConfig>,
 
     /// session store for authentication
-    pub session_store: Arc<dyn tower_sessions::SessionStore>,
+    pub session_store: SqliteStore,
     // TODO: add auth state when implementing phase 2
     // will be isolated to auth module, no webauthn-rs types here
 }
@@ -20,10 +21,7 @@ impl AppState {
     /// create new app state
     ///
     /// session_store should be initialized via grimoire::sessions::init_session_store()
-    pub fn new(
-        config: grimoire::config::GrimoireConfig,
-        session_store: std::sync::Arc<dyn tower_sessions::SessionStore>,
-    ) -> Self {
+    pub fn new(config: grimoire::config::GrimoireConfig, session_store: SqliteStore) -> Self {
         Self {
             config: Arc::new(config),
             session_store,
