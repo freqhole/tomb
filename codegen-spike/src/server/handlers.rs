@@ -1,6 +1,6 @@
 //! api handlers - normal axum handlers with simple inventory registration
 
-use crate::server::route_def::{Method, RouteInfo};
+use crate::server::route_def::{Domain, Method, RouteInfo};
 use crate::types::*;
 use axum::{extract::Path, Json};
 
@@ -30,6 +30,7 @@ inventory::submit! {
         name: "list_playlists",
         path: "/api/music/playlists/list",
         method: Method::POST,
+        domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "Vec<PlaylistQueryResult>",
     }
@@ -48,6 +49,7 @@ inventory::submit! {
         name: "get_playlist",
         path: "/api/music/playlists/{id}",
         method: Method::GET,
+        domain: Domain::Music,
         request_type: "String",
         response_type: "Playlist",
     }
@@ -62,6 +64,7 @@ inventory::submit! {
         name: "create_playlist",
         path: "/api/music/playlists",
         method: Method::POST,
+        domain: Domain::Music,
         request_type: "Playlist",
         response_type: "Playlist",
     }
@@ -78,6 +81,7 @@ inventory::submit! {
         name: "delete_playlist",
         path: "/api/music/playlists/{id}",
         method: Method::DELETE,
+        domain: Domain::Music,
         request_type: "String",
         response_type: "bool",
     }
@@ -107,6 +111,7 @@ inventory::submit! {
         name: "add_songs_to_playlist",
         path: "/api/music/playlists/add-songs",
         method: Method::POST,
+        domain: Domain::Music,
         request_type: "AddSongsToPlaylistRequest",
         response_type: "PlaylistUpdateResult",
     }
@@ -135,6 +140,7 @@ inventory::submit! {
         name: "list_songs",
         path: "/api/music/songs/list",
         method: Method::POST,
+        domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "Vec<Song>",
     }
@@ -153,6 +159,7 @@ inventory::submit! {
         name: "get_song",
         path: "/api/music/songs/{id}",
         method: Method::GET,
+        domain: Domain::Music,
         request_type: "String",
         response_type: "Song",
     }
@@ -182,6 +189,7 @@ inventory::submit! {
         name: "list_albums",
         path: "/api/music/albums/list",
         method: Method::POST,
+        domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "Vec<Album>",
     }
@@ -201,6 +209,7 @@ inventory::submit! {
         name: "get_album",
         path: "/api/music/albums/{id}",
         method: Method::GET,
+        domain: Domain::Music,
         request_type: "String",
         response_type: "Album",
     }
@@ -224,6 +233,7 @@ inventory::submit! {
         name: "create_user",
         path: "/api/users",
         method: Method::POST,
+        domain: Domain::App,
         request_type: "CreateUserRequest",
         response_type: "User",
     }
@@ -246,6 +256,7 @@ inventory::submit! {
         name: "login",
         path: "/api/users/login",
         method: Method::POST,
+        domain: Domain::App,
         request_type: "LoginRequest",
         response_type: "LoginResponse",
     }
@@ -272,6 +283,7 @@ inventory::submit! {
         name: "get_user",
         path: "/api/users/{id}",
         method: Method::GET,
+        domain: Domain::App,
         request_type: "String",
         response_type: "User",
     }

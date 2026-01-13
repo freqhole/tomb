@@ -1,14 +1,5 @@
 // integration tests and usage examples for the freqhole api client
 import { createClient } from "./src/client.js";
-import type {
-  User,
-  LoginResponse,
-  Album,
-  Song,
-  Playlist,
-  PlaylistQueryResult,
-  PlaylistUpdateResult,
-} from "./src/codegen/schema.js";
 
 const client = createClient("http://localhost:3000");
 
@@ -37,7 +28,7 @@ async function main() {
   // =============================================================================
 
   await test("create_user - create a new user account", async () => {
-    const result = await client.call<User>("create_user", {
+    const result = await client.app.create_user({
       username: "testuser",
       password: "securepass123",
       email: "test@example.com",
@@ -53,7 +44,7 @@ async function main() {
   });
 
   await test("login - authenticate and get api key", async () => {
-    const result = await client.call<LoginResponse>("login", {
+    const result = await client.app.login({
       username: "testuser",
       password: "securepass123",
     });
@@ -68,7 +59,7 @@ async function main() {
   });
 
   await test("get_user - fetch user by id", async () => {
-    const result = await client.call<User>("get_user", { id: "user-123" });
+    const result = await client.app.get_user({ id: "user-123" });
 
     if (!result.success) {
       throw new Error(`validation failed: ${result.error.message}`);
@@ -84,7 +75,7 @@ async function main() {
   // =============================================================================
 
   await test("list_albums - query albums with filters", async () => {
-    const result = await client.call<Album[]>("list_albums", {
+    const result = await client.music.list_albums({
       q: "rock",
       limit: 10,
       offset: 0,
@@ -100,7 +91,7 @@ async function main() {
   });
 
   await test("get_album - fetch specific album", async () => {
-    const result = await client.call<Album>("get_album", { id: "album-456" });
+    const result = await client.music.get_album({ id: "album-456" });
 
     if (!result.success) {
       throw new Error(`validation failed: ${result.error.message}`);
@@ -116,7 +107,7 @@ async function main() {
   // =============================================================================
 
   await test("list_songs - query songs with pagination", async () => {
-    const result = await client.call<Song[]>("list_songs", {
+    const result = await client.music.list_songs({
       q: "love",
       limit: 20,
       offset: 0,
@@ -132,7 +123,7 @@ async function main() {
   });
 
   await test("get_song - fetch specific song", async () => {
-    const result = await client.call<Song>("get_song", { id: "song-789" });
+    const result = await client.music.get_song({ id: "song-789" });
 
     if (!result.success) {
       throw new Error(`validation failed: ${result.error.message}`);
@@ -148,7 +139,7 @@ async function main() {
   // =============================================================================
 
   await test("create_playlist - create a new playlist", async () => {
-    const result = await client.call<Playlist>("create_playlist", {
+    const result = await client.music.create_playlist({
       id: "playlist-new",
       title: "My Awesome Playlist",
       description: "A collection of great songs",
@@ -164,7 +155,7 @@ async function main() {
   });
 
   await test("get_playlist - fetch specific playlist", async () => {
-    const result = await client.call<Playlist>("get_playlist", {
+    const result = await client.music.get_playlist({
       id: "playlist-123",
     });
 
@@ -178,7 +169,7 @@ async function main() {
   });
 
   await test("list_playlists - query playlists", async () => {
-    const result = await client.call<PlaylistQueryResult[]>("list_playlists", {
+    const result = await client.music.list_playlists({
       q: null,
       limit: 15,
       offset: 0,
@@ -202,7 +193,7 @@ async function main() {
   });
 
   await test("delete_playlist - delete a playlist", async () => {
-    const result = await client.call<boolean>("delete_playlist", {
+    const result = await client.music.delete_playlist({
       id: "playlist-to-delete",
     });
 
@@ -220,33 +211,30 @@ async function main() {
   });
 
   await test("add_songs_to_playlist - add songs with metadata", async () => {
-    const result = await client.call<PlaylistUpdateResult>(
-      "add_songs_to_playlist",
-      {
-        playlist_id: "my-playlist",
-        songs: [
-          {
-            song_id: "song-1",
-            position: 0,
-            added_by: "user-123",
-            added_at: 1704067200,
-          },
-          {
-            song_id: "song-2",
-            position: 1,
-            added_by: "user-123",
-            added_at: 1704067200,
-          },
-          {
-            song_id: "song-3",
-            position: 2,
-            added_by: "user-123",
-            added_at: 1704067200,
-          },
-        ],
-        replace_existing: false,
-      },
-    );
+    const result = await client.music.add_songs_to_playlist({
+      playlist_id: "my-playlist",
+      songs: [
+        {
+          song_id: "song-1",
+          position: 0,
+          added_by: "user",
+          added_at: 1704067200,
+        },
+        {
+          song_id: "song-2",
+          position: 1,
+          added_by: "user",
+          added_at: 1704067200,
+        },
+        {
+          song_id: "song-3",
+          position: 2,
+          added_by: "user",
+          added_at: 1704067200,
+        },
+      ],
+      replace_existing: false,
+    });
 
     if (!result.success) {
       throw new Error(`validation failed: ${result.error.message}`);

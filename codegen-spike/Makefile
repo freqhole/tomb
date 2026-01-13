@@ -1,26 +1,26 @@
-# Makefile for codegen spike
+# makefile for ts client codegen
 
 .PHONY: all clean server test
 
-# Default: generate client and typecheck
+# default: generate client and typecheck
 all: clean
 	cargo run codegen
 	cd freqhole-api-client && npm install --silent && npm run typecheck
 
-# Start the server
+# start the test server
 server:
 	cargo run server
 
-# Run integration tests
+# run integration tests
 test:
-	@echo "Starting server..."
+	@echo "starting server..."
 	@cargo run server > /dev/null 2>&1 & echo $$! > .server.pid
 	@sleep 1
-	@echo "Running tests..."
+	@echo "running integration tests..."
 	@cd freqhole-api-client && npm test || (kill `cat ../.server.pid` 2>/dev/null; rm -f ../.server.pid; exit 1)
 	@kill `cat .server.pid` 2>/dev/null; rm -f .server.pid
-	@echo "✓ Tests passed"
+	@echo "✓ tests passed"
 
-# Clean generated files
+# yeet any old generated files
 clean:
 	rm -rf freqhole-api-client/src/codegen

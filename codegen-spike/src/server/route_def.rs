@@ -21,11 +21,27 @@ impl Method {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Domain {
+    App,
+    Music,
+}
+
+impl Domain {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Domain::App => "app",
+            Domain::Music => "music",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RouteInfo {
     pub name: &'static str,
     pub path: &'static str,
     pub method: Method,
+    pub domain: Domain,
     pub request_type: &'static str,
     pub response_type: &'static str,
 }

@@ -56,23 +56,41 @@ fn extract_type(rust_type: &str) -> Option<String> {
 }
 
 fn generate_routes_file(routes: &[RouteInfo]) -> String {
+    use std::collections::HashMap;
+
     let mut output = String::from(
         "// generated route config\nimport * as s from './schema';\nimport { z } from 'zod';\n\n",
     );
+
+    // group routes by domain
+    let mut domains: HashMap<&str, Vec<&RouteInfo>> = HashMap::new();
+    for route in routes {
+        domains
+            .entry(route.domain.as_str())
+            .or_insert_with(Vec::new)
+            .push(route);
+    }
+
     output.push_str("export const routes = {\n");
 
-    for route in routes {
-        let req_schema = schema_ref(route.request_type);
-        let resp_schema = schema_ref(route.response_type);
+    for (domain, domain_routes) in domains.iter() {
+        output.push_str(&format!("  {}: {{\n", domain));
 
-        output.push_str(&format!(
-            "  {}: {{ method: '{}', path: '{}', req: {}, resp: {} }},\n",
-            route.name,
-            route.method.as_str(),
-            route.path,
-            req_schema,
-            resp_schema
-        ));
+        for route in domain_routes {
+            let req_schema = schema_ref(route.request_type);
+            let resp_schema = schema_ref(route.response_type);
+
+            output.push_str(&format!(
+                "    {}: {{ method: '{}', path: '{}', req: {}, resp: {} }},\n",
+                route.name,
+                route.method.as_str(),
+                route.path,
+                req_schema,
+                resp_schema
+            ));
+        }
+
+        output.push_str("  },\n");
     }
 
     output.push_str("};\n");
