@@ -1,6 +1,3 @@
-//! Domain types for the spike
-//! These would normally live in separate modules
-
 pub mod music;
 pub mod users;
 
@@ -10,12 +7,7 @@ pub use users::*;
 use std::collections::HashSet;
 use zod_gen::ZodGenerator;
 
-/// Register all types with zod_gen for TypeScript schema generation
-///
-/// This is a manual registry that must be kept in sync with types used in routes.
-/// The codegen generator will validate that all route types are registered here.
 pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
-    // Music types
     gen.add_schema::<QueryParams>("QueryParams");
     registered.insert("QueryParams".to_string());
 
@@ -31,7 +23,6 @@ pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<Strin
     gen.add_schema::<Album>("Album");
     registered.insert("Album".to_string());
 
-    // User types
     gen.add_schema::<User>("User");
     registered.insert("User".to_string());
 
