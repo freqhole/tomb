@@ -107,7 +107,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             }
         }
     } else if let Some(bytes) = req.thumbnail_from_bytes {
-        let webp_data = match convert_to_webp(&bytes) {
+        let webp_data = match convert_to_webp(bytes.as_ref()) {
             Ok(data) => data,
             Err(err) => {
                 return GrimoireResponse::failure(
@@ -644,7 +644,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
     GrimoireResponse::success(
         format!("Updated {} song(s)", req.song_ids.len()),
         UpdateSongsResult {
-            songs_updated: req.song_ids.len(),
+            songs_updated: req.song_ids.len() as u32,
             songs_failed: vec![],
             artist,
             album,

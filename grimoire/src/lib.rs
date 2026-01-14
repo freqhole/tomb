@@ -50,3 +50,50 @@ pub async fn init() -> GrimoireResult<()> {
 
     Ok(())
 }
+
+// custom zod schema implementations for types that need special handling
+use std::ops::{Deref, DerefMut};
+use zod_gen::ZodSchema;
+
+/// newtype wrapper for binary data - allows implementing ZodSchema
+/// use this instead of Vec<u8> in API types
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Bytes(pub Vec<u8>);
+
+impl ZodSchema for Bytes {
+    fn zod_schema() -> String {
+        "z.never()".to_string()
+    }
+}
+
+impl From<Vec<u8>> for Bytes {
+    fn from(v: Vec<u8>) -> Self {
+        Bytes(v)
+    }
+}
+
+impl From<Bytes> for Vec<u8> {
+    fn from(b: Bytes) -> Self {
+        b.0
+    }
+}
+
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Deref for Bytes {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Bytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}

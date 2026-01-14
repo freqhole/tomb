@@ -98,9 +98,17 @@ pub mod type_registry {
     use crate::users::{RegisterStartRequest, StartLoginRequest};
 
     // music types
-    use crate::music::crud::{PlaylistQueryResult, QueryParams};
+    use crate::media_blobz::MediaBlob;
+    use crate::music::crud::{
+        DeleteSongRequest, DeleteSongResponse, PlaylistQueryResult, QueryParams,
+        RecentSongsRequest, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
+        UpdateSongsResult,
+    };
+    use crate::music::entities::albums::Album;
     use crate::music::entities::artists::{Artist, CreateArtistRequest};
+    use crate::music::entities::genres::Genre;
     use crate::music::entities::playlists::{CreatePlaylistRequest, Playlist};
+    use crate::music::entities::songs::Song;
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
 
     // jobs types
@@ -158,5 +166,42 @@ pub mod type_registry {
 
         gen.add_schema::<Job>("Job");
         registered.insert("Job".to_string());
+
+        // song types
+        gen.add_schema::<Song>("Song");
+        registered.insert("Song".to_string());
+
+        gen.add_schema::<Album>("Album");
+        registered.insert("Album".to_string());
+
+        gen.add_schema::<Genre>("Genre");
+        registered.insert("Genre".to_string());
+
+        gen.add_schema::<MediaBlob>("MediaBlob");
+        registered.insert("MediaBlob".to_string());
+
+        gen.add_schema::<SongQueryResult>("SongQueryResult");
+        registered.insert("SongQueryResult".to_string());
+
+        gen.add_schema::<UpdateSongsRequest>("UpdateSongsRequest");
+        registered.insert("UpdateSongsRequest".to_string());
+
+        gen.add_schema::<UpdateSongsResult>("UpdateSongsResult");
+        registered.insert("UpdateSongsResult".to_string());
+
+        gen.add_schema::<SongUpdateError>("SongUpdateError");
+        registered.insert("SongUpdateError".to_string());
+
+        gen.add_schema::<RecentSongsRequest>("RecentSongsRequest");
+        registered.insert("RecentSongsRequest".to_string());
+
+        gen.add_schema::<DeleteSongRequest>("DeleteSongRequest");
+        registered.insert("DeleteSongRequest".to_string());
+
+        gen.add_schema::<DeleteSongResponse>("DeleteSongResponse");
+        registered.insert("DeleteSongResponse".to_string());
+
+        gen.add_schema::<SongsQueryResult>("SongsQueryResult");
+        registered.insert("SongsQueryResult".to_string());
     }
 }

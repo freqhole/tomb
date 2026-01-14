@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use zod_gen_derive::ZodSchema;
 
 /// song model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Song {
     pub id: String,
     pub media_blob_id: String,
@@ -30,7 +31,7 @@ pub struct Song {
 }
 
 /// request for creating a new song
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateSongRequest {
     pub media_blob_id: String,
     pub title: String,

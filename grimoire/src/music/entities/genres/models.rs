@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use zod_gen_derive::ZodSchema;
 
 /// primary genre model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Genre {
     pub id: String,
     pub name: String,
@@ -12,7 +13,7 @@ pub struct Genre {
 }
 
 /// sub-genre model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
 pub struct SubGenre {
     pub id: String,
     pub name: String,
@@ -21,13 +22,13 @@ pub struct SubGenre {
 }
 
 /// request for creating a new genre
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateGenreRequest {
     pub name: String,
 }
 
 /// request for creating a new sub-genre
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateSubGenreRequest {
     pub name: String,
     pub parent_genre_id: Option<String>,

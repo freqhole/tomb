@@ -318,7 +318,7 @@ pub async fn create_image_blob_from_webp_data(
         blob_type: Some(blob_type.to_string()),
         metadata,
         created_by,
-        data: Some(webp_data), // Store as binary data
+        data: Some(webp_data.into()), // Store as binary data
     };
 
     match media_blobz::create_media_blob(request).await {

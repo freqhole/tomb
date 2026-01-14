@@ -49,6 +49,23 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["get_fetch_job"].path,
             get(music::fetch::get_fetch_job),
         )
+        // songs routes
+        .route(
+            routes["music"]["query_songs"].path,
+            post(music::songs::query_songs_handler),
+        )
+        .route(
+            routes["music"]["recent_songs"].path,
+            post(music::songs::recent_songs_handler),
+        )
+        .route(
+            routes["music"]["update_songs"].path,
+            post(music::songs::update_songs_handler),
+        )
+        .route(
+            routes["music"]["delete_song"].path,
+            axum::routing::delete(music::songs::delete_song_handler),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)

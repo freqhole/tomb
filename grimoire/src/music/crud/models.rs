@@ -1,7 +1,9 @@
 //! models for compound music operations
 //! request/response types for high-level workflows
 
+use crate::Bytes;
 use serde::{Deserialize, Serialize};
+use zod_gen::ZodSchema;
 use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::MediaBlob;
@@ -234,7 +236,7 @@ impl<T> QueryResult<T> {
 }
 
 /// song with optional related data for query results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SongQueryResult {
     pub song: Song,
     pub artist: Option<Artist>,
@@ -309,7 +311,7 @@ pub struct PlaylistSongResult {
 // ============================================================================
 
 /// request for updating songs
-#[derive(Debug, Clone, Serialize, Deserialize, clap::Parser)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, clap::Parser)]
 pub struct UpdateSongsRequest {
     /// Song IDs to update
     #[arg(long, value_delimiter = ',')]
@@ -390,7 +392,7 @@ pub struct UpdateSongsRequest {
     pub thumbnail_from_file: Option<String>,
 
     #[arg(skip)]
-    pub thumbnail_from_bytes: Option<Vec<u8>>,
+    pub thumbnail_from_bytes: Option<Bytes>,
 
     // tag operations (album-level)
     /// Tags to add (comma-separated)
@@ -505,13 +507,13 @@ impl UpdateSongsRequest {
 }
 
 /// artist update request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateArtistRequest {
     pub name: String,
 }
 
 /// album update request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateAlbumRequest {
     pub title: String,
     pub album_type: Option<String>,
@@ -522,21 +524,21 @@ pub struct UpdateAlbumRequest {
 }
 
 /// favorite update request (polymorphic: song, artist, album)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetFavoriteRequest {
     pub target_type: FavoriteTargetType, // song, artist, or album
     pub is_favorite: bool,
 }
 
 /// rating update request (polymorphic: song, artist, album)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetRatingRequest {
     pub target_type: RatingTargetType, // song, artist, or album
     pub rating: i32,                   // 1-5
 }
 
 /// favorite target types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FavoriteTargetType {
     Song,
@@ -555,7 +557,7 @@ impl FavoriteTargetType {
 }
 
 /// rating target types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum RatingTargetType {
     Song,
@@ -573,15 +575,69 @@ impl RatingTargetType {
     }
 }
 
+/// error information for a failed song update
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SongUpdateError {
+    pub song_id: String,
+    pub error_message: String,
+}
+
 /// result of update songs operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateSongsResult {
-    pub songs_updated: usize,
-    pub songs_failed: Vec<(String, String)>, // (song_id, error_message)
+    pub songs_updated: u32,
+    pub songs_failed: Vec<SongUpdateError>,
     pub artist: Option<Artist>,
     pub album: Option<Album>,
     pub genre: Option<Genre>,
     pub sub_genre: Option<SubGenre>,
     pub thumbnail_blob_id: Option<String>,
     pub tags_modified: bool,
+}
+
+// ============================================================================
+// API Request/Response Types
+// ============================================================================
+
+/// request for getting recent songs
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RecentSongsRequest {
+    pub limit: Option<u32>,
+}
+
+/// request for deleting a song
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteSongRequest {
+    pub user_id: String,
+}
+
+/// response for song deletion
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteSongResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// concrete query result type for songs
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SongsQueryResult {
+    pub items: Vec<SongQueryResult>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl From<QueryResult<SongQueryResult>> for SongsQueryResult {
+    fn from(qr: QueryResult<SongQueryResult>) -> Self {
+        Self {
+            items: qr.items,
+            total_count: qr.total_count,
+            has_more: qr.has_more,
+            offset: qr.offset,
+            limit: qr.limit,
+            query_time_ms: qr.query_time_ms,
+        }
+    }
 }

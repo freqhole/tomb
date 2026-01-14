@@ -14,7 +14,7 @@ pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, ArtistImportRequest,
     ArtistQueryResult, BulkImportRequest, BulkImportResult, CreateSongWithMetadataRequest,
     GenreQueryResult, ImportSongRequest, ImportSongResult, PlaylistQueryResult, PlaylistSongResult,
-    QueryParams, QueryResult, SongImportError, SongQueryResult,
+    QueryParams, QueryResult, SongImportError, SongQueryResult, SongUpdateError, SongsQueryResult,
 };
 
 // re-export update types from models
@@ -22,6 +22,9 @@ pub use models::{
     FavoriteTargetType, RatingTargetType, SetFavoriteRequest, SetRatingRequest, UpdateAlbumRequest,
     UpdateArtistRequest, UpdateSongsRequest, UpdateSongsResult,
 };
+
+// re-export api request/response types
+pub use models::{DeleteSongRequest, DeleteSongResponse, RecentSongsRequest};
 
 // re-export update functions
 pub use update::update_songs;

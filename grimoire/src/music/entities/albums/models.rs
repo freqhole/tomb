@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use zod_gen_derive::ZodSchema;
 
 /// album model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Album {
     pub id: String,
     pub title: String,
@@ -24,7 +25,7 @@ pub struct Album {
 }
 
 /// request for creating a new album
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateAlbumRequest {
     pub title: String,
     pub album_type: Option<String>,
