@@ -11,6 +11,7 @@ use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::music::crud::QueryParams;
 
+mod fetch;
 mod maintenance;
 mod musicbrainz;
 mod playlists;
@@ -19,6 +20,7 @@ mod songs;
 mod user_favorites;
 mod user_ratings;
 
+pub use fetch::FetchAction;
 pub use musicbrainz::MusicBrainzAction;
 pub use user_favorites::FavoritesAction;
 pub use user_ratings::RatingsAction;
@@ -351,6 +353,13 @@ pub enum MusicAction {
         #[command(subcommand)]
         action: RatingsAction,
     },
+
+    // Fetch commands
+    /// Fetch media from external sources
+    Fetch {
+        #[command(subcommand)]
+        action: FetchAction,
+    },
 }
 
 /// Handle music commands
@@ -490,5 +499,8 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
 
         // User ratings commands
         MusicAction::Ratings { action } => user_ratings::handle_command(action).await,
+
+        // Fetch commands
+        MusicAction::Fetch { action } => fetch::handle_command(action).await,
     }
 }

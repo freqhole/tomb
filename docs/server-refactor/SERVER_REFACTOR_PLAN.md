@@ -2,13 +2,11 @@
 
 ## current status & next steps
 
-**phase 4 complete** ✓ - pattern validated with 3 routes, codegen working, architecture decisions made
+**phase 5 complete** ✓ - fetch migration finished (grimoire + server + cli)
 
 **next priorities**:
 
-1. ~~static file serving~~ ✓ - complete with range requests
-2. **fetch migration (in progress)** - grimoire foundation complete, needs server routes + cli
-3. rapid route implementation - remaining ~35 music routes
+1. rapid route implementation - remaining ~35 music routes
 
 **reference docs**:
 
@@ -411,33 +409,42 @@ server/src/
 
 **note**: can be done in parallel with phase 4 or deferred until needed
 
-### 5.1: move download/fetch_music to grimoire (in progress)
+### 5.1: move download/fetch_music to grimoire ✓
 
-**completed**:
+**complete** - fully functional fetch system with end-to-end workflow
 
-- [x] created `grimoire/src/music/fetch/` module
-- [x] implemented precheck (metadata extraction without downloading)
-- [x] implemented download with best-effort playlist support
-- [x] integrated with grimoire jobs system (FetchMedia job type)
-- [x] added config fields to `ServerConfig.fetch_music`
-- [x] added migration for `content_id` column (deduplication)
-- [x] generic "external command" terminology (no yt-dlp mentions)
-- [x] models: FetchMediaParams, FetchMediaResult, ContentMetadata
-- [x] service: extract_metadata, download_media, fetch_media
+**grimoire**:
 
-**remaining**:
+- [x] `grimoire/src/music/fetch/` module with models and service
+- [x] precheck (metadata extraction), download, deduplication
+- [x] integrated with jobs system (FetchMedia job type)
+- [x] job spawning: creates ProcessFile jobs for each downloaded file
+- [x] metadata storage: fetch provenance stored in media_blob.metadata JSON
+- [x] config: `ServerConfig.fetch_music` with enable flag, output_dir, commands
+- [x] migration: `011_add_content_id_to_media_blobz.sql`
+- [x] supports playlists/collections with best-effort downloading
+- [x] organizes downloads by job_id subdirectory
 
-- [ ] implement job spawning: create ProcessFile jobs for downloaded files
-- [ ] store fetch metadata in media_blob.metadata json (provenance tracking)
-- [ ] add CLI plumbing commands: `cli/src/plumbing/fetch.rs`
-  - `fetch url <url>` - queue fetch job
-  - `fetch status <job_id>` - check job status
-  - `fetch list` - list fetch jobs
-- [ ] add server routes: `server/src/music/fetch.rs`
-  - `POST /api/music/fetch` - create fetch job(s)
-  - `GET /api/music/fetch/{id}` - get job status
-- [ ] register FetchMediaParams and FetchMediaResult in type_registry
-- [ ] run codegen to generate typescript client
+**server**:
+
+- [x] `server/src/music/fetch.rs` with route handlers
+- [x] `POST /api/music/fetch` - create fetch job
+- [x] `GET /api/music/fetch/{id}` - get job status and result
+- [x] types registered in type_registry for codegen
+
+**cli**:
+
+- [x] `cli/src/plumbing/music/fetch.rs` with commands
+- [x] `freqhole music fetch url <url>` - queue fetch job
+- [x] `freqhole music fetch status <job_id>` - check job status
+- [x] `freqhole music fetch list` - list fetch jobs
+
+**architecture decisions**:
+
+- no filesystem paths in API responses (only job IDs, blob IDs, song IDs)
+- custom ZodSchema implementation excludes internal fields from typescript
+- config uses absolute paths, validated on server startup
+- external command approach (not tied to specific tool)
 
 ### 5.2: audit existing grimoire api (avoid duplication!)
 

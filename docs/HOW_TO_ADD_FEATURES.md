@@ -324,3 +324,183 @@ fn my_function() {
     let config = crate::config::get_config();
 }
 ```
+
+## job system patterns
+
+the grimoire job system provides unified background task processing with retry logic and session support.
+
+### job types
+
+jobs are defined in `grimoire/src/jobs/models.rs`:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ZodSchema)]
+pub enum JobType {
+    ScanDirectory,
+    ProcessFile,
+    ExtractMetadata,
+    GenerateThumbnail,
+    GenerateWaveform,
+    FetchMedia,  // your custom job type
+}
+```
+
+### creating a job
+
+jobs use `CreateJobRequest` with JSON parameters:
+
+```rust
+use grimoire::jobs::{create_job, CreateJobRequest, JobType};
+use serde_json::json;
+
+let job_request = CreateJobRequest {
+    job_type: JobType::FetchMedia,
+    session_id: None,  // or Some(session_id) for batch operations
+    parameters: json!({
+        "url": "https://example.com/media",
+        "user_id": user.id,
+    }),
+    max_retries: Some(3),
+    scheduled_at: None,  // None = immediate, Some(timestamp) = scheduled
+    created_by: Some("cli".to_string()),
+};
+
+let response = create_job(job_request).await;
+```
+
+### job parameters
+
+define strongly-typed parameters:
+
+```rust
+// grimoire/src/jobs/models.rs or your domain module
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchMediaParams {
+    pub url: String,
+    pub user_id: Option<String>,
+}
+```
+
+### processing jobs
+
+implement job processor in `grimoire/src/jobs/service.rs`:
+
+```rust
+async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobError> {
+    info!("processing fetch media job: {}", job.id);
+
+    // parse parameters
+    let params: FetchMediaParams = serde_json::from_str(&job.parameters)
+        .map_err(|e| JobError::ProcessingFailed {
+            reason: format!("invalid parameters: {}", e),
+        })?;
+
+    // get config
+    let config = get_config();
+
+    // do work
+    let result = fetch_media(params, &job.id, config).await;
+
+    if !result.success {
+        return Err(JobError::ProcessingFailed {
+            reason: result.message,
+        });
+    }
+
+    // return result as JSON
+    Ok(Some(serde_json::to_value(result.data)?))
+}
+```
+
+### spawning child jobs
+
+jobs can spawn other jobs (e.g., after downloading multiple files, create ProcessFile jobs):
+
+```rust
+// inside job processor
+for downloaded_file in &downloaded_files {
+    let process_params = ProcessFileParams {
+        file_path: downloaded_file.path.clone(),
+        extract_metadata: true,
+        generate_thumbnail: true,
+        generate_waveform: true,
+    };
+
+    let job_request = CreateJobRequest {
+        job_type: JobType::ProcessFile,
+        session_id: job.session_id.clone(),  // inherit session
+        parameters: serde_json::to_value(&process_params)?,
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: job.created_by.clone(),
+    };
+
+    let response = create_job(job_request).await;
+    if !response.success {
+        warn!("failed to create child job: {}", response.message);
+    }
+}
+```
+
+### job results
+
+return structured results that can be queried later:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FetchMediaResult {
+    pub items_requested: u32,
+    pub items_downloaded: u32,
+    pub items_failed: u32,
+    pub media_blob_ids: Vec<String>,
+    pub song_ids: Vec<String>,
+    pub errors: Vec<String>,
+}
+```
+
+results are stored in the `result` column as JSON and can be accessed via API.
+
+### logging in jobs
+
+use tracing macros (configured via config.jsonc `logging.level`):
+
+```rust
+use tracing::{debug, error, info, warn};
+
+info!("starting job: {}", job.id);
+debug!("processing item: {}", item.id);
+warn!("non-fatal error: {}", err);
+error!("fatal error: {}", err);
+```
+
+### job lifecycle
+
+1. **pending** - job created, waiting to be picked up
+2. **running** - job processor has started working on it
+3. **completed** - job finished successfully (result stored)
+4. **failed** - job failed after all retries (error_message stored)
+5. **cancelled** - job was manually cancelled
+
+### retry behavior
+
+jobs automatically retry on failure with exponential backoff:
+
+- `retry_count` increments on each failure
+- `scheduled_at` is updated with backoff delay
+- after `max_retries`, job moves to **failed** status
+- use `max_retries: 0` to disable retries
+
+### organizing downloads by job
+
+when downloading multiple files, organize them in job-specific subdirectories:
+
+```rust
+let base_output_dir = config.fetch_music.output_dir;
+let job_output_dir = format!("{}/{}", base_output_dir, job.id);
+
+tokio::fs::create_dir_all(&job_output_dir).await?;
+
+// pass job_output_dir to external command via --paths or similar
+```
+
+this keeps all files from one job together and prevents filename collisions.

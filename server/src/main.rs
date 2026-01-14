@@ -16,26 +16,25 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    // initialize tracing
+
+    // load config first (before tracing)
+    grimoire::config::init_config(Some(args.config.clone().into()))
+        .map_err(|e| anyhow::anyhow!("failed to initialize config: {}", e))?;
+
+    let config = grimoire::config::get_config();
+
+    // initialize tracing with config log level
+    let log_level = config.logging.level.as_str();
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "server=debug,tower_http=debug,grimoire=debug".into()),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
     tracing::info!("starting freqhole server...");
-
-    // load config
-    tracing::info!("loading config from: {}", args.config);
-
-    // initialize grimoire config globally
-    grimoire::config::init_config(Some(args.config.clone().into()))
-        .map_err(|e| anyhow::anyhow!("failed to initialize config: {}", e))?;
-
-    let config = grimoire::config::GrimoireConfig::load(&args.config)
-        .map_err(|e| anyhow::anyhow!("failed to load config: {}", e))?;
+    tracing::info!("log level: {}", log_level);
 
     // initialize session store from grimoire (grimoire handles migrations automatically)
     tracing::info!("initializing session store...");

@@ -263,7 +263,7 @@ pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
 }
 
 /// Get global config reference (available after init_config)
-pub(crate) fn get_config() -> &'static GrimoireConfig {
+pub fn get_config() -> &'static GrimoireConfig {
     CONFIG
         .get()
         .expect("Config not initialized - call init_config first")

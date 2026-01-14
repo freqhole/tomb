@@ -9,6 +9,7 @@ mod plumbing;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
 #[command(name = "freqhole")]
@@ -109,6 +110,17 @@ async fn main() -> Result<()> {
         grimoire::init_config(cli.config.clone())
             .map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
     }
+
+    // Initialize tracing
+    let config = grimoire::config::get_config();
+    let log_level = config.logging.level.as_str();
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     match cli.command {
         Commands::Setup(args) => {

@@ -238,7 +238,7 @@ pub async fn register_start(
 
     // Get rp_id from first origin config (they should all have same rp_id)
     let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
-    let rp_name = "Freqhole"; // TODO: get from config
+    let rp_name = "freqhole"; // TODO: get from config
 
     // Create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());

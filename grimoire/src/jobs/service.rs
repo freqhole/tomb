@@ -928,7 +928,7 @@ async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobError> {
     let config = get_config();
 
     // execute fetch workflow
-    let response = fetch_media(params.clone(), config).await;
+    let response = fetch_media(params.clone(), &job.id, config).await;
 
     if !response.success {
         return Err(JobError::ProcessingFailed {

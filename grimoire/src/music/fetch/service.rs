@@ -117,6 +117,7 @@ pub async fn check_existing_content(metadata_list: &[ContentMetadata]) -> Vec<(S
 /// returns list of successfully downloaded files
 pub async fn download_media(
     url: &str,
+    job_id: &str,
     config: &GrimoireConfig,
 ) -> Result<Vec<DownloadedFile>, String> {
     let fetch_config = config
@@ -134,13 +135,16 @@ pub async fn download_media(
         .as_ref()
         .ok_or("fetch_command not configured")?;
 
-    let output_dir = fetch_config
+    let base_output_dir = fetch_config
         .output_dir
         .as_ref()
         .ok_or("output_dir not configured")?;
 
+    // create job-specific subdirectory
+    let output_dir = format!("{}/{}", base_output_dir, job_id);
+
     // ensure output directory exists
-    tokio::fs::create_dir_all(output_dir)
+    tokio::fs::create_dir_all(&output_dir)
         .await
         .map_err(|e| format!("failed to create output directory: {}", e))?;
 
@@ -157,9 +161,10 @@ pub async fn download_media(
     // execute fetch command
     let output = Command::new(cmd)
         .args(args)
+        .arg("--paths")
+        .arg(&output_dir)
         .arg("--") // separator before URL
         .arg(url)
-        .current_dir(output_dir)
         .output()
         .await
         .map_err(|e| format!("failed to execute fetch command: {}", e))?;
@@ -233,6 +238,7 @@ fn extract_content_id_from_path(file_path: &str) -> Option<String> {
 /// complete fetch workflow: precheck, download, and create import jobs
 pub async fn fetch_media(
     params: FetchMediaParams,
+    job_id: &str,
     config: &GrimoireConfig,
 ) -> GrimoireResponse<FetchMediaResult> {
     // step 1: extract metadata (precheck)
@@ -251,7 +257,7 @@ pub async fn fetch_media(
     }
 
     // step 3: download media
-    let downloaded_files = match download_media(&params.url, config).await {
+    let downloaded_files = match download_media(&params.url, job_id, config).await {
         Ok(files) => files,
         Err(e) => return GrimoireResponse::failure(&format!("download failed: {}", e), vec![]),
     };

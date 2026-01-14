@@ -180,7 +180,7 @@
   // Logging configuration
   "logging": {
     // Log level: trace, debug, info, warn, error
-    "level": "debug"
+    "level": "info"
   },
 
   // ========================================
@@ -234,7 +234,7 @@
     // Media fetching from external sources (e.g. youtube, soundcloud)
     "fetch_music": {
       // Enable media fetching functionality
-      "enabled": false,
+      "enabled": true,
       // Absolute path where fetched files are temporarily stored before processing
       "output_dir": "/Users/edward/src/github/freqhole/tomb/data/fetch",
       // Command to extract metadata without downloading (for precheck/deduplication)
@@ -245,7 +245,7 @@
       // Supports playlists and collections with best-effort downloading
       // --ignore-errors: continue downloading other items if one fails
       // Job only fails if nothing could be downloaded
-      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output '%(uploader)s - %(title)s [%(id)s].%(ext)s' --print after_move:filepath"
+      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
     }
   }
 }

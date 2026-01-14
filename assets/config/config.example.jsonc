@@ -316,12 +316,23 @@
       // Output pattern explained:
       //   %(uploader)s: channel/artist name
       //   %(title)s: video/track title
-      //   %(id)s: unique content ID (prevents duplicates)
+      //   %(id)s: unique content ID (prevents duplicates!)
       //   %(ext)s: file extension
       //
-      // The command will be invoked as: <command> <url>
+      // CRITICAL: Do NOT wrap the --output template in quotes!
+      //   BAD:  --output '%(uploader)s - %(title)s.%(ext)s'
+      //   GOOD: --output %(uploader)s-%(title)s-[%(id)s].%(ext)s
+      //
+      // Why: Quotes prevent yt-dlp from expanding template variables, causing
+      // all files to have literal filenames like "'%(title)s.mp3" which results
+      // in all downloads overwriting the same file!
+      //
+      // Also: Avoid spaces and special characters in filenames - use hyphens
+      // Single quotes in filenames can cause issues with shell commands
+      //
+      // The command will be invoked as: <command> --paths <job_id_dir> <url>
       // It should print one downloaded file path per line to stdout
-      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output '%(uploader)s - %(title)s [%(id)s].%(ext)s' --print after_move:filepath"
+      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
     }
   }
 }
