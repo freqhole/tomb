@@ -2,12 +2,14 @@
 //!
 //! sqlite-focused music library with minimal dependencies.
 //! provides centralized domain logic for music metadata and blob storage.
+//! grimoire library
+//! core business logic and database operations
 
 pub mod analytics;
 pub mod api_registry;
 pub mod blob_data;
 pub mod config;
-mod database;
+pub mod database;
 pub mod dbinfo;
 pub mod error;
 pub mod health;
@@ -17,6 +19,7 @@ pub mod media_blobz;
 pub mod music;
 pub mod response;
 pub mod sessions;
+pub mod upload;
 pub mod users;
 pub mod wordlist;
 

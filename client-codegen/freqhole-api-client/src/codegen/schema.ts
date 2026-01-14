@@ -192,6 +192,19 @@ export const ArtistsQueryResultSchema = z.object({
 });
 export type ArtistsQueryResult = z.infer<typeof ArtistsQueryResultSchema>;
 
+export const AssociationHintSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  is_primary: z.boolean().nullable()
+});
+export type AssociationHint = z.infer<typeof AssociationHintSchema>;
+
+export const AssociationInfoSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type AssociationInfo = z.infer<typeof AssociationInfoSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullable()
@@ -199,7 +212,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('ProcessFile'), z.literal('ExtractMetadata'), z.literal('GenerateThumbnail'), z.literal('GenerateWaveform'), z.literal('FetchMedia')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('ProcessFile'), z.literal('ExtractMetadata'), z.literal('GenerateThumbnail'), z.literal('GenerateWaveform'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic')]),
   session_id: z.string().nullable(),
   parameters: z.any(),
   max_retries: z.number().nullable(),
@@ -461,6 +474,21 @@ export const HealthResponseSchema = z.object({
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
+export const ImageUploadResponseSchema = z.object({
+  blob_id: z.string(),
+  job_id: z.string(),
+  sha256: z.string(),
+  size: z.number(),
+  mime: z.string(),
+  existing: z.boolean(),
+  association: z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}).nullable(),
+  message: z.string()
+});
+export type ImageUploadResponse = z.infer<typeof ImageUploadResponseSchema>;
+
 export const JobSchema = z.object({
   id: z.string(),
   session_id: z.string().nullable(),
@@ -579,6 +607,28 @@ export const MediaBlobSchema = z.object({
   updated_by: z.string().nullable()
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
+
+export const MusicMetadataHintsSchema = z.object({
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  title: z.string().nullable(),
+  track_number: z.number().nullable(),
+  disc_number: z.number().nullable(),
+  year: z.number().nullable(),
+  genre: z.string().nullable()
+});
+export type MusicMetadataHints = z.infer<typeof MusicMetadataHintsSchema>;
+
+export const MusicUploadResponseSchema = z.object({
+  blob_id: z.string(),
+  job_id: z.string(),
+  sha256: z.string(),
+  size: z.number(),
+  mime: z.string(),
+  existing: z.boolean(),
+  message: z.string()
+});
+export type MusicUploadResponse = z.infer<typeof MusicUploadResponseSchema>;
 
 export const OverviewStatsSchema = z.object({
   total_songs: z.number(),

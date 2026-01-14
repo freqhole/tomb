@@ -12,6 +12,7 @@ pub mod routes;
 pub mod server;
 pub mod state;
 pub mod static_files;
+pub mod upload;
 
 pub use error::ApiError;
 pub use server::start_server;

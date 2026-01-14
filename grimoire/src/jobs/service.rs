@@ -21,6 +21,7 @@ use super::models::{
     JobStatus, JobType, ProcessFileParams, ProcessFileResult, QueueStats, ScanDirectoryParams,
     ScanDirectoryResult,
 };
+use super::upload_processors::{process_convert_webp_job, process_import_music_job};
 
 /// Create a new job session for batch operations
 pub async fn create_job_session(request: CreateJobSessionRequest) -> GrimoireResponse<JobSession> {
@@ -644,6 +645,8 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::GenerateThumbnail => process_generate_thumbnail_job(&job).await,
         JobType::GenerateWaveform => process_generate_waveform_job(&job).await,
         JobType::FetchMedia => process_fetch_media_job(&job).await,
+        JobType::ConvertWebp => process_convert_webp_job(&job).await,
+        JobType::ImportMusic => process_import_music_job(&job).await,
     };
 
     let processing_time = start_time.elapsed().as_millis() as u64;

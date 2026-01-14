@@ -17,6 +17,10 @@ pub enum JobType {
     GenerateThumbnail,
     GenerateWaveform,
     FetchMedia,
+
+    // Upload processing
+    ConvertWebp,
+    ImportMusic,
 }
 
 /// Job status lifecycle

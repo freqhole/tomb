@@ -2,10 +2,11 @@
 
 ## current status & next steps
 
-**phase 6+ complete** ✓ - rapid route implementation finished (60 total routes implemented)
+**phase 6+ complete** ✓ - rapid route implementation finished (65 total routes implemented)
 
 - 17 routes from phase 6 (songs, artists, albums, genres, favorites, ratings)
 - 6 playlist mutation routes (update, delete, add-songs, remove-songs, reorder, remove-thumbnail)
+- 1 playlist query route (get playlist songs with full metadata)
 - 7 analytics routes (play tracking, listening history, top songs/artists/albums, feed)
 - 8 tags routes (list, query, get, delete, album associations)
 - 7 sub-genres routes (list, query, get, create, delete, for-genre, find-or-create)
@@ -13,15 +14,16 @@
 - 2 jobs routes (get status, list jobs)
 - 1 health check route (public, no auth)
 - 1 fetch route (existing)
+- 2 blob routes (stream blob with range support, blob metadata)
+- 2 upload routes (upload image, upload music)
 
 **next priorities**:
 
-1. blob streaming - add range request support for audio playback (high priority)
+1. job processors - implement ImportMusic job for metadata extraction (stub exists)
 2. testing & integration - test all implemented routes with actual requests
-3. remaining playlist features - get playlist songs with metadata
-4. upload endpoint - multipart file upload + blob creation
-5. har recording - capture actual webapp usage patterns
-6. migration - cutover from legacy server
+3. har recording - capture actual webapp usage patterns
+4. migration - cutover from legacy server
+5. performance testing - verify blob streaming, large uploads
 
 **reference docs**:
 

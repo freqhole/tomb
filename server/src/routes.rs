@@ -3,7 +3,7 @@
 use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
 use grimoire::api_registry;
 
-use crate::{auth, blobs, health, jobs, music, state::AppState, static_files};
+use crate::{auth, blobs, health, jobs, music, state::AppState, static_files, upload};
 
 /// build the application router
 ///
@@ -268,6 +268,15 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["blob_metadata"].path,
             get(blobs::blob_metadata_handler),
+        )
+        // upload routes
+        .route(
+            routes["music"]["upload_image"].path,
+            post(upload::upload_image_handler),
+        )
+        .route(
+            routes["music"]["upload_music"].path,
+            post(upload::upload_music_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 

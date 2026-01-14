@@ -115,6 +115,8 @@ pub mod type_registry {
         SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
         UpdateSongsResult,
     };
+
+    // upload types
     use crate::music::entities::albums::Album;
     use crate::music::entities::artists::{Artist, CreateArtistRequest};
     use crate::music::entities::genres::{
@@ -133,6 +135,10 @@ pub mod type_registry {
         GetTagRequest, QueryTagsRequest, RemoveAlbumTagsRequest, ReplaceAlbumTagsRequest, Tag,
     };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
+    use crate::upload::{
+        AssociationHint, AssociationInfo, ImageUploadResponse, MusicMetadataHints,
+        MusicUploadResponse,
+    };
 
     // analytics types
     use crate::music::analytics::{
@@ -482,6 +488,22 @@ pub mod type_registry {
 
         gen.add_schema::<FindOrCreateSubGenreResponse>("FindOrCreateSubGenreResponse");
         registered.insert("FindOrCreateSubGenreResponse".to_string());
+
+        // upload types
+        gen.add_schema::<ImageUploadResponse>("ImageUploadResponse");
+        registered.insert("ImageUploadResponse".to_string());
+
+        gen.add_schema::<MusicUploadResponse>("MusicUploadResponse");
+        registered.insert("MusicUploadResponse".to_string());
+
+        gen.add_schema::<AssociationHint>("AssociationHint");
+        registered.insert("AssociationHint".to_string());
+
+        gen.add_schema::<AssociationInfo>("AssociationInfo");
+        registered.insert("AssociationInfo".to_string());
+
+        gen.add_schema::<MusicMetadataHints>("MusicMetadataHints");
+        registered.insert("MusicMetadataHints".to_string());
 
         // user interaction types
         gen.add_schema::<SetFavoriteRequest>("SetFavoriteRequest");

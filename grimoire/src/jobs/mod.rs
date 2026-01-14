@@ -3,38 +3,16 @@
 
 mod models;
 mod service;
+mod upload_processors;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest,
-    CreateJobSessionRequest,
-    ExtractMetadataParams,
-    ExtractMetadataResult,
-    GenerateThumbnailParams,
-    GenerateThumbnailResult,
-    GenerateWaveformParams,
-    GenerateWaveformResult,
-    GetJobRequest,
-    Job,
-    JobError,
-    // CLI response types
-    JobListResponse,
-    JobProgress,
-    JobResult,
-    JobSession,
-    JobStatsResponse,
-    JobStatus,
-    JobType,
-    ListJobsRequest,
-    ProcessFileParams,
-    ProcessFileResult,
-    ProcessJobCreatedResponse,
-    ProcessorResponse,
-    QueueStats,
-    ScanDirectoryParams,
-    ScanDirectoryResult,
-    ScanJobCreatedResponse,
-    SessionStatus,
+    CreateJobRequest, CreateJobSessionRequest, ExtractMetadataParams, ExtractMetadataResult,
+    GenerateThumbnailParams, GenerateThumbnailResult, GenerateWaveformParams,
+    GenerateWaveformResult, GetJobRequest, Job, JobError, JobListResponse, JobProgress, JobResult,
+    JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest, ProcessFileParams,
+    ProcessFileResult, ProcessJobCreatedResponse, ProcessorResponse, QueueStats,
+    ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse, SessionStatus,
 };
 pub use service::{
     cancel_job, complete_session, create_job, create_job_session, fail_session, get_job,
@@ -42,6 +20,7 @@ pub use service::{
     mark_job_failed, mark_job_started, process_job, run_job_processor, run_job_processor_once,
     update_session_progress,
 };
+pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 
 // Job processing system with unified queue and session-based batch operations
 // Features:
