@@ -1,8 +1,8 @@
-//! Upload job processors
+//! upload job processors
 //!
-//! Handles async processing for uploaded files:
-//! - ConvertWebp: converts uploaded images to WebP format and optionally associates with entities
-//! - ImportMusic: extracts metadata from uploaded audio files and creates Song/Album/Artist records
+//! handles async processing for uploaded files:
+//! - ConvertWebp: convert uploaded images to WebP format and optionally associates with entities
+//! - ImportMusic: extract metadata from uploaded audio files and creates Song/Album/Artist records
 
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
 use crate::blob_data;
@@ -15,22 +15,22 @@ use serde_json::{json, Value};
 use std::path::Path;
 use tracing::{error, info};
 
-/// Process image to WebP conversion job
+/// process image to WebP conversion job
 ///
-/// Job parameters:
+/// job parameters:
 /// - blob_id: ID of the media blob containing the image data
 /// - original_mime: original MIME type of the image
 /// - associate_with (optional): { entity_type: "album"|"playlist"|"song"|"artist", entity_id: "..." }
 ///
-/// Steps:
-/// 1. Check if blob already has WebP data in blob_data table
-/// 2. If not, get original image data and convert to WebP
-/// 3. Store WebP data back to blob_data
-/// 4. If associate_with is present, update the entity's thumbnail_blob_id field
+/// steps:
+/// 1. check if blob already has WebP data in blob_data table
+/// 2. if not, get original image data and convert to WebP
+/// 3. store WebP data back to blob_data
+/// 4. if associate_with is present, update the entity's thumbnail_blob_id field
 pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing ConvertWebp job: {}", job.id);
 
-    // Parse job parameters
+    // parse job parameters
     let params: serde_json::Value = job.parameters()?;
     let blob_id = params["blob_id"]
         .as_str()
@@ -45,12 +45,12 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
         blob_id, original_mime
     );
 
-    // Check if webp data already exists in blob_data table
+    // check if webp data already exists in blob_data table
     let exists_response = blob_data::blob_data_exists(blob_id).await;
     let already_converted = exists_response.success && exists_response.data.unwrap_or(false);
 
     if !already_converted {
-        // Get original image data from blob_data
+        // get original image data from blob_data
         let data_response = blob_data::get_blob_data(blob_id).await;
         if !data_response.success {
             return Err(JobError::ProcessingFailed {
@@ -64,13 +64,13 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                 reason: "no blob data found".to_string(),
             })?;
 
-        // Convert to WebP (sync function, not async)
+        // convert to WebP (sync function, not async)
         let webp_data =
             blob_data::convert_to_webp(&image_data).map_err(|e| JobError::ProcessingFailed {
                 reason: format!("webp conversion failed: {}", e),
             })?;
 
-        // Store converted WebP data back to blob_data
+        // store converted WebP data back to blob_data
         let store_response = blob_data::store_blob_data(blob_id, webp_data).await;
         if !store_response.success {
             return Err(JobError::ProcessingFailed {
@@ -83,7 +83,7 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
         info!("image already converted to webp: blob_id={}", blob_id);
     }
 
-    // Handle association if requested
+    // handle association if requested
     if let Some(assoc) = association {
         let entity_type =
             assoc["entity_type"]
@@ -98,7 +98,7 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
             })?;
         let is_primary_hint = assoc["is_primary"].as_bool();
 
-        // Associate image with entity
+        // associate image with entity
         let update_result =
             associate_image_with_entity(entity_type, entity_id, blob_id, is_primary_hint).await;
         if let Err(e) = update_result {
@@ -106,7 +106,7 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                 "failed to associate blob with entity: type={}, id={}, error={}",
                 entity_type, entity_id, e
             );
-            // Don't fail the job - conversion succeeded, association is bonus
+            // don't fail the job - conversion succeeded, association is bonus
         } else {
             info!(
                 "associated blob with entity: type={}, id={}, blob_id={}",
@@ -124,12 +124,12 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
     Ok(Some(result))
 }
 
-/// Associate image blob with entity using *_imagez tables
-/// Associate image with entity using smart primary logic
+/// associate image blob with entity using *_imagez tables
+/// associate image with entity using smart primary logic
 ///
-/// Logic:
-/// - First image for entity is ALWAYS primary (regardless of hint)
-/// - Subsequent images use is_primary hint (default false)
+/// logic:
+/// - first image for entity is ALWAYS primary (regardless of hint)
+/// - subsequent images use is_primary hint (default false)
 async fn associate_image_with_entity(
     entity_type: &str,
     entity_id: &str,
@@ -138,19 +138,19 @@ async fn associate_image_with_entity(
 ) -> Result<(), GrimoireError> {
     let pool = database::connect().await?;
 
-    // Count existing images for this entity
+    // count existing images for this entity
     let existing_count = count_entity_images(entity_type, entity_id, &pool).await?;
 
-    // Determine if this should be primary
+    // determine if this should be primary
     let is_primary = if existing_count == 0 {
-        true // First image is ALWAYS primary
+        true // first image is ALWAYS primary
     } else {
-        is_primary_hint.unwrap_or(false) // Use hint, default to false
+        is_primary_hint.unwrap_or(false) // use hint, default to false
     };
 
     match entity_type {
         "album" => {
-            // Insert into album_imagez
+            // insert into album_imagez
             let is_primary_int = if is_primary { 1 } else { 0 };
             sqlx::query!(
                 "INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
@@ -164,7 +164,7 @@ async fn associate_image_with_entity(
             .await?;
         }
         "playlist" => {
-            // Insert into playlist_imagez
+            // insert into playlist_imagez
             let is_primary_int = if is_primary { 1 } else { 0 };
             sqlx::query!(
                 "INSERT INTO playlist_imagez (playlist_id, media_blob_id, is_primary)
@@ -177,7 +177,7 @@ async fn associate_image_with_entity(
             .execute(&pool)
             .await?;
 
-            // If primary, also update thumbnail_blob_id column
+            // if primary, also update thumbnail_blob_id column
             if is_primary {
                 sqlx::query!(
                     "UPDATE playlistz SET thumbnail_blob_id = ? WHERE id = ?",
@@ -189,7 +189,7 @@ async fn associate_image_with_entity(
             }
         }
         "song" => {
-            // Insert into song_imagez
+            // insert into song_imagez
             let is_primary_int = if is_primary { 1 } else { 0 };
             sqlx::query!(
                 "INSERT INTO song_imagez (song_id, media_blob_id, is_primary)
@@ -202,7 +202,7 @@ async fn associate_image_with_entity(
             .execute(&pool)
             .await?;
 
-            // If primary, also update thumbnail_blob_id column
+            // if primary, also update thumbnail_blob_id column
             if is_primary {
                 sqlx::query!(
                     "UPDATE songz SET thumbnail_blob_id = ? WHERE id = ?",
@@ -214,7 +214,7 @@ async fn associate_image_with_entity(
             }
         }
         "artist" => {
-            // Insert into artist_imagez
+            // insert into artist_imagez
             let is_primary_int = if is_primary { 1 } else { 0 };
             sqlx::query!(
                 "INSERT INTO artist_imagez (artist_id, media_blob_id, is_primary)
@@ -237,7 +237,7 @@ async fn associate_image_with_entity(
     Ok(())
 }
 
-/// Count existing images for an entity
+/// count existing images for an entity
 async fn count_entity_images(
     entity_type: &str,
     entity_id: &str,
@@ -282,22 +282,22 @@ async fn count_entity_images(
     Ok(count)
 }
 
-/// Process music import job
+/// process music import job
 ///
-/// Job parameters:
+/// job parameters:
 /// - blob_id: ID of the media blob
 /// - local_path: filesystem path to the audio file
 /// - mime_type: MIME type of the audio file
 /// - filename: original filename
 /// - user_hints (optional): { artist, album, title, track_number, year, genre, etc. }
 ///
-/// Steps:
-/// 1. Update media blob with local_path
-/// 2. Extract metadata from audio file using scanner
-/// 3. Create/find Artist record
-/// 4. Create/find Album record
-/// 5. Create Song record
-/// 6. Generate thumbnail and waveform (optional)
+/// steps:
+/// 1. update media blob with local_path
+/// 2. extract metadata from audio file using scanner
+/// 3. create/find Artist record
+/// 4. create/find Album record
+/// 5. create Song record
+/// 6. generate thumbnail and waveform (optional)
 pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing ImportMusic job: {}", job.id);
 

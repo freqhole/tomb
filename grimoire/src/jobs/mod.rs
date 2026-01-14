@@ -1,32 +1,42 @@
-//! simplified job processing module
-//! handles background tasks with a cleaner, more straightforward approach
+//! Job processing system with unified queue and session-based batch operations
+//!
+//! General infrastructure:
+//! - models: JobType enum, request/response types
+//! - service: CRUD operations for jobs and sessions
+//! - runner: job dispatching and queue processing loop
+//!
+//! Music-specific processors in music/ submodule:
+//! - scan_processor: directory scanning for audio files
+//! - file_processor: audio file import and metadata extraction
+//! - fetch_processor: downloading from external sources (YouTube, etc.)
+//! - upload_processors: user upload handling (WebP conversion, music import)
 
 mod models;
+mod music;
+mod runner;
 mod service;
-mod upload_processors;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest, CreateJobSessionRequest, ExtractMetadataParams, ExtractMetadataResult,
-    GenerateThumbnailParams, GenerateThumbnailResult, GenerateWaveformParams,
-    GenerateWaveformResult, GetJobRequest, Job, JobError, JobListResponse, JobProgress, JobResult,
-    JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest, ProcessFileParams,
-    ProcessFileResult, ProcessJobCreatedResponse, ProcessorResponse, QueueStats,
-    ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse, SessionStatus,
+    CreateJobRequest, CreateJobSessionRequest, GetJobRequest, Job, JobError, JobListResponse,
+    JobProgress, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
+    ProcessorResponse, QueueStats, SessionStatus,
 };
+
+// re-export music job types for backward compatibility
+pub use music::{
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, ScanDirectoryParams,
+    ScanDirectoryResult, ScanJobCreatedResponse,
+};
+pub use runner::{process_job, run_job_processor, run_job_processor_once};
 pub use service::{
     cancel_job, complete_session, create_job, create_job_session, fail_session, get_job,
     get_job_session, get_next_pending_job, get_queue_stats, list_jobs, mark_job_completed,
-    mark_job_failed, mark_job_started, process_job, run_job_processor, run_job_processor_once,
-    update_session_progress,
+    mark_job_failed, mark_job_started, update_session_progress,
 };
-pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 
-// Job processing system with unified queue and session-based batch operations
-// Features:
-// - Universal job queue for all background tasks
-// - Job sessions for large batch operations (e.g., directory scanning)
-// - Automatic retry with exponential backoff
-// - Progress tracking and resume capability
-// - Clean job lifecycle: Pending -> Running -> Completed/Failed/Cancelled
-// - Type-safe job parameters and results
+// re-export music job processors (used by runner module)
+pub use music::{
+    process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
+    process_scan_directory_job,
+};
