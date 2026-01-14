@@ -23,6 +23,12 @@ pub struct Playlist {
     pub song_count: i64,
 }
 
+/// request for getting a playlist by id
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetPlaylistRequest {
+    pub id: String,
+}
+
 /// request for creating a new playlist
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, Parser)]
 pub struct CreatePlaylistRequest {

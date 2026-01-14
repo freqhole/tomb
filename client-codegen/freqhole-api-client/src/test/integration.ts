@@ -13,7 +13,7 @@
 //
 // runs without API_KEY - uses placeholder data to trigger auth checks
 import * as music from "../music.js";
-
+import * as utils from "../utils.js";
 import * as auth from "../auth.js";
 import * as app from "../app.js";
 import {
@@ -323,19 +323,21 @@ export async function runIntegrationTests() {
       fn: () => music.getFetchJob(baseUrl, { id: PLACEHOLDER_ID }),
     },
 
-    // blobs
+    // blobs - now using utils module
     {
-      name: "music.streamBlob",
-      fn: () => music.streamBlob(baseUrl, { id: PLACEHOLDER_ID }),
-    },
-    {
-      name: "music.blobMetadata",
-      fn: () => music.blobMetadata(baseUrl, { id: PLACEHOLDER_ID }),
+      name: "utils.fetchBlobMetadata",
+      fn: () => utils.fetchBlobMetadata(baseUrl, PLACEHOLDER_ID),
     },
 
-    // uploads (would need FormData, but testing auth rejection should still work)
-    { name: "music.uploadImage", fn: () => music.uploadImage(baseUrl) },
-    { name: "music.uploadMusic", fn: () => music.uploadMusic(baseUrl) },
+    // uploads - now using utils module with FormData
+    {
+      name: "utils.uploadImage",
+      fn: () => utils.uploadImage(baseUrl, new Blob(["test"])),
+    },
+    {
+      name: "utils.uploadMusic",
+      fn: () => utils.uploadMusic(baseUrl, new Blob(["test"])),
+    },
   ];
 
   for (const route of protectedRoutes) {

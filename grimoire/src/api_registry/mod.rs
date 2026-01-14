@@ -125,9 +125,9 @@ pub mod type_registry {
         QuerySubGenresRequest, SubGenre,
     };
     use crate::music::entities::playlists::{
-        AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
-        RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest,
-        ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
+        AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
+        GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
+        RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
     };
     use crate::music::entities::songs::Song;
     use crate::music::entities::tags::{
@@ -197,6 +197,9 @@ pub mod type_registry {
 
         gen.add_schema::<CreatePlaylistRequest>("CreatePlaylistRequest");
         registered.insert("CreatePlaylistRequest".to_string());
+
+        gen.add_schema::<GetPlaylistRequest>("GetPlaylistRequest");
+        registered.insert("GetPlaylistRequest".to_string());
 
         gen.add_schema::<PlaylistSongResult>("PlaylistSongResult");
         registered.insert("PlaylistSongResult".to_string());

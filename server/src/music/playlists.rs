@@ -90,7 +90,7 @@ inventory::submit! {
         path: "/api/music/playlists/{id}",
         method: Method::GET,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "GetPlaylistRequest",
         response_type: "Playlist",
     }
 }

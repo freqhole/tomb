@@ -445,6 +445,11 @@ export const GetJobRequestSchema = z.object({
 });
 export type GetJobRequest = z.infer<typeof GetJobRequestSchema>;
 
+export const GetPlaylistRequestSchema = z.object({
+  id: z.string()
+});
+export type GetPlaylistRequest = z.infer<typeof GetPlaylistRequestSchema>;
+
 export const GetRatingStatsRequestSchema = z.object({
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   target_id: z.string()

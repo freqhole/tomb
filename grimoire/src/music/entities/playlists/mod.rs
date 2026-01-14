@@ -7,8 +7,8 @@ mod thumbnail_helpers;
 
 // re-export public types
 pub use models::{
-    AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
-    PlaylistSong, RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest,
+    AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, GetPlaylistRequest,
+    Playlist, PlaylistSong, RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest,
     ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 pub use repository::{

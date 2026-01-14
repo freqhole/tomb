@@ -385,7 +385,7 @@ export function removePlaylistThumbnail(
   );
 }
 
-// genres & sub-genres
+// genres
 export function queryGenres(
   baseUrl: string,
   params: s.QueryParams,
@@ -978,7 +978,7 @@ export function getJobStatus(
   );
 }
 
-// fetch music (yt-dlp)
+// fetch jobs
 export function createFetchJob(
   baseUrl: string,
   params: s.FetchMediaParams,
@@ -1015,68 +1015,9 @@ export function getFetchJob(
   );
 }
 
-// blobs - note: these return raw responses, not json
-export function streamBlob(
-  baseUrl: string,
-  params: { id: string },
-  apiKey?: string,
-) {
-  return call(
-    baseUrl,
-    "music",
-    "stream_blob",
-    routes.music.stream_blob.resp,
-    routes.music.stream_blob.req,
-    routes.music.stream_blob.method,
-    routes.music.stream_blob.path,
-    params,
-    apiKey,
-  );
-}
-
-export function blobMetadata(
-  baseUrl: string,
-  params: { id: string },
-  apiKey?: string,
-) {
-  return call(
-    baseUrl,
-    "music",
-    "blob_metadata",
-    routes.music.blob_metadata.resp,
-    routes.music.blob_metadata.req,
-    routes.music.blob_metadata.method,
-    routes.music.blob_metadata.path,
-    params,
-    apiKey,
-  );
-}
-
-// uploads - note: these need FormData, not JSON
-export function uploadImage(baseUrl: string, apiKey?: string) {
-  return call(
-    baseUrl,
-    "music",
-    "upload_image",
-    routes.music.upload_image.resp,
-    routes.music.upload_image.req,
-    routes.music.upload_image.method,
-    routes.music.upload_image.path,
-    undefined,
-    apiKey,
-  );
-}
-
-export function uploadMusic(baseUrl: string, apiKey?: string) {
-  return call(
-    baseUrl,
-    "music",
-    "upload_music",
-    routes.music.upload_music.resp,
-    routes.music.upload_music.req,
-    routes.music.upload_music.method,
-    routes.music.upload_music.path,
-    undefined,
-    apiKey,
-  );
-}
+// note: for blobs and uploads, see utils module
+// - utils.getBlobUrl(baseUrl, blobId) - get streaming url for <audio src={...}>
+// - utils.getBlobMetadataUrl(baseUrl, blobId) - get metadata endpoint url
+// - utils.fetchBlobMetadata(baseUrl, blobId, apiKey) - fetch metadata as json
+// - utils.uploadImage(baseUrl, file, apiKey) - upload image with FormData
+// - utils.uploadMusic(baseUrl, file, apiKey) - upload music with FormData

@@ -64,7 +64,7 @@ inventory::submit! {
         path: "/api/music/fetch/{id}",
         method: Method::GET,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "GetJobRequest",
         response_type: "Job",
     }
 }
