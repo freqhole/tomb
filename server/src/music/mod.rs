@@ -10,3 +10,4 @@ pub mod musicbrainz;
 pub mod playlists;
 pub mod ratings;
 pub mod songs;
+pub mod tags;

@@ -116,13 +116,21 @@ pub mod type_registry {
     };
     use crate::music::entities::albums::Album;
     use crate::music::entities::artists::{Artist, CreateArtistRequest};
-    use crate::music::entities::genres::Genre;
+    use crate::music::entities::genres::{
+        CreateSubGenreRequest, DeleteSubGenreRequest, FindOrCreateSubGenreRequest,
+        FindOrCreateSubGenreResponse, Genre, GetSubGenreRequest, ListSubGenresForGenreRequest,
+        QuerySubGenresRequest, SubGenre,
+    };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
         RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest,
         ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
     };
     use crate::music::entities::songs::Song;
+    use crate::music::entities::tags::{
+        AddAlbumTagsRequest, CreateTagRequest, DeleteTagRequest, GetAlbumTagsRequest,
+        GetTagRequest, QueryTagsRequest, RemoveAlbumTagsRequest, ReplaceAlbumTagsRequest, Tag,
+    };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
 
     // analytics types
@@ -296,6 +304,34 @@ pub mod type_registry {
         gen.add_schema::<GetCoverArtRequest>("GetCoverArtRequest");
         registered.insert("GetCoverArtRequest".to_string());
 
+        // tag types
+        gen.add_schema::<Tag>("Tag");
+        registered.insert("Tag".to_string());
+
+        gen.add_schema::<CreateTagRequest>("CreateTagRequest");
+        registered.insert("CreateTagRequest".to_string());
+
+        gen.add_schema::<QueryTagsRequest>("QueryTagsRequest");
+        registered.insert("QueryTagsRequest".to_string());
+
+        gen.add_schema::<GetTagRequest>("GetTagRequest");
+        registered.insert("GetTagRequest".to_string());
+
+        gen.add_schema::<DeleteTagRequest>("DeleteTagRequest");
+        registered.insert("DeleteTagRequest".to_string());
+
+        gen.add_schema::<GetAlbumTagsRequest>("GetAlbumTagsRequest");
+        registered.insert("GetAlbumTagsRequest".to_string());
+
+        gen.add_schema::<AddAlbumTagsRequest>("AddAlbumTagsRequest");
+        registered.insert("AddAlbumTagsRequest".to_string());
+
+        gen.add_schema::<RemoveAlbumTagsRequest>("RemoveAlbumTagsRequest");
+        registered.insert("RemoveAlbumTagsRequest".to_string());
+
+        gen.add_schema::<ReplaceAlbumTagsRequest>("ReplaceAlbumTagsRequest");
+        registered.insert("ReplaceAlbumTagsRequest".to_string());
+
         gen.add_schema::<FetchMediaParams>("FetchMediaParams");
         registered.insert("FetchMediaParams".to_string());
 
@@ -411,6 +447,31 @@ pub mod type_registry {
 
         gen.add_schema::<GetGenreRequest>("GetGenreRequest");
         registered.insert("GetGenreRequest".to_string());
+
+        // sub-genres types
+        gen.add_schema::<SubGenre>("SubGenre");
+        registered.insert("SubGenre".to_string());
+
+        gen.add_schema::<CreateSubGenreRequest>("CreateSubGenreRequest");
+        registered.insert("CreateSubGenreRequest".to_string());
+
+        gen.add_schema::<QuerySubGenresRequest>("QuerySubGenresRequest");
+        registered.insert("QuerySubGenresRequest".to_string());
+
+        gen.add_schema::<GetSubGenreRequest>("GetSubGenreRequest");
+        registered.insert("GetSubGenreRequest".to_string());
+
+        gen.add_schema::<DeleteSubGenreRequest>("DeleteSubGenreRequest");
+        registered.insert("DeleteSubGenreRequest".to_string());
+
+        gen.add_schema::<ListSubGenresForGenreRequest>("ListSubGenresForGenreRequest");
+        registered.insert("ListSubGenresForGenreRequest".to_string());
+
+        gen.add_schema::<FindOrCreateSubGenreRequest>("FindOrCreateSubGenreRequest");
+        registered.insert("FindOrCreateSubGenreRequest".to_string());
+
+        gen.add_schema::<FindOrCreateSubGenreResponse>("FindOrCreateSubGenreResponse");
+        registered.insert("FindOrCreateSubGenreResponse".to_string());
 
         // user interaction types
         gen.add_schema::<SetFavoriteRequest>("SetFavoriteRequest");

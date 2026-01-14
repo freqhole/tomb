@@ -2,10 +2,14 @@
 
 ## current status & next steps
 
-**phase 6+ complete** ✓ - rapid route implementation finished (27 total new routes implemented)
+**phase 6+ complete** ✓ - rapid route implementation finished (60 total routes implemented)
 
 - 17 routes from phase 6 (songs, artists, albums, genres, favorites, ratings)
 - 6 playlist mutation routes (update, delete, add-songs, remove-songs, reorder, remove-thumbnail)
+- 7 analytics routes (play tracking, listening history, top songs/artists/albums, feed)
+- 8 tags routes (list, query, get, delete, album associations)
+- 7 sub-genres routes (list, query, get, create, delete, for-genre, find-or-create)
+- 2 musicbrainz routes (search releases, get release by mbid)
 - 2 jobs routes (get status, list jobs)
 - 1 health check route (public, no auth)
 - 1 fetch route (existing)
@@ -14,12 +18,10 @@
 
 1. blob streaming - add range request support for audio playback (high priority)
 2. testing & integration - test all implemented routes with actual requests
-3. analytics routes - play tracking, listening history, top songs/artists/albums
-4. musicbrainz routes - search releases, get release by mbid
-5. remaining playlist features - get playlist songs with metadata
-6. upload endpoint - multipart file upload + blob creation
-7. har recording - capture actual webapp usage patterns
-8. migration - cutover from legacy server
+3. remaining playlist features - get playlist songs with metadata
+4. upload endpoint - multipart file upload + blob creation
+5. har recording - capture actual webapp usage patterns
+6. migration - cutover from legacy server
 
 **reference docs**:
 
@@ -57,7 +59,7 @@ complete rewrite of server package using refactored grimoire library. legacy ser
 4. **establish patterns**: implement sample routes, validate workflow ✓
 5. **static files & legacy code**: reuse working code from legacyserver ✓
 6. **fetch migration**: move download/fetch_music to grimoire ✓
-7. **rapid implementation phase 6+**: playlist mutations, jobs, health check ✓
+7. **rapid implementation phase 6+**: playlist mutations, jobs, health check, analytics, musicbrainz ✓
 8. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
 
 ## overview

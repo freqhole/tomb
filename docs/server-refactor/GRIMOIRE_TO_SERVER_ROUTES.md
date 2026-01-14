@@ -155,17 +155,47 @@ these are server implementation details, not grimoire apis.
 
 ### sub-genres
 
-**grimoire**: `music::crud::list_sub_genres()`  
+**grimoire**: `music::entities::genres::list_sub_genres()`  
 **cli**: `freqhole music list-sub-genres`  
 **server**:
 
-- [ ] `POST /api/sub-genres/query` - list/query sub-genres (maybe defer)
+- [x] `GET /api/sub-genres/list` - list all sub-genres ✅
 
-**grimoire**: `music::crud::list_sub_genres_for_genre(genre_id: String)`  
+**grimoire**: `music::entities::genres::query_sub_genres(search: &str)`  
+**cli**: `freqhole music query-sub-genres --search NAME`  
+**server**:
+
+- [x] `POST /api/sub-genres/query` - search sub-genres by name ✅
+
+**grimoire**: `music::entities::genres::get_sub_genre(id: &str)`  
+**cli**: `freqhole music get-sub-genre --id ID`  
+**server**:
+
+- [x] `GET /api/sub-genres/{id}` - get sub-genre by ID ✅
+
+**grimoire**: `music::entities::genres::create_sub_genre(req)`  
+**cli**: `freqhole music create-sub-genre --name NAME [--parent-genre-id ID]`  
+**server**:
+
+- [x] `POST /api/sub-genres/create` - create new sub-genre ✅
+
+**grimoire**: `music::entities::genres::delete_sub_genre(id: &str, deleted_by: Option<String>)`  
+**cli**: `freqhole music delete-sub-genre --id ID`  
+**server**:
+
+- [x] `POST /api/sub-genres/delete` - soft delete sub-genre ✅
+
+**grimoire**: `music::entities::genres::list_sub_genres_for_genre(parent_genre_id: &str)`  
 **cli**: `freqhole music list-sub-genres-for-genre --genre-id ID`  
 **server**:
 
-- [ ] use query route with genre filter (maybe defer)
+- [x] `POST /api/sub-genres/for-genre` - list sub-genres for a parent genre ✅
+
+**grimoire**: `music::entities::genres::find_or_create_sub_genre(name, parent_id)`  
+**cli**: n/a (internal)  
+**server**:
+
+- [x] `POST /api/sub-genres/find-or-create` - find or create sub-genre (upsert) ✅
 
 ### tags
 
@@ -397,43 +427,43 @@ these are server implementation details, not grimoire apis.
 **cli**: (not exposed via cli)  
 **server**:
 
-- [ ] `POST /api/analytics/play` - record play event (or handle client-side)
+- [x] `POST /api/analytics/play` - record play event (or handle client-side)
 
 **grimoire**: `music::analytics::get_user_listening_history(user_id, limit, offset)`  
 **cli**: (check if wrapped)  
 **server**:
 
-- [ ] `POST /api/analytics/listening-history` - get listening history
+- [x] `POST /api/analytics/listening-history` - get listening history
 
 **grimoire**: `music::analytics::get_combined_feed(user_id, limit)`  
 **cli**: (check if wrapped)  
 **server**:
 
-- [ ] `POST /api/analytics/feed` - get activity feed
+- [x] `POST /api/analytics/feed` - get activity feed
 
 **grimoire**: `music::analytics::get_song_play_analytics(song_id, user_id)`  
 **cli**: (check if wrapped)  
 **server**:
 
-- [ ] `POST /api/analytics/song-stats` - get song play analytics
+- [x] `POST /api/analytics/song-stats` - get song play analytics
 
 **grimoire**: `music::analytics::get_top_songs(user_id, limit, days)`  
 **cli**: (check if wrapped)  
 **server**:
 
-- [ ] `POST /api/analytics/top-songs` - get top played songs
+- [x] `POST /api/analytics/top-songs` - get top played songs
 
 **grimoire**: `music::analytics::get_top_artists(user_id, limit, days)`  
 **cli**: (check if wrapped)  
 **server**:
 
-- [ ] `POST /api/analytics/top-artists` - get top artists
+- [x] `POST /api/analytics/top-artists` - get top artists
 
 **grimoire**: `music::analytics::get_top_albums(user_id, limit, days)`  
 **cli**: (check if wrapped)  
 **server**:
 
-- [ ] `POST /api/analytics/top-albums` - get top albums
+- [x] `POST /api/analytics/top-albums` - get top albums
 
 ---
 
@@ -443,13 +473,13 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music musicbrainz search --query NAME`  
 **server**:
 
-- [ ] `POST /api/musicbrainz/search` - search releases
+- [x] `POST /api/musicbrainz/search/releases` - search releases
 
 **grimoire**: `music::musicbrainz::get_release(mbid: String)`  
 **cli**: `freqhole music musicbrainz get --mbid ID`  
 **server**:
 
-- [ ] `POST /api/musicbrainz/release` - get release by mbid
+- [x] `POST /api/musicbrainz/release` - get release by mbid
 
 ---
 
@@ -581,7 +611,7 @@ server-specific, not grimoire apis.
 - analytics: 5-7 routes (listening history, feed priority)
 - musicbrainz: 2 routes
 - jobs/fetch: 2-3 routes
-- genres/tags: 3-5 routes
+- genres: 2 routes (implemented)
 - user admin: cli only
 - invite codes: cli only
 

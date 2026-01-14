@@ -147,6 +147,35 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["get_genre"].path,
             get(music::genres::get_genre_handler),
         )
+        // sub-genres routes
+        .route(
+            routes["music"]["list_sub_genres"].path,
+            get(music::genres::list_sub_genres_handler),
+        )
+        .route(
+            routes["music"]["query_sub_genres"].path,
+            post(music::genres::query_sub_genres_handler),
+        )
+        .route(
+            routes["music"]["get_sub_genre"].path,
+            get(music::genres::get_sub_genre_handler),
+        )
+        .route(
+            routes["music"]["create_sub_genre"].path,
+            post(music::genres::create_sub_genre_handler),
+        )
+        .route(
+            routes["music"]["delete_sub_genre"].path,
+            post(music::genres::delete_sub_genre_handler),
+        )
+        .route(
+            routes["music"]["list_sub_genres_for_genre"].path,
+            post(music::genres::list_sub_genres_for_genre_handler),
+        )
+        .route(
+            routes["music"]["find_or_create_sub_genre"].path,
+            post(music::genres::find_or_create_sub_genre_handler),
+        )
         // jobs routes
         .route(
             routes["music"]["get_job_status"].path,
@@ -184,6 +213,39 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["activity_feed"].path,
             post(music::analytics::feed_handler),
+        )
+        // tags routes
+        .route(
+            routes["music"]["list_tags"].path,
+            get(music::tags::list_tags_handler),
+        )
+        .route(
+            routes["music"]["query_tags"].path,
+            post(music::tags::query_tags_handler),
+        )
+        .route(
+            routes["music"]["get_tag"].path,
+            post(music::tags::get_tag_handler),
+        )
+        .route(
+            routes["music"]["delete_tag"].path,
+            post(music::tags::delete_tag_handler),
+        )
+        .route(
+            routes["music"]["get_album_tags"].path,
+            post(music::tags::get_album_tags_handler),
+        )
+        .route(
+            routes["music"]["add_album_tags"].path,
+            post(music::tags::add_album_tags_handler),
+        )
+        .route(
+            routes["music"]["remove_album_tags"].path,
+            post(music::tags::remove_album_tags_handler),
+        )
+        .route(
+            routes["music"]["replace_album_tags"].path,
+            post(music::tags::replace_album_tags_handler),
         )
         // musicbrainz routes
         .route(

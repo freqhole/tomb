@@ -43,3 +43,41 @@ pub struct GenreStat {
     pub artist_count: i64,
     pub total_duration: i64,
 }
+
+/// request for querying sub-genres by name
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct QuerySubGenresRequest {
+    pub search: String,
+}
+
+/// request for getting a sub-genre by id
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetSubGenreRequest {
+    pub id: String,
+}
+
+/// request for deleting a sub-genre
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteSubGenreRequest {
+    pub id: String,
+}
+
+/// request for listing sub-genres for a parent genre
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListSubGenresForGenreRequest {
+    pub parent_genre_id: String,
+}
+
+/// request for finding or creating a sub-genre
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FindOrCreateSubGenreRequest {
+    pub name: String,
+    pub parent_genre_id: String,
+}
+
+/// response for find_or_create_sub_genre (returns sub-genre and created flag)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FindOrCreateSubGenreResponse {
+    pub sub_genre: SubGenre,
+    pub created: bool,
+}
