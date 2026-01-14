@@ -156,6 +156,44 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["list_jobs"].path,
             post(jobs::list_jobs_handler),
         )
+        // analytics routes
+        .route(
+            routes["music"]["record_play"].path,
+            post(music::analytics::record_play_handler),
+        )
+        .route(
+            routes["music"]["listening_history"].path,
+            post(music::analytics::listening_history_handler),
+        )
+        .route(
+            routes["music"]["song_analytics"].path,
+            post(music::analytics::song_analytics_handler),
+        )
+        .route(
+            routes["music"]["top_songs"].path,
+            post(music::analytics::top_songs_handler),
+        )
+        .route(
+            routes["music"]["top_albums"].path,
+            post(music::analytics::top_albums_handler),
+        )
+        .route(
+            routes["music"]["top_artists"].path,
+            post(music::analytics::top_artists_handler),
+        )
+        .route(
+            routes["music"]["activity_feed"].path,
+            post(music::analytics::feed_handler),
+        )
+        // musicbrainz routes
+        .route(
+            routes["music"]["search_musicbrainz_releases"].path,
+            post(music::musicbrainz::search_releases_handler),
+        )
+        .route(
+            routes["music"]["get_musicbrainz_release"].path,
+            post(music::musicbrainz::get_release_handler),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)

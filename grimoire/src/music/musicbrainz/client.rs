@@ -3,9 +3,9 @@
 //! Provides HTTP client implementation for MusicBrainz API with rate limiting,
 //! error handling, and response parsing.
 
+use crate::config::MusicBrainzConfig;
 use crate::error::GrimoireError;
 use crate::music::musicbrainz::{
-    config::MusicBrainzConfig,
     models::{CoverArt, CoverArtResponse, Recording, Release, ReleaseGroup, SearchResult},
     queries::{RecordingSearchQuery, ReleaseGroupSearchQuery, ReleaseSearchQuery},
     rate_limiter::RateLimiter,
@@ -17,35 +17,35 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, warn};
 
+// hardcoded sensible defaults for musicbrainz api
+const USER_AGENT: &str = "freqhole/1.0 (https://github.com/freqhole/tomb)";
+const RATE_LIMIT_MS: u64 = 1000; // 1 second between requests (musicbrainz requirement)
+const BASE_URL: &str = "https://musicbrainz.org/ws/2";
+const COVER_ART_URL: &str = "https://coverartarchive.org";
+const TIMEOUT_SECONDS: u64 = 30;
+const MAX_RETRIES: u32 = 3;
+
 /// MusicBrainz API client
 #[derive(Debug, Clone)]
 pub struct MusicBrainzClient {
     /// HTTP client
     client: Client,
-
-    /// Client configuration
     config: Arc<MusicBrainzConfig>,
-
     /// Rate limiter for API compliance
     rate_limiter: RateLimiter,
 }
 
 impl MusicBrainzClient {
-    /// Create new MusicBrainz client
+    /// Create new MusicBrainz client with sensible defaults
     pub fn new(config: MusicBrainzConfig) -> Result<Self, GrimoireError> {
-        // Validate configuration
-        config
-            .validate()
-            .map_err(|e| GrimoireError::MusicBrainzConfig(e))?;
-
         // Build HTTP client with timeout
         let client = Client::builder()
-            .timeout(config.timeout_duration())
-            .user_agent(&config.user_agent)
+            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
+            .user_agent(USER_AGENT)
             .build()
             .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
 
-        let rate_limiter = RateLimiter::new(config.rate_limit_duration());
+        let rate_limiter = RateLimiter::new(Duration::from_millis(RATE_LIMIT_MS));
 
         Ok(Self {
             client,
@@ -59,7 +59,7 @@ impl MusicBrainzClient {
         &self,
         query: &RecordingSearchQuery,
     ) -> GrimoireResponse<SearchResult<Recording>> {
-        let url = format!("{}/recording", self.config.base_url);
+        let url = format!("{}/recording", BASE_URL);
         let query_string = query.to_query_string();
 
         debug!("Searching recordings: {}", query_string);
@@ -75,7 +75,7 @@ impl MusicBrainzClient {
         &self,
         query: &ReleaseSearchQuery,
     ) -> GrimoireResponse<SearchResult<Release>> {
-        let url = format!("{}/release", self.config.base_url);
+        let url = format!("{}/release", BASE_URL);
         let query_string = query.to_query_string();
 
         debug!("Searching releases: {}", query_string);
@@ -91,7 +91,7 @@ impl MusicBrainzClient {
         &self,
         query: &ReleaseGroupSearchQuery,
     ) -> GrimoireResponse<SearchResult<ReleaseGroup>> {
-        let url = format!("{}/release-group", self.config.base_url);
+        let url = format!("{}/release-group", BASE_URL);
         let query_string = query.to_query_string();
 
         debug!("Searching release groups: {}", query_string);
@@ -104,7 +104,7 @@ impl MusicBrainzClient {
 
     /// Get specific recording by MusicBrainz ID
     pub async fn get_recording(&self, mbid: &str) -> GrimoireResponse<Recording> {
-        let url = format!("{}/recording/{}", self.config.base_url, mbid);
+        let url = format!("{}/recording/{}", BASE_URL, mbid);
         let query_string = "fmt=json&inc=artist-credits+releases+tags";
 
         debug!("Fetching recording: {}", mbid);
@@ -117,7 +117,7 @@ impl MusicBrainzClient {
 
     /// Get specific release by MusicBrainz ID
     pub async fn get_release(&self, mbid: &str) -> GrimoireResponse<Release> {
-        let url = format!("{}/release/{}", self.config.base_url, mbid);
+        let url = format!("{}/release/{}", BASE_URL, mbid);
         let query_string = "fmt=json&inc=artist-credits+recordings+media+release-groups";
 
         debug!("Fetching release: {}", mbid);
@@ -180,7 +180,7 @@ impl MusicBrainzClient {
 
     /// Get cover art for a release
     pub async fn get_cover_art(&self, mbid: &str) -> GrimoireResponse<Vec<CoverArt>> {
-        let url = format!("{}/release/{}", self.config.cover_art_url, mbid);
+        let url = format!("{}/release/{}", COVER_ART_URL, mbid);
 
         debug!("Fetching cover art: {}", mbid);
 
@@ -249,12 +249,9 @@ impl MusicBrainzClient {
 
             match self.handle_response(response).await {
                 Ok(result) => return Ok(result),
-                Err(GrimoireError::MusicBrainzRateLimit) if retries < self.config.max_retries => {
+                Err(GrimoireError::MusicBrainzRateLimit) if retries < MAX_RETRIES => {
                     retries += 1;
-                    warn!(
-                        "Rate limit exceeded, retry {} of {}",
-                        retries, self.config.max_retries
-                    );
+                    warn!("Rate limit exceeded, retry {} of {}", retries, MAX_RETRIES);
 
                     // Exponential backoff
                     let backoff = Duration::from_secs(2_u64.pow(retries));
@@ -327,12 +324,7 @@ mod tests {
     use super::*;
 
     fn test_config() -> MusicBrainzConfig {
-        MusicBrainzConfig {
-            enabled: true,
-            user_agent: "test-client/1.0".to_string(),
-            rate_limit_ms: 100, // Faster for tests (but normally should be 1000)
-            ..Default::default()
-        }
+        MusicBrainzConfig { enabled: true }
     }
 
     #[test]
@@ -349,14 +341,6 @@ mod tests {
         let client = MusicBrainzClient::new(config).unwrap();
 
         assert!(!client.config.enabled);
-    }
-
-    #[test]
-    fn test_invalid_config() {
-        let mut config = test_config();
-        config.user_agent = "".to_string();
-        let result = MusicBrainzClient::new(config);
-        assert!(result.is_err());
     }
 
     #[tokio::test]

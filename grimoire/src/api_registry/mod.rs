@@ -125,6 +125,20 @@ pub mod type_registry {
     use crate::music::entities::songs::Song;
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
 
+    // analytics types
+    use crate::music::analytics::{
+        FeedItem, FeedItemType, FeedRequest, FeedResponse, ListeningHistoryItem,
+        ListeningHistoryRequest, ListeningHistoryResponse, OverviewStats, PlayAnalytics,
+        RecordPlayRequest, SessionSong, SessionSummary, SongAnalyticsRequest, TopAlbum,
+        TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong, TopSongsRequest, UserStats,
+    };
+
+    // musicbrainz types
+    use crate::music::musicbrainz::{
+        GetCoverArtRequest, GetRecordingRequest, GetReleaseRequest, SearchRecordingsRequest,
+        SearchReleasesRequest,
+    };
+
     // jobs types
     use crate::jobs::{CreateJobRequest, GetJobRequest, Job, ListJobsRequest};
 
@@ -204,6 +218,83 @@ pub mod type_registry {
 
         gen.add_schema::<ListJobsRequest>("ListJobsRequest");
         registered.insert("ListJobsRequest".to_string());
+
+        // analytics types
+        gen.add_schema::<RecordPlayRequest>("RecordPlayRequest");
+        registered.insert("RecordPlayRequest".to_string());
+
+        gen.add_schema::<ListeningHistoryRequest>("ListeningHistoryRequest");
+        registered.insert("ListeningHistoryRequest".to_string());
+
+        gen.add_schema::<ListeningHistoryResponse>("ListeningHistoryResponse");
+        registered.insert("ListeningHistoryResponse".to_string());
+
+        gen.add_schema::<ListeningHistoryItem>("ListeningHistoryItem");
+        registered.insert("ListeningHistoryItem".to_string());
+
+        gen.add_schema::<SongAnalyticsRequest>("SongAnalyticsRequest");
+        registered.insert("SongAnalyticsRequest".to_string());
+
+        gen.add_schema::<PlayAnalytics>("PlayAnalytics");
+        registered.insert("PlayAnalytics".to_string());
+
+        gen.add_schema::<TopSongsRequest>("TopSongsRequest");
+        registered.insert("TopSongsRequest".to_string());
+
+        gen.add_schema::<TopSong>("TopSong");
+        registered.insert("TopSong".to_string());
+
+        gen.add_schema::<TopAlbumsRequest>("TopAlbumsRequest");
+        registered.insert("TopAlbumsRequest".to_string());
+
+        gen.add_schema::<TopAlbum>("TopAlbum");
+        registered.insert("TopAlbum".to_string());
+
+        gen.add_schema::<TopArtistsRequest>("TopArtistsRequest");
+        registered.insert("TopArtistsRequest".to_string());
+
+        gen.add_schema::<TopArtist>("TopArtist");
+        registered.insert("TopArtist".to_string());
+
+        gen.add_schema::<FeedRequest>("FeedRequest");
+        registered.insert("FeedRequest".to_string());
+
+        gen.add_schema::<FeedResponse>("FeedResponse");
+        registered.insert("FeedResponse".to_string());
+
+        gen.add_schema::<FeedItem>("FeedItem");
+        registered.insert("FeedItem".to_string());
+
+        gen.add_schema::<FeedItemType>("FeedItemType");
+        registered.insert("FeedItemType".to_string());
+
+        gen.add_schema::<SessionSummary>("SessionSummary");
+        registered.insert("SessionSummary".to_string());
+
+        gen.add_schema::<SessionSong>("SessionSong");
+        registered.insert("SessionSong".to_string());
+
+        gen.add_schema::<OverviewStats>("OverviewStats");
+        registered.insert("OverviewStats".to_string());
+
+        gen.add_schema::<UserStats>("UserStats");
+        registered.insert("UserStats".to_string());
+
+        // musicbrainz types
+        gen.add_schema::<SearchReleasesRequest>("SearchReleasesRequest");
+        registered.insert("SearchReleasesRequest".to_string());
+
+        gen.add_schema::<GetReleaseRequest>("GetReleaseRequest");
+        registered.insert("GetReleaseRequest".to_string());
+
+        gen.add_schema::<SearchRecordingsRequest>("SearchRecordingsRequest");
+        registered.insert("SearchRecordingsRequest".to_string());
+
+        gen.add_schema::<GetRecordingRequest>("GetRecordingRequest");
+        registered.insert("GetRecordingRequest".to_string());
+
+        gen.add_schema::<GetCoverArtRequest>("GetCoverArtRequest");
+        registered.insert("GetCoverArtRequest".to_string());
 
         gen.add_schema::<FetchMediaParams>("FetchMediaParams");
         registered.insert("FetchMediaParams".to_string());

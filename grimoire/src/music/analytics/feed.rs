@@ -8,9 +8,10 @@
 use crate::database;
 use crate::GrimoireResponse;
 use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
 
 /// Type of feed item
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedItemType {
     /// A song was recently played
@@ -22,7 +23,7 @@ pub enum FeedItemType {
 }
 
 /// A single item in the activity feed
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct FeedItem {
     /// Unique identifier for this feed item
     pub id: String,

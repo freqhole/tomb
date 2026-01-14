@@ -2,10 +2,9 @@
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
+use grimoire::config::MusicBrainzConfig;
 use grimoire::error::GrimoireError;
-use grimoire::music::musicbrainz::{
-    MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
-};
+use grimoire::music::musicbrainz::{MusicBrainzClient, RecordingSearchQuery, ReleaseSearchQuery};
 
 #[derive(Subcommand)]
 pub enum MusicBrainzAction {
@@ -66,11 +65,8 @@ pub enum MusicBrainzAction {
 
 /// Handle MusicBrainz commands
 pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<serde_json::Value> {
-    // Create client with config (enabled for testing)
-    let mut config = MusicBrainzConfig::default();
-    config.enabled = true;
-
-    let client = match MusicBrainzClient::new(config) {
+    // Create client with config enabled
+    let client = match MusicBrainzClient::new(MusicBrainzConfig { enabled: true }) {
         Ok(c) => c,
         Err(e) => {
             return CommandOutput::failure(
@@ -230,12 +226,6 @@ pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<serde_js
             let config = client.config();
             let config_info = serde_json::json!({
                 "enabled": config.enabled,
-                "base_url": config.base_url,
-                "cover_art_url": config.cover_art_url,
-                "rate_limit_ms": config.rate_limit_ms,
-                "user_agent": config.user_agent,
-                "can_make_request": client.can_make_request().await,
-                "time_until_next_request_ms": client.time_until_next_request().await.as_millis(),
             });
 
             let message = "MusicBrainz configuration is valid";

@@ -6,9 +6,10 @@
 use crate::database;
 use crate::response::GrimoireResponse;
 use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
 
 /// Overview statistics for the entire system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct OverviewStats {
     /// Total number of songs in library
     pub total_songs: i64,
@@ -29,7 +30,7 @@ pub struct OverviewStats {
 }
 
 /// Top song with play statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct TopSong {
     /// Song ID
     pub song_id: String,
@@ -50,7 +51,7 @@ pub struct TopSong {
 }
 
 /// Top album with aggregated play statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct TopAlbum {
     /// Album ID
     pub album_id: String,
@@ -69,7 +70,7 @@ pub struct TopAlbum {
 }
 
 /// Top artist with aggregated play statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct TopArtist {
     /// Artist ID
     pub artist_id: String,
@@ -86,7 +87,7 @@ pub struct TopArtist {
 }
 
 /// User statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UserStats {
     /// User ID
     pub user_id: String,

@@ -1,6 +1,7 @@
 //! Music-specific analytics models
 
 use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
 
 /// Music-specific play event that links to songs, albums, artists
 ///
@@ -76,7 +77,7 @@ impl MusicPlayEvent {
 }
 
 /// Aggregated play analytics for a song
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct PlayAnalytics {
     /// Song ID
     pub song_id: String,
@@ -103,7 +104,7 @@ pub struct PlayAnalytics {
 }
 
 /// Listening history item with enriched song metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListeningHistoryItem {
     /// Play event ID
     pub id: String,
@@ -148,7 +149,7 @@ pub struct ListeningHistoryItem {
 }
 
 /// Summary of a listening session
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SessionSummary {
     /// Session ID
     pub session_id: String,
@@ -169,7 +170,7 @@ pub struct SessionSummary {
 }
 
 /// Song played in a session
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SessionSong {
     /// Song ID
     pub song_id: String,

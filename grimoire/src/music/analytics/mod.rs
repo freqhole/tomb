@@ -33,6 +33,7 @@
 //! ```
 
 pub mod admin;
+pub mod api_types;
 pub mod events;
 pub mod feed;
 pub mod models;
@@ -62,4 +63,10 @@ pub use feed::{
 pub use admin::{
     get_all_user_stats, get_overview_stats, get_top_albums, get_top_artists, get_top_songs,
     get_user_stats, OverviewStats, TopAlbum, TopArtist, TopSong, UserStats,
+};
+
+// Re-export api request/response types
+pub use api_types::{
+    FeedRequest, FeedResponse, ListeningHistoryRequest, ListeningHistoryResponse,
+    RecordPlayRequest, SongAnalyticsRequest, TopAlbumsRequest, TopArtistsRequest, TopSongsRequest,
 };
