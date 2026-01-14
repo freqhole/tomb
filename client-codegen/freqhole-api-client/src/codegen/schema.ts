@@ -646,6 +646,189 @@ export const PlaylistQueryResultSchema = z.object({
 });
 export type PlaylistQueryResult = z.infer<typeof PlaylistQueryResultSchema>;
 
+export const PlaylistSongResultSchema = z.object({
+  details: z.object({
+  song: z.object({
+  id: z.string(),
+  media_blob_id: z.string(),
+  thumbnail_blob_id: z.string().nullable(),
+  waveform_blob_id: z.string().nullable(),
+  title: z.string(),
+  track_number: z.number(),
+  disc_number: z.number(),
+  duration: z.number().nullable(),
+  year: z.number().nullable(),
+  bpm: z.number().nullable(),
+  key_signature: z.string().nullable(),
+  metadata: z.string().nullable(),
+  lyrics: z.string().nullable(),
+  processing_status: z.string().nullable(),
+  processing_notes: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullable(),
+  release_date_precision: z.string().nullable(),
+  label: z.string().nullable(),
+  genre_id: z.string().nullable(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullable(),
+  media_blob: z.object({
+  id: z.string(),
+  sha256: z.string(),
+  size: z.number().nullable(),
+  mime: z.string().nullable(),
+  source_client_id: z.string().nullable(),
+  parent_blob_id: z.string().nullable(),
+  blob_type: z.string(),
+  metadata: z.any(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  relevance_score: z.number().nullable(),
+  snippet: z.string().nullable(),
+  is_favorite: z.boolean().nullable(),
+  rating: z.number().nullable(),
+  favorited_at: z.number().nullable(),
+  rating_created_at: z.number().nullable(),
+  artist_total_song_count: z.number().nullable(),
+  artist_total_album_count: z.number().nullable(),
+  artist_total_duration: z.number().nullable()
+}),
+  position: z.number(),
+  added_at: z.number()
+});
+export type PlaylistSongResult = z.infer<typeof PlaylistSongResultSchema>;
+
+export const PlaylistSongsQueryResultSchema = z.object({
+  items: z.array(z.object({
+  details: z.object({
+  song: z.object({
+  id: z.string(),
+  media_blob_id: z.string(),
+  thumbnail_blob_id: z.string().nullable(),
+  waveform_blob_id: z.string().nullable(),
+  title: z.string(),
+  track_number: z.number(),
+  disc_number: z.number(),
+  duration: z.number().nullable(),
+  year: z.number().nullable(),
+  bpm: z.number().nullable(),
+  key_signature: z.string().nullable(),
+  metadata: z.string().nullable(),
+  lyrics: z.string().nullable(),
+  processing_status: z.string().nullable(),
+  processing_notes: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullable(),
+  release_date_precision: z.string().nullable(),
+  label: z.string().nullable(),
+  genre_id: z.string().nullable(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullable(),
+  media_blob: z.object({
+  id: z.string(),
+  sha256: z.string(),
+  size: z.number().nullable(),
+  mime: z.string().nullable(),
+  source_client_id: z.string().nullable(),
+  parent_blob_id: z.string().nullable(),
+  blob_type: z.string(),
+  metadata: z.any(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  relevance_score: z.number().nullable(),
+  snippet: z.string().nullable(),
+  is_favorite: z.boolean().nullable(),
+  rating: z.number().nullable(),
+  favorited_at: z.number().nullable(),
+  rating_created_at: z.number().nullable(),
+  artist_total_song_count: z.number().nullable(),
+  artist_total_album_count: z.number().nullable(),
+  artist_total_duration: z.number().nullable()
+}),
+  position: z.number(),
+  added_at: z.number()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullable()
+});
+export type PlaylistSongsQueryResult = z.infer<typeof PlaylistSongsQueryResultSchema>;
+
 export const QueryParamsSchema = z.object({
   q: z.string().nullable(),
   search_fields: z.array(z.string()).nullable(),
@@ -659,6 +842,16 @@ export const QueryParamsSchema = z.object({
   min_rating: z.number().nullable()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
+
+export const QueryPlaylistSongsRequestSchema = z.object({
+  playlist_id: z.string(),
+  q: z.string().nullable(),
+  sort_by: z.string().nullable(),
+  sort_direction: z.string().nullable(),
+  limit: z.number().nullable(),
+  offset: z.number().nullable()
+});
+export type QueryPlaylistSongsRequest = z.infer<typeof QueryPlaylistSongsRequestSchema>;
 
 export const QuerySubGenresRequestSchema = z.object({
   search: z.string()

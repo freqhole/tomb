@@ -5,7 +5,10 @@ use axum::{
     Json,
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
-use grimoire::music::crud::{query_playlists, QueryParams};
+use grimoire::music::crud::{
+    query_playlist_songs, query_playlists, PlaylistSongsQueryResult, QueryParams,
+    QueryPlaylistSongsRequest,
+};
 use grimoire::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, delete_playlist, get_playlist,
     remove_playlist_thumbnail, remove_songs_from_playlist, update_playlist, update_songs_position,
@@ -208,6 +211,51 @@ pub async fn reorder_songs_handler(
         .data
         .map(|_| Json(EmptyResponse::ok()))
         .ok_or_else(|| ApiError::Internal(response.message))
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "query_playlist_songs",
+        path: "/api/playlists/songs",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryPlaylistSongsRequest",
+        response_type: "PlaylistSongsQueryResult",
+    }
+}
+
+/// query playlist songs with full metadata
+///
+/// POST /api/playlists/songs
+pub async fn query_playlist_songs_handler(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Json(req): Json<QueryPlaylistSongsRequest>,
+) -> Result<Json<PlaylistSongsQueryResult>, ApiError> {
+    tracing::debug!(
+        "query_playlist_songs: playlist_id={}, q={:?}",
+        req.playlist_id,
+        req.q
+    );
+
+    let params = QueryParams {
+        q: req.q,
+        sort_by: req.sort_by,
+        sort_direction: req.sort_direction,
+        limit: req.limit.map(|l| l as u32),
+        offset: req.offset.map(|o| o as u32),
+        ..Default::default()
+    };
+
+    let response = query_playlist_songs(&req.playlist_id, params).await;
+
+    if !response.success {
+        return Err(ApiError::Internal(response.message));
+    }
+
+    let data = response.data.map(|qr| qr.into());
+
+    data.ok_or_else(|| ApiError::Internal("No data returned".to_string()))
+        .map(Json)
 }
 
 inventory::submit! {

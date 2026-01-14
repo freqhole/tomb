@@ -61,6 +61,10 @@ pub fn build_router() -> Router<AppState> {
             post(music::playlists::remove_thumbnail_handler),
         )
         .route(
+            routes["music"]["query_playlist_songs"].path,
+            post(music::playlists::query_playlist_songs_handler),
+        )
+        .route(
             routes["music"]["create_artist"].path,
             post(music::artists::create_artist_handler),
         )

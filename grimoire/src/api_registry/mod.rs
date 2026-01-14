@@ -109,7 +109,8 @@ pub mod type_registry {
         DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest, DeleteArtistResponse,
         DeleteSongRequest, DeleteSongResponse, GenreQueryResult, GenresQueryResult,
         GetAlbumRequest, GetArtistRequest, GetGenreRequest, GetRatingStatsRequest,
-        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, QueryParams, RatingStats,
+        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult,
+        PlaylistSongsQueryResult, QueryParams, QueryPlaylistSongsRequest, RatingStats,
         RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
         SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
         UpdateSongsResult,
@@ -190,6 +191,15 @@ pub mod type_registry {
 
         gen.add_schema::<CreatePlaylistRequest>("CreatePlaylistRequest");
         registered.insert("CreatePlaylistRequest".to_string());
+
+        gen.add_schema::<PlaylistSongResult>("PlaylistSongResult");
+        registered.insert("PlaylistSongResult".to_string());
+
+        gen.add_schema::<PlaylistSongsQueryResult>("PlaylistSongsQueryResult");
+        registered.insert("PlaylistSongsQueryResult".to_string());
+
+        gen.add_schema::<QueryPlaylistSongsRequest>("QueryPlaylistSongsRequest");
+        registered.insert("QueryPlaylistSongsRequest".to_string());
 
         gen.add_schema::<UpdatePlaylistRequest>("UpdatePlaylistRequest");
         registered.insert("UpdatePlaylistRequest".to_string());

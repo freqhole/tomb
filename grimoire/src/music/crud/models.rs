@@ -298,11 +298,46 @@ pub struct PlaylistQueryResult {
 }
 
 /// song within a playlist context, with playlist-specific metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct PlaylistSongResult {
     pub details: SongQueryResult,
     pub position: i64, // Position in playlist (for ordering)
     pub added_at: i64, // When song was added to playlist (unix timestamp)
+}
+
+/// request for querying playlist songs with metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct QueryPlaylistSongsRequest {
+    pub playlist_id: String,
+    pub q: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_direction: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// concrete wrapper for QueryResult<PlaylistSongResult> for zod codegen
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PlaylistSongsQueryResult {
+    pub items: Vec<PlaylistSongResult>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl From<QueryResult<PlaylistSongResult>> for PlaylistSongsQueryResult {
+    fn from(qr: QueryResult<PlaylistSongResult>) -> Self {
+        Self {
+            items: qr.items,
+            total_count: qr.total_count,
+            has_more: qr.has_more,
+            offset: qr.offset,
+            limit: qr.limit,
+            query_time_ms: qr.query_time_ms,
+        }
+    }
 }
 
 // ============================================================================
