@@ -31,6 +31,16 @@ export const CreateArtistRequestSchema = z.object({
 });
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
+export const CreateJobRequestSchema = z.object({
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('ProcessFile'), z.literal('ExtractMetadata'), z.literal('GenerateThumbnail'), z.literal('GenerateWaveform'), z.literal('FetchMedia')]),
+  session_id: z.string().nullable(),
+  parameters: z.any(),
+  max_retries: z.number().nullable(),
+  scheduled_at: z.number().nullable(),
+  created_by: z.string().nullable()
+});
+export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
+
 export const CreatePlaylistRequestSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
@@ -38,6 +48,39 @@ export const CreatePlaylistRequestSchema = z.object({
   created_by_id: z.string().nullable()
 });
 export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
+
+export const FetchMediaParamsSchema = z.object({
+  url: z.string(),
+  user_id: z.string().nullable()
+});
+export type FetchMediaParams = z.infer<typeof FetchMediaParamsSchema>;
+
+export const FetchMediaResultSchema = z.object({
+  items_requested: z.number(),
+  items_downloaded: z.number(),
+  items_failed: z.number(),
+  media_blob_ids: z.array(z.string()),
+  song_ids: z.array(z.string()),
+  errors: z.array(z.string())
+});
+export type FetchMediaResult = z.infer<typeof FetchMediaResultSchema>;
+
+export const JobSchema = z.object({
+  id: z.string(),
+  session_id: z.string().nullable(),
+  job_type: z.string(),
+  status: z.string(),
+  parameters: z.string(),
+  result: z.string().nullable(),
+  retry_count: z.number(),
+  max_retries: z.number(),
+  scheduled_at: z.number(),
+  started_at: z.number().nullable(),
+  completed_at: z.number().nullable(),
+  error_message: z.string().nullable(),
+  created_by: z.string().nullable()
+});
+export type Job = z.infer<typeof JobSchema>;
 
 export const PlaylistSchema = z.object({
   id: z.string(),
@@ -97,6 +140,17 @@ export const RedeemInviteRequestSchema = z.object({
   username: z.string()
 });
 export type RedeemInviteRequest = z.infer<typeof RedeemInviteRequestSchema>;
+
+export const RegisterStartRequestSchema = z.object({
+  username: z.string(),
+  invite_code: z.string().nullable()
+});
+export type RegisterStartRequest = z.infer<typeof RegisterStartRequestSchema>;
+
+export const StartLoginRequestSchema = z.object({
+  username: z.string()
+});
+export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;
 
 export const WhoAmIResponseSchema = z.object({
   user_id: z.string(),

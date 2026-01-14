@@ -24,13 +24,15 @@ use crate::error::ApiError;
 
 #[cfg(feature = "webauthn")]
 use axum::{extract::Extension, response::IntoResponse, Json};
-#[cfg(feature = "webauthn")]
-use serde::Deserialize;
+
 #[cfg(feature = "webauthn")]
 use tower_sessions::Session;
 
 #[cfg(feature = "webauthn")]
 use crate::{auth::middleware::ValidatedOrigin, auth::session, state::AppState};
+
+#[cfg(feature = "webauthn")]
+use grimoire::users::{RegisterStartRequest, StartLoginRequest};
 
 /// webauthn state wrapper
 ///
@@ -203,13 +205,6 @@ impl FreqWebauthn {
 // webauthn HTTP handlers (only compiled with webauthn feature)
 // ============================================================================
 
-#[cfg(feature = "webauthn")]
-#[derive(Debug, Deserialize)]
-pub struct RegisterStartRequest {
-    pub username: String,
-    pub invite_code: Option<String>,
-}
-
 /// start webauthn registration - create challenge for new credential
 #[cfg(feature = "webauthn")]
 pub async fn register_start(
@@ -364,12 +359,9 @@ pub async fn login_start(
     Extension(state): Extension<AppState>,
     Extension(origin): Extension<ValidatedOrigin>,
     session: Session,
-    Json(request): Json<serde_json::Value>,
+    Json(request): Json<StartLoginRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let username = request
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::BadRequest("username required".to_string()))?;
+    let username = &request.username;
 
     // Look up user
     let user_service = grimoire::users::UserService::new();
@@ -522,7 +514,7 @@ inventory::submit! {
         path: "/api/auth/webauthn/login/start",
         method: Method::POST,
         domain: Domain::Auth,
-        request_type: "serde_json::Value",
+        request_type: "StartLoginRequest",
         response_type: "serde_json::Value",
     }
 }

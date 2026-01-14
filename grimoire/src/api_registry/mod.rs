@@ -94,10 +94,17 @@ pub mod type_registry {
         ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, WhoAmIResponse,
     };
 
+    // webauthn types
+    use crate::users::{RegisterStartRequest, StartLoginRequest};
+
     // music types
     use crate::music::crud::{PlaylistQueryResult, QueryParams};
     use crate::music::entities::artists::{Artist, CreateArtistRequest};
     use crate::music::entities::playlists::{CreatePlaylistRequest, Playlist};
+    use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
+
+    // jobs types
+    use crate::jobs::{CreateJobRequest, Job};
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
@@ -112,6 +119,13 @@ pub mod type_registry {
 
         gen.add_schema::<RedeemInviteRequest>("RedeemInviteRequest");
         registered.insert("RedeemInviteRequest".to_string());
+
+        // webauthn types
+        gen.add_schema::<RegisterStartRequest>("RegisterStartRequest");
+        registered.insert("RegisterStartRequest".to_string());
+
+        gen.add_schema::<StartLoginRequest>("StartLoginRequest");
+        registered.insert("StartLoginRequest".to_string());
 
         // music types
         gen.add_schema::<QueryParams>("QueryParams");
@@ -131,5 +145,18 @@ pub mod type_registry {
 
         gen.add_schema::<CreateArtistRequest>("CreateArtistRequest");
         registered.insert("CreateArtistRequest".to_string());
+
+        gen.add_schema::<FetchMediaParams>("FetchMediaParams");
+        registered.insert("FetchMediaParams".to_string());
+
+        gen.add_schema::<FetchMediaResult>("FetchMediaResult");
+        registered.insert("FetchMediaResult".to_string());
+
+        // jobs types
+        gen.add_schema::<CreateJobRequest>("CreateJobRequest");
+        registered.insert("CreateJobRequest".to_string());
+
+        gen.add_schema::<Job>("Job");
+        registered.insert("Job".to_string());
     }
 }

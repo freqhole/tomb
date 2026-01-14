@@ -3,9 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use zod_gen_derive::ZodSchema;
 
 /// Job types supported by the queue
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ZodSchema)]
 pub enum JobType {
     // Filesystem operations
     ScanDirectory,
@@ -101,7 +102,7 @@ impl JobSession {
 }
 
 /// Individual job within the queue
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ZodSchema)]
 pub struct Job {
     pub id: String,
     pub session_id: Option<String>,
@@ -154,7 +155,7 @@ pub struct CreateJobSessionRequest {
 }
 
 /// Request for creating a new individual job
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateJobRequest {
     pub job_type: JobType,
     pub session_id: Option<String>,

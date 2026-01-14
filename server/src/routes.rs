@@ -40,6 +40,15 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["create_artist"].path,
             post(music::artists::create_artist_handler),
         )
+        // fetch routes
+        .route(
+            routes["music"]["create_fetch_job"].path,
+            post(music::fetch::create_fetch_job),
+        )
+        .route(
+            routes["music"]["get_fetch_job"].path,
+            get(music::fetch::get_fetch_job),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)
