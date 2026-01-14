@@ -1,6 +1,7 @@
 //! route composition
 
 use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
+use grimoire::api_registry;
 
 use crate::{auth, music, state::AppState, static_files};
 
@@ -8,19 +9,36 @@ use crate::{auth, music, state::AppState, static_files};
 ///
 /// composes all route modules into a single router
 pub fn build_router() -> Router<AppState> {
+    let routes = api_registry::all_routes_map();
+
     // protected routes (require authentication)
     let protected_routes = Router::new()
-        .route("/auth/whoami", get(auth::handlers::whoami))
-        .route("/auth/logout", post(auth::handlers::logout))
-        .route("/auth/api-key/status", get(auth::handlers::api_key_status))
+        .route(routes["auth"]["whoami"].path, get(auth::handlers::whoami))
+        .route(routes["auth"]["logout"].path, post(auth::handlers::logout))
         .route(
-            "/auth/api-key/regenerate",
+            routes["auth"]["api_key_status"].path,
+            get(auth::handlers::api_key_status),
+        )
+        .route(
+            routes["auth"]["regenerate_api_key"].path,
             post(auth::handlers::regenerate_api_key),
         )
         // music routes
         .route(
-            "/api/playlists/list",
+            routes["music"]["list_playlists"].path,
             post(music::playlists::list_playlists),
+        )
+        .route(
+            routes["music"]["create_playlist"].path,
+            post(music::playlists::create_playlist_handler),
+        )
+        .route(
+            routes["music"]["get_playlist_by_id"].path,
+            get(music::playlists::get_playlist_by_id),
+        )
+        .route(
+            routes["music"]["create_artist"].path,
+            post(music::artists::create_artist_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
@@ -28,19 +46,19 @@ pub fn build_router() -> Router<AppState> {
     #[cfg(feature = "webauthn")]
     let webauthn_routes = Router::new()
         .route(
-            "/auth/webauthn/register/start",
+            routes["auth"]["register_start"].path,
             post(auth::handlers::register_start),
         )
         .route(
-            "/auth/webauthn/register/finish",
+            routes["auth"]["register_finish"].path,
             post(auth::handlers::register_finish),
         )
         .route(
-            "/auth/webauthn/login/start",
+            routes["auth"]["login_start"].path,
             post(auth::handlers::login_start),
         )
         .route(
-            "/auth/webauthn/login/finish",
+            routes["auth"]["login_finish"].path,
             post(auth::handlers::login_finish),
         )
         .layer(axum_middleware::from_fn(auth::middleware::validate_origin));
@@ -48,7 +66,10 @@ pub fn build_router() -> Router<AppState> {
     #[cfg(feature = "webauthn")]
     let router = Router::new()
         // public routes (no auth required)
-        .route("/auth/invite", post(auth::handlers::redeem_invite))
+        .route(
+            routes["auth"]["redeem_invite"].path,
+            post(auth::handlers::redeem_invite),
+        )
         // webauthn routes (require origin validation)
         .merge(webauthn_routes)
         // protected routes
@@ -57,7 +78,10 @@ pub fn build_router() -> Router<AppState> {
     #[cfg(not(feature = "webauthn"))]
     let router = Router::new()
         // public routes (no auth required)
-        .route("/auth/invite", post(auth::handlers::redeem_invite))
+        .route(
+            routes["auth"]["redeem_invite"].path,
+            post(auth::handlers::redeem_invite),
+        )
         // protected routes
         .merge(protected_routes);
 

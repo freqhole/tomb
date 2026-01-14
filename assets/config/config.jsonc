@@ -219,7 +219,7 @@
       // Enable serving static files (HTML, JS, CSS, etc.)
       "enabled": true,
       // Directory to serve from (relative to data_dir or absolute path)
-      "directory": "./assets"
+      "directory": "/Users/edward/src/github/freqhole/tomb/assets"
     },
 
     // CORS configuration

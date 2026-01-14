@@ -2,9 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use zod_gen_derive::ZodSchema;
 
 /// artist model (normalized table)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Artist {
     pub id: String,
     pub name: String,
@@ -17,7 +18,7 @@ pub struct Artist {
 }
 
 /// request for creating a new artist
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateArtistRequest {
     pub name: String,
     pub created_by: Option<String>,

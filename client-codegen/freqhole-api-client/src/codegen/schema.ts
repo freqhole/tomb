@@ -13,6 +13,32 @@ export const ApiKeyStatusResponseSchema = z.object({
 });
 export type ApiKeyStatusResponse = z.infer<typeof ApiKeyStatusResponseSchema>;
 
+export const ArtistSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+});
+export type Artist = z.infer<typeof ArtistSchema>;
+
+export const CreateArtistRequestSchema = z.object({
+  name: z.string(),
+  created_by: z.string().nullable()
+});
+export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
+
+export const CreatePlaylistRequestSchema = z.object({
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  is_public: z.boolean().nullable(),
+  created_by_id: z.string().nullable()
+});
+export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
+
 export const PlaylistSchema = z.object({
   id: z.string(),
   title: z.string(),

@@ -31,7 +31,7 @@ pub async fn whoami(Extension(user): Extension<AuthenticatedUser>) -> ApiResult<
 inventory::submit! {
     RouteInfo {
         name: "whoami",
-        path: "/auth/whoami",
+        path: "/api/auth/whoami",
         method: Method::GET,
         domain: Domain::Auth,
         request_type: "String",
@@ -52,7 +52,7 @@ pub async fn logout(session: Session) -> ApiResult<impl IntoResponse> {
 inventory::submit! {
     RouteInfo {
         name: "logout",
-        path: "/auth/logout",
+        path: "/api/auth/logout",
         method: Method::POST,
         domain: Domain::Auth,
         request_type: "String",
@@ -101,7 +101,7 @@ pub async fn api_key_status(
 inventory::submit! {
     RouteInfo {
         name: "regenerate_api_key",
-        path: "/auth/api-key/regenerate",
+        path: "/api/auth/api-key/regenerate",
         method: Method::POST,
         domain: Domain::Auth,
         request_type: "String",
@@ -112,7 +112,7 @@ inventory::submit! {
 inventory::submit! {
     RouteInfo {
         name: "api_key_status",
-        path: "/auth/api-key/status",
+        path: "/api/auth/api-key/status",
         method: Method::GET,
         domain: Domain::Auth,
         request_type: "String",
@@ -202,7 +202,7 @@ pub async fn redeem_invite(
 inventory::submit! {
     RouteInfo {
         name: "redeem_invite",
-        path: "/auth/invite",
+        path: "/api/auth/invite",
         method: Method::POST,
         domain: Domain::Auth,
         request_type: "RedeemInviteRequest",

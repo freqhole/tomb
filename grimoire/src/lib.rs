@@ -27,7 +27,7 @@ pub use dbinfo::{
 };
 pub use error::{ErrorDetail, GrimoireError, GrimoireResult};
 pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
-pub use music::{Album, Artist, Song};
+pub use music::entities::{albums::Album, artists::Artist, songs::Song};
 pub use response::GrimoireResponse;
 pub use users::models::AuthResult;
 pub use users::{

@@ -24,7 +24,7 @@ pub struct Playlist {
 }
 
 /// request for creating a new playlist
-#[derive(Debug, Clone, Serialize, Deserialize, Parser)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, Parser)]
 pub struct CreatePlaylistRequest {
     /// Playlist title
     #[arg(long)]

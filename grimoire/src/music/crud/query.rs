@@ -9,8 +9,7 @@ use crate::music::crud::models::{
     AlbumQueryResult, ArtistQueryResult, GenreQueryResult, QueryParams, QueryResult,
     SongQueryResult,
 };
-use crate::music::entities::{Album, Artist, Song};
-use crate::music::Genre;
+use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
 use crate::response::GrimoireResponse;
 
 // Table identifiers for type-safe queries

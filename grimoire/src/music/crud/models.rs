@@ -5,7 +5,12 @@ use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::MediaBlob;
-use crate::music::{Album, Artist, Genre, Song};
+use crate::music::entities::{
+    albums::Album,
+    artists::Artist,
+    genres::{Genre, SubGenre},
+    songs::Song,
+};
 
 /// request for importing a song with all metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,7 +581,7 @@ pub struct UpdateSongsResult {
     pub artist: Option<Artist>,
     pub album: Option<Album>,
     pub genre: Option<Genre>,
-    pub sub_genre: Option<crate::music::SubGenre>,
+    pub sub_genre: Option<SubGenre>,
     pub thumbnail_blob_id: Option<String>,
     pub tags_modified: bool,
 }

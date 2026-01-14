@@ -63,11 +63,21 @@ pub fn all_routes() -> Vec<RouteInfo> {
         .collect()
 }
 
-pub fn all_routes_map() -> std::collections::HashMap<&'static str, RouteInfo> {
-    inventory::iter::<RouteInfo>
-        .into_iter()
-        .map(|r| (r.name, r.clone()))
-        .collect()
+pub fn all_routes_map(
+) -> std::collections::HashMap<&'static str, std::collections::HashMap<&'static str, RouteInfo>> {
+    let mut map: std::collections::HashMap<
+        &'static str,
+        std::collections::HashMap<&'static str, RouteInfo>,
+    > = std::collections::HashMap::new();
+
+    for route in inventory::iter::<RouteInfo> {
+        let domain_key = route.domain.as_str();
+        map.entry(domain_key)
+            .or_insert_with(std::collections::HashMap::new)
+            .insert(route.name, route.clone());
+    }
+
+    map
 }
 
 pub mod type_registry {
@@ -79,28 +89,47 @@ pub mod type_registry {
     use std::collections::HashSet;
     use zod_gen::ZodGenerator;
 
+    // auth types
+    use crate::users::{
+        ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, WhoAmIResponse,
+    };
+
+    // music types
+    use crate::music::crud::{PlaylistQueryResult, QueryParams};
+    use crate::music::entities::artists::{Artist, CreateArtistRequest};
+    use crate::music::entities::playlists::{CreatePlaylistRequest, Playlist};
+
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
-        gen.add_schema::<crate::users::WhoAmIResponse>("WhoAmIResponse");
+        gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
         registered.insert("WhoAmIResponse".to_string());
 
-        gen.add_schema::<crate::users::ApiKeyStatusResponse>("ApiKeyStatusResponse");
+        gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
 
-        gen.add_schema::<crate::users::ApiKeyRegenerateResponse>("ApiKeyRegenerateResponse");
+        gen.add_schema::<ApiKeyRegenerateResponse>("ApiKeyRegenerateResponse");
         registered.insert("ApiKeyRegenerateResponse".to_string());
 
-        gen.add_schema::<crate::users::RedeemInviteRequest>("RedeemInviteRequest");
+        gen.add_schema::<RedeemInviteRequest>("RedeemInviteRequest");
         registered.insert("RedeemInviteRequest".to_string());
 
         // music types
-        gen.add_schema::<crate::music::crud::QueryParams>("QueryParams");
+        gen.add_schema::<QueryParams>("QueryParams");
         registered.insert("QueryParams".to_string());
 
-        gen.add_schema::<crate::music::Playlist>("Playlist");
+        gen.add_schema::<Playlist>("Playlist");
         registered.insert("Playlist".to_string());
 
-        gen.add_schema::<crate::music::crud::PlaylistQueryResult>("PlaylistQueryResult");
+        gen.add_schema::<PlaylistQueryResult>("PlaylistQueryResult");
         registered.insert("PlaylistQueryResult".to_string());
+
+        gen.add_schema::<CreatePlaylistRequest>("CreatePlaylistRequest");
+        registered.insert("CreatePlaylistRequest".to_string());
+
+        gen.add_schema::<Artist>("Artist");
+        registered.insert("Artist".to_string());
+
+        gen.add_schema::<CreateArtistRequest>("CreateArtistRequest");
+        registered.insert("CreateArtistRequest".to_string());
     }
 }

@@ -1,5 +1,20 @@
 # server refactor plan
 
+## current status & next steps
+
+**phase 4 complete** ✓ - pattern validated with 3 routes, codegen working, architecture decisions made
+
+**next priorities**:
+
+1. static file serving - reuse legacyserver code for testing webapp
+2. fetch migration - move download/yt-dlp to grimoire as `fetch_music`
+3. rapid route implementation - remaining ~35 music routes
+
+**reference docs**:
+
+- `docs/HOW_TO_ADD_FEATURE.md` - end-to-end guide for new features
+- `docs/server-refactor/GRIMOIRE_TO_SERVER_ROUTES.md` - route checklist
+
 ## executive summary
 
 complete rewrite of server package using refactored grimoire library. legacy server has ~60+ routes with mixed concerns (websockets, sync, photos, notifications). new server focuses exclusively on music domain with ~35-40 essential http routes.
@@ -25,13 +40,14 @@ complete rewrite of server package using refactored grimoire library. legacy ser
 
 **implementation workflow**:
 
-1. **foundation first**: create server skeleton, app state, error handling
-2. **auth second**: feature-flagged webauthn, api keys, invite codes, viewer role
-3. **codegen investigation**: test codegen approach with 2-3 types before bulk routes
-4. **establish patterns**: implement 2-3 sample routes + static file serving for testing
-5. **grimoire prep**: move fetch_music, audit APIs (can overlap with patterns)
-6. **rapid implementation**: grimoire wrappers should be shallow/simple
-7. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
+1. **foundation first**: create server skeleton, app state, error handling ✓
+2. **auth second**: feature-flagged webauthn, api keys, invite codes, viewer role ✓
+3. **codegen system**: typescript client generation with inventory-based route registration ✓
+4. **establish patterns**: implement sample routes, validate workflow ✓
+5. **static files & legacy code**: reuse working code from legacyserver ✓
+6. **fetch migration**: move download/fetch_music to grimoire
+7. **rapid implementation**: remaining music routes
+8. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
 
 ## overview
 
@@ -365,56 +381,31 @@ server/src/
 **key principle**: `blobs/` is domain-agnostic (works for any blob - music, future photos, etc).
 `music/` is strictly music domain operations that happen to reference blobs.
 
-### 4.2: implement 2-3 sample routes
+### 4.2: implement sample routes ✓
 
-**routes to implement**:
+**completed routes**:
 
-- `POST /api/playlists` - create playlist (uses grimoire::music::entities::playlists::create_playlist)
-- `GET /api/playlists/:id` - get playlist by id
-- `POST /api/artists` - create artist (uses grimoire::music::entities::artists::create_artist)
+- `POST /api/music/playlists` - create playlist
+- `GET /api/music/playlists/:id` - get playlist by id
+- `POST /api/music/artists` - create artist
 
-**note**: deprecated legacy routes to avoid implementing:
+**pattern validated**:
 
-- `list_songs` - use `query_songs` instead (POST /api/songs/query with query params)
+- route paths use domain namespacing (`/api/auth/*`, `/api/music/*`)
+- routes reference paths via `all_routes_map()` (single source of truth, domain-namespaced)
+- handlers use `grimoire::music::entities::*` for basic crud operations
+- types annotated with `#[derive(ZodSchema)]` and registered in `api_registry::type_registry`
+- codegen successfully generates typescript client
 
-### 4.3: verify patterns
+**architectural decisions made**:
 
-- handlers reuse grimoire request/response types directly
-- error handling maps grimoire errors to HTTP responses consistently
-- auth middleware injects user and enforces roles
-- CLI plumbing for these grimoire calls exists and works
-- codegen approach works (if investigated in phase 3)
+- `grimoire::music::entities` made public (maps to filesystem structure)
+- `entities::` = basic crud, `crud::` = high-level workflows
+- imports use `grimoire::music::entities::playlists::create_playlist` pattern
 
-### 4.4: static file serving (for testing)
+**deprecated routes**:
 
-**important**: implement early to enable testing with simple HTML pages
-
-```
-server/src/static_filez/
-├── mod.rs
-└── handlers.rs
-```
-
-- serve static HTML/JS/CSS files for testing routes
-- basic mime type detection
-- configurable enable/disable flag
-- configurable directory path
-- **reuse legacy static file handler** (see `LEGACY_CODE_REUSE.md`)
-- range request support NOT needed yet (defer to phase 7 if needed)
-
-routes:
-
-- `GET /*path` - serve static files (only if enabled in config)
-
-### 4.5: validation criteria
-
-- shallow wrappers work well
-- grimoire types reused directly (or codegen wrapper approach validated)
-- error handling consistent
-- auth middleware works
-- role-based permissions work (viewer can't create playlist)
-- static file serving works for testing HTML pages
-- **once validated, proceed to phase 6 for bulk implementation**
+- `list_songs` - use `query_songs` instead (POST /api/songs/query)
 
 ## phase 5: grimoire preparation
 
@@ -655,7 +646,7 @@ server/src/jobs/
 
 ## phase 8: typescript client generation ✓
 
-### implementation complete
+**implementation complete**:
 
 - `client-codegen/` workspace package with codegen binary
 - grimoire types use `#[derive(ZodSchema)]`
@@ -663,15 +654,12 @@ server/src/jobs/
 - run: `cd client-codegen && make all`
 - output: `freqhole-api-client/src/codegen/`
 - hand-written dynamic client in `client.ts`
-- 6 routes implemented (5 auth, 1 music)
-- `cargo build --features codegen` generates types
-- commit generated `client.ts` to repo
-- ci verifies generated code is up to date
+- 9 routes working (5 auth, 4 music)
 
-### outstanding client-side tasks
+**outstanding tasks**:
 
-- [ ] add `api.ts` with hand-written wrapper functions (one per route, optional convenience layer)
-- [ ] add `test.ts` integration test harness to exercise generated client
+- [ ] add `api.ts` wrapper functions (optional convenience layer)
+- [ ] add `test.ts` integration test harness
 - [ ] ci check that verifies generated output is up to date
 
 ## phase 9: configuration & deployment
@@ -822,19 +810,7 @@ compare legacy vs new implementation:
 
 **note: breaking changes are acceptable**
 
-## phase 11: cleanup & documentation
-
-### 11.0: feature development guide
-
-- [ ] create `docs/HOW_TO_ADD_FEATURE.md` guide covering:
-  - adding new grimoire functions (grimoire/src/...)
-  - adding cli plumbing commands (cli/src/plumbing/...)
-  - adding server routes with inventory registration (server/src/...)
-  - annotating types with `#[derive(ZodSchema)]`
-  - registering types in grimoire api_registry
-  - running codegen to generate typescript client
-  - workflow validation checklist
-- [ ] use upcoming fetch/download migration as case study to validate guide completeness
+## phase 11: documentation & cleanup
 
 ### 11.1: remove legacy code
 

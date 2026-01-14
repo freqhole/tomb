@@ -486,3 +486,55 @@ pub async fn login_finish(
         }
     })))
 }
+
+// route registrations for inventory-based codegen
+#[cfg(feature = "webauthn")]
+use grimoire::api_registry::{Domain, Method, RouteInfo};
+
+#[cfg(feature = "webauthn")]
+inventory::submit! {
+    RouteInfo {
+        name: "register_start",
+        path: "/api/auth/webauthn/register/start",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "RegisterStartRequest",
+        response_type: "serde_json::Value",
+    }
+}
+
+#[cfg(feature = "webauthn")]
+inventory::submit! {
+    RouteInfo {
+        name: "register_finish",
+        path: "/api/auth/webauthn/register/finish",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+    }
+}
+
+#[cfg(feature = "webauthn")]
+inventory::submit! {
+    RouteInfo {
+        name: "login_start",
+        path: "/api/auth/webauthn/login/start",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+    }
+}
+
+#[cfg(feature = "webauthn")]
+inventory::submit! {
+    RouteInfo {
+        name: "login_finish",
+        path: "/api/auth/webauthn/login/finish",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+    }
+}

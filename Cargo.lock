@@ -2532,6 +2532,7 @@ dependencies = [
  "grimoire",
  "http",
  "http-body-util",
+ "httpdate",
  "inventory",
  "mime_guess",
  "reqwest",
