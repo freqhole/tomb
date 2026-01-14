@@ -229,6 +229,23 @@
       // Allowed origins (if not specified, uses auth.webauthn_origins)
       // Uncomment to override:
       // "allowed_origins": ["http://localhost:3000", "http://localhost:5173"]
+    },
+
+    // Media fetching from external sources (e.g. youtube, soundcloud)
+    "fetch_music": {
+      // Enable media fetching functionality
+      "enabled": false,
+      // Absolute path where fetched files are temporarily stored before processing
+      "output_dir": "/Users/edward/src/github/freqhole/tomb/data/fetch",
+      // Command to extract metadata without downloading (for precheck/deduplication)
+      // Uses external command - typically yt-dlp or similar tool
+      // Note: removed --no-playlist to support collections
+      "precheck_command": "yt-dlp --print-json --no-download",
+      // Command to actually fetch media files
+      // Supports playlists and collections with best-effort downloading
+      // --ignore-errors: continue downloading other items if one fails
+      // Job only fails if nothing could be downloaded
+      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output '%(uploader)s - %(title)s [%(id)s].%(ext)s' --print after_move:filepath"
     }
   }
 }

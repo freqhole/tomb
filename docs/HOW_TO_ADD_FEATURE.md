@@ -252,3 +252,75 @@ use `{param}` syntax (axum v0.7+), not `:param`:
 
 - ✓ `/api/music/playlists/{id}`
 - ✗ `/api/music/playlists/:id`
+
+## database migrations
+
+when adding new columns or tables, create a migration file:
+
+```bash
+# create migration file
+touch migrations/011_add_content_id_to_media_blobz.sql
+```
+
+```sql
+-- migrations/011_add_content_id_to_media_blobz.sql
+ALTER TABLE media_blobz ADD COLUMN content_id TEXT;
+
+-- index for fast lookups
+CREATE INDEX idx_media_blobz_content_id ON media_blobz(content_id)
+WHERE content_id IS NOT NULL;
+```
+
+**run migrations**:
+
+```bash
+make db-migrate
+```
+
+this must be done before `cargo check` will succeed (sqlx validates queries at compile time).
+
+## sqlx query macros
+
+always use sqlx macros (`query!` or `query_as!`) for compile-time validation:
+
+```rust
+// ✓ good - compile-time checked
+let row = sqlx::query!(
+    r#"SELECT id as "id!", title FROM songs WHERE id = ?"#,
+    song_id
+)
+.fetch_one(&pool)
+.await?;
+
+// ✗ bad - runtime only, no type safety
+let row = sqlx::query("SELECT id, title FROM songs WHERE id = ?")
+    .bind(song_id)
+    .fetch_one(&pool)
+    .await?;
+```
+
+**NOT NULL hints**: use `as "column_name!"` to tell sqlx a column is NOT NULL:
+
+```rust
+// returns String, not Option<String>
+r#"SELECT id as "id!" FROM table WHERE ..."#
+```
+
+**import at top**: avoid inline `crate::` - import at top of file:
+
+```rust
+// ✓ good
+use crate::database;
+use crate::config::get_config;
+
+fn my_function() {
+    let pool = database::connect().await?;
+    let config = get_config();
+}
+
+// ✗ bad
+fn my_function() {
+    let pool = crate::database::connect().await?;
+    let config = crate::config::get_config();
+}
+```

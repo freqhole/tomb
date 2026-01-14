@@ -113,6 +113,9 @@ pub struct ServerConfig {
     pub static_files: StaticFilesConfig,
     /// CORS configuration
     pub cors: CorsConfig,
+    /// Fetch music configuration
+    #[serde(default)]
+    pub fetch_music: Option<FetchMusicConfig>,
 }
 
 /// Authentication configuration
@@ -157,6 +160,19 @@ pub struct CorsConfig {
     pub enabled: bool,
     /// Allowed origins (if not specified, uses auth.webauthn_origins as allowed origins)
     pub allowed_origins: Option<Vec<String>>,
+}
+
+/// Fetch music configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchMusicConfig {
+    /// Enable media fetching functionality
+    pub enabled: bool,
+    /// Absolute path where fetched files are temporarily stored
+    pub output_dir: Option<String>,
+    /// Command to extract metadata without downloading (for precheck/deduplication)
+    pub precheck_command: Option<String>,
+    /// Command to actually fetch media files
+    pub fetch_command: Option<String>,
 }
 
 impl ServerConfig {

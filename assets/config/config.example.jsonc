@@ -266,6 +266,62 @@
       //   "http://localhost:5173",
       //   "https://music.example.com"
       // ]
+    },
+
+    // Media fetching from external sources (youtube, soundcloud, etc.)
+    "fetch_music": {
+      // Enable media fetching functionality
+      // When disabled, fetch routes will return 404
+      "enabled": false,
+
+      // Absolute path where fetched files are temporarily stored
+      // Files are downloaded here, then processed and moved to blob storage
+      // IMPORTANT: Must be an absolute path for security
+      // Example: "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
+      "output_dir": "/path/to/fetch/directory",
+
+      // Command to extract metadata without downloading
+      // Used for precheck/deduplication - checks if content already exists
+      // before actually downloading. Should output JSON metadata.
+      //
+      // Typically uses yt-dlp or youtube-dl:
+      //   --print-json: output metadata as JSON
+      //   --no-download: don't download the file
+      //
+      // Note: --no-playlist removed to support playlists and collections
+      // Precheck will return metadata for all items in collection
+      //
+      // The command will be invoked as: <command> <url>
+      "precheck_command": "yt-dlp --print-json --no-download",
+
+      // Command to actually fetch and download media files
+      // Should download audio, extract metadata, and output the file path
+      //
+      // IMPORTANT: Supports playlists and collections with best-effort downloading
+      //   --ignore-errors: continue if one item fails, don't abort entire job
+      //   Job only fails if NOTHING could be downloaded
+      //   Successfully downloaded items are processed even if others failed
+      //
+      // Recommended yt-dlp arguments:
+      //   --ignore-errors: continue on errors (critical for playlists)
+      //   --extract-audio: extract audio from video
+      //   --audio-format mp3: convert to mp3
+      //   --audio-quality 0: best quality (0-9, 0=best)
+      //   --add-metadata: embed metadata in file
+      //   --embed-thumbnail: embed album art
+      //   --no-overwrites: don't overwrite existing files
+      //   --output: filename template (include %(id)s to prevent duplicates)
+      //   --print after_move:filepath: output final file path for each download
+      //
+      // Output pattern explained:
+      //   %(uploader)s: channel/artist name
+      //   %(title)s: video/track title
+      //   %(id)s: unique content ID (prevents duplicates)
+      //   %(ext)s: file extension
+      //
+      // The command will be invoked as: <command> <url>
+      // It should print one downloaded file path per line to stdout
+      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output '%(uploader)s - %(title)s [%(id)s].%(ext)s' --print after_move:filepath"
     }
   }
 }

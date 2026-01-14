@@ -6,8 +6,8 @@
 
 **next priorities**:
 
-1. static file serving - reuse legacyserver code for testing webapp
-2. fetch migration - move download/yt-dlp to grimoire as `fetch_music`
+1. ~~static file serving~~ ✓ - complete with range requests
+2. **fetch migration (in progress)** - grimoire foundation complete, needs server routes + cli
 3. rapid route implementation - remaining ~35 music routes
 
 **reference docs**:
@@ -45,7 +45,7 @@ complete rewrite of server package using refactored grimoire library. legacy ser
 3. **codegen system**: typescript client generation with inventory-based route registration ✓
 4. **establish patterns**: implement sample routes, validate workflow ✓
 5. **static files & legacy code**: reuse working code from legacyserver ✓
-6. **fetch migration**: move download/fetch_music to grimoire
+6. **fetch migration**: move download/fetch_music to grimoire (in progress)
 7. **rapid implementation**: remaining music routes
 8. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
 
@@ -411,23 +411,33 @@ server/src/
 
 **note**: can be done in parallel with phase 4 or deferred until needed
 
-### 5.1: move download/fetch_music to grimoire
+### 5.1: move download/fetch_music to grimoire (in progress)
 
-- [ ] create `grimoire/src/music/fetch_music/` module
-- [ ] move external command logic from `server/download/jobs.rs`
-- [ ] integrate with grimoire jobs system
-- [ ] expose public API: `fetch_from_url()`, `get_fetch_job()`, etc
-- [ ] remove all sqlx from this code (use grimoire db layer)
-- [ ] add config fields:
-  - `fetch_music.enabled: bool` - feature toggle
-  - `fetch_music.output_dir: PathBuf` - where files are stored
-  - `fetch_music.precheck_command: String` - command for validation
-  - `fetch_music.fetch_command: String` - command for download
-- [ ] **never mention yt-dlp in code - use generic "external command" terminology**
-- [ ] **add CLI plumbing commands**: `cli/src/plumbing/fetch_music.rs`
-  - `fetch url <url>` - fetch from url
+**completed**:
+
+- [x] created `grimoire/src/music/fetch/` module
+- [x] implemented precheck (metadata extraction without downloading)
+- [x] implemented download with best-effort playlist support
+- [x] integrated with grimoire jobs system (FetchMedia job type)
+- [x] added config fields to `ServerConfig.fetch_music`
+- [x] added migration for `content_id` column (deduplication)
+- [x] generic "external command" terminology (no yt-dlp mentions)
+- [x] models: FetchMediaParams, FetchMediaResult, ContentMetadata
+- [x] service: extract_metadata, download_media, fetch_media
+
+**remaining**:
+
+- [ ] implement job spawning: create ProcessFile jobs for downloaded files
+- [ ] store fetch metadata in media_blob.metadata json (provenance tracking)
+- [ ] add CLI plumbing commands: `cli/src/plumbing/fetch.rs`
+  - `fetch url <url>` - queue fetch job
   - `fetch status <job_id>` - check job status
   - `fetch list` - list fetch jobs
+- [ ] add server routes: `server/src/music/fetch.rs`
+  - `POST /api/music/fetch` - create fetch job(s)
+  - `GET /api/music/fetch/{id}` - get job status
+- [ ] register FetchMediaParams and FetchMediaResult in type_registry
+- [ ] run codegen to generate typescript client
 
 ### 5.2: audit existing grimoire api (avoid duplication!)
 

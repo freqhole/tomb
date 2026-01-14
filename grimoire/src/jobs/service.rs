@@ -3,13 +3,16 @@
 
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use sqlx::Row;
+use tracing::{debug, error, info, warn};
 
 use crate::blob_data;
+use crate::config::get_config;
 use crate::database;
+use crate::music::fetch::{fetch_media, FetchMediaParams};
 use crate::music::scanner;
 use crate::response::GrimoireResponse;
 
@@ -640,6 +643,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::ExtractMetadata => process_extract_metadata_job(&job).await,
         JobType::GenerateThumbnail => process_generate_thumbnail_job(&job).await,
         JobType::GenerateWaveform => process_generate_waveform_job(&job).await,
+        JobType::FetchMedia => process_fetch_media_job(&job).await,
     };
 
     let processing_time = start_time.elapsed().as_millis() as u64;
@@ -744,7 +748,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         });
     }
 
-    println!("processing file: {}", params.file_path);
+    info!("processing file: {}", params.file_path);
 
     // Read file metadata
     let metadata = match fs::metadata(file_path) {
@@ -757,7 +761,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     };
 
     let file_size = metadata.len();
-    println!("file size: {} bytes", file_size);
+    debug!("file size: {} bytes", file_size);
 
     // Step 1: Create media blob in database
     let media_blob_id =
@@ -781,7 +785,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 });
             }
         };
-    println!("created media blob: {}", media_blob_id);
+    debug!("created media blob: {}", media_blob_id);
 
     // Step 2: Import audio file (extracts metadata and creates song)
     let mut song_id = None;
@@ -800,7 +804,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 artist_id = import_result.artist_id;
                 album_id = import_result.album_id;
                 metadata_extracted = import_result.metadata_extracted;
-                println!("metadata extracted successfully");
+                debug!("metadata extracted successfully");
             }
             response => {
                 let error_msg = if !response.errors.is_empty() {
@@ -808,7 +812,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                eprintln!("metadata extraction failed: {}", error_msg);
+                warn!("metadata extraction failed: {}", error_msg);
             }
         }
     }
@@ -818,11 +822,11 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         match blob_data::create_audio_thumbnail_blob(&media_blob_id, &params.file_path).await {
             response if response.success => match response.data {
                 Some(thumbnail_blob_id) => {
-                    println!("thumbnail generated as blob: {}", thumbnail_blob_id);
+                    debug!("thumbnail generated as blob: {}", thumbnail_blob_id);
                     true
                 }
                 None => {
-                    eprintln!("thumbnail generation failed: no data returned");
+                    warn!("thumbnail generation failed: no data returned");
                     false
                 }
             },
@@ -832,7 +836,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                eprintln!("thumbnail generation failed: {}", error_msg);
+                warn!("thumbnail generation failed: {}", error_msg);
                 false
             }
         }
@@ -845,11 +849,11 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         match blob_data::create_audio_waveform_blob(&media_blob_id, &params.file_path).await {
             response if response.success => match response.data {
                 Some(waveform_blob_id) => {
-                    println!("waveform generated as blob: {}", waveform_blob_id);
+                    debug!("waveform generated as blob: {}", waveform_blob_id);
                     true
                 }
                 None => {
-                    eprintln!("waveform generation failed: no data returned");
+                    warn!("waveform generation failed: no data returned");
                     false
                 }
             },
@@ -859,7 +863,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                eprintln!("waveform generation failed: {}", error_msg);
+                warn!("waveform generation failed: {}", error_msg);
                 false
             }
         }
@@ -877,7 +881,7 @@ async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         waveform_generated,
     };
 
-    println!("file processing complete");
+    info!("file processing complete: blob={}", result.media_blob_id);
 
     Ok(Some(serde_json::to_value(result).map_err(|e| {
         JobError::ProcessingFailed {
@@ -904,6 +908,156 @@ async fn process_generate_waveform_job(_job: &Job) -> Result<Option<Value>, JobE
     Err(JobError::ProcessingFailed {
         reason: "GenerateWaveform job type is deprecated - use ProcessFile instead".to_string(),
     })
+}
+
+/// process fetch media job - download from external source and import
+async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobError> {
+    info!("processing fetch media job: {}", job.id);
+
+    // parse job parameters
+    let params: FetchMediaParams = match serde_json::from_str(&job.parameters) {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("invalid parameters: {}", e),
+            })
+        }
+    };
+
+    // get config
+    let config = get_config();
+
+    // execute fetch workflow
+    let response = fetch_media(params.clone(), config).await;
+
+    if !response.success {
+        return Err(JobError::ProcessingFailed {
+            reason: response.message,
+        });
+    }
+
+    let mut result = response.data.ok_or_else(|| JobError::ProcessingFailed {
+        reason: "no result data from fetch".to_string(),
+    })?;
+
+    // get current timestamp
+    let fetched_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // get database connection for metadata storage
+    let pool = crate::database::connect().await?;
+
+    // create ProcessFile jobs for each downloaded file
+    for downloaded_file in &result.items_downloaded_files {
+        let file_metadata = &downloaded_file.metadata;
+
+        // build fetch provenance metadata to store in media_blob
+        let fetch_metadata = serde_json::json!({
+            "source_url": params.url,
+            "content_id": file_metadata.content_id,
+            "platform": file_metadata.platform,
+            "fetch_job_id": job.id,
+            "fetched_at": fetched_at,
+            "original_title": file_metadata.title,
+            "original_uploader": file_metadata.uploader,
+            "original_artist": file_metadata.artist,
+            "duration_seconds": file_metadata.duration_seconds,
+            "playlist_title": file_metadata.playlist_title,
+            "playlist_index": file_metadata.playlist_index,
+        });
+
+        // create ProcessFile job with fetch metadata embedded in parameters
+        let process_params = ProcessFileParams {
+            file_path: downloaded_file.file_path.clone(),
+            extract_metadata: true,
+            generate_thumbnail: true,
+            generate_waveform: true,
+        };
+
+        let job_request = CreateJobRequest {
+            job_type: JobType::ProcessFile,
+            session_id: job.session_id.clone(),
+            parameters: serde_json::to_value(&process_params).map_err(|e| {
+                JobError::ProcessingFailed {
+                    reason: format!("failed to serialize ProcessFile params: {}", e),
+                }
+            })?,
+            max_retries: Some(3),
+            scheduled_at: None, // immediate
+            created_by: job.created_by.clone(),
+        };
+
+        let response = create_job(job_request).await;
+
+        if response.success {
+            if let Some(process_job) = response.data {
+                debug!(
+                    "created ProcessFile job {} for file: {}",
+                    process_job.id, downloaded_file.file_path
+                );
+
+                // store fetch metadata in media_blob after it gets created
+                // we'll update the blob's metadata column when the ProcessFile job completes
+                // for now, store the content_id so we can look it up later
+                let metadata_json = serde_json::to_string(&fetch_metadata).unwrap_or_default();
+
+                match sqlx::query!(
+                    r#"
+                    UPDATE media_blobz
+                    SET metadata = ?
+                    WHERE content_id = ?
+                    "#,
+                    metadata_json,
+                    file_metadata.content_id
+                )
+                .execute(&pool)
+                .await
+                {
+                    Ok(_) => {
+                        debug!(
+                            "stored fetch metadata for content_id: {}",
+                            file_metadata.content_id
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "failed to store fetch metadata for {}: {}",
+                            file_metadata.content_id, e
+                        );
+                        result.errors.push(format!(
+                            "failed to store metadata for {}: {}",
+                            file_metadata.content_id, e
+                        ));
+                    }
+                }
+            }
+        } else {
+            error!(
+                "failed to create ProcessFile job for {}: {}",
+                downloaded_file.file_path, response.message
+            );
+            result.errors.push(format!(
+                "failed to spawn job for {}: {}",
+                downloaded_file.file_path, response.message
+            ));
+        }
+    }
+
+    info!(
+        "fetch media job completed: {}/{} items downloaded, {} errors",
+        result.items_downloaded,
+        result.items_requested,
+        result.errors.len()
+    );
+
+    // return result
+    Ok(Some(serde_json::to_value(result).map_err(|e| {
+        JobError::ProcessingFailed {
+            reason: format!("failed to serialize result: {}", e),
+        }
+    })?))
 }
 
 /// Simple job processor that processes one job at a time

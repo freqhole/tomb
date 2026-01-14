@@ -15,7 +15,7 @@ pub enum JobType {
     ExtractMetadata,
     GenerateThumbnail,
     GenerateWaveform,
-    // Future: DownloadMedia, ProcessUpload, etc.
+    FetchMedia,
 }
 
 /// Job status lifecycle
