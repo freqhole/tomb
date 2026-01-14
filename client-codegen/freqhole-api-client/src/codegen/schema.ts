@@ -241,6 +241,7 @@ export const CreateTagRequestSchema = z.object({
 export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
 
 export const DeleteAlbumRequestSchema = z.object({
+  id: z.string(),
   user_id: z.string()
 });
 export type DeleteAlbumRequest = z.infer<typeof DeleteAlbumRequestSchema>;
@@ -252,6 +253,7 @@ export const DeleteAlbumResponseSchema = z.object({
 export type DeleteAlbumResponse = z.infer<typeof DeleteAlbumResponseSchema>;
 
 export const DeleteArtistRequestSchema = z.object({
+  id: z.string(),
   user_id: z.string()
 });
 export type DeleteArtistRequest = z.infer<typeof DeleteArtistRequestSchema>;
@@ -269,6 +271,7 @@ export const DeletePlaylistRequestSchema = z.object({
 export type DeletePlaylistRequest = z.infer<typeof DeletePlaylistRequestSchema>;
 
 export const DeleteSongRequestSchema = z.object({
+  id: z.string(),
   user_id: z.string()
 });
 export type DeleteSongRequest = z.infer<typeof DeleteSongRequestSchema>;

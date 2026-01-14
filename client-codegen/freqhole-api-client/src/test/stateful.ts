@@ -307,7 +307,7 @@ export async function runStatefulTests() {
       baseUrl,
       {
         user_id: testState.userId!,
-        target_type: "Song",
+        target_type: "song",
         target_id: testState.existingSongId!,
         is_favorite: true,
       },
@@ -323,7 +323,7 @@ export async function runStatefulTests() {
       baseUrl,
       {
         user_id: testState.userId!,
-        target_type: "Song",
+        target_type: "song",
         limit: 10,
         offset: 0,
       },
@@ -339,7 +339,7 @@ export async function runStatefulTests() {
       baseUrl,
       {
         user_id: testState.userId!,
-        target_type: "Song",
+        target_type: "song",
         target_id: testState.existingSongId!,
         rating: 5,
       },
@@ -354,7 +354,7 @@ export async function runStatefulTests() {
     const result = await music.getRatingStats(
       baseUrl,
       {
-        target_type: "Song",
+        target_type: "song",
         target_id: testState.existingSongId!,
       },
       apiKey,
@@ -460,7 +460,7 @@ export async function runStatefulTests() {
     await test("delete created artist", async () => {
       const result = await music.deleteArtist(
         baseUrl,
-        { user_id: testState.createdArtistId! },
+        { id: testState.createdArtistId!, user_id: testState.userId! },
         apiKey,
       );
       if (!result.success) {

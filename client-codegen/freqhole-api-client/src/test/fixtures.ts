@@ -52,6 +52,7 @@ export const getArtistRequest: s.GetArtistRequest = {
 };
 
 export const deleteArtistRequest: s.DeleteArtistRequest = {
+  id: PLACEHOLDER_ID,
   user_id: PLACEHOLDER_ID,
 };
 
@@ -61,6 +62,7 @@ export const getAlbumRequest: s.GetAlbumRequest = {
 };
 
 export const deleteAlbumRequest: s.DeleteAlbumRequest = {
+  id: PLACEHOLDER_ID,
   user_id: PLACEHOLDER_ID,
 };
 
@@ -108,6 +110,7 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
 };
 
 export const deleteSongRequest: s.DeleteSongRequest = {
+  id: PLACEHOLDER_ID,
   user_id: PLACEHOLDER_ID,
 };
 
@@ -208,7 +211,7 @@ export const listFavoritesRequest: s.ListFavoritesRequest = {
 
 export const setFavoriteRequest: s.SetFavoriteRequest = {
   user_id: PLACEHOLDER_ID,
-  target_type: "Song",
+  target_type: "song",
   target_id: PLACEHOLDER_ID,
   is_favorite: true,
 };
@@ -216,7 +219,7 @@ export const setFavoriteRequest: s.SetFavoriteRequest = {
 // Ratings
 export const setRatingRequest: s.SetRatingRequest = {
   user_id: PLACEHOLDER_ID,
-  target_type: "Song",
+  target_type: "song",
   target_id: PLACEHOLDER_ID,
   rating: 5,
 };

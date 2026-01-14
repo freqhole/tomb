@@ -656,6 +656,7 @@ pub struct RecentSongsRequest {
 /// request for deleting a song
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteSongRequest {
+    pub id: String,
     pub user_id: String,
 }
 
@@ -723,6 +724,7 @@ pub struct GetArtistRequest {
 /// request for deleting an artist
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteArtistRequest {
+    pub id: String,
     pub user_id: String,
 }
 
@@ -766,6 +768,7 @@ pub struct GetAlbumRequest {
 /// request for deleting an album
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteAlbumRequest {
+    pub id: String,
     pub user_id: String,
 }
 
