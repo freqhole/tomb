@@ -8,6 +8,7 @@ use super::models::{
 use crate::blob_data::{convert_to_webp, create_image_blob_from_webp_data};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
+use crate::media_blobz::BlobType;
 use crate::music::crud::{find_or_create_album, find_or_create_artist, find_or_create_genre};
 use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::tags::{
@@ -83,7 +84,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
         match create_image_blob_from_webp_data(
             webp_data,
-            "original",
+            BlobType::Original,
             None, // no parent blob
             metadata,
             req.updated_by.clone(),
@@ -125,7 +126,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
         match create_image_blob_from_webp_data(
             webp_data,
-            "original",
+            BlobType::Original,
             None, // no parent blob
             metadata,
             req.updated_by.clone(),

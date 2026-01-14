@@ -3,6 +3,7 @@
 
 use crate::blob_data::{convert_to_webp, create_image_blob_from_webp_data};
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::media_blobz::BlobType;
 use std::path::Path;
 use tokio::fs;
 
@@ -77,9 +78,11 @@ pub async fn create_thumbnail_from_bytes(
 
     // Use shared function for creating image blob
     match create_image_blob_from_webp_data(
-        webp_data, "original", // Original user upload, not derived
-        None,       // No parent blob
-        metadata, created_by,
+        webp_data,
+        BlobType::Original, // original user upload, not derived
+        None,               // no parent blob
+        metadata,
+        created_by,
     )
     .await
     {

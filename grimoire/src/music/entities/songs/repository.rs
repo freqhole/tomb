@@ -6,6 +6,7 @@ use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::remove_song_from_all_playlists;
 use crate::response::GrimoireResponse;
+use crate::GrimoireResult;
 
 /// create a new song
 pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
@@ -233,4 +234,20 @@ pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireRespon
     }
 
     GrimoireResponse::success("Song deleted successfully", ())
+}
+
+/// get the media_blob_id for a song (used for parent blob lookups)
+pub async fn get_song_media_blob_id(song_id: &str) -> GrimoireResult<String> {
+    let pool = database::connect().await?;
+
+    let media_blob_id: Option<String> = sqlx::query_scalar!(
+        "SELECT media_blob_id FROM songz WHERE id = ? AND deleted_at IS NULL",
+        song_id
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    media_blob_id.ok_or_else(|| GrimoireError::SongNotFound {
+        id: song_id.to_string(),
+    })
 }

@@ -14,7 +14,7 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
-use grimoire::media_blobz::create_media_blob;
+use grimoire::media_blobz::{create_media_blob, BlobType};
 use grimoire::upload::{
     AssociationHint, AssociationInfo, ImageUploadResponse, MusicMetadataHints, MusicUploadResponse,
 };
@@ -126,6 +126,30 @@ pub async fn upload_image_handler(
 
     let size = data.len() as i64;
 
+    // determine blob_type and parent_blob_id based on association
+    // - for songs: use Thumbnail type with song's media_blob_id as parent
+    // - for albums/artists/playlists: use Original type with no parent
+    let (blob_type, parent_blob_id) = if let Some(ref assoc) = association {
+        if assoc.entity_type == "song" {
+            // lookup the song's media_blob_id to use as parent
+            match grimoire::music::entities::songs::get_song_media_blob_id(&assoc.entity_id).await {
+                Ok(parent_id) => (BlobType::Thumbnail, Some(parent_id)),
+                Err(_) => {
+                    return Err(ApiError::BadRequest(format!(
+                        "song not found: {}",
+                        assoc.entity_id
+                    )));
+                }
+            }
+        } else {
+            // albums, artists, playlists don't have a single parent blob
+            (BlobType::Original, None)
+        }
+    } else {
+        // no association specified, use Original
+        (BlobType::Original, None)
+    };
+
     // create media blob in database (with deduplication)
     let blob = create_media_blob(CreateMediaBlobRequest {
         sha256: hash.clone(),
@@ -133,9 +157,11 @@ pub async fn upload_image_handler(
         mime: Some(mime_type.clone()),
         source_client_id: None,
         local_path: None,
-        parent_blob_id: None,
-        blob_type: Some("image".to_string()),
-        metadata: json!({}),
+        parent_blob_id,
+        blob_type: Some(blob_type),
+        metadata: json!({
+            "original_filename": filename,
+        }),
         created_by: Some(user.user_id.clone()),
         data: Some(Bytes::from(data)),
     })
@@ -300,8 +326,10 @@ pub async fn upload_music_handler(
         source_client_id: None,
         local_path: None, // will update after saving file
         parent_blob_id: None,
-        blob_type: Some("original".to_string()),
-        metadata: json!({}),
+        blob_type: Some(BlobType::Original),
+        metadata: json!({
+            "original_filename": filename,
+        }),
         created_by: Some(user.user_id.clone()),
         data: None,
     })

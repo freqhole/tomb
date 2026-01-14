@@ -4,11 +4,15 @@
 //! - ConvertWebp: converts uploaded images to WebP format and optionally associates with entities
 //! - ImportMusic: extracts metadata from uploaded audio files and creates Song/Album/Artist records
 
+use crate::analytics::{record_event, MediaEvent, MediaEventType};
 use crate::blob_data;
 use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
-use serde_json::Value;
+use crate::media_blobz::update_blob_local_path;
+use crate::music::scanner::extract_and_import;
+use serde_json::{json, Value};
+use std::path::Path;
 use tracing::{error, info};
 
 /// Process image to WebP conversion job
@@ -297,34 +301,99 @@ async fn count_entity_images(
 pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing ImportMusic job: {}", job.id);
 
-    // Parse job parameters
+    // parse job parameters
     let params: serde_json::Value = job.parameters()?;
     let blob_id = params["blob_id"]
         .as_str()
         .ok_or_else(|| JobError::InvalidParameters {
             reason: "missing blob_id".to_string(),
-        })?;
-    let local_path = params["local_path"]
+        })?
+        .to_string();
+
+    let local_path_str =
+        params["local_path"]
+            .as_str()
+            .ok_or_else(|| JobError::InvalidParameters {
+                reason: "missing local_path".to_string(),
+            })?;
+
+    let filename = params["filename"]
         .as_str()
-        .ok_or_else(|| JobError::InvalidParameters {
-            reason: "missing local_path".to_string(),
-        })?;
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
     info!(
-        "ImportMusic job: blob_id={}, local_path={}",
-        blob_id, local_path
+        "importing music: blob_id={}, local_path={}, filename={}",
+        blob_id, local_path_str, filename
     );
 
-    // TODO: Implement actual music import logic
-    // This requires:
-    // 1. Update media_blobz.local_path
-    // 2. Use grimoire::music::scanner to extract metadata from file
-    // 3. Use grimoire::music::crud::create_song_with_artist_and_album or similar
-    // 4. Optionally generate thumbnail/waveform
+    // verify file exists on disk
+    let file_path = Path::new(local_path_str);
+    if !file_path.exists() {
+        return Err(JobError::ProcessingFailed {
+            reason: format!("file not found at path: {}", local_path_str),
+        });
+    }
 
-    // For now, return error indicating not implemented
-    Err(JobError::ProcessingFailed {
-        reason: "ImportMusic job type not yet fully implemented - music import logic pending"
-            .to_string(),
-    })
+    // update blob with local_path (in case it wasn't set during upload)
+    match update_blob_local_path(&blob_id, local_path_str, Some("job_processor".to_string())).await
+    {
+        Ok(_) => {
+            info!(
+                "updated blob {} with local_path: {}",
+                blob_id, local_path_str
+            );
+        }
+        Err(e) => {
+            // log warning but continue - path might already be set
+            info!(
+                "note: could not update blob local_path (may already be set): {}",
+                e
+            );
+        }
+    }
+
+    // extract metadata and import song using scanner
+    // this handles all the heavy lifting:
+    // - metadata extraction with lofty
+    // - artist/album/genre creation or lookup
+    // - song creation with relationships
+    // - falls back to basic import if metadata extraction fails
+    let import_result = extract_and_import(&blob_id, file_path).await?;
+
+    info!(
+        "successfully imported song: song_id={}, artist_id={:?}, album_id={:?}, metadata_extracted={}",
+        import_result.song_id,
+        import_result.artist_id,
+        import_result.album_id,
+        import_result.metadata_extracted
+    );
+
+    // record analytics event for import (best-effort)
+    let event_data = json!({
+        "source": "upload",
+        "filename": filename,
+        "metadata_extracted": import_result.metadata_extracted,
+    });
+
+    let media_event =
+        MediaEvent::new(blob_id.clone(), MediaEventType::Add).with_event_data(event_data);
+
+    if let Err(e) = record_event(&media_event).await {
+        info!("note: failed to record analytics event: {}", e);
+    }
+
+    // return job result with created entity IDs
+    Ok(Some(json!({
+        "blob_id": blob_id,
+        "song_id": import_result.song_id,
+        "artist_id": import_result.artist_id,
+        "album_id": import_result.album_id,
+        "metadata_extracted": import_result.metadata_extracted,
+        "message": if import_result.metadata_extracted {
+            "music imported successfully with metadata"
+        } else {
+            "music imported with basic metadata (extraction failed)"
+        }
+    })))
 }

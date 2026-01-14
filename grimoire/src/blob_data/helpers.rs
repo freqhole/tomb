@@ -2,7 +2,7 @@
 //! all output is standardized to WebP format for optimal compression and quality
 
 use crate::error::ErrorDetail;
-use crate::media_blobz::{self, CreateMediaBlobRequest};
+use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest};
 use crate::response::GrimoireResponse;
 use image::ImageOutputFormat;
 use sha2::{Digest, Sha256};
@@ -42,7 +42,7 @@ pub async fn create_media_blob_from_file(
         source_client_id: Some("job_processor".to_string()),
         local_path: Some(file_path.to_string()),
         parent_blob_id: None,
-        blob_type: Some("original".to_string()),
+        blob_type: Some(BlobType::Original),
         metadata: serde_json::json!({
             "file_name": file_name,
             "file_size": file_size,
@@ -299,7 +299,7 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, crate::error::Grimo
 /// create an image blob from webp data with flexible options
 pub async fn create_image_blob_from_webp_data(
     webp_data: Vec<u8>,
-    blob_type: &str,
+    blob_type: BlobType,
     parent_blob_id: Option<String>,
     metadata: serde_json::Value,
     created_by: Option<String>,
@@ -315,7 +315,7 @@ pub async fn create_image_blob_from_webp_data(
         source_client_id: created_by.clone(),
         local_path: None, // Store as binary data
         parent_blob_id,
-        blob_type: Some(blob_type.to_string()),
+        blob_type: Some(blob_type),
         metadata,
         created_by,
         data: Some(webp_data.into()), // Store as binary data
@@ -345,7 +345,7 @@ async fn create_thumbnail_blob_from_webp_data(
 
     create_image_blob_from_webp_data(
         webp_data,
-        "thumbnail",
+        BlobType::Thumbnail,
         Some(source_blob_id.to_string()),
         metadata,
         Some("job_processor".to_string()),
@@ -368,7 +368,7 @@ async fn create_waveform_blob_from_webp_data(
 
     create_image_blob_from_webp_data(
         webp_data,
-        "waveform",
+        BlobType::Waveform,
         Some(source_blob_id.to_string()),
         metadata,
         Some("job_processor".to_string()),

@@ -1,7 +1,7 @@
 //! media blob service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{CreateMediaBlobRequest, MediaBlob};
+use super::models::{BlobType, CreateMediaBlobRequest, MediaBlob};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::{blob_data, database};
 
@@ -9,7 +9,8 @@ use crate::{blob_data, database};
 pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
     let pool = database::connect().await?;
 
-    let blob_type = req.blob_type.unwrap_or_else(|| "original".to_string());
+    let blob_type = req.blob_type.unwrap_or(BlobType::Original);
+    let blob_type_str = blob_type.as_str();
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
 
     // Check if a blob with this SHA256 already exists
@@ -77,7 +78,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         req.source_client_id,
         req.local_path,
         req.parent_blob_id,
-        blob_type,
+        blob_type_str,
         metadata_str,
         req.created_by,
         req.created_by
@@ -218,6 +219,52 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
 
     // No data source available
     Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
+}
+
+/// update media blob local_path (for setting filesystem location after upload)
+pub async fn update_blob_local_path(
+    id: &str,
+    local_path: &str,
+    updated_by: Option<String>,
+) -> GrimoireResult<MediaBlob> {
+    let pool = database::connect().await?;
+
+    let blob = sqlx::query_as!(
+        MediaBlob,
+        "UPDATE media_blobz
+         SET local_path = ?, updated_by = ?
+         WHERE id = ? AND deleted_at IS NULL
+         RETURNING
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by",
+        local_path,
+        updated_by,
+        id
+    )
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| GrimoireError::MediaBlobNotFound { id: id.to_string() })?;
+
+    // parse the metadata JSON
+    let mut blob_with_metadata = blob;
+    blob_with_metadata.metadata =
+        serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+            .unwrap_or_default();
+
+    Ok(blob_with_metadata)
 }
 
 /// soft delete a media blob
