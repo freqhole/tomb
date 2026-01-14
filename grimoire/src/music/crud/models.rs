@@ -3,7 +3,6 @@
 
 use crate::Bytes;
 use serde::{Deserialize, Serialize};
-use zod_gen::ZodSchema;
 use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::MediaBlob;

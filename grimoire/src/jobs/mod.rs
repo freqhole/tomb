@@ -14,6 +14,7 @@ pub use models::{
     GenerateThumbnailResult,
     GenerateWaveformParams,
     GenerateWaveformResult,
+    GetJobRequest,
     Job,
     JobError,
     // CLI response types
@@ -24,6 +25,7 @@ pub use models::{
     JobStatsResponse,
     JobStatus,
     JobType,
+    ListJobsRequest,
     ProcessFileParams,
     ProcessFileResult,
     ProcessJobCreatedResponse,

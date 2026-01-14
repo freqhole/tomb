@@ -91,27 +91,6 @@ impl WebAuthnRepository {
 
         Ok(())
     }
-
-    /// Delete a credential (soft delete)
-    pub async fn delete_credential(&self, credential_id: &[u8]) -> AuthResult<()> {
-        let pool = database::connect().await?;
-
-        let now = OffsetDateTime::now_utc().unix_timestamp();
-
-        sqlx::query!(
-            r#"
-            UPDATE user_credentialz
-            SET deleted_at = ?1
-            WHERE credential_id = ?2
-            "#,
-            now,
-            credential_id
-        )
-        .execute(&pool)
-        .await?;
-
-        Ok(())
-    }
 }
 
 impl Default for WebAuthnRepository {

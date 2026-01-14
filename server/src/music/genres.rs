@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
-use grimoire::music::crud::{query_genres, GenreQueryResult, GenresQueryResult, QueryParams};
+use grimoire::music::crud::{query_genres, GenresQueryResult, QueryParams};
 use grimoire::response::GrimoireResponse;
 use inventory;
 

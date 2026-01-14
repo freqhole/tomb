@@ -43,10 +43,3 @@ pub struct GenreStat {
     pub artist_count: i64,
     pub total_duration: i64,
 }
-
-/// response for genre statistics listing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenreStatsResponse {
-    pub genres: Vec<GenreStat>,
-    pub total: i64,
-}

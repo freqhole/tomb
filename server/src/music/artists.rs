@@ -6,13 +6,12 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{
-    delete_artist, get_artist, query_artists, ArtistQueryResult, ArtistsQueryResult,
-    DeleteArtistRequest, DeleteArtistResponse, GetArtistRequest, QueryParams,
+    delete_artist, get_artist, query_artists, ArtistsQueryResult, DeleteArtistRequest,
+    DeleteArtistResponse, QueryParams,
 };
 use grimoire::music::entities::artists::{create_artist, Artist, CreateArtistRequest};
 use grimoire::response::GrimoireResponse;
 use inventory;
-use serde::{Deserialize, Serialize};
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
 

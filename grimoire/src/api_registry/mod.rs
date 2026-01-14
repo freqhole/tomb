@@ -99,6 +99,9 @@ pub mod type_registry {
         RegisterStartRequest, SetFavoriteRequest, SetRatingRequest, StartLoginRequest,
     };
 
+    // health types
+    use crate::health::{EmptyResponse, HealthResponse};
+
     // music types
     use crate::media_blobz::MediaBlob;
     use crate::music::crud::{
@@ -114,17 +117,28 @@ pub mod type_registry {
     use crate::music::entities::albums::Album;
     use crate::music::entities::artists::{Artist, CreateArtistRequest};
     use crate::music::entities::genres::Genre;
-    use crate::music::entities::playlists::{CreatePlaylistRequest, Playlist};
+    use crate::music::entities::playlists::{
+        AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
+        RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest,
+        ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
+    };
     use crate::music::entities::songs::Song;
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
 
     // jobs types
-    use crate::jobs::{CreateJobRequest, Job};
+    use crate::jobs::{CreateJobRequest, GetJobRequest, Job, ListJobsRequest};
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
         registered.insert("WhoAmIResponse".to_string());
+
+        // health types
+        gen.add_schema::<HealthResponse>("HealthResponse");
+        registered.insert("HealthResponse".to_string());
+
+        gen.add_schema::<EmptyResponse>("EmptyResponse");
+        registered.insert("EmptyResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
@@ -155,11 +169,41 @@ pub mod type_registry {
         gen.add_schema::<CreatePlaylistRequest>("CreatePlaylistRequest");
         registered.insert("CreatePlaylistRequest".to_string());
 
+        gen.add_schema::<UpdatePlaylistRequest>("UpdatePlaylistRequest");
+        registered.insert("UpdatePlaylistRequest".to_string());
+
+        gen.add_schema::<AddSongsToPlaylistRequest>("AddSongsToPlaylistRequest");
+        registered.insert("AddSongsToPlaylistRequest".to_string());
+
+        gen.add_schema::<DeletePlaylistRequest>("DeletePlaylistRequest");
+        registered.insert("DeletePlaylistRequest".to_string());
+
+        gen.add_schema::<RemoveSongsFromPlaylistRequest>("RemoveSongsFromPlaylistRequest");
+        registered.insert("RemoveSongsFromPlaylistRequest".to_string());
+
+        gen.add_schema::<ReorderPlaylistSongsRequest>("ReorderPlaylistSongsRequest");
+        registered.insert("ReorderPlaylistSongsRequest".to_string());
+
+        gen.add_schema::<RemovePlaylistThumbnailRequest>("RemovePlaylistThumbnailRequest");
+        registered.insert("RemovePlaylistThumbnailRequest".to_string());
+
         gen.add_schema::<Artist>("Artist");
         registered.insert("Artist".to_string());
 
         gen.add_schema::<CreateArtistRequest>("CreateArtistRequest");
         registered.insert("CreateArtistRequest".to_string());
+
+        gen.add_schema::<Job>("Job");
+        registered.insert("Job".to_string());
+
+        gen.add_schema::<CreateJobRequest>("CreateJobRequest");
+        registered.insert("CreateJobRequest".to_string());
+
+        gen.add_schema::<GetJobRequest>("GetJobRequest");
+        registered.insert("GetJobRequest".to_string());
+
+        gen.add_schema::<ListJobsRequest>("ListJobsRequest");
+        registered.insert("ListJobsRequest".to_string());
 
         gen.add_schema::<FetchMediaParams>("FetchMediaParams");
         registered.insert("FetchMediaParams".to_string());

@@ -3,7 +3,7 @@
 use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
 use grimoire::api_registry;
 
-use crate::{auth, music, state::AppState, static_files};
+use crate::{auth, health, jobs, music, state::AppState, static_files};
 
 /// build the application router
 ///
@@ -35,6 +35,30 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["get_playlist_by_id"].path,
             get(music::playlists::get_playlist_by_id),
+        )
+        .route(
+            routes["music"]["update_playlist"].path,
+            post(music::playlists::update_playlist_handler),
+        )
+        .route(
+            routes["music"]["delete_playlist"].path,
+            post(music::playlists::delete_playlist_handler),
+        )
+        .route(
+            routes["music"]["add_songs_to_playlist"].path,
+            post(music::playlists::add_songs_handler),
+        )
+        .route(
+            routes["music"]["remove_songs_from_playlist"].path,
+            post(music::playlists::remove_songs_handler),
+        )
+        .route(
+            routes["music"]["reorder_playlist_songs"].path,
+            post(music::playlists::reorder_songs_handler),
+        )
+        .route(
+            routes["music"]["remove_playlist_thumbnail"].path,
+            post(music::playlists::remove_thumbnail_handler),
         )
         .route(
             routes["music"]["create_artist"].path,
@@ -123,6 +147,15 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["get_genre"].path,
             get(music::genres::get_genre_handler),
         )
+        // jobs routes
+        .route(
+            routes["music"]["get_job_status"].path,
+            post(jobs::get_job_status),
+        )
+        .route(
+            routes["music"]["list_jobs"].path,
+            post(jobs::list_jobs_handler),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)
@@ -150,6 +183,10 @@ pub fn build_router() -> Router<AppState> {
     let router = Router::new()
         // public routes (no auth required)
         .route(
+            routes["app"]["health_check"].path,
+            get(health::health_check),
+        )
+        .route(
             routes["auth"]["redeem_invite"].path,
             post(auth::handlers::redeem_invite),
         )
@@ -161,6 +198,10 @@ pub fn build_router() -> Router<AppState> {
     #[cfg(not(feature = "webauthn"))]
     let router = Router::new()
         // public routes (no auth required)
+        .route(
+            routes["app"]["health_check"].path,
+            get(health::health_check),
+        )
         .route(
             routes["auth"]["redeem_invite"].path,
             post(auth::handlers::redeem_invite),

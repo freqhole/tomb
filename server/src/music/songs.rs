@@ -7,12 +7,11 @@ use axum::{
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{
     delete_song, list_recent_songs, query_songs, update_songs, DeleteSongRequest,
-    DeleteSongResponse, QueryParams, RecentSongsRequest, SongQueryResult, SongsQueryResult,
-    UpdateSongsRequest, UpdateSongsResult,
+    DeleteSongResponse, QueryParams, RecentSongsRequest, SongsQueryResult, UpdateSongsRequest,
+    UpdateSongsResult,
 };
 use grimoire::response::GrimoireResponse;
 use inventory;
-use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::AppState;

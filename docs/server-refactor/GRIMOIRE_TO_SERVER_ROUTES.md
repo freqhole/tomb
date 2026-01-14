@@ -271,37 +271,37 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music create-playlist --json-input '{...}'`  
 **server**:
 
-- [ ] `POST /api/playlists/create` - create new playlist
+- [x] `POST /api/playlists/create` - create new playlist
 
 **grimoire**: `music::crud::update_playlist(playlist_id: String, request: UpdatePlaylistRequest)`  
 **cli**: `freqhole music update-playlist --playlist-id ID --json-input '{...}'`  
 **server**:
 
-- [ ] `POST /api/playlists/update` - update playlist metadata
+- [x] `POST /api/playlists/update` - update playlist metadata
 
 **grimoire**: `music::crud::delete_playlist(playlist_id: String)`  
 **cli**: `freqhole music delete-playlist --playlist-id ID`  
 **server**:
 
-- [ ] `POST /api/playlists/delete` - delete playlist
+- [x] `POST /api/playlists/delete` - delete playlist
 
 **grimoire**: `music::crud::add_songs_to_playlist(request: AddSongsToPlaylistRequest)`  
 **cli**: `freqhole music add-songs-to-playlist --json-input '{...}'`  
 **server**:
 
-- [ ] `POST /api/playlists/add-songs` - add songs to playlist
+- [x] `POST /api/playlists/add-songs` - add songs to playlist
 
 **grimoire**: `music::crud::remove_songs_from_playlist(playlist_id: String, song_ids: Vec<String>)`  
 **cli**: (wrapped in add-songs handler)  
 **server**:
 
-- [ ] `POST /api/playlists/remove-songs` - remove songs from playlist
+- [x] `POST /api/playlists/remove-songs` - remove songs from playlist
 
 **grimoire**: `music::crud::update_song_position(playlist_id: String, song_id: String, new_position: i32)`  
 **cli**: `freqhole music update-song-position --playlist-id ID --song-id ID --new-position N`  
 **server**:
 
-- [ ] `POST /api/playlists/reorder` - reorder songs in playlist
+- [x] `POST /api/playlists/reorder` - reorder songs in playlist
 
 **grimoire**: `music::crud::update_songs_position(playlist_id: String, song_ids: Vec<String>)`  
 **cli**: `freqhole music update-song-position --song-ids ID,ID,ID`  
@@ -313,7 +313,7 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music remove-playlist-thumbnail --playlist-id ID --cleanup-blob`  
 **server**:
 
-- [ ] `POST /api/playlists/remove-thumbnail` - remove playlist thumbnail
+- [x] `POST /api/playlists/remove-thumbnail` - remove playlist thumbnail
 
 ---
 
@@ -474,9 +474,7 @@ these are server implementation details, not grimoire apis.
 
 these are server-specific, not grimoire apis.
 
-- [ ] `GET /health` - basic health check
-- [ ] `GET /health/ready` - readiness check (verify db connection)
-- [ ] `GET /health/live` - liveness check
+- [x] `GET /health` - health check (verifies db connection)
 
 ---
 
@@ -500,13 +498,13 @@ server-specific, not grimoire apis.
 **cli**: `freqhole fetch status <JOB_ID>` (to be added)  
 **server**:
 
-- [ ] `POST /api/jobs/status` - get job status
+- [x] `POST /api/jobs/status` - get job status
 
 **grimoire**: `jobs::list_jobs(user_id: Option<String>)` (exists)  
 **cli**: `freqhole fetch list` (to be added)  
 **server**:
 
-- [ ] `POST /api/jobs/list` - list user's jobs
+- [x] `POST /api/jobs/list` - list user's jobs
 
 ---
 

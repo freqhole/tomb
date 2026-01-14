@@ -165,6 +165,21 @@ pub struct CreateJobRequest {
     pub created_by: Option<String>,
 }
 
+/// request for getting a job by id
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetJobRequest {
+    pub job_id: String,
+}
+
+/// request for listing jobs with filters
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListJobsRequest {
+    pub session_id: Option<String>,
+    pub status: Option<String>, // serialized JobStatus
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+}
+
 /// Job processing result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobResult {

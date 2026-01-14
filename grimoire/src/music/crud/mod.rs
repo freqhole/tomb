@@ -38,7 +38,9 @@ pub use update::update_songs;
 
 // re-export playlist types
 pub use crate::music::entities::playlists::{
-    AddSongsToPlaylistRequest, CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest,
+    AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
+    PlaylistSong, RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest,
+    ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 
 // re-export main workflow functions with cleaner names

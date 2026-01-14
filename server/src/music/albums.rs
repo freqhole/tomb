@@ -6,7 +6,7 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{
-    delete_album, get_album, query_albums, AlbumQueryResult, AlbumsQueryResult, DeleteAlbumRequest,
+    delete_album, get_album, query_albums, AlbumsQueryResult, DeleteAlbumRequest,
     DeleteAlbumResponse, QueryParams,
 };
 use grimoire::response::GrimoireResponse;

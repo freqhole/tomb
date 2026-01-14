@@ -6,7 +6,6 @@ use grimoire::error::GrimoireError;
 use grimoire::music::musicbrainz::{
     MusicBrainzClient, MusicBrainzConfig, RecordingSearchQuery, ReleaseSearchQuery,
 };
-use serde::Serialize;
 
 #[derive(Subcommand)]
 pub enum MusicBrainzAction {
@@ -63,12 +62,6 @@ pub enum MusicBrainzAction {
     },
     /// Test MusicBrainz configuration
     TestConfig,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct MusicBrainzSearchResults<T> {
-    pub results: Vec<T>,
-    pub count: usize,
 }
 
 /// Handle MusicBrainz commands
