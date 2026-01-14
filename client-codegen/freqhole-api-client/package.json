@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx test.ts"
+    "test": "tsx src/test.ts",
+    "test:coverage": "SKIP_INTEGRATION=true tsx src/test.ts",
+    "test:integration": "tsx src/test.ts"
   },
   "dependencies": {
     "zod": "^4.3.5"

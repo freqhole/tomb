@@ -1,21 +1,22 @@
-// hand-written api client - wraps generated routes with fetch + zod validation
+// low-level fetch implementation used by all wrapper functions
 import { routes } from "./codegen/routes.js";
-import type * as s from "./codegen/schema.js";
 import { z } from "zod";
 
 type SafeParseSuccess<T> = { success: true; data: T };
 type SafeParseError = { success: false; error: z.ZodError };
-type SafeParseResult<T> = SafeParseSuccess<T> | SafeParseError;
+export type SafeParseResult<T> = SafeParseSuccess<T> | SafeParseError;
 
-async function callInternal<Resp>(
+// internal call function used by all wrappers
+export async function call<Resp>(
   baseUrl: string,
   domain: string,
   routeName: string,
-  respSchema: z.ZodType<Resp>,
+  respSchema: z.ZodType<Resp> | null,
   reqSchema: z.ZodTypeAny | null,
   method: string,
   path: string,
   params?: any,
+  apiKey?: string,
 ): Promise<SafeParseResult<Resp>> {
   // for get/delete requests, params are used for path interpolation (not validated)
   // for post/put/etc, validate request body with safeparse
@@ -36,9 +37,19 @@ async function callInternal<Resp>(
   }
 
   // make request
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  // auth: use bearer token if provided, otherwise cookies
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
   const options: RequestInit = {
     method: method,
-    headers: { "Content-Type": "application/json" },
+    headers: headers,
+    credentials: apiKey ? "omit" : "include", // use cookies if no api key
   };
 
   // only send body for post/put/patch methods
@@ -59,6 +70,11 @@ async function callInternal<Resp>(
           },
         ]),
       };
+    }
+
+    // if no response schema (e.g. blob streaming), return raw response
+    if (!respSchema) {
+      return { success: true, data: null as any };
     }
 
     const data = await response.json();
@@ -84,16 +100,17 @@ async function callInternal<Resp>(
   }
 }
 
-// generic call function for advanced use cases
-export function call<T>(
+// public escape hatch - request any route by domain + name
+export function request<T>(
   baseUrl: string,
   domain: keyof typeof routes,
   routeName: string,
   params?: any,
+  apiKey?: string,
 ): Promise<SafeParseResult<T>> {
   const domainRoutes = routes[domain] as Record<string, any>;
   const route = domainRoutes[routeName];
-  return callInternal(
+  return call(
     baseUrl,
     domain as string,
     routeName,
@@ -102,13 +119,6 @@ export function call<T>(
     route.method,
     route.path,
     params,
+    apiKey,
   );
-}
-
-export function createClient(baseUrl: string) {
-  return {
-    // TODO: add typed wrapper functions for each route
-    // these will be generated or hand-written in a separate file
-    call,
-  };
 }
