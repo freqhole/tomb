@@ -13,4 +13,7 @@ pub use cleanup::{
     MediaBlobReferences,
 };
 pub use models::{CreateMediaBlobRequest, MediaBlob};
-pub use service::{create_media_blob, delete_media_blob, get_media_blob, list_media_blobs};
+pub use service::{
+    create_media_blob, delete_media_blob, get_media_blob, get_media_blob_with_data,
+    list_media_blobs,
+};

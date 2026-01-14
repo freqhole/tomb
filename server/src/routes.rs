@@ -3,7 +3,7 @@
 use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
 use grimoire::api_registry;
 
-use crate::{auth, health, jobs, music, state::AppState, static_files};
+use crate::{auth, blobs, health, jobs, music, state::AppState, static_files};
 
 /// build the application router
 ///
@@ -259,6 +259,15 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["get_musicbrainz_release"].path,
             post(music::musicbrainz::get_release_handler),
+        )
+        // blob routes
+        .route(
+            routes["music"]["stream_blob"].path,
+            get(blobs::stream_blob_handler),
+        )
+        .route(
+            routes["music"]["blob_metadata"].path,
+            get(blobs::blob_metadata_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 

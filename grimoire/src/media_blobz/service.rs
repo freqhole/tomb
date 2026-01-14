@@ -193,6 +193,33 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
     Ok(blob_with_metadata)
 }
 
+/// get media blob with binary data for streaming
+/// returns (MediaBlob, Option<Vec<u8>>)
+/// - if blob has local_path, returns (blob, None) - data should be read from filesystem
+/// - if blob data is in database, returns (blob, Some(data))
+/// - if neither exists, returns error
+pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Option<Vec<u8>>)> {
+    // Get blob metadata first
+    let blob = get_media_blob(id).await?;
+
+    // If blob has local_path, caller should read from filesystem
+    if blob.local_path.is_some() {
+        return Ok((blob, None));
+    }
+
+    // Try to get data from blob_data table
+    let data_response = blob_data::get_blob_data(id).await;
+
+    if data_response.success {
+        if let Some(data) = data_response.data {
+            return Ok((blob, Some(data)));
+        }
+    }
+
+    // No data source available
+    Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
+}
+
 /// soft delete a media blob
 pub async fn delete_media_blob(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
     let pool = database::connect().await?;
