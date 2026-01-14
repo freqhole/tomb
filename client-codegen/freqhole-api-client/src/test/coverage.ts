@@ -1,4 +1,14 @@
-// wrapper coverage validation - ensures all routes have typed wrappers
+// wrapper coverage validation - compile-time route safety
+//
+// purpose: ensure every generated route has a corresponding typed wrapper function
+//
+// what this tests:
+// - every route in codegen/routes.ts has a wrapper in app/auth/music modules
+// - every wrapper function corresponds to a real route
+// - naming convention consistency (snake_case routes -> camelCase wrappers)
+//
+// runs at compile time - no server or API_KEY needed
+// helps catch missing wrappers when new routes are added to the server
 import { routes } from "../codegen/routes.js";
 import * as music from "../music.js";
 import * as auth from "../auth.js";
@@ -35,7 +45,9 @@ export async function validateWrapperCoverage() {
       const domainWrappers = wrappers[domain as keyof typeof wrappers];
 
       if (!domainWrappers) {
-        errors.push(`✗ ${domain}.${routeName}: no wrapper module for domain '${domain}'`);
+        errors.push(
+          `✗ ${domain}.${routeName}: no wrapper module for domain '${domain}'`,
+        );
         failed++;
         continue;
       }

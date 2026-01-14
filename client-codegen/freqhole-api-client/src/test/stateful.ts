@@ -1,8 +1,27 @@
-// stateful integration tests - creates real entities and tests with actual data
+// stateful integration tests - end-to-end workflow validation
+//
+// purpose: test complete workflows with real data on a live server
+//
+// what this tests:
+// - entity creation (playlists, artists, sub-genres)
+// - entity modification (update playlist, add songs)
+// - entity queries with real IDs
+// - favorites and ratings workflows
+// - analytics endpoints with real play data
+// - proper cleanup of created entities
+//
+// what this does NOT test:
+// - auth rejection (see integration.ts)
+// - routes without auth (see integration.ts)
+//
+// requires:
+// - running server with data (songs, albums, genres must exist)
+// - valid API_KEY environment variable
+// - fail-fast approach: if setup fails, tests don't proceed
 import * as music from "../music.js";
 import * as auth from "../auth.js";
 import * as app from "../app.js";
-import { queryParams, mockData } from "./fixtures.js";
+import { queryParams } from "./fixtures.js";
 
 const baseUrl = process.env.API_URL || "http://localhost:8080";
 const apiKey = process.env.API_KEY;
@@ -17,6 +36,8 @@ const testState = {
   existingSongId: null as string | null,
   existingAlbumId: null as string | null,
   existingGenreId: null as string | null,
+  existingMediaBlobId: null as string | null,
+  userId: null as string | null,
 };
 
 export async function runStatefulTests() {
@@ -46,6 +67,17 @@ export async function runStatefulTests() {
   // setup - discover existing entities (fail if not found)
   console.log("setup: discovering existing entities...\n");
 
+  await test("get current user", async () => {
+    const result = await auth.whoami(baseUrl, apiKey);
+    if (!result.success) {
+      throw new Error(`failed to get current user: ${result.error.message}`);
+    }
+    testState.userId = result.data.user_id;
+    if (!testState.userId) {
+      throw new Error("user_id not returned from whoami");
+    }
+  });
+
   await test("discover existing song", async () => {
     const result = await music.querySongs(baseUrl, queryParams, apiKey);
     if (!result.success) {
@@ -55,6 +87,7 @@ export async function runStatefulTests() {
       throw new Error("no songs found in database - cannot run tests");
     }
     testState.existingSongId = result.data.items[0].song.id;
+    testState.existingMediaBlobId = result.data.items[0].song.media_blob_id;
   });
 
   await test("discover existing album", async () => {
@@ -101,6 +134,7 @@ export async function runStatefulTests() {
         title: `Test Playlist ${Date.now()}`,
         description: "Created by integration tests",
         is_public: false,
+        created_by_id: null,
       },
       apiKey,
     );
@@ -118,6 +152,7 @@ export async function runStatefulTests() {
       baseUrl,
       {
         name: `Test Artist ${Date.now()}`,
+        created_by: null,
       },
       apiKey,
     );
@@ -135,7 +170,7 @@ export async function runStatefulTests() {
       baseUrl,
       {
         name: `Test Sub-Genre ${Date.now()}`,
-        genre_id: testState.existingGenreId!,
+        parent_genre_id: testState.existingGenreId!,
       },
       apiKey,
     );
@@ -171,9 +206,12 @@ export async function runStatefulTests() {
     const result = await music.updatePlaylist(
       baseUrl,
       {
-        id: testState.createdPlaylistId!,
+        playlist_id: testState.createdPlaylistId!,
         title: "Updated Test Playlist",
-        description: "Updated by tests",
+        description: "Updated by integration tests",
+        is_public: null,
+        thumbnail_blob_id: null,
+        updated_by: null,
       },
       apiKey,
     );
@@ -204,6 +242,9 @@ export async function runStatefulTests() {
       baseUrl,
       {
         playlist_id: testState.createdPlaylistId!,
+        q: null,
+        sort_by: null,
+        sort_direction: null,
         limit: 10,
         offset: 0,
       },
@@ -265,8 +306,9 @@ export async function runStatefulTests() {
     const result = await music.setFavorite(
       baseUrl,
       {
-        entity_type: "song",
-        entity_id: testState.existingSongId!,
+        user_id: testState.userId!,
+        target_type: "Song",
+        target_id: testState.existingSongId!,
         is_favorite: true,
       },
       apiKey,
@@ -280,7 +322,8 @@ export async function runStatefulTests() {
     const result = await music.listFavorites(
       baseUrl,
       {
-        entity_type: "song",
+        user_id: testState.userId!,
+        target_type: "Song",
         limit: 10,
         offset: 0,
       },
@@ -295,8 +338,9 @@ export async function runStatefulTests() {
     const result = await music.setRating(
       baseUrl,
       {
-        entity_type: "song",
-        entity_id: testState.existingSongId!,
+        user_id: testState.userId!,
+        target_type: "Song",
+        target_id: testState.existingSongId!,
         rating: 5,
       },
       apiKey,
@@ -310,8 +354,8 @@ export async function runStatefulTests() {
     const result = await music.getRatingStats(
       baseUrl,
       {
-        entity_type: "song",
-        entity_id: testState.existingSongId!,
+        target_type: "Song",
+        target_id: testState.existingSongId!,
       },
       apiKey,
     );
@@ -324,9 +368,10 @@ export async function runStatefulTests() {
     const result = await music.recordPlay(
       baseUrl,
       {
+        media_blob_id: testState.existingMediaBlobId || "unknown-blob-id",
         song_id: testState.existingSongId!,
-        duration_ms: 180000,
-        timestamp: Date.now(),
+        session_id: null,
+        event_data: null,
       },
       apiKey,
     );
@@ -350,10 +395,9 @@ export async function runStatefulTests() {
     const result = await music.listeningHistory(
       baseUrl,
       {
+        user_id: null,
         limit: 10,
         offset: 0,
-        start_date: null,
-        end_date: null,
       },
       apiKey,
     );
@@ -365,7 +409,7 @@ export async function runStatefulTests() {
   await test("get top songs", async () => {
     const result = await music.topSongs(
       baseUrl,
-      { limit: 10, time_range: "week" },
+      { limit: 10, days: 7 },
       apiKey,
     );
     if (!result.success) {
@@ -399,8 +443,8 @@ export async function runStatefulTests() {
       const result = await music.deletePlaylist(
         baseUrl,
         {
-          id: testState.createdPlaylistId,
-          hard_delete: true,
+          playlist_id: testState.createdPlaylistId!,
+          deleted_by: null,
         },
         apiKey,
       );
@@ -416,7 +460,7 @@ export async function runStatefulTests() {
     await test("delete created artist", async () => {
       const result = await music.deleteArtist(
         baseUrl,
-        { id: testState.createdArtistId },
+        { user_id: testState.createdArtistId! },
         apiKey,
       );
       if (!result.success) {
@@ -431,7 +475,7 @@ export async function runStatefulTests() {
     await test("delete created sub-genre", async () => {
       const result = await music.deleteSubGenre(
         baseUrl,
-        { id: testState.createdSubGenreId },
+        { id: testState.createdSubGenreId! },
         apiKey,
       );
       if (!result.success) {

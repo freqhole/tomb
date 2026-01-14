@@ -44,6 +44,7 @@ export const queryParams: s.QueryParams = {
 // Artists
 export const createArtistRequest: s.CreateArtistRequest = {
   name: "Test Artist",
+  created_by: null,
 };
 
 export const getArtistRequest: s.GetArtistRequest = {
@@ -51,7 +52,7 @@ export const getArtistRequest: s.GetArtistRequest = {
 };
 
 export const deleteArtistRequest: s.DeleteArtistRequest = {
-  id: PLACEHOLDER_ID,
+  user_id: PLACEHOLDER_ID,
 };
 
 // Albums
@@ -60,24 +61,54 @@ export const getAlbumRequest: s.GetAlbumRequest = {
 };
 
 export const deleteAlbumRequest: s.DeleteAlbumRequest = {
-  id: PLACEHOLDER_ID,
+  user_id: PLACEHOLDER_ID,
 };
 
 // Songs
 export const recentSongsRequest: s.RecentSongsRequest = {
   limit: 10,
-  offset: 0,
 };
 
 export const updateSongsRequest: s.UpdateSongsRequest = {
   song_ids: [PLACEHOLDER_ID],
-  updates: {
-    title: "Updated Title",
-  },
+  user_id: null,
+  updated_by: null,
+  title: "Updated Title",
+  track_number: null,
+  disc_number: null,
+  duration: null,
+  year: null,
+  bpm: null,
+  key_signature: null,
+  lyrics: null,
+  metadata: null,
+  artist: null,
+  artist_name: null,
+  album: null,
+  album_title: null,
+  album_type: null,
+  release_date: null,
+  label: null,
+  genre: null,
+  sub_genre: null,
+  thumbnail_blob_id: null,
+  thumbnail_from_file: null,
+  thumbnail_from_bytes: null,
+  add_tags: null,
+  remove_tags: null,
+  replace_tags: null,
+  set_favorite: null,
+  favorite_song: false,
+  favorite_artist: false,
+  favorite_album: false,
+  set_rating: null,
+  rate_song: null,
+  rate_artist: null,
+  rate_album: null,
 };
 
 export const deleteSongRequest: s.DeleteSongRequest = {
-  id: PLACEHOLDER_ID,
+  user_id: PLACEHOLDER_ID,
 };
 
 // Playlists
@@ -85,24 +116,30 @@ export const createPlaylistRequest: s.CreatePlaylistRequest = {
   title: "Test Playlist",
   description: null,
   is_public: false,
+  created_by_id: null,
 };
 
 export const updatePlaylistRequest: s.UpdatePlaylistRequest = {
-  id: PLACEHOLDER_ID,
+  playlist_id: PLACEHOLDER_ID,
   title: "Updated Playlist",
   description: "Updated description",
+  is_public: null,
+  thumbnail_blob_id: null,
+  updated_by: null,
 };
 
 export const deletePlaylistRequest: s.DeletePlaylistRequest = {
-  id: PLACEHOLDER_ID,
-  hard_delete: false,
+  playlist_id: PLACEHOLDER_ID,
+  deleted_by: null,
 };
 
 export const queryPlaylistSongsRequest: s.QueryPlaylistSongsRequest = {
   playlist_id: PLACEHOLDER_ID,
+  q: null,
+  sort_by: null,
+  sort_direction: null,
   limit: 10,
   offset: 0,
-  sort_by: null,
 };
 
 export const addSongsToPlaylistRequest: s.AddSongsToPlaylistRequest = {
@@ -118,16 +155,15 @@ export const removeSongsFromPlaylistRequest: s.RemoveSongsFromPlaylistRequest =
 
 export const reorderPlaylistSongsRequest: s.ReorderPlaylistSongsRequest = {
   playlist_id: PLACEHOLDER_ID,
-  song_positions: [
-    { song_id: "song-1", position: 0 },
-    { song_id: "song-2", position: 1 },
-  ],
+  song_ids: ["song-1", "song-2"],
+  new_position: 0,
 };
 
 export const removePlaylistThumbnailRequest: s.RemovePlaylistThumbnailRequest =
   {
     playlist_id: PLACEHOLDER_ID,
-    soft_delete: false,
+    cleanup_blob: false,
+    deleted_by: null,
   };
 
 // Genres
@@ -142,7 +178,7 @@ export const getSubGenreRequest: s.GetSubGenreRequest = {
 
 export const createSubGenreRequest: s.CreateSubGenreRequest = {
   name: "Test Sub-Genre",
-  genre_id: PLACEHOLDER_ID,
+  parent_genre_id: null,
 };
 
 export const deleteSubGenreRequest: s.DeleteSubGenreRequest = {
@@ -150,60 +186,64 @@ export const deleteSubGenreRequest: s.DeleteSubGenreRequest = {
 };
 
 export const querySubGenresRequest: s.QuerySubGenresRequest = {
-  genre_id: PLACEHOLDER_ID,
-  q: "test",
+  search: "test",
 };
 
 export const listSubGenresForGenreRequest: s.ListSubGenresForGenreRequest = {
-  genre_id: PLACEHOLDER_ID,
+  parent_genre_id: PLACEHOLDER_ID,
 };
 
 export const findOrCreateSubGenreRequest: s.FindOrCreateSubGenreRequest = {
   name: "Test Sub-Genre",
-  genre_id: PLACEHOLDER_ID,
+  parent_genre_id: PLACEHOLDER_ID,
 };
 
 // Favorites
 export const listFavoritesRequest: s.ListFavoritesRequest = {
-  entity_type: "song",
+  user_id: PLACEHOLDER_ID,
+  target_type: "song",
   limit: 10,
   offset: 0,
 };
 
 export const setFavoriteRequest: s.SetFavoriteRequest = {
-  entity_type: "song",
-  entity_id: PLACEHOLDER_ID,
+  user_id: PLACEHOLDER_ID,
+  target_type: "Song",
+  target_id: PLACEHOLDER_ID,
   is_favorite: true,
 };
 
 // Ratings
 export const setRatingRequest: s.SetRatingRequest = {
-  entity_type: "song",
-  entity_id: PLACEHOLDER_ID,
+  user_id: PLACEHOLDER_ID,
+  target_type: "Song",
+  target_id: PLACEHOLDER_ID,
   rating: 5,
 };
 
 export const removeRatingRequest: s.RemoveRatingRequest = {
-  entity_type: "song",
-  entity_id: PLACEHOLDER_ID,
+  user_id: PLACEHOLDER_ID,
+  target_type: "song",
+  target_id: PLACEHOLDER_ID,
 };
 
 export const getRatingStatsRequest: s.GetRatingStatsRequest = {
-  entity_type: "song",
-  entity_id: PLACEHOLDER_ID,
+  target_type: "song",
+  target_id: PLACEHOLDER_ID,
 };
 
 // Tags
 export const queryTagsRequest: s.QueryTagsRequest = {
-  q: "test",
+  search: "test",
 };
 
 export const getTagRequest: s.GetTagRequest = {
-  id: PLACEHOLDER_ID,
+  tag_id: PLACEHOLDER_ID,
 };
 
 export const deleteTagRequest: s.DeleteTagRequest = {
-  id: PLACEHOLDER_ID,
+  tag_id: PLACEHOLDER_ID,
+  deleted_by: null,
 };
 
 export const getAlbumTagsRequest: s.GetAlbumTagsRequest = {
@@ -227,9 +267,10 @@ export const replaceAlbumTagsRequest: s.ReplaceAlbumTagsRequest = {
 
 // Analytics
 export const recordPlayRequest: s.RecordPlayRequest = {
+  media_blob_id: PLACEHOLDER_ID,
   song_id: PLACEHOLDER_ID,
-  duration_ms: 180000,
-  timestamp: Date.now(),
+  session_id: null,
+  event_data: null,
 };
 
 export const songAnalyticsRequest: s.SongAnalyticsRequest = {
@@ -237,25 +278,24 @@ export const songAnalyticsRequest: s.SongAnalyticsRequest = {
 };
 
 export const listeningHistoryRequest: s.ListeningHistoryRequest = {
+  user_id: null,
   limit: 10,
   offset: 0,
-  start_date: null,
-  end_date: null,
 };
 
 export const topSongsRequest: s.TopSongsRequest = {
   limit: 10,
-  time_range: "week",
+  days: 7,
 };
 
 export const topArtistsRequest: s.TopArtistsRequest = {
   limit: 10,
-  time_range: "week",
+  days: 7,
 };
 
 export const topAlbumsRequest: s.TopAlbumsRequest = {
   limit: 10,
-  time_range: "week",
+  days: 7,
 };
 
 export const feedRequest: s.FeedRequest = {
@@ -266,6 +306,10 @@ export const feedRequest: s.FeedRequest = {
 // MusicBrainz
 export const searchReleasesRequest: s.SearchReleasesRequest = {
   query: "test query",
+  artist: null,
+  release: null,
+  limit: null,
+  offset: null,
 };
 
 export const getReleaseRequest: s.GetReleaseRequest = {
@@ -281,19 +325,19 @@ export const listJobsRequest: s.ListJobsRequest = {
 };
 
 export const getJobRequest: s.GetJobRequest = {
-  id: PLACEHOLDER_ID,
+  job_id: PLACEHOLDER_ID,
 };
 
 // Fetch
 export const fetchMediaParams: s.FetchMediaParams = {
   url: "https://example.com/video",
-  format: null,
-  quality: null,
+  user_id: null,
 };
 
 // Auth
 export const registerStartRequest: s.RegisterStartRequest = {
   username: "testuser",
+  invite_code: null,
 };
 
 export const startLoginRequest: s.StartLoginRequest = {
@@ -302,6 +346,7 @@ export const startLoginRequest: s.StartLoginRequest = {
 
 export const redeemInviteRequest: s.RedeemInviteRequest = {
   invite_code: "test-invite-code",
+  username: "testuser",
 };
 
 // ============================================================================
@@ -317,8 +362,8 @@ export function merge<T extends Record<string, any>>(
 
   // recursively replace PLACEHOLDER_ID in the merged object
   return JSON.parse(
-    JSON.stringify(merged).replaceAll(
-      PLACEHOLDER_ID,
+    JSON.stringify(merged).replace(
+      new RegExp(PLACEHOLDER_ID, "g"),
       (overrides.id as string) || PLACEHOLDER_ID,
     ),
   );

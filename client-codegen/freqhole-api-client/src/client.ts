@@ -77,7 +77,10 @@ export async function call<Resp>(
       return { success: true, data: null as any };
     }
 
-    const data = await response.json();
+    const json = await response.json();
+
+    // extract data from server response wrapper {success, message, data}
+    const data = json.data ?? json;
 
     // validate response with safeparse - properly typed, no cast needed!
     const result = respSchema.safeParse(data);

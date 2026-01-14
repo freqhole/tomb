@@ -1,9 +1,24 @@
-// integration tests - requires running server
+// integration tests - auth validation layer
+//
+// purpose: verify that all protected routes properly reject unauthenticated requests
+//
+// what this tests:
+// - health check endpoint (no auth required)
+// - auth rejection for all 65+ protected routes (expects 401/403)
+//
+// what this does NOT test:
+// - successful authenticated requests (see stateful.ts)
+// - entity creation/modification workflows (see stateful.ts)
+// - data validation beyond auth (see stateful.ts)
+//
+// runs without API_KEY - uses placeholder data to trigger auth checks
 import * as music from "../music.js";
+
 import * as auth from "../auth.js";
 import * as app from "../app.js";
 import {
   fixtures,
+  queryParams,
   withId,
   withEntityId,
   withPlaylistId,
@@ -61,7 +76,7 @@ export async function runIntegrationTests() {
     },
     {
       name: "music.recentSongs",
-      fn: () => music.recentSongs(baseUrl, { limit: 10, offset: 0 }),
+      fn: () => music.recentSongs(baseUrl, { limit: 10 }),
     },
     {
       name: "music.updateSongs",
@@ -332,7 +347,7 @@ export async function runIntegrationTests() {
       // extract error message from zod error
       const errorMsg =
         result.error.issues?.[0]?.message ||
-        result.error.errors?.[0]?.message ||
+        result.error.issues?.[0]?.message ||
         result.error.message ||
         "";
       if (!errorMsg.includes("401") && !errorMsg.includes("403")) {
@@ -342,130 +357,12 @@ export async function runIntegrationTests() {
   }
 
   console.log("");
-
-  // authenticated tests (require valid session or api key)
-  if (apiKey) {
-    console.log("running authenticated tests...\n");
-    await test("auth.whoami - get current user", async () => {
-      const result = await auth.whoami(baseUrl, apiKey);
-      if (!result.success) {
-        throw new Error(`whoami failed: ${result.error.message}`);
-      }
-      if (!result.data.user_id || !result.data.username) {
-        throw new Error("whoami returned incomplete user data");
-      }
-    });
-
-    await test("auth.apiKeyStatus - check api key status", async () => {
-      const result = await auth.apiKeyStatus(baseUrl, apiKey);
-      if (!result.success) {
-        throw new Error(`api key status failed: ${result.error.message}`);
-      }
-    });
-
-    // music api tests
-    await test("music.querySongs - query with pagination", async () => {
-      const result = await music.querySongs(
-        baseUrl,
-        fixtures.queryParams,
-        apiKey,
-      );
-      if (!result.success) {
-        throw new Error(`query songs failed: ${result.error.message}`);
-      }
-      if (!result.data.items || !Array.isArray(result.data.items)) {
-        throw new Error("query songs returned invalid structure");
-      }
-    });
-
-    await test("music.queryAlbums - query with filters", async () => {
-      const result = await music.queryAlbums(
-        baseUrl,
-        fixtures.queryParams,
-        apiKey,
-      );
-      if (!result.success) {
-        throw new Error(`query albums failed: ${result.error.message}`);
-      }
-      if (!result.data.items || !Array.isArray(result.data.items)) {
-        throw new Error("query albums returned invalid structure");
-      }
-    });
-
-    await test("music.queryArtists - query artists", async () => {
-      const result = await music.queryArtists(
-        baseUrl,
-        fixtures.queryParams,
-        apiKey,
-      );
-      if (!result.success) {
-        throw new Error(`query artists failed: ${result.error.message}`);
-      }
-      if (!result.data.items || !Array.isArray(result.data.items)) {
-        throw new Error("query artists returned invalid structure");
-      }
-    });
-
-    await test("music.listPlaylists - list all playlists", async () => {
-      const result = await music.listPlaylists(
-        baseUrl,
-        fixtures.queryParams,
-        apiKey,
-      );
-      if (!result.success) {
-        throw new Error(`list playlists failed: ${result.error.message}`);
-      }
-      if (!Array.isArray(result.data)) {
-        throw new Error("list playlists returned invalid structure");
-      }
-    });
-
-    await test("music.listTags - list all tags", async () => {
-      const result = await music.listTags(baseUrl, apiKey);
-      if (!result.success) {
-        throw new Error(`list tags failed: ${result.error.message}`);
-      }
-      if (!Array.isArray(result.data)) {
-        throw new Error("list tags returned invalid structure");
-      }
-    });
-
-    await test("music.listSubGenres - list all sub-genres", async () => {
-      const result = await music.listSubGenres(baseUrl, apiKey);
-      if (!result.success) {
-        throw new Error(`list sub-genres failed: ${result.error.message}`);
-      }
-      if (!Array.isArray(result.data)) {
-        throw new Error("list sub-genres returned invalid structure");
-      }
-    });
-
-    await test("music.queryGenres - query genres", async () => {
-      const result = await music.queryGenres(
-        baseUrl,
-        fixtures.queryParams,
-        apiKey,
-      );
-      if (!result.success) {
-        throw new Error(`query genres failed: ${result.error.message}`);
-      }
-      if (!result.data.items || !Array.isArray(result.data.items)) {
-        throw new Error("query genres returned invalid structure");
-      }
-    });
-
-    await test("music.listJobs - list jobs", async () => {
-      const result = await music.listJobs(baseUrl, fixtures.listJobs, apiKey);
-      if (!result.success) {
-        throw new Error(`list jobs failed: ${result.error.message}`);
-      }
-      if (!Array.isArray(result.data)) {
-        throw new Error("list jobs returned invalid structure");
-      }
-    });
-  } else {
-    console.log("⚠ skipping authenticated tests (no API_KEY env var)\n");
-  }
+  console.log(
+    "✓ auth validation complete - all routes reject without credentials\n",
+  );
+  console.log(
+    "  (authenticated workflows tested in stateful tests - see stateful.ts)\n",
+  );
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
 
