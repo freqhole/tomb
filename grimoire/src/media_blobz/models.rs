@@ -63,6 +63,12 @@ impl std::str::FromStr for BlobType {
     }
 }
 
+impl From<String> for BlobType {
+    fn from(s: String) -> Self {
+        s.parse().unwrap_or(BlobType::Original)
+    }
+}
+
 /// media blob model for domain logic
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MediaBlob {
@@ -73,7 +79,7 @@ pub struct MediaBlob {
     pub source_client_id: Option<String>,
     pub local_path: Option<String>,
     pub parent_blob_id: Option<String>,
-    pub blob_type: String,
+    pub blob_type: BlobType,
     #[serde(default)]
     pub metadata: serde_json::Value,
     pub created_at: i64,         // unix timestamp UTC
@@ -112,7 +118,7 @@ impl ZodSchema for MediaBlob {
             ("mime", &zod_nullable(zod_string())),
             ("source_client_id", &zod_nullable(zod_string())),
             ("parent_blob_id", &zod_nullable(zod_string())),
-            ("blob_type", &zod_string()),
+            ("blob_type", &BlobType::zod_schema()),
             ("metadata", &"z.any()".to_string()),
             ("created_at", &zod_number()),
             ("updated_at", &zod_number()),

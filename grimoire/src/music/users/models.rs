@@ -6,12 +6,13 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
 use crate::users::models::AuthError;
 
 /// Target types for favorites
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FavoriteTarget {
     Song,
@@ -19,6 +20,12 @@ pub enum FavoriteTarget {
     Album,
     Genre,
     Playlist,
+}
+
+impl ZodSchemaTrait for FavoriteTarget {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")])"#.to_string()
+    }
 }
 
 impl fmt::Display for FavoriteTarget {
@@ -46,12 +53,18 @@ impl From<String> for FavoriteTarget {
 }
 
 /// Target types for ratings (subset of favorite targets)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RatingTarget {
     Song,
     Artist,
     Album,
+}
+
+impl ZodSchemaTrait for RatingTarget {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album")])"#.to_string()
+    }
 }
 
 impl fmt::Display for RatingTarget {

@@ -443,7 +443,7 @@ export const GetJobRequestSchema = z.object({
 export type GetJobRequest = z.infer<typeof GetJobRequestSchema>;
 
 export const GetRatingStatsRequestSchema = z.object({
-  target_type: z.string(),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   target_id: z.string()
 });
 export type GetRatingStatsRequest = z.infer<typeof GetRatingStatsRequestSchema>;
@@ -597,7 +597,7 @@ export const MediaBlobSchema = z.object({
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
-  blob_type: z.string(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -760,7 +760,7 @@ export const PlaylistSongResultSchema = z.object({
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
-  blob_type: z.string(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -849,7 +849,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
-  blob_type: z.string(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -959,7 +959,7 @@ export type RemovePlaylistThumbnailRequest = z.infer<typeof RemovePlaylistThumbn
 
 export const RemoveRatingRequestSchema = z.object({
   user_id: z.string(),
-  target_type: z.string(),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   target_id: z.string()
 });
 export type RemoveRatingRequest = z.infer<typeof RemoveRatingRequestSchema>;
@@ -1038,7 +1038,7 @@ export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
 export const SetFavoriteRequestSchema = z.object({
   user_id: z.string(),
-  target_type: z.union([z.literal('Song'), z.literal('Artist'), z.literal('Album'), z.literal('Genre'), z.literal('Playlist')]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")]),
   target_id: z.string(),
   is_favorite: z.boolean()
 });
@@ -1052,7 +1052,7 @@ export type SetFavoriteResponse = z.infer<typeof SetFavoriteResponseSchema>;
 
 export const SetRatingRequestSchema = z.object({
   user_id: z.string(),
-  target_type: z.union([z.literal('Song'), z.literal('Artist'), z.literal('Album')]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   target_id: z.string(),
   rating: z.number()
 });
@@ -1157,7 +1157,7 @@ export const SongQueryResultSchema = z.object({
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
-  blob_type: z.string(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -1248,7 +1248,7 @@ export const SongsQueryResultSchema = z.object({
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
-  blob_type: z.string(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -1394,14 +1394,14 @@ export const UpdateSongsRequestSchema = z.object({
   remove_tags: z.array(z.string()).nullable(),
   replace_tags: z.array(z.string()).nullable(),
   set_favorite: z.object({
-  target_type: z.union([z.literal('Song'), z.literal('Artist'), z.literal('Album')]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   is_favorite: z.boolean()
 }).nullable(),
   favorite_song: z.boolean(),
   favorite_artist: z.boolean(),
   favorite_album: z.boolean(),
   set_rating: z.object({
-  target_type: z.union([z.literal('Song'), z.literal('Artist'), z.literal('Album')]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   rating: z.number()
 }).nullable(),
   rate_song: z.number().nullable(),

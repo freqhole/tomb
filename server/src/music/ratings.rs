@@ -7,7 +7,7 @@ use grimoire::music::crud::{
     SetRatingResponse,
 };
 use grimoire::response::GrimoireResponse;
-use grimoire::users::{RatingTarget, RatingsService, SetRatingRequest};
+use grimoire::users::{RatingsService, SetRatingRequest};
 use inventory;
 
 use crate::{error::ApiError, AppState};
@@ -95,15 +95,8 @@ pub async fn remove_rating_handler(
 
     let ratings_service = RatingsService::new();
 
-    let rating_target = match parse_rating_target(&request.target_type) {
-        Ok(target) => target,
-        Err(e) => {
-            return Err(ApiError::BadRequest(e));
-        }
-    };
-
     match ratings_service
-        .remove_rating(&request.user_id, rating_target, &request.target_id)
+        .remove_rating(&request.user_id, request.target_type, &request.target_id)
         .await
     {
         Ok(_) => Ok(Json(RemoveRatingResponse {
@@ -132,15 +125,8 @@ pub async fn get_rating_stats_handler(
 
     let ratings_service = RatingsService::new();
 
-    let rating_target = match parse_rating_target(&request.target_type) {
-        Ok(target) => target,
-        Err(e) => {
-            return Err(ApiError::BadRequest(e));
-        }
-    };
-
     match ratings_service
-        .get_rating_stats(rating_target, &request.target_id)
+        .get_rating_stats(request.target_type, &request.target_id)
         .await
     {
         Ok(stats) => Ok(Json(GrimoireResponse {
@@ -156,17 +142,5 @@ pub async fn get_rating_stats_handler(
             errors: vec![],
         })),
         Err(e) => Err(ApiError::Internal(e.to_string())),
-    }
-}
-
-fn parse_rating_target(target_type: &str) -> Result<RatingTarget, String> {
-    match target_type.to_lowercase().as_str() {
-        "song" => Ok(RatingTarget::Song),
-        "artist" => Ok(RatingTarget::Artist),
-        "album" => Ok(RatingTarget::Album),
-        _ => Err(format!(
-            "invalid target type: {}. must be 'song', 'artist', or 'album'",
-            target_type
-        )),
     }
 }

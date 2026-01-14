@@ -3,6 +3,7 @@
 
 use crate::Bytes;
 use serde::{Deserialize, Serialize};
+use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::MediaBlob;
@@ -12,6 +13,7 @@ use crate::music::entities::{
     genres::{Genre, SubGenre},
     songs::Song,
 };
+use crate::music::users::models::RatingTarget;
 
 /// request for importing a song with all metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -572,12 +574,18 @@ pub struct SetRatingRequest {
 }
 
 /// favorite target types
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FavoriteTargetType {
     Song,
     Artist,
     Album,
+}
+
+impl ZodSchemaTrait for FavoriteTargetType {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album")])"#.to_string()
+    }
 }
 
 impl FavoriteTargetType {
@@ -591,12 +599,18 @@ impl FavoriteTargetType {
 }
 
 /// rating target types
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RatingTargetType {
     Song,
     Artist,
     Album,
+}
+
+impl ZodSchemaTrait for RatingTargetType {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album")])"#.to_string()
+    }
 }
 
 impl RatingTargetType {
@@ -796,14 +810,14 @@ pub struct ListFavoritesResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RemoveRatingRequest {
     pub user_id: String,
-    pub target_type: String,
+    pub target_type: RatingTarget,
     pub target_id: String,
 }
 
 /// request for getting rating stats
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetRatingStatsRequest {
-    pub target_type: String,
+    pub target_type: RatingTarget,
     pub target_id: String,
 }
 
