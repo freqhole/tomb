@@ -2,11 +2,15 @@
 
 ## current status & next steps
 
-**phase 5 complete** ✓ - fetch migration finished (grimoire + server + cli)
+**phase 6 complete** ✓ - rapid route implementation finished (17 new routes implemented)
 
 **next priorities**:
 
-1. rapid route implementation - remaining ~35 music routes
+1. testing & integration - test all implemented routes
+2. blob streaming - add range request support for audio playback
+3. health checks - add health/status endpoints
+4. har recording - capture actual webapp usage patterns
+5. migration - cutover from legacy server
 
 **reference docs**:
 
@@ -43,8 +47,8 @@ complete rewrite of server package using refactored grimoire library. legacy ser
 3. **codegen system**: typescript client generation with inventory-based route registration ✓
 4. **establish patterns**: implement sample routes, validate workflow ✓
 5. **static files & legacy code**: reuse working code from legacyserver ✓
-6. **fetch migration**: move download/fetch_music to grimoire (in progress)
-7. **rapid implementation**: remaining music routes
+6. **fetch migration**: move download/fetch_music to grimoire ✓
+7. **rapid implementation**: remaining music routes ✓
 8. **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
 
 ## overview

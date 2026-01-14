@@ -255,7 +255,7 @@ pub struct SongQueryResult {
 }
 
 /// artist with aggregated metadata for query results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ArtistQueryResult {
     pub artist: Artist,
     pub song_count: i64,
@@ -268,7 +268,7 @@ pub struct ArtistQueryResult {
 }
 
 /// album with aggregated metadata for query results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AlbumQueryResult {
     pub album: Album,
     pub artist: Option<Artist>,
@@ -280,7 +280,7 @@ pub struct AlbumQueryResult {
 }
 
 /// genre with optional aggregated metadata for query results
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GenreQueryResult {
     pub genre: Genre,
     pub song_count: Option<i64>,   // Could be computed if needed
@@ -640,4 +640,186 @@ impl From<QueryResult<SongQueryResult>> for SongsQueryResult {
             query_time_ms: qr.query_time_ms,
         }
     }
+}
+
+/// concrete query result type for artists
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ArtistsQueryResult {
+    pub items: Vec<ArtistQueryResult>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl From<QueryResult<ArtistQueryResult>> for ArtistsQueryResult {
+    fn from(qr: QueryResult<ArtistQueryResult>) -> Self {
+        Self {
+            items: qr.items,
+            total_count: qr.total_count,
+            has_more: qr.has_more,
+            offset: qr.offset,
+            limit: qr.limit,
+            query_time_ms: qr.query_time_ms,
+        }
+    }
+}
+
+/// request for getting an artist
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetArtistRequest {
+    pub id: String,
+}
+
+/// request for deleting an artist
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteArtistRequest {
+    pub user_id: String,
+}
+
+/// response for artist deletion
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteArtistResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// concrete query result type for albums
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumsQueryResult {
+    pub items: Vec<AlbumQueryResult>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl From<QueryResult<AlbumQueryResult>> for AlbumsQueryResult {
+    fn from(qr: QueryResult<AlbumQueryResult>) -> Self {
+        Self {
+            items: qr.items,
+            total_count: qr.total_count,
+            has_more: qr.has_more,
+            offset: qr.offset,
+            limit: qr.limit,
+            query_time_ms: qr.query_time_ms,
+        }
+    }
+}
+
+/// request for getting an album
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetAlbumRequest {
+    pub id: String,
+}
+
+/// request for deleting an album
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteAlbumRequest {
+    pub user_id: String,
+}
+
+/// response for album deletion
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteAlbumResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+// ============================================================================
+// Favorites API Types
+// ============================================================================
+
+/// request for listing user favorites
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListFavoritesRequest {
+    pub user_id: String,
+    pub target_type: Option<String>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+}
+
+/// response for setting a favorite
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetFavoriteResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// response for listing favorites
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListFavoritesResponse {
+    pub favorites: Vec<serde_json::Value>,
+}
+
+// ============================================================================
+// Ratings API Types
+// ============================================================================
+
+/// request for removing a rating
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RemoveRatingRequest {
+    pub user_id: String,
+    pub target_type: String,
+    pub target_id: String,
+}
+
+/// request for getting rating stats
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetRatingStatsRequest {
+    pub target_type: String,
+    pub target_id: String,
+}
+
+/// response for setting a rating
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetRatingResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// response for removing a rating
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RemoveRatingResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// rating statistics
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RatingStats {
+    pub average_rating: f64,
+    pub total_ratings: u64,
+}
+
+/// concrete query result type for genres
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GenresQueryResult {
+    pub items: Vec<GenreQueryResult>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl From<QueryResult<GenreQueryResult>> for GenresQueryResult {
+    fn from(qr: QueryResult<GenreQueryResult>) -> Self {
+        Self {
+            items: qr.items,
+            total_count: qr.total_count,
+            has_more: qr.has_more,
+            offset: qr.offset,
+            limit: qr.limit,
+            query_time_ms: qr.query_time_ms,
+        }
+    }
+}
+
+/// request for getting a genre
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetGenreRequest {
+    pub id: String,
 }

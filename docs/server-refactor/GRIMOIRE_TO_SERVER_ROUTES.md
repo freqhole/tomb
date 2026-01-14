@@ -50,31 +50,31 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music query-songs [params]`  
 **server**:
 
-- [ ] `POST /api/songs/query` - query/filter/search songs with pagination
+- [x] `POST /api/songs/query` - query/filter/search songs with pagination
 
 **grimoire**: `music::crud::list_recent_songs(limit: i64)`  
 **cli**: `freqhole music recent-songs --limit N`  
 **server**:
 
-- [ ] `POST /api/songs/recent` - get recent songs (or use query route with sort)
+- [x] `POST /api/songs/recent` - get recent songs (or use query route with sort)
 
 **grimoire**: `music::crud::list_songs_by_artist(artist_id: String)`  
 **cli**: (not wrapped separately, use query)  
 **server**:
 
-- [ ] use query route with artist filter
+- [x] use query route with artist filter
 
 **grimoire**: `music::crud::list_songs_by_album(album_id: String)`  
 **cli**: (not wrapped separately, use query)  
 **server**:
 
-- [ ] use query route with album filter
+- [x] use query route with album filter
 
 **grimoire**: `music::crud::search_songs(query: String)`  
 **cli**: (part of query-songs)  
 **server**:
 
-- [ ] use query route with search param
+- [x] use query route with search param
 
 **note**: `query_songs()` is confirmed to fully replace `list_songs()` and related list functions. server should only expose query route.
 
@@ -84,20 +84,20 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music query-artists [params]`  
 **server**:
 
-- [ ] `POST /api/artists/query` - query/list artists with stats
+- [x] `POST /api/artists/query` - query/list artists with stats
 
 **grimoire**: `music::crud::get_artist(artist_id: String)`  
 **cli**: `freqhole music get-artist --artist-id ID`  
 **server**:
 
-- [ ] `POST /api/artists/get` - get single artist by id
+- [x] `GET /api/artists/{id}` - get single artist by id
 
 **grimoire**: `music::crud::list_artists(limit, offset)`  
 **cli**: `freqhole music list-artists --limit N --offset N`  
 **server**:
 
-- [ ] **verify query_artists can replace list_artists before removing**
-- [ ] use query route instead of separate list
+- [x] **verify query_artists can replace list_artists before removing**
+- [x] use query route instead of separate list
 
 ### albums
 
@@ -105,20 +105,20 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music query-albums [params]`  
 **server**:
 
-- [ ] `POST /api/albums/query` - query/list albums with metadata
+- [x] `POST /api/albums/query` - query/list albums with metadata
 
 **grimoire**: `music::crud::get_album(album_id: String)`  
 **cli**: `freqhole music get-album --album-id ID`  
 **server**:
 
-- [ ] `POST /api/albums/get` - get single album by id
+- [x] `GET /api/albums/{id}` - get single album by id
 
 **grimoire**: `music::crud::list_albums(limit, offset)`  
 **cli**: `freqhole music list-albums --limit N --offset N`  
 **server**:
 
-- [ ] **verify query_albums can replace list_albums before removing**
-- [ ] use query route instead of separate list
+- [x] **verify query_albums can replace list_albums before removing**
+- [x] use query route instead of separate list
 
 **grimoire**: `music::crud::get_album_tags(album_id: String)`  
 **cli**: `freqhole music get-album-tags --album-id ID`  
@@ -132,13 +132,13 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music query-genres [params]`  
 **server**:
 
-- [ ] `POST /api/genres/query` - query genres with stats
+- [x] `POST /api/genres/query` - query genres with stats
 
 **grimoire**: `music::crud::get_genre(genre_id: String)`  
 **cli**: `freqhole music get-genre --genre-id ID`  
 **server**:
 
-- [ ] `POST /api/genres/get` - get single genre
+- [x] `GET /api/genres/{id}` - get single genre
 
 **grimoire**: `music::crud::get_genre_stats(genre_id: String)`  
 **cli**: `freqhole music get-genre-stats --genre-id ID`  
@@ -150,8 +150,8 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music list-genres`  
 **server**:
 
-- [ ] **verify query_genres can replace list_genres before removing**
-- [ ] use query route instead
+- [x] **verify query_genres can replace list_genres before removing**
+- [x] use query route instead
 
 ### sub-genres
 
@@ -191,13 +191,13 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music update-songs --json-input '{...}'`  
 **server**:
 
-- [ ] `POST /api/songs/update` - bulk update song metadata
+- [x] `POST /api/songs/update` - bulk update song metadata
 
 **grimoire**: `music::crud::delete_song(song_id: String, deleted_by: Option<String>)`  
 **cli**: `freqhole music delete-song --song-id ID`  
 **server**:
 
-- [ ] `POST /api/songs/delete` - soft delete songs
+- [x] `DELETE /api/songs/{id}` - soft delete songs
 
 ### albums
 
@@ -205,7 +205,7 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music delete-album --album-id ID`  
 **server**:
 
-- [ ] `POST /api/albums/delete` - soft delete album (maybe defer)
+- [x] `DELETE /api/albums/{id}` - soft delete album
 
 ### artists
 
@@ -213,7 +213,7 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music delete-artist --artist-id ID`  
 **server**:
 
-- [ ] `POST /api/artists/delete` - soft delete artist (maybe defer)
+- [x] `DELETE /api/artists/{id}` - soft delete artist
 
 ---
 
@@ -323,7 +323,7 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music favorites set --target-type song --target-id ID --is-favorite true`  
 **server**:
 
-- [ ] `POST /api/favorites/set` - set favorite status
+- [x] `POST /api/favorites/set` - set favorite status
 
 **grimoire**: `music::users::FavoritesService::get_favorite(user_id, target_type, target_id)`  
 **cli**: `freqhole music favorites get --target-type song --target-id ID`  
@@ -335,7 +335,7 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music favorites list --target-type song`  
 **server**:
 
-- [ ] `POST /api/favorites/list` - list user favorites by type
+- [x] `POST /api/favorites/list` - list user favorites by type
 
 **grimoire**: `music::users::FavoritesService::remove_favorite(user_id, target_type, target_id)`  
 **cli**: `freqhole music favorites remove --target-type song --target-id ID`  
@@ -357,7 +357,7 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music ratings set --target-type song --target-id ID --rating 5`  
 **server**:
 
-- [ ] `POST /api/ratings/set` - set rating
+- [x] `POST /api/ratings/set` - set rating (1-5)
 
 **grimoire**: `music::users::RatingsService::get_rating(user_id, target_type, target_id)`  
 **cli**: `freqhole music ratings get --target-type song --target-id ID`  
@@ -375,13 +375,13 @@ these are server implementation details, not grimoire apis.
 **cli**: `freqhole music ratings remove --target-type song --target-id ID`  
 **server**:
 
-- [ ] use set with rating=null
+- [x] `POST /api/ratings/remove` - remove rating
 
 **grimoire**: `music::users::RatingsService::get_rating_stats(target_type, target_id)`  
 **cli**: `freqhole music ratings stats --target-type song --target-id ID`  
 **server**:
 
-- [ ] `POST /api/ratings/stats` - get rating statistics
+- [x] `POST /api/ratings/stats` - get rating statistics
 
 **grimoire**: `music::users::RatingsService::get_user_rating_stats(user_id, target_type)`  
 **cli**: `freqhole music ratings user-stats --target-type song`  

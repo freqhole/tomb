@@ -49,6 +49,32 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["get_fetch_job"].path,
             get(music::fetch::get_fetch_job),
         )
+        // albums routes
+        .route(
+            routes["music"]["query_albums"].path,
+            post(music::albums::query_albums_handler),
+        )
+        .route(
+            routes["music"]["get_album"].path,
+            get(music::albums::get_album_handler),
+        )
+        .route(
+            routes["music"]["delete_album"].path,
+            axum::routing::delete(music::albums::delete_album_handler),
+        )
+        // artists routes
+        .route(
+            routes["music"]["query_artists"].path,
+            post(music::artists::query_artists_handler),
+        )
+        .route(
+            routes["music"]["get_artist"].path,
+            get(music::artists::get_artist_handler),
+        )
+        .route(
+            routes["music"]["delete_artist"].path,
+            axum::routing::delete(music::artists::delete_artist_handler),
+        )
         // songs routes
         .route(
             routes["music"]["query_songs"].path,
@@ -65,6 +91,37 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["delete_song"].path,
             axum::routing::delete(music::songs::delete_song_handler),
+        )
+        // favorites routes
+        .route(
+            routes["music"]["set_favorite"].path,
+            post(music::favorites::set_favorite_handler),
+        )
+        .route(
+            routes["music"]["list_favorites"].path,
+            post(music::favorites::list_favorites_handler),
+        )
+        // ratings routes
+        .route(
+            routes["music"]["set_rating"].path,
+            post(music::ratings::set_rating_handler),
+        )
+        .route(
+            routes["music"]["remove_rating"].path,
+            post(music::ratings::remove_rating_handler),
+        )
+        .route(
+            routes["music"]["get_rating_stats"].path,
+            post(music::ratings::get_rating_stats_handler),
+        )
+        // genres routes
+        .route(
+            routes["music"]["query_genres"].path,
+            post(music::genres::query_genres_handler),
+        )
+        .route(
+            routes["music"]["get_genre"].path,
+            get(music::genres::get_genre_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 

@@ -1,10 +1,20 @@
 //! Artist handlers
 
-use axum::{extract::Extension, Json};
+use axum::{
+    extract::{Extension, Path, State},
+    Json,
+};
 use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::music::crud::{
+    delete_artist, get_artist, query_artists, ArtistQueryResult, ArtistsQueryResult,
+    DeleteArtistRequest, DeleteArtistResponse, GetArtistRequest, QueryParams,
+};
 use grimoire::music::entities::artists::{create_artist, Artist, CreateArtistRequest};
+use grimoire::response::GrimoireResponse;
+use inventory;
+use serde::{Deserialize, Serialize};
 
-use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
+use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
 
 /// Create a new artist
 pub async fn create_artist_handler(
@@ -31,4 +41,109 @@ inventory::submit! {
         request_type: "CreateArtistRequest",
         response_type: "Artist",
     }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "query_artists",
+        path: "/api/artists/query",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "ArtistsQueryResult",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_artist",
+        path: "/api/artists/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "GetArtistRequest",
+        response_type: "Artist",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "delete_artist",
+        path: "/api/artists/{id}",
+        method: Method::DELETE,
+        domain: Domain::Music,
+        request_type: "DeleteArtistRequest",
+        response_type: "DeleteArtistResponse",
+    }
+}
+
+// ============================================================================
+// Handlers
+// ============================================================================
+
+/// Query artists with flexible filtering, search, and pagination
+///
+/// POST /api/artists/query
+pub async fn query_artists_handler(
+    State(_state): State<AppState>,
+    Json(params): Json<QueryParams>,
+) -> Result<Json<GrimoireResponse<ArtistsQueryResult>>, ApiError> {
+    tracing::debug!("query_artists: params={:?}", params);
+
+    let response = query_artists(params).await;
+
+    if !response.success {
+        return Err(ApiError::Internal(response.message));
+    }
+
+    let data = response.data.map(|qr| qr.into());
+    Ok(Json(GrimoireResponse {
+        success: response.success,
+        message: response.message,
+        data,
+        errors: response.errors,
+    }))
+}
+
+/// Get a single artist by ID
+///
+/// GET /api/artists/{id}
+pub async fn get_artist_handler(
+    State(_state): State<AppState>,
+    Path(artist_id): Path<String>,
+) -> Result<Json<GrimoireResponse<Artist>>, ApiError> {
+    tracing::debug!("get_artist: id={}", artist_id);
+
+    let response = get_artist(&artist_id).await;
+
+    if !response.success {
+        return Err(ApiError::Internal(response.message));
+    }
+
+    Ok(Json(response))
+}
+
+/// Delete an artist
+///
+/// DELETE /api/artists/{id}
+pub async fn delete_artist_handler(
+    State(_state): State<AppState>,
+    Path(artist_id): Path<String>,
+    Json(request): Json<DeleteArtistRequest>,
+) -> Result<Json<DeleteArtistResponse>, ApiError> {
+    tracing::debug!(
+        "delete_artist: id={}, user_id={}",
+        artist_id,
+        request.user_id
+    );
+
+    let response = delete_artist(&artist_id, Some(request.user_id.clone())).await;
+
+    if !response.success {
+        return Err(ApiError::Internal(response.message));
+    }
+
+    Ok(Json(DeleteArtistResponse {
+        success: true,
+        message: format!("artist {} deleted successfully", artist_id),
+    }))
 }

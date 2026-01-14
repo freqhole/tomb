@@ -95,13 +95,20 @@ pub mod type_registry {
     };
 
     // webauthn types
-    use crate::users::{RegisterStartRequest, StartLoginRequest};
+    use crate::users::{
+        RegisterStartRequest, SetFavoriteRequest, SetRatingRequest, StartLoginRequest,
+    };
 
     // music types
     use crate::media_blobz::MediaBlob;
     use crate::music::crud::{
-        DeleteSongRequest, DeleteSongResponse, PlaylistQueryResult, QueryParams,
-        RecentSongsRequest, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
+        AlbumQueryResult, AlbumsQueryResult, ArtistQueryResult, ArtistsQueryResult,
+        DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest, DeleteArtistResponse,
+        DeleteSongRequest, DeleteSongResponse, GenreQueryResult, GenresQueryResult,
+        GetAlbumRequest, GetArtistRequest, GetGenreRequest, GetRatingStatsRequest,
+        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, QueryParams, RatingStats,
+        RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
+        SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
         UpdateSongsResult,
     };
     use crate::music::entities::albums::Album;
@@ -203,5 +210,78 @@ pub mod type_registry {
 
         gen.add_schema::<SongsQueryResult>("SongsQueryResult");
         registered.insert("SongsQueryResult".to_string());
+
+        gen.add_schema::<ArtistQueryResult>("ArtistQueryResult");
+        registered.insert("ArtistQueryResult".to_string());
+
+        gen.add_schema::<ArtistsQueryResult>("ArtistsQueryResult");
+        registered.insert("ArtistsQueryResult".to_string());
+
+        gen.add_schema::<GetArtistRequest>("GetArtistRequest");
+        registered.insert("GetArtistRequest".to_string());
+
+        gen.add_schema::<DeleteArtistRequest>("DeleteArtistRequest");
+        registered.insert("DeleteArtistRequest".to_string());
+
+        gen.add_schema::<DeleteArtistResponse>("DeleteArtistResponse");
+        registered.insert("DeleteArtistResponse".to_string());
+
+        gen.add_schema::<AlbumQueryResult>("AlbumQueryResult");
+        registered.insert("AlbumQueryResult".to_string());
+
+        gen.add_schema::<AlbumsQueryResult>("AlbumsQueryResult");
+        registered.insert("AlbumsQueryResult".to_string());
+
+        gen.add_schema::<GetAlbumRequest>("GetAlbumRequest");
+        registered.insert("GetAlbumRequest".to_string());
+
+        gen.add_schema::<DeleteAlbumRequest>("DeleteAlbumRequest");
+        registered.insert("DeleteAlbumRequest".to_string());
+
+        gen.add_schema::<DeleteAlbumResponse>("DeleteAlbumResponse");
+        registered.insert("DeleteAlbumResponse".to_string());
+
+        // favorites types
+        gen.add_schema::<ListFavoritesRequest>("ListFavoritesRequest");
+        registered.insert("ListFavoritesRequest".to_string());
+
+        gen.add_schema::<ListFavoritesResponse>("ListFavoritesResponse");
+        registered.insert("ListFavoritesResponse".to_string());
+
+        gen.add_schema::<SetFavoriteResponse>("SetFavoriteResponse");
+        registered.insert("SetFavoriteResponse".to_string());
+
+        // ratings types
+        gen.add_schema::<GetRatingStatsRequest>("GetRatingStatsRequest");
+        registered.insert("GetRatingStatsRequest".to_string());
+
+        gen.add_schema::<RemoveRatingRequest>("RemoveRatingRequest");
+        registered.insert("RemoveRatingRequest".to_string());
+
+        gen.add_schema::<RemoveRatingResponse>("RemoveRatingResponse");
+        registered.insert("RemoveRatingResponse".to_string());
+
+        gen.add_schema::<SetRatingResponse>("SetRatingResponse");
+        registered.insert("SetRatingResponse".to_string());
+
+        gen.add_schema::<RatingStats>("RatingStats");
+        registered.insert("RatingStats".to_string());
+
+        // genres types
+        gen.add_schema::<GenreQueryResult>("GenreQueryResult");
+        registered.insert("GenreQueryResult".to_string());
+
+        gen.add_schema::<GenresQueryResult>("GenresQueryResult");
+        registered.insert("GenresQueryResult".to_string());
+
+        gen.add_schema::<GetGenreRequest>("GetGenreRequest");
+        registered.insert("GetGenreRequest".to_string());
+
+        // user interaction types
+        gen.add_schema::<SetFavoriteRequest>("SetFavoriteRequest");
+        registered.insert("SetFavoriteRequest".to_string());
+
+        gen.add_schema::<SetRatingRequest>("SetRatingRequest");
+        registered.insert("SetRatingRequest".to_string());
     }
 }

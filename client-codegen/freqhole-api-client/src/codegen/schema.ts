@@ -20,6 +20,93 @@ export const AlbumSchema = z.object({
 });
 export type Album = z.infer<typeof AlbumSchema>;
 
+export const AlbumQueryResultSchema = z.object({
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullable(),
+  release_date_precision: z.string().nullable(),
+  label: z.string().nullable(),
+  genre_id: z.string().nullable(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullable(),
+  is_favorite: z.boolean().nullable(),
+  rating: z.number().nullable(),
+  favorited_at: z.number().nullable(),
+  rating_created_at: z.number().nullable()
+});
+export type AlbumQueryResult = z.infer<typeof AlbumQueryResultSchema>;
+
+export const AlbumsQueryResultSchema = z.object({
+  items: z.array(z.object({
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullable(),
+  release_date_precision: z.string().nullable(),
+  label: z.string().nullable(),
+  genre_id: z.string().nullable(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}).nullable(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullable(),
+  is_favorite: z.boolean().nullable(),
+  rating: z.number().nullable(),
+  favorited_at: z.number().nullable(),
+  rating_created_at: z.number().nullable()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullable()
+});
+export type AlbumsQueryResult = z.infer<typeof AlbumsQueryResultSchema>;
+
 export const ApiKeyRegenerateResponseSchema = z.object({
   api_key: z.string(),
   message: z.string()
@@ -44,6 +131,55 @@ export const ArtistSchema = z.object({
 });
 export type Artist = z.infer<typeof ArtistSchema>;
 
+export const ArtistQueryResultSchema = z.object({
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}),
+  song_count: z.number(),
+  album_count: z.number(),
+  total_duration: z.number().nullable(),
+  is_favorite: z.boolean().nullable(),
+  rating: z.number().nullable(),
+  favorited_at: z.number().nullable(),
+  rating_created_at: z.number().nullable()
+});
+export type ArtistQueryResult = z.infer<typeof ArtistQueryResultSchema>;
+
+export const ArtistsQueryResultSchema = z.object({
+  items: z.array(z.object({
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable()
+}),
+  song_count: z.number(),
+  album_count: z.number(),
+  total_duration: z.number().nullable(),
+  is_favorite: z.boolean().nullable(),
+  rating: z.number().nullable(),
+  favorited_at: z.number().nullable(),
+  rating_created_at: z.number().nullable()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullable()
+});
+export type ArtistsQueryResult = z.infer<typeof ArtistsQueryResultSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullable()
@@ -67,6 +203,28 @@ export const CreatePlaylistRequestSchema = z.object({
   created_by_id: z.string().nullable()
 });
 export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
+
+export const DeleteAlbumRequestSchema = z.object({
+  user_id: z.string()
+});
+export type DeleteAlbumRequest = z.infer<typeof DeleteAlbumRequestSchema>;
+
+export const DeleteAlbumResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string()
+});
+export type DeleteAlbumResponse = z.infer<typeof DeleteAlbumResponseSchema>;
+
+export const DeleteArtistRequestSchema = z.object({
+  user_id: z.string()
+});
+export type DeleteArtistRequest = z.infer<typeof DeleteArtistRequestSchema>;
+
+export const DeleteArtistResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string()
+});
+export type DeleteArtistResponse = z.infer<typeof DeleteArtistResponseSchema>;
 
 export const DeleteSongRequestSchema = z.object({
   user_id: z.string()
@@ -102,6 +260,60 @@ export const GenreSchema = z.object({
 });
 export type Genre = z.infer<typeof GenreSchema>;
 
+export const GenreQueryResultSchema = z.object({
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}),
+  song_count: z.number().nullable(),
+  album_count: z.number().nullable(),
+  is_favorite: z.boolean().nullable(),
+  favorited_at: z.number().nullable()
+});
+export type GenreQueryResult = z.infer<typeof GenreQueryResultSchema>;
+
+export const GenresQueryResultSchema = z.object({
+  items: z.array(z.object({
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}),
+  song_count: z.number().nullable(),
+  album_count: z.number().nullable(),
+  is_favorite: z.boolean().nullable(),
+  favorited_at: z.number().nullable()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullable()
+});
+export type GenresQueryResult = z.infer<typeof GenresQueryResultSchema>;
+
+export const GetAlbumRequestSchema = z.object({
+  id: z.string()
+});
+export type GetAlbumRequest = z.infer<typeof GetAlbumRequestSchema>;
+
+export const GetArtistRequestSchema = z.object({
+  id: z.string()
+});
+export type GetArtistRequest = z.infer<typeof GetArtistRequestSchema>;
+
+export const GetGenreRequestSchema = z.object({
+  id: z.string()
+});
+export type GetGenreRequest = z.infer<typeof GetGenreRequestSchema>;
+
+export const GetRatingStatsRequestSchema = z.object({
+  target_type: z.string(),
+  target_id: z.string()
+});
+export type GetRatingStatsRequest = z.infer<typeof GetRatingStatsRequestSchema>;
+
 export const JobSchema = z.object({
   id: z.string(),
   session_id: z.string().nullable(),
@@ -118,6 +330,19 @@ export const JobSchema = z.object({
   created_by: z.string().nullable()
 });
 export type Job = z.infer<typeof JobSchema>;
+
+export const ListFavoritesRequestSchema = z.object({
+  user_id: z.string(),
+  target_type: z.string().nullable(),
+  limit: z.number().nullable(),
+  offset: z.number().nullable()
+});
+export type ListFavoritesRequest = z.infer<typeof ListFavoritesRequestSchema>;
+
+export const ListFavoritesResponseSchema = z.object({
+  favorites: z.array(z.any())
+});
+export type ListFavoritesResponse = z.infer<typeof ListFavoritesResponseSchema>;
 
 export const MediaBlobSchema = z.object({
   id: z.string(),
@@ -190,6 +415,12 @@ export const QueryParamsSchema = z.object({
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
 
+export const RatingStatsSchema = z.object({
+  average_rating: z.number(),
+  total_ratings: z.number()
+});
+export type RatingStats = z.infer<typeof RatingStatsSchema>;
+
 export const RecentSongsRequestSchema = z.object({
   limit: z.number().nullable()
 });
@@ -206,6 +437,47 @@ export const RegisterStartRequestSchema = z.object({
   invite_code: z.string().nullable()
 });
 export type RegisterStartRequest = z.infer<typeof RegisterStartRequestSchema>;
+
+export const RemoveRatingRequestSchema = z.object({
+  user_id: z.string(),
+  target_type: z.string(),
+  target_id: z.string()
+});
+export type RemoveRatingRequest = z.infer<typeof RemoveRatingRequestSchema>;
+
+export const RemoveRatingResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string()
+});
+export type RemoveRatingResponse = z.infer<typeof RemoveRatingResponseSchema>;
+
+export const SetFavoriteRequestSchema = z.object({
+  user_id: z.string(),
+  target_type: z.union([z.literal('Song'), z.literal('Artist'), z.literal('Album'), z.literal('Genre'), z.literal('Playlist')]),
+  target_id: z.string(),
+  is_favorite: z.boolean()
+});
+export type SetFavoriteRequest = z.infer<typeof SetFavoriteRequestSchema>;
+
+export const SetFavoriteResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string()
+});
+export type SetFavoriteResponse = z.infer<typeof SetFavoriteResponseSchema>;
+
+export const SetRatingRequestSchema = z.object({
+  user_id: z.string(),
+  target_type: z.union([z.literal('Song'), z.literal('Artist'), z.literal('Album')]),
+  target_id: z.string(),
+  rating: z.number()
+});
+export type SetRatingRequest = z.infer<typeof SetRatingRequestSchema>;
+
+export const SetRatingResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string()
+});
+export type SetRatingResponse = z.infer<typeof SetRatingResponseSchema>;
 
 export const SongSchema = z.object({
   id: z.string(),

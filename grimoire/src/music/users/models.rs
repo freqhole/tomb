@@ -6,11 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use zod_gen_derive::ZodSchema;
 
 use crate::users::models::AuthError;
 
 /// Target types for favorites
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ZodSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FavoriteTarget {
     Song,
@@ -45,7 +46,7 @@ impl From<String> for FavoriteTarget {
 }
 
 /// Target types for ratings (subset of favorite targets)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ZodSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum RatingTarget {
     Song,
@@ -114,7 +115,7 @@ impl UserRating {
 }
 
 /// Request to set a favorite
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetFavoriteRequest {
     pub user_id: String,
     pub target_type: FavoriteTarget,
@@ -123,7 +124,7 @@ pub struct SetFavoriteRequest {
 }
 
 /// Request to set a rating
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetRatingRequest {
     pub user_id: String,
     pub target_type: RatingTarget,
