@@ -78,6 +78,7 @@ pub struct MediaBlob {
     pub mime: Option<String>,
     pub source_client_id: Option<String>,
     pub local_path: Option<String>,
+    pub filename: Option<String>,
     pub parent_blob_id: Option<String>,
     pub blob_type: BlobType,
     #[serde(default)]
@@ -98,6 +99,7 @@ pub struct CreateMediaBlobRequest {
     pub mime: Option<String>,
     pub source_client_id: Option<String>,
     pub local_path: Option<String>,
+    pub filename: Option<String>,
     pub parent_blob_id: Option<String>,
     pub blob_type: Option<BlobType>,
     #[serde(default)]
@@ -117,6 +119,7 @@ impl ZodSchema for MediaBlob {
             ("size", &zod_nullable(zod_number())),
             ("mime", &zod_nullable(zod_string())),
             ("source_client_id", &zod_nullable(zod_string())),
+            ("filename", &zod_nullable(zod_string())),
             ("parent_blob_id", &zod_nullable(zod_string())),
             ("blob_type", &BlobType::zod_schema()),
             ("metadata", &"z.any()".to_string()),

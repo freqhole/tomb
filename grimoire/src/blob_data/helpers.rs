@@ -58,6 +58,7 @@ pub async fn create_media_blob_from_file(
         mime: Some(mime_type.clone()),
         source_client_id: Some("job_processor".to_string()),
         local_path: Some(file_path.to_string()),
+        filename: Some(file_name.to_string()),
         parent_blob_id: None,
         blob_type: Some(BlobType::Original),
         metadata: serde_json::json!({
@@ -361,6 +362,7 @@ pub async fn create_image_blob_from_webp_data(
         mime: Some("image/webp".to_string()),
         source_client_id: created_by.clone(),
         local_path: None, // Store as binary data
+        filename: None,   // No filename for binary data
         parent_blob_id,
         blob_type: Some(blob_type),
         metadata,

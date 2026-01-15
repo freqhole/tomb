@@ -157,6 +157,7 @@ pub async fn upload_image_handler(
         mime: Some(mime_type.clone()),
         source_client_id: None,
         local_path: None,
+        filename: Some(filename.to_string()),
         parent_blob_id,
         blob_type: Some(blob_type),
         metadata: json!({
@@ -325,6 +326,7 @@ pub async fn upload_music_handler(
         mime: Some(mime_type.clone()),
         source_client_id: None,
         local_path: None, // will update after saving file
+        filename: Some(filename.to_string()),
         parent_blob_id: None,
         blob_type: Some(BlobType::Original),
         metadata: json!({

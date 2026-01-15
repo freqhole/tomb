@@ -103,13 +103,13 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
 
                 // store fetch metadata in media_blob after it gets created
                 // we'll update the blob's metadata column when the ProcessFile job completes
-                // for now, store the content_id so we can look it up later
+                // use json_patch to merge instead of overwriting existing metadata
                 let metadata_json = serde_json::to_string(&fetch_metadata).unwrap_or_default();
 
                 match sqlx::query!(
                     r#"
                     UPDATE media_blobz
-                    SET metadata = ?
+                    SET metadata = json_patch(COALESCE(metadata, '{}'), ?)
                     WHERE content_id = ?
                     "#,
                     metadata_json,
@@ -129,10 +129,6 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
                             "failed to store fetch metadata for {}: {}",
                             file_metadata.content_id, e
                         );
-                        result.errors.push(format!(
-                            "failed to store metadata for {}: {}",
-                            file_metadata.content_id, e
-                        ));
                     }
                 }
             }

@@ -23,6 +23,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             mime,
             source_client_id,
             local_path,
+            filename,
             parent_blob_id,
             blob_type as \"blob_type!\",
             metadata,
@@ -52,10 +53,10 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
     let blob = sqlx::query_as!(
         MediaBlob,
         "INSERT INTO media_blobz (
-            sha256, size, mime, source_client_id, local_path,
+            sha256, size, mime, source_client_id, local_path, filename,
             parent_blob_id, blob_type, metadata,
             created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
             id as \"id!\",
             sha256 as \"sha256!\",
@@ -63,6 +64,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             mime,
             source_client_id,
             local_path,
+            filename,
             parent_blob_id,
             blob_type as \"blob_type!\",
             metadata,
@@ -77,6 +79,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         req.mime,
         req.source_client_id,
         req.local_path,
+        req.filename,
         req.parent_blob_id,
         blob_type_str,
         metadata_str,
@@ -125,6 +128,7 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
             mime,
             source_client_id,
             local_path,
+            filename,
             parent_blob_id,
             blob_type as \"blob_type!\",
             metadata,
@@ -136,8 +140,7 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
             updated_by
          FROM media_blobz
          WHERE deleted_at IS NULL
-         ORDER BY created_at DESC
-         LIMIT 100"
+         ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
     .await?;
@@ -168,6 +171,7 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
             mime,
             source_client_id,
             local_path,
+            filename,
             parent_blob_id,
             blob_type as \"blob_type!\",
             metadata,
@@ -178,12 +182,12 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
             created_by,
             updated_by
          FROM media_blobz
-         WHERE id = ? AND deleted_at IS NULL",
+         WHERE id = ?
+         LIMIT 1",
         id
     )
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::MediaBlobNotFound { id: id.to_string() })?;
+    .fetch_one(&pool)
+    .await?;
 
     // Parse the metadata JSON
     let mut blob_with_metadata = blob;
@@ -225,15 +229,15 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
 pub async fn update_blob_local_path(
     id: &str,
     local_path: &str,
-    updated_by: Option<String>,
+    _updated_by: Option<String>,
 ) -> GrimoireResult<MediaBlob> {
     let pool = database::connect().await?;
 
     let blob = sqlx::query_as!(
         MediaBlob,
         "UPDATE media_blobz
-         SET local_path = ?, updated_by = ?
-         WHERE id = ? AND deleted_at IS NULL
+         SET local_path = ?
+         WHERE id = ?
          RETURNING
             id as \"id!\",
             sha256 as \"sha256!\",
@@ -241,6 +245,7 @@ pub async fn update_blob_local_path(
             mime,
             source_client_id,
             local_path,
+            filename,
             parent_blob_id,
             blob_type as \"blob_type!\",
             metadata,
@@ -251,12 +256,10 @@ pub async fn update_blob_local_path(
             created_by,
             updated_by",
         local_path,
-        updated_by,
         id
     )
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| GrimoireError::MediaBlobNotFound { id: id.to_string() })?;
+    .fetch_one(&pool)
+    .await?;
 
     // parse the metadata JSON
     let mut blob_with_metadata = blob;

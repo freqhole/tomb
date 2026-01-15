@@ -327,6 +327,12 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
     if has_song_updates {
         // build dynamic update using COALESCE pattern
         for song_id in &req.song_ids {
+            // prepare metadata update using json_patch if metadata is provided
+            let metadata_str = req
+                .metadata
+                .as_ref()
+                .map(|m| serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string()));
+
             let result = sqlx::query!(
                 r#"UPDATE songz SET
                     title = COALESCE(?, title),
@@ -337,7 +343,10 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     bpm = COALESCE(?, bpm),
                     key_signature = COALESCE(?, key_signature),
                     lyrics = COALESCE(?, lyrics),
-                    metadata = COALESCE(?, metadata),
+                    metadata = CASE
+                        WHEN ? IS NOT NULL THEN json_patch(COALESCE(metadata, '{}'), ?)
+                        ELSE metadata
+                    END,
                     thumbnail_blob_id = COALESCE(?, thumbnail_blob_id),
                     updated_by = COALESCE(?, updated_by),
                     updated_at = unixepoch()
@@ -350,7 +359,8 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 req.bpm,
                 req.key_signature,
                 req.lyrics,
-                req.metadata,
+                metadata_str,
+                metadata_str,
                 thumbnail_blob_id,
                 req.updated_by,
                 song_id

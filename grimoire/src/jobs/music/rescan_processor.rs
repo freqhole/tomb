@@ -107,7 +107,7 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         MediaBlob,
         r#"
         SELECT id as "id!", sha256 as "sha256!", size, mime, source_client_id,
-               local_path, metadata, created_at as "created_at!", updated_at as "updated_at!",
+               local_path, filename, metadata, created_at as "created_at!", updated_at as "updated_at!",
                parent_blob_id, blob_type as "blob_type!", deleted_at, deleted_by,
                created_by, updated_by
         FROM media_blobz
