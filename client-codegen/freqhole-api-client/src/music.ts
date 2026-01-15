@@ -1,7 +1,7 @@
 // music domain wrapper functions
+import { call } from "./client.js";
 import { routes } from "./codegen/routes.js";
 import type * as s from "./codegen/schema.js";
-import { call } from "./client.js";
 
 // artists
 export function queryArtists(
@@ -1015,9 +1015,120 @@ export function getFetchJob(
   );
 }
 
-// note: for blobs and uploads, see utils module
+// search
+export function suggestions(
+  baseUrl: string,
+  params: s.SuggestionsRequest,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "suggestions",
+    routes.music.suggestions.resp,
+    routes.music.suggestions.req,
+    routes.music.suggestions.method,
+    routes.music.suggestions.path,
+    params,
+    apiKey,
+  );
+}
+
+export function search(
+  baseUrl: string,
+  params: s.SearchRequest,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "search",
+    routes.music.search.resp,
+    routes.music.search.req,
+    routes.music.search.method,
+    routes.music.search.path,
+    params,
+    apiKey,
+  );
+}
+
+// blob streaming and metadata
+export function streamBlob(
+  baseUrl: string,
+  params: { id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "stream_blob",
+    routes.music.stream_blob.resp,
+    routes.music.stream_blob.req,
+    routes.music.stream_blob.method,
+    routes.music.stream_blob.path,
+    params,
+    apiKey,
+  );
+}
+
+export function blobMetadata(
+  baseUrl: string,
+  params: { id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "blob_metadata",
+    routes.music.blob_metadata.resp,
+    routes.music.blob_metadata.req,
+    routes.music.blob_metadata.method,
+    routes.music.blob_metadata.path,
+    params,
+    apiKey,
+  );
+}
+
+// uploads
+export function uploadImage(
+  baseUrl: string,
+  params: FormData,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "upload_image",
+    routes.music.upload_image.resp,
+    routes.music.upload_image.req,
+    routes.music.upload_image.method,
+    routes.music.upload_image.path,
+    params,
+    apiKey,
+  );
+}
+
+export function uploadMusic(
+  baseUrl: string,
+  params: FormData,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "upload_music",
+    routes.music.upload_music.resp,
+    routes.music.upload_music.req,
+    routes.music.upload_music.method,
+    routes.music.upload_music.path,
+    params,
+    apiKey,
+  );
+}
+
+// note: for blobs and uploads, see utils module for additional helpers
 // - utils.getBlobUrl(baseUrl, blobId) - get streaming url for <audio src={...}>
 // - utils.getBlobMetadataUrl(baseUrl, blobId) - get metadata endpoint url
 // - utils.fetchBlobMetadata(baseUrl, blobId, apiKey) - fetch metadata as json
-// - utils.uploadImage(baseUrl, file, apiKey) - upload image with FormData
-// - utils.uploadMusic(baseUrl, file, apiKey) - upload music with FormData
+// - utils.uploadImage(baseUrl, file, apiKey) - upload image with FormData (recommended)
+// - utils.uploadMusic(baseUrl, file, apiKey) - upload music with FormData (recommended)

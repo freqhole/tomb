@@ -18,9 +18,9 @@
 // - running server with data (songs, albums, genres must exist)
 // - valid API_KEY environment variable
 // - fail-fast approach: if setup fails, tests don't proceed
-import * as music from "../music.js";
-import * as auth from "../auth.js";
 import * as app from "../app.js";
+import * as auth from "../auth.js";
+import * as music from "../music.js";
 import { queryParams } from "./fixtures.js";
 
 const baseUrl = process.env.API_URL || "http://localhost:8080";
@@ -430,6 +430,106 @@ export async function runStatefulTests() {
     );
     if (!result.success) {
       throw new Error(`failed to list jobs: ${result.error.message}`);
+    }
+  });
+
+  // search tests
+  console.log("\nsearch functionality...\n");
+
+  await test("suggestions - all fields", async () => {
+    const result = await music.suggestions(
+      baseUrl,
+      {
+        field: "all",
+        partial: "test",
+        page_size: 10,
+        context: null,
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(`failed to get suggestions: ${result.error.message}`);
+    }
+    if (!result.data.suggestions) {
+      throw new Error("suggestions array missing");
+    }
+    if (typeof result.data.query_time_ms !== "number") {
+      throw new Error("query_time_ms not returned");
+    }
+  });
+
+  await test("suggestions - songs only", async () => {
+    const result = await music.suggestions(
+      baseUrl,
+      {
+        field: "songs",
+        partial: "a",
+        page_size: 5,
+        context: null,
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(
+        `failed to get song suggestions: ${result.error.message}`,
+      );
+    }
+    // verify all suggestions are songs
+    for (const suggestion of result.data.suggestions) {
+      if (suggestion.suggestion_type !== "song") {
+        throw new Error(
+          `expected song suggestions, got ${suggestion.suggestion_type}`,
+        );
+      }
+    }
+  });
+
+  await test("search - all fields", async () => {
+    const result = await music.search(
+      baseUrl,
+      {
+        query: "test",
+        field: null,
+        page: 1,
+        page_size: 10,
+        context: null,
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(`failed to search: ${result.error.message}`);
+    }
+    if (!result.data.songs) {
+      throw new Error("songs array missing");
+    }
+    if (typeof result.data.total_count !== "number") {
+      throw new Error("total_count not returned");
+    }
+    if (typeof result.data.query_time_ms !== "number") {
+      throw new Error("query_time_ms not returned");
+    }
+  });
+
+  await test("search - songs only", async () => {
+    const result = await music.search(
+      baseUrl,
+      {
+        query: "a",
+        field: "songs",
+        page: 1,
+        page_size: 20,
+        context: null,
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(`failed to search songs: ${result.error.message}`);
+    }
+    if (result.data.artists !== null) {
+      throw new Error("artists should be null when field is songs");
+    }
+    if (result.data.albums !== null) {
+      throw new Error("albums should be null when field is songs");
     }
   });
 

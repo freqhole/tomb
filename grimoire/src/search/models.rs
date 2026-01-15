@@ -1,10 +1,11 @@
 //! search domain models for full-text search and autocomplete
 
 use serde::{Deserialize, Serialize};
+use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
 /// search field enum for scoping searches
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchField {
     All,
@@ -21,8 +22,14 @@ impl Default for SearchField {
     }
 }
 
+impl ZodSchemaTrait for SearchField {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")])"#.to_string()
+    }
+}
+
 /// suggestion type for autocomplete results
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SuggestionType {
     Artist,
@@ -33,12 +40,24 @@ pub enum SuggestionType {
     Playlist,
 }
 
+impl ZodSchemaTrait for SuggestionType {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")])"#.to_string()
+    }
+}
+
 /// sort direction for query results
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SortDirection {
     Asc,
     Desc,
+}
+
+impl ZodSchemaTrait for SortDirection {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("asc"), z.literal("desc")])"#.to_string()
+    }
 }
 
 /// filter with include/exclude lists

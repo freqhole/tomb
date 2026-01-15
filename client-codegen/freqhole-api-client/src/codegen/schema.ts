@@ -72,6 +72,21 @@ export const AlbumQueryResultSchema = z.object({
 });
 export type AlbumQueryResult = z.infer<typeof AlbumQueryResultSchema>;
 
+export const AlbumSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  artist_names: z.array(z.string()),
+  genre: z.string().nullable(),
+  sub_genres: z.array(z.string()),
+  song_count: z.number(),
+  thumbnail_url: z.string().nullable(),
+  user_rating: z.number().nullable(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  highlight: z.string().nullable()
+});
+export type AlbumSearchResult = z.infer<typeof AlbumSearchResultSchema>;
+
 export const AlbumsQueryResultSchema = z.object({
   items: z.array(z.object({
   album: z.object({
@@ -163,6 +178,19 @@ export const ArtistQueryResultSchema = z.object({
   rating_created_at: z.number().nullable()
 });
 export type ArtistQueryResult = z.infer<typeof ArtistQueryResultSchema>;
+
+export const ArtistSearchResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  song_count: z.number(),
+  album_count: z.number(),
+  genres: z.array(z.string()),
+  user_rating: z.number().nullable(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  highlight: z.string().nullable()
+});
+export type ArtistSearchResult = z.infer<typeof ArtistSearchResultSchema>;
 
 export const ArtistsQueryResultSchema = z.object({
   items: z.array(z.object({
@@ -358,6 +386,12 @@ export const FetchMediaResultSchema = z.object({
 });
 export type FetchMediaResult = z.infer<typeof FetchMediaResultSchema>;
 
+export const FilterSetSchema = z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+});
+export type FilterSet = z.infer<typeof FilterSetSchema>;
+
 export const FindOrCreateSubGenreRequestSchema = z.object({
   name: z.string(),
   parent_genre_id: z.string()
@@ -394,6 +428,19 @@ export const GenreQueryResultSchema = z.object({
   favorited_at: z.number().nullable()
 });
 export type GenreQueryResult = z.infer<typeof GenreQueryResultSchema>;
+
+export const GenreSearchResultSchema = z.object({
+  genre: z.string(),
+  genre_id: z.string(),
+  sub_genres: z.array(z.string()),
+  song_count: z.number(),
+  artist_count: z.number(),
+  representative_song_id: z.string().nullable(),
+  representative_thumbnail: z.string().nullable(),
+  avg_rating: z.number().nullable(),
+  search_rank: z.number()
+});
+export type GenreSearchResult = z.infer<typeof GenreSearchResultSchema>;
 
 export const GenresQueryResultSchema = z.object({
   items: z.array(z.object({
@@ -604,6 +651,7 @@ export const MediaBlobSchema = z.object({
   size: z.number().nullable(),
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
+  filename: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
@@ -704,6 +752,19 @@ export const PlaylistQueryResultSchema = z.object({
 });
 export type PlaylistQueryResult = z.infer<typeof PlaylistQueryResultSchema>;
 
+export const PlaylistSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  song_count: z.number(),
+  is_public: z.boolean(),
+  created_by: z.string(),
+  thumbnail_url: z.string().nullable(),
+  search_rank: z.number(),
+  highlight: z.string().nullable()
+});
+export type PlaylistSearchResult = z.infer<typeof PlaylistSearchResultSchema>;
+
 export const PlaylistSongResultSchema = z.object({
   details: z.object({
   song: z.object({
@@ -767,6 +828,7 @@ export const PlaylistSongResultSchema = z.object({
   size: z.number().nullable(),
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
+  filename: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
@@ -856,6 +918,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   size: z.number().nullable(),
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
+  filename: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
@@ -886,6 +949,25 @@ export const PlaylistSongsQueryResultSchema = z.object({
   query_time_ms: z.number().nullable()
 });
 export type PlaylistSongsQueryResult = z.infer<typeof PlaylistSongsQueryResultSchema>;
+
+export const QueryContextSchema = z.object({
+  tags: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  genres: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  sub_genres: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  sort_field: z.string().nullable(),
+  sort_direction: z.union([z.literal("asc"), z.literal("desc")]).nullable(),
+  search_query: z.string().nullable()
+});
+export type QueryContext = z.infer<typeof QueryContextSchema>;
 
 export const QueryParamsSchema = z.object({
   q: z.string().nullable(),
@@ -997,6 +1079,9 @@ export const ReplaceAlbumTagsRequestSchema = z.object({
 });
 export type ReplaceAlbumTagsRequest = z.infer<typeof ReplaceAlbumTagsRequestSchema>;
 
+export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]);
+export type SearchField = z.infer<typeof SearchFieldSchema>;
+
 export const SearchRecordingsRequestSchema = z.object({
   query: z.string(),
   artist: z.string().nullable(),
@@ -1014,6 +1099,104 @@ export const SearchReleasesRequestSchema = z.object({
   offset: z.number().nullable()
 });
 export type SearchReleasesRequest = z.infer<typeof SearchReleasesRequestSchema>;
+
+export const SearchRequestSchema = z.object({
+  query: z.string(),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]).nullable(),
+  page: z.number().nullable(),
+  page_size: z.number().nullable(),
+  context: z.object({
+  tags: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  genres: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  sub_genres: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  sort_field: z.string().nullable(),
+  sort_direction: z.union([z.literal("asc"), z.literal("desc")]).nullable(),
+  search_query: z.string().nullable()
+}).nullable()
+});
+export type SearchRequest = z.infer<typeof SearchRequestSchema>;
+
+export const SearchResponseSchema = z.object({
+  songs: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  artist_names: z.array(z.string()),
+  album_title: z.string().nullable(),
+  album_id: z.string().nullable(),
+  duration: z.number().nullable(),
+  thumbnail_url: z.string().nullable(),
+  user_rating: z.number().nullable(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullable()
+})),
+  artists: z.array(z.object({
+  id: z.string(),
+  name: z.string(),
+  song_count: z.number(),
+  album_count: z.number(),
+  genres: z.array(z.string()),
+  user_rating: z.number().nullable(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  highlight: z.string().nullable()
+})).nullable(),
+  albums: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  artist_names: z.array(z.string()),
+  genre: z.string().nullable(),
+  sub_genres: z.array(z.string()),
+  song_count: z.number(),
+  thumbnail_url: z.string().nullable(),
+  user_rating: z.number().nullable(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  highlight: z.string().nullable()
+})).nullable(),
+  genres: z.array(z.object({
+  genre: z.string(),
+  genre_id: z.string(),
+  sub_genres: z.array(z.string()),
+  song_count: z.number(),
+  artist_count: z.number(),
+  representative_song_id: z.string().nullable(),
+  representative_thumbnail: z.string().nullable(),
+  avg_rating: z.number().nullable(),
+  search_rank: z.number()
+})).nullable(),
+  playlists: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  song_count: z.number(),
+  is_public: z.boolean(),
+  created_by: z.string(),
+  thumbnail_url: z.string().nullable(),
+  search_rank: z.number(),
+  highlight: z.string().nullable()
+})).nullable(),
+  total_count: z.number(),
+  page: z.number(),
+  page_size: z.number(),
+  total_pages: z.number(),
+  has_next: z.boolean(),
+  has_prev: z.boolean(),
+  query_time_ms: z.number(),
+  applied_filters: z.any().nullable(),
+  sort_applied: z.string().nullable()
+});
+export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
 export const SessionSongSchema = z.object({
   song_id: z.string(),
@@ -1164,6 +1347,7 @@ export const SongQueryResultSchema = z.object({
   size: z.number().nullable(),
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
+  filename: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
@@ -1185,6 +1369,22 @@ export const SongQueryResultSchema = z.object({
   artist_total_duration: z.number().nullable()
 });
 export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
+
+export const SongSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  artist_names: z.array(z.string()),
+  album_title: z.string().nullable(),
+  album_id: z.string().nullable(),
+  duration: z.number().nullable(),
+  thumbnail_url: z.string().nullable(),
+  user_rating: z.number().nullable(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullable()
+});
+export type SongSearchResult = z.infer<typeof SongSearchResultSchema>;
 
 export const SongUpdateErrorSchema = z.object({
   song_id: z.string(),
@@ -1255,6 +1455,7 @@ export const SongsQueryResultSchema = z.object({
   size: z.number().nullable(),
   mime: z.string().nullable(),
   source_client_id: z.string().nullable(),
+  filename: z.string().nullable(),
   parent_blob_id: z.string().nullable(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
   metadata: z.any(),
@@ -1295,6 +1496,66 @@ export const SubGenreSchema = z.object({
   created_at: z.number()
 });
 export type SubGenre = z.infer<typeof SubGenreSchema>;
+
+export const SuggestionSchema = z.object({
+  value: z.string(),
+  display: z.string(),
+  highlight: z.string(),
+  count: z.number(),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")]),
+  confidence: z.number(),
+  metadata: z.any().nullable(),
+  entity_id: z.string()
+});
+export type Suggestion = z.infer<typeof SuggestionSchema>;
+
+export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")]);
+export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
+
+export const SuggestionsRequestSchema = z.object({
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]),
+  partial: z.string(),
+  page_size: z.number().nullable(),
+  context: z.object({
+  tags: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  genres: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  sub_genres: z.object({
+  include: z.array(z.string()),
+  exclude: z.array(z.string())
+}).nullable(),
+  sort_field: z.string().nullable(),
+  sort_direction: z.union([z.literal("asc"), z.literal("desc")]).nullable(),
+  search_query: z.string().nullable()
+}).nullable()
+});
+export type SuggestionsRequest = z.infer<typeof SuggestionsRequestSchema>;
+
+export const SuggestionsResponseSchema = z.object({
+  suggestions: z.array(z.object({
+  value: z.string(),
+  display: z.string(),
+  highlight: z.string(),
+  count: z.number(),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")]),
+  confidence: z.number(),
+  metadata: z.any().nullable(),
+  entity_id: z.string()
+})),
+  query_time_ms: z.number(),
+  total_count: z.number(),
+  page: z.number(),
+  page_size: z.number(),
+  total_pages: z.number(),
+  has_next: z.boolean(),
+  has_prev: z.boolean()
+});
+export type SuggestionsResponse = z.infer<typeof SuggestionsResponseSchema>;
 
 export const TagSchema = z.object({
   id: z.string(),

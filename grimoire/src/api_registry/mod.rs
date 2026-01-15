@@ -157,6 +157,13 @@ pub mod type_registry {
     // jobs types
     use crate::jobs::{CreateJobRequest, GetJobRequest, Job, ListJobsRequest};
 
+    // search types
+    use crate::search::{
+        AlbumSearchResult, ArtistSearchResult, FilterSet, GenreSearchResult, PlaylistSearchResult,
+        QueryContext, SearchField, SearchRequest, SearchResponse, SongSearchResult, Suggestion,
+        SuggestionType, SuggestionsRequest, SuggestionsResponse,
+    };
+
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
@@ -514,5 +521,48 @@ pub mod type_registry {
 
         gen.add_schema::<SetRatingRequest>("SetRatingRequest");
         registered.insert("SetRatingRequest".to_string());
+
+        // search types
+        gen.add_schema::<SearchRequest>("SearchRequest");
+        registered.insert("SearchRequest".to_string());
+
+        gen.add_schema::<SearchResponse>("SearchResponse");
+        registered.insert("SearchResponse".to_string());
+
+        gen.add_schema::<SuggestionsRequest>("SuggestionsRequest");
+        registered.insert("SuggestionsRequest".to_string());
+
+        gen.add_schema::<SuggestionsResponse>("SuggestionsResponse");
+        registered.insert("SuggestionsResponse".to_string());
+
+        gen.add_schema::<Suggestion>("Suggestion");
+        registered.insert("Suggestion".to_string());
+
+        gen.add_schema::<SearchField>("SearchField");
+        registered.insert("SearchField".to_string());
+
+        gen.add_schema::<SuggestionType>("SuggestionType");
+        registered.insert("SuggestionType".to_string());
+
+        gen.add_schema::<FilterSet>("FilterSet");
+        registered.insert("FilterSet".to_string());
+
+        gen.add_schema::<QueryContext>("QueryContext");
+        registered.insert("QueryContext".to_string());
+
+        gen.add_schema::<SongSearchResult>("SongSearchResult");
+        registered.insert("SongSearchResult".to_string());
+
+        gen.add_schema::<ArtistSearchResult>("ArtistSearchResult");
+        registered.insert("ArtistSearchResult".to_string());
+
+        gen.add_schema::<AlbumSearchResult>("AlbumSearchResult");
+        registered.insert("AlbumSearchResult".to_string());
+
+        gen.add_schema::<GenreSearchResult>("GenreSearchResult");
+        registered.insert("GenreSearchResult".to_string());
+
+        gen.add_schema::<PlaylistSearchResult>("PlaylistSearchResult");
+        registered.insert("PlaylistSearchResult".to_string());
     }
 }
