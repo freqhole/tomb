@@ -110,7 +110,12 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
     .await
     {
         Ok(j) => j,
-        Err(e) => return GrimoireResponse::failure("failed to create job", vec![e.into()]),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                &format!("Failed to create job in database: {}", e),
+                vec![e.into()],
+            )
+        }
     };
 
     GrimoireResponse::success("Job created successfully", job)

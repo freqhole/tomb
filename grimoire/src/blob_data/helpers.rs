@@ -16,10 +16,12 @@ use std::process::Stdio;
 /// Creates a media blob entry that references a local file.
 /// This is used during audio file import to track the original file location.
 ///
-/// Note: This calculates SHA256 hash of the file PATH (not contents) for performance.
+/// Creates a media blob record from an audio file path.
+/// Calculates SHA256 hash of the actual file contents for deduplication.
 pub async fn create_media_blob_from_file(
     file_path: &str,
     file_size: u64,
+    file_modified_at: i64,
 ) -> GrimoireResponse<String> {
     let file_name = Path::new(file_path)
         .file_name()
@@ -31,9 +33,23 @@ pub async fn create_media_blob_from_file(
         .map(|m| m.to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    // Calculate SHA256 hash of the file path (not contents for performance)
+    // Calculate SHA256 hash of the actual file contents for proper deduplication
+    let file_data = match tokio::fs::read(file_path).await {
+        Ok(data) => data,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to read file for hashing",
+                vec![ErrorDetail::new(
+                    "file_read_error",
+                    "File Read Error",
+                    format!("Failed to read file {}: {}", file_path, e),
+                )],
+            )
+        }
+    };
+
     let mut hasher = Sha256::new();
-    hasher.update(file_path.as_bytes());
+    hasher.update(&file_data);
     let sha256 = format!("{:x}", hasher.finalize());
 
     let request = CreateMediaBlobRequest {
@@ -48,6 +64,7 @@ pub async fn create_media_blob_from_file(
             "file_name": file_name,
             "file_size": file_size,
             "mime_type": mime_type,
+            "file_modified_at": file_modified_at,
         }),
         created_by: Some("job_processor".to_string()),
         data: None, // Store as file reference
@@ -134,19 +151,25 @@ async fn extract_album_art_to_webp(
 ) -> Result<Vec<u8>, GrimoireError> {
     let temp_file = format!("/tmp/thumb_{}.jpg", uuid::Uuid::new_v4());
 
-    // Build command from config
-    let args_str = config
-        .media
-        .extract_album_art_args
-        .replace("{input}", input_path)
-        .replace("{output}", &temp_file);
-
-    let args = shell_words::split(&args_str).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("Failed to parse ffmpeg args: {}", e),
+    // Build command from config - parse args first, then replace placeholders
+    let mut args = shell_words::split(&config.media.extract_album_art_args).map_err(|e| {
+        GrimoireError::ProcessingFailed {
+            message: format!("Failed to parse ffmpeg args: {}", e),
+        }
     })?;
 
+    // Replace {input} and {output} placeholders in parsed args
+    for arg in args.iter_mut() {
+        if arg.contains("{input}") {
+            *arg = arg.replace("{input}", input_path);
+        }
+        if arg.contains("{output}") {
+            *arg = arg.replace("{output}", &temp_file);
+        }
+    }
+
     let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
-    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
@@ -158,8 +181,13 @@ async fn extract_album_art_to_webp(
         })?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(GrimoireError::ProcessingFailed {
-            message: "ffmpeg failed to extract album art".to_string(),
+            message: format!(
+                "ffmpeg failed to extract album art. Exit code: {:?}. Error: {}",
+                output.status.code(),
+                stderr
+            ),
         });
     }
 
@@ -241,19 +269,25 @@ async fn generate_waveform_to_webp(
 ) -> Result<Vec<u8>, GrimoireError> {
     let temp_file = format!("/tmp/wave_{}.png", uuid::Uuid::new_v4());
 
-    // Build command from config
-    let args_str = config
-        .media
-        .generate_waveform_args
-        .replace("{input}", input_path)
-        .replace("{output}", &temp_file);
-
-    let args = shell_words::split(&args_str).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("Failed to parse ffmpeg args: {}", e),
+    // Build command from config - parse args first, then replace placeholders
+    let mut args = shell_words::split(&config.media.generate_waveform_args).map_err(|e| {
+        GrimoireError::ProcessingFailed {
+            message: format!("Failed to parse ffmpeg args: {}", e),
+        }
     })?;
 
+    // Replace {input} and {output} placeholders in parsed args
+    for arg in args.iter_mut() {
+        if arg.contains("{input}") {
+            *arg = arg.replace("{input}", input_path);
+        }
+        if arg.contains("{output}") {
+            *arg = arg.replace("{output}", &temp_file);
+        }
+    }
+
     let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
-    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await
@@ -265,8 +299,13 @@ async fn generate_waveform_to_webp(
         })?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(GrimoireError::ProcessingFailed {
-            message: "ffmpeg failed to generate waveform".to_string(),
+            message: format!(
+                "ffmpeg failed to generate waveform. Exit code: {:?}. Error: {}",
+                output.status.code(),
+                stderr
+            ),
         });
     }
 

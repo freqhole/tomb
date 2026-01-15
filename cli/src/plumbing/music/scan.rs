@@ -2,8 +2,8 @@
 
 use clap::Parser;
 use grimoire::jobs::{
-    create_job, list_scanned_directories, record_scanned_directory, remove_scanned_directory,
-    CreateJobRequest, JobType,
+    create_job, create_job_session, list_scanned_directories, record_scanned_directory,
+    remove_scanned_directory, CreateJobRequest, CreateJobSessionRequest, JobType,
 };
 use grimoire::music::scanner::scan_directory;
 
@@ -16,10 +16,6 @@ pub enum ScanAction {
     Scan {
         /// directory path to scan
         path: String,
-
-        /// create a session for batch processing
-        #[arg(long)]
-        session_id: Option<String>,
     },
 
     /// rescan all tracked directories
@@ -40,18 +36,30 @@ pub enum ScanAction {
 
 pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Value> {
     match action {
-        ScanAction::Scan { path, session_id } => {
-            // generate session id if not provided
-            let session_id = session_id.unwrap_or_else(|| {
-                use time::OffsetDateTime;
-                let timestamp = OffsetDateTime::now_utc().unix_timestamp();
-                format!("scan-{}", timestamp)
-            });
-
+        ScanAction::Scan { path } => {
             eprintln!("scanning directory: {}", path);
-            eprintln!("session id: {}", session_id);
 
-            let response = scan_directory(&path, &session_id, true, None, None).await;
+            // create a job session for this scan
+            let session_request = CreateJobSessionRequest {
+                job_type: JobType::ProcessFile,
+                batch_size: None,
+                created_by: Some("cli-scan".to_string()),
+            };
+
+            let session_response = create_job_session(session_request).await;
+            if !session_response.success {
+                return CommandOutput::failure(
+                    format!("Failed to create job session: {}", session_response.message),
+                    session_response.errors,
+                    (),
+                );
+            }
+
+            let session = session_response.data.unwrap();
+            let session_id = &session.id;
+            eprintln!("created job session: {}", session_id);
+
+            let response = scan_directory(&path, session_id, true, None, None).await;
 
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());

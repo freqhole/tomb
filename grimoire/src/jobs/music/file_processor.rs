@@ -52,28 +52,41 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     let file_size = metadata.len();
     debug!("file size: {} bytes", file_size);
 
+    // get file modified time
+    let file_modified_at = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
     // step 1: create media blob in database
-    let media_blob_id =
-        match blob_data::create_media_blob_from_file(&params.file_path, file_size).await {
-            response if response.success => match response.data {
-                Some(id) => id,
-                None => {
-                    return Err(JobError::ProcessingFailed {
-                        reason: "failed to create media blob: no data returned".to_string(),
-                    })
-                }
-            },
-            response => {
-                let error_msg = if !response.errors.is_empty() {
-                    response.errors[0].detail.clone()
-                } else {
-                    response.message
-                };
+    let media_blob_id = match blob_data::create_media_blob_from_file(
+        &params.file_path,
+        file_size,
+        file_modified_at,
+    )
+    .await
+    {
+        response if response.success => match response.data {
+            Some(id) => id,
+            None => {
                 return Err(JobError::ProcessingFailed {
-                    reason: format!("failed to create media blob: {}", error_msg),
-                });
+                    reason: "failed to create media blob: no data returned".to_string(),
+                })
             }
-        };
+        },
+        response => {
+            let error_msg = if !response.errors.is_empty() {
+                response.errors[0].detail.clone()
+            } else {
+                response.message
+            };
+            return Err(JobError::ProcessingFailed {
+                reason: format!("failed to create media blob: {}", error_msg),
+            });
+        }
+    };
     debug!("created media blob: {}", media_blob_id);
 
     // step 2: import audio file (extracts metadata and creates song)

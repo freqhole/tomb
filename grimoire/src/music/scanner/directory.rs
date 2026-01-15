@@ -4,9 +4,11 @@
 //! and batch processing of discovered files.
 
 use crate::config::get_config;
+use crate::database;
 use crate::error::GrimoireResult;
 use crate::jobs::{create_job, CreateJobRequest, JobType, ProcessFileParams};
 use std::path::Path;
+use tracing::debug;
 use walkdir::WalkDir;
 
 /// Scan a directory for audio files and create processing jobs
@@ -59,8 +61,61 @@ pub async fn scan_directory_and_create_jobs(
 
     let file_count = audio_files.len();
 
-    // Create a processing job for each file
+    // Connect to database to check for existing files
+    let pool =
+        database::connect()
+            .await
+            .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+                message: format!("Failed to connect to database: {}", e),
+            })?;
+
+    // Create a processing job for each file (skip if unchanged)
+    let mut jobs_created = 0;
+    let mut files_skipped = 0;
+
     for file_path in audio_files {
+        // Get file modified time
+        let file_modified_at = std::fs::metadata(&file_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        // Check if file already exists in database with same modified time
+        let existing_blob = sqlx::query!(
+            r#"
+            SELECT id, metadata
+            FROM media_blobz
+            WHERE local_path = ? AND deleted_at IS NULL
+            LIMIT 1
+            "#,
+            file_path
+        )
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+
+        // Check if we can skip this file
+        if let Some(blob) = existing_blob {
+            if let Some(metadata_str) = blob.metadata {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_str) {
+                    if let Some(stored_modified_at) =
+                        metadata.get("file_modified_at").and_then(|v| v.as_i64())
+                    {
+                        if stored_modified_at == file_modified_at {
+                            // File hasn't changed, skip it
+                            debug!("skipping unchanged file: {}", file_path);
+                            files_skipped += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        // File is new or has changed, create a processing job
         let params = ProcessFileParams {
             file_path: file_path.clone(),
             extract_metadata: true,
@@ -83,7 +138,13 @@ pub async fn scan_directory_and_create_jobs(
                 message: format!("Failed to create job: {}", job_response.message),
             });
         }
+        jobs_created += 1;
     }
+
+    debug!(
+        "scan complete: {} files found, {} jobs created, {} files skipped (unchanged)",
+        file_count, jobs_created, files_skipped
+    );
 
     Ok(file_count)
 }

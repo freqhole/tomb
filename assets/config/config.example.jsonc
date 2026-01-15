@@ -64,7 +64,7 @@
     // The command executed will be: <ffmpeg_path> <args with placeholders replaced>
     "ffmpeg_path": "ffmpeg",
     "extract_album_art_args": "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}",
-    "generate_waveform_args": "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -y {output}",
+    "generate_waveform_args": "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -update 1 -y {output}",
 
     // URL download configuration using yt-dlp
     "downloads": {

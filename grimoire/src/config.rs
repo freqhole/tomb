@@ -84,7 +84,7 @@ fn default_extract_album_art_args() -> String {
 }
 
 fn default_generate_waveform_args() -> String {
-    "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -y {output}"
+    "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -update 1 -y {output}"
         .to_string()
 }
 
@@ -395,6 +395,9 @@ mod tests {
                     ytdlp_command: "yt-dlp".to_string(),
                 },
                 genres: vec![],
+                ffmpeg_path: "ffmpeg".to_string(),
+                extract_album_art_args: "--whatever".to_string(),
+                generate_waveform_args: "--whatever".to_string(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
@@ -430,6 +433,9 @@ mod tests {
                     ytdlp_command: "yt-dlp".to_string(),
                 },
                 genres: vec![],
+                ffmpeg_path: "ffmpeg".to_string(),
+                extract_album_art_args: "--whatever".to_string(),
+                generate_waveform_args: "--whatever".to_string(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
@@ -463,6 +469,9 @@ mod tests {
                     ytdlp_command: "yt-dlp".to_string(),
                 },
                 genres: vec![],
+                ffmpeg_path: "ffmpeg".to_string(),
+                extract_album_art_args: "--whatever".to_string(),
+                generate_waveform_args: "--whatever".to_string(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
