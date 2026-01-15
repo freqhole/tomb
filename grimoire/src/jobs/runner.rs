@@ -5,7 +5,7 @@
 use super::models::{Job, JobResult, JobType};
 use super::music::{
     process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
-    process_scan_directory_job,
+    process_rescan_directories_job, process_scan_directory_job,
 };
 use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed, mark_job_started};
 use crate::response::GrimoireResponse;
@@ -37,6 +37,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
     // dispatch to appropriate processor based on job type
     let result = match job_type {
         JobType::ScanDirectory => process_scan_directory_job(&job).await,
+        JobType::RescanDirectories => process_rescan_directories_job(&job).await,
         JobType::ProcessFile => process_file_job(&job).await,
         JobType::FetchMedia => process_fetch_media_job(&job).await,
         JobType::ConvertWebp => process_convert_webp_job(&job).await,

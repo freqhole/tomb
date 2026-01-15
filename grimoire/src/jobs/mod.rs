@@ -28,6 +28,12 @@ pub use music::{
     ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, ScanDirectoryParams,
     ScanDirectoryResult, ScanJobCreatedResponse,
 };
+
+// re-export scanned directories functions
+pub use music::{
+    get_deduplicated_directories, list_scanned_directories, record_scanned_directory,
+    remove_scanned_directory, ScannedDirectory,
+};
 pub use runner::{process_job, run_job_processor, run_job_processor_once};
 pub use service::{
     cancel_job, complete_session, create_job, create_job_session, fail_session, get_job,

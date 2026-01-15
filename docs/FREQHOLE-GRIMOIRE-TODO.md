@@ -100,3 +100,68 @@ Playlist and PlaylistWithCount (ugh)
 refactor all the cli/ that still has GrimoireResult<()> returns
 
 refactor all the inline crate:: to imports at the top of the file
+
+do all the routes that have route params also include the route param in the request schema/struct? we just fixed this for the delete artist request but are there maybe others lingering with this same issue?
+
+what about ts client wrappers to help with the two upload routes? and also a wrapper for getting the url for a media blob (takes and id and basically returns /api/media/{blob_id} i think the route is).
+
+i need to start a new convo thread. can you write a summary handoff message i can send you in a new thread that has all the context and info to pick back up this work?
+
+---
+
+scan music improvements:
+
+1. should first check db for existing local_path, then if exists can look at metadata json blob to see when file was created and last modified, if the same can bail, if different then can update db records. might need to make sure we're saving file's created and updated at dates (in UTC, i think? i dunno, i don't want to end up in a timezone hole) in db.
+2. a scan job that validates all the media blob's local_path are infact still real files on disk, if no longer on disk, soft delete.
+3. it might be good to persist in the db, the directories that are given to the scan jobs, so that we can go back later and rescan to see if any more music has been added to those dirs (or possibly that music has been removed, or perhaps moved and/or renamed). this is probably a different scan job (or jobs?), so make sure the plumbing cli is wired up to be able to call these.
+4. it might be nice if the server api can process queue these scan jobs? only root and admin users should be able to do this. and perhaps there should be an new config file entry to enable (or disable) this. i think only the re-scan job here because passing a valid directory thru the json api might be tricky.
+
+---
+
+Code Style Preference: lowercase prose in comments and strings\*\*
+
+When writing code (especially comments, documentation strings, and user-facing messages), prefer lowercase, conversational prose style.
+
+**Keep uppercase for:**
+
+- Acronyms (API, HTTP, JSON, SQL)
+- Proper nouns (Rust, TypeScript, GitHub)
+- Code identifiers (variable names, function names, type names)
+- Special markers (TODO, FIXME, NOTE, WARNING)
+
+**Use lowercase for:**
+
+- Regular comments explaining code logic
+- Documentation/docstrings
+- User-facing messages and error strings
+- Log messages
+
+**Examples:**
+
+✅ Good:
+
+```typescript
+// extract data from server response wrapper before validation
+const data = json.data ?? json;
+
+throw new Error("failed to connect to database");
+
+// TODO: add support for pagination
+```
+
+❌ Avoid:
+
+```typescript
+// Extract Data From Server Response Wrapper Before Validation
+const data = json.data ?? json;
+
+throw new Error("Failed to connect to database");
+
+// Todo: Add Support For Pagination
+```
+
+This keeps code feeling conversational and approachable rather than formal/corporate.
+
+---
+
+write more about how search should work!

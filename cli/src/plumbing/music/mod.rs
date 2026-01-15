@@ -16,12 +16,14 @@ mod maintenance;
 mod musicbrainz;
 mod playlists;
 mod query;
+mod scan;
 mod songs;
 mod user_favorites;
 mod user_ratings;
 
 pub use fetch::FetchAction;
 pub use musicbrainz::MusicBrainzAction;
+pub use scan::ScanAction;
 pub use user_favorites::FavoritesAction;
 pub use user_ratings::RatingsAction;
 
@@ -360,6 +362,13 @@ pub enum MusicAction {
         #[command(subcommand)]
         action: FetchAction,
     },
+
+    // Scan commands
+    /// Scan and directory management
+    Scan {
+        #[command(subcommand)]
+        action: ScanAction,
+    },
 }
 
 /// Handle music commands
@@ -502,5 +511,8 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
 
         // Fetch commands
         MusicAction::Fetch { action } => fetch::handle_command(action).await,
+
+        // Scan commands
+        MusicAction::Scan { action } => scan::handle_command(action).await,
     }
 }

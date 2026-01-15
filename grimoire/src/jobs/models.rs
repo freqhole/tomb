@@ -10,6 +10,7 @@ use zod_gen_derive::ZodSchema;
 pub enum JobType {
     // filesystem operations
     ScanDirectory,
+    RescanDirectories,
     ProcessFile,
 
     // media operations

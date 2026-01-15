@@ -8,7 +8,27 @@ quick reference for tracking server refactor work.
 - `LEGACY_CODE_REUSE.md` - specific legacy code files to reuse (range requests, static files, etc)
 - `GRIMOIRE_TO_SERVER_ROUTES.md` - **complete checklist** of grimoire apis → server routes
 
-## current phase: phase 2.5 - api key management (in progress)
+## 📊 latest audit findings (completed!)
+
+**what we verified:**
+
+- ✅ CLI API key commands - fully implemented (generate, revoke, show-status)
+- ✅ Job processors - all 5 processors complete (scan, process, fetch, convert, import)
+- ✅ ImportMusic job - 100+ line implementation with metadata extraction & fallback handling
+- ✅ Core CRUD - all query functions working, replaced legacy list functions
+- ✅ 73 routes total - way beyond initial ~35-40 target!
+
+**what we found missing:**
+
+- 🔍 **Search functionality** - `legacyserver/src/media/search.rs` (1945 lines!) needs migration
+  - full-text search, advanced filters, aggregations, result grouping
+  - acknowledged as "too huge! too much shit!" - perfect for refactoring
+- 📊 **Filter metadata API** - provides facets for search UI (genres with counts, etc.)
+- 🎯 **Scan improvements** - smart rescanning, orphan detection, directory tracking
+
+**added to roadmap:** phase 9 (search) and phase 10 (scan improvements)
+
+## current phase: phase 9 - search & discovery (next priority)
 
 **phase 0 complete**: ✅
 **phase 1 complete**: ✅
@@ -20,9 +40,16 @@ quick reference for tracking server refactor work.
 - ✅ middleware and auth working
 - ✅ database queries refactored to use compile-time checked sqlx patterns
 
-**phase 2.5 in progress**: api key management cli commands + endpoints
+**phase 2.5 complete**: ✅ api key management cli commands + endpoints
+**phase 3 complete**: ✅ typescript codegen system with inventory-based registration
+**phase 4 complete**: ✅ patterns established with sample routes
+**phase 6+ complete**: ✅ rapid route implementation (73 routes total!)
+**phase 7 complete**: ✅ supporting features (blobs, uploads, jobs)
 
-**next action: implement api key management commands and endpoints**
+**phase 9 next**: search & discovery - migrate search functionality from legacyserver
+**phase 10 next**: scan improvements - smart rescanning, validation, directory tracking
+
+**next action: implement search functionality in grimoire + server routes**
 
 ## implementation workflow (updated priority)
 
@@ -96,18 +123,18 @@ quick reference for tracking server refactor work.
 - [x] uses `sqlx::query_as!` with static SQL and NULL handling pattern
 - [x] added non-null assertions (!) for required columns
 
-### phase 2.5: api key management (in progress)
+### phase 2.5: api key management ✅ COMPLETE
 
-**cli commands**
+**cli commands** ✅
 
-- [ ] `freqhole user api-key generate <username>` - generate api key for existing user
-- [ ] `freqhole user api-key revoke <username>` - revoke/clear api key
-- [ ] `freqhole user list --show-api-keys` - list users with api key status
+- [x] `freqhole user api-key generate <username>` - generate api key for existing user
+- [x] `freqhole user api-key revoke <username>` - revoke/clear api key
+- [x] `freqhole user api-key show-status <username>` - show api key status with masked preview
 
-**api endpoints**
+**api endpoints** ✅
 
-- [ ] `POST /auth/api-key/regenerate` - authenticated user regenerates their own key
-- [ ] `GET /auth/api-key/status` - check if current user has an api key
+- [x] `POST /auth/api-key/regenerate` - authenticated user regenerates their own key
+- [x] `GET /auth/api-key/status` - check if current user has an api key
 
 **grimoire support** (already done!)
 
@@ -115,32 +142,24 @@ quick reference for tracking server refactor work.
 - [x] `UserService::generate_api_key()` - generate secure random key
 - [x] setup command generates api key for root user
 
-### phase 3: typescript codegen investigation
+### phase 3: typescript codegen ✅ COMPLETE
 
-- [ ] **do this after auth, before bulk routes**
-- [ ] test ts-rs, typeshare, or specta with 2-3 sample types
-- [ ] determine: wrapper types or annotate grimoire types?
-- [ ] document findings and establish pattern
-- [ ] defer full implementation to phase 8
+- [x] inventory-based route registration system
+- [x] zod schema generation from rust types
+- [x] type-safe client with runtime validation
+- [x] enum handling fixed (lowercase literal unions)
+- [x] path parameter handling working
+- [x] 65+ routes with full typescript client coverage
 
-### phase 4: establish patterns with sample routes
+### phase 4: establish patterns ✅ COMPLETE
 
-- [ ] **implement 2-3 routes first to validate approach**
-  - [ ] `POST /api/songs/query` - query songs (uses grimoire::music::crud::query_songs)
-  - [ ] `POST /api/playlists/create` - create playlist (uses grimoire::music::crud::create_playlist)
-  - [ ] `POST /api/favorites/set` - set favorite (uses grimoire::music::users::FavoritesService)
-- [ ] **implement static file serving for testing**
-  - [ ] add `static_files_enabled` + `static_files_dir` to config
-  - [ ] basic static file handler (reuse legacy code, no range requests yet)
-  - [ ] serve simple HTML test pages
-- [ ] verify patterns:
-  - [ ] shallow wrappers work well
-  - [ ] grimoire types reused directly (or codegen wrapper approach)
-  - [ ] error handling consistent
-  - [ ] auth middleware works
-  - [ ] role-based permissions work (viewer can't create playlist)
-  - [ ] static file serving works for testing
-- [ ] **once validated, proceed to phase 6 for bulk implementation**
+- [x] multiple routes implemented and validated
+- [x] shallow grimoire wrappers work well
+- [x] grimoire types reused directly
+- [x] error handling consistent
+- [x] auth middleware works
+- [x] static file serving implemented
+- [x] patterns validated, ready for bulk implementation
 
 ### phase 5: grimoire preparation
 
@@ -161,57 +180,169 @@ quick reference for tracking server refactor work.
   - [ ] only add if genuinely missing
   - [ ] **rule: every new grimoire public api needs cli plumbing wrapper**
 
-### phase 6: rapid route implementation
+### phase 6: rapid route implementation ✅ COMPLETE
 
-- [ ] **see `GRIMOIRE_TO_SERVER_ROUTES.md` for complete checklist**
-- [ ] songs routes (3-4 routes)
-- [ ] albums routes (2-3 routes)
-- [ ] artists routes (2-3 routes)
-- [ ] playlists routes (remaining 7-8 routes)
-- [ ] favorites routes (remaining 1-2 routes)
-- [ ] ratings routes (2-3 routes)
-- [ ] analytics/history routes (2-3 routes)
-- [ ] **note: should be mechanical/straightforward after patterns established**
-- [ ] **important: verify query functions can replace list functions**
-  - [ ] confirm query_songs replaces list_songs ✓ (known)
-  - [ ] verify query_artists, query_albums, query_playlists (investigate each)
-  - [ ] only remove list functions after verification
-- [ ] after routes built: har analysis to identify gaps
+- [x] **73 total routes implemented!** (way beyond ~35-40 target)
+- [x] songs, albums, artists, genres routes
+- [x] playlists routes (full CRUD + mutations)
+- [x] favorites & ratings routes
+- [x] analytics routes (play tracking, history, top songs/artists/albums, feed)
+- [x] tags routes (full CRUD + album associations)
+- [x] sub-genres routes (complete management)
+- [x] musicbrainz routes (search & lookup)
+- [x] jobs routes (status, list)
+- [x] query functions verified to replace list functions
 
-### phase 7: supporting features
+### phase 7: supporting features ✅ COMPLETE
 
-- [ ] blob streaming with range support (reuse legacy code)
-- [ ] file upload
-- [ ] musicbrainz proxy
-- [ ] fetch music routes (generic external command)
-- [ ] static file range requests (optional - only if needed for large static media)
-- [ ] health checks
-- [ ] jobs status routes (for async job tracking)
+- [x] blob streaming with range support
+- [x] file upload (image & music)
+- [x] musicbrainz proxy
+- [x] fetch music routes (generic external command)
+- [x] health checks
+- [x] jobs status routes (for async job tracking)
+- [x] all 5 job processors implemented (scan, process, fetch, convert, import)
 
-### phase 8: typescript client implementation (deferred)
+### phase 8: typescript client implementation ✅ COMPLETE
 
-**note: investigation done in phase 3, full implementation deferred**
+- [x] inventory-based route registration
+- [x] zod schema generation working
+- [x] type-safe fetch client with wrappers
+- [x] runtime validation on requests/responses
+- [x] URL helper utilities for blobs/uploads
+- [x] integration tests with 230+ test cases
 
-- [ ] setup ts-rs or specta
-- [ ] annotate request/response types
-- [ ] generate zod schemas
-- [ ] generate fetch client
-- [ ] ci verification
+### phase 9: search & discovery (HIGH PRIORITY - NEXT)
 
-### phase 9: configuration & deployment
+**background**: legacy search functionality in `legacyserver/src/media/search.rs` (1945 lines!)
+needs to be refactored and migrated to grimoire. acknowledged as "too huge! too much shit!"
+
+**search functionality** 🔍
+
+- [ ] migrate SearchService from legacylib to grimoire
+  - [ ] refactor and simplify (break down monolithic search)
+  - [ ] full-text search with postgres text search / websearch
+  - [ ] advanced filters (tags, year ranges, ratings, boolean combos)
+  - [ ] multiple search types (websearch, phrase, prefix, fuzzy)
+  - [ ] search field selection (title, artist, album, genre, etc.)
+  - [ ] result grouping and aggregations (genres, playlists)
+  - [ ] sort options with multiple fields
+  - [ ] pagination with metadata (has_next, has_prev, total_pages)
+  - [ ] query performance tracking
+- [ ] implement search server routes
+  - [ ] `POST /api/search` - unified search endpoint
+  - [ ] OR consider focused endpoints: `/api/search/songs`, `/api/search/artists`, etc.
+- [ ] cli plumbing wrapper
+  - [ ] `freqhole music search --query "text" [filters]`
+
+**filter metadata endpoints** (for search UI facets)
+
+- [ ] move filter metadata queries from legacyserver to grimoire
+  - [ ] genre filters with counts
+  - [ ] artist filters with counts
+  - [ ] album filters with counts
+  - [ ] year range metadata (min/max available)
+  - [ ] tag filters with counts
+- [ ] implement server routes
+  - [ ] `GET /api/filters/genres` - available genres with song counts
+  - [ ] `GET /api/filters/artists` - available artists with song counts
+  - [ ] `GET /api/filters/albums` - available albums with song counts
+  - [ ] `GET /api/filters/years` - year range metadata
+  - [ ] `GET /api/filters/tags` - available tags with counts
+- [ ] cli plumbing wrappers
+  - [ ] `freqhole music filters [--type genre|artist|album|year|tag]`
+
+**notes**:
+
+- search is core functionality for music discovery
+- current implementation acknowledged as needing refactoring
+- opportunity to simplify and modernize
+- filter metadata goes hand-in-hand with search (faceted search)
+
+### phase 10: scan improvements (NEXT)
+
+**smart rescanning & validation**
+
+improve music scanning to avoid redundant processing and maintain data integrity
+
+**1. smart rescan (skip unchanged files)**
+
+- [ ] grimoire: check db for existing local_path before processing
+- [ ] grimoire: store file metadata (created_at, modified_at) in media_blobz table
+  - [ ] add `file_created_at` timestamp field (UTC)
+  - [ ] add `file_modified_at` timestamp field (UTC)
+  - [ ] database migration for new fields
+- [ ] grimoire: compare file timestamps during scan
+  - [ ] if timestamps match, skip processing (file unchanged)
+  - [ ] if timestamps differ, update db records
+  - [ ] log skipped vs processed files
+- [ ] cli: add flag for force rescan: `freqhole music scan --force [path]`
+
+**2. orphan detection (validate files still exist)**
+
+- [ ] grimoire: new job type `ValidateBlobs`
+- [ ] grimoire: scan all media_blobz with local_path set
+  - [ ] check if file exists on disk
+  - [ ] if missing, soft delete (set deleted_at)
+  - [ ] optionally cascade to songs/albums (or leave orphaned)
+  - [ ] report: deleted count, orphaned entities count
+- [ ] cli: `freqhole music validate-files [--fix]`
+  - [ ] without --fix: report only (dry run)
+  - [ ] with --fix: actually soft delete missing files
+- [ ] server route: `POST /api/jobs/validate-files` (admin/root only)
+
+**3. directory tracking (persist scan locations)**
+
+- [ ] grimoire: new table `scanned_directories`
+  - [ ] `id` - primary key
+  - [ ] `path` - absolute directory path
+  - [ ] `recursive` - boolean (was it scanned recursively?)
+  - [ ] `last_scanned_at` - timestamp UTC
+  - [ ] `file_count` - number of files found in last scan
+  - [ ] `created_by` - user who initiated scan
+  - [ ] `created_at` - when first scanned
+- [ ] grimoire: record directory after successful scan job
+- [ ] grimoire: new job type `RescanDirectories`
+  - [ ] query all tracked directories
+  - [ ] rescan each to find new/removed/changed files
+  - [ ] update directory metadata (last_scanned_at, file_count)
+- [ ] cli: `freqhole music directories list` - show tracked directories
+- [ ] cli: `freqhole music directories rescan [--dir <path>]` - rescan tracked dirs
+  - [ ] without --dir: rescan all tracked directories
+  - [ ] with --dir: rescan specific directory only
+- [ ] cli: `freqhole music directories remove <path>` - stop tracking directory
+
+**4. server api for rescanning (optional, admin only)**
+
+- [ ] config: add `server.scans.allow_rescan_api` boolean (default: false)
+- [ ] server route: `POST /api/scans/rescan` (root/admin only)
+  - [ ] only enabled if config allows
+  - [ ] only rescans already-tracked directories (no new paths via API)
+  - [ ] returns job_id for tracking
+- [ ] role check: only UserRole::Root and UserRole::Admin can trigger
+
+**notes**:
+
+- file timestamps in UTC to avoid timezone issues
+- soft delete preserves data for recovery
+- directory tracking enables "what's new?" workflows
+- server api disabled by default for security (filesystem access)
+- rescans use existing job system for async processing
+
+### phase 11: configuration & deployment
 
 - [ ] extend grimoire config for server
 - [ ] merge cli + server binary
 - [ ] deployment docs
 
-### phase 10: testing & migration
+### phase 12: testing & migration
 
 - [ ] minimal smoke tests (lean on cli tests)
 - [ ] har analysis (if not done earlier)
 - [ ] webapp compatibility testing
 - [ ] breaking changes acceptable
 
-### phase 11: cleanup & documentation
+### phase 13: cleanup & documentation
 
 - [ ] delete legacyserver/
 - [ ] delete legacylib/
