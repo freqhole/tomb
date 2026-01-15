@@ -198,8 +198,9 @@ pub async fn get_job_session(session_id: &str) -> GrimoireResponse<JobSession> {
     GrimoireResponse::success("Job session retrieved successfully", session)
 }
 
-/// Get the next pending job to process
-/// Get the next pending job from the queue
+/// Get the next pending job and atomically mark it as started
+/// This prevents race conditions when multiple job runners are active
+/// Returns None if no jobs are available
 pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -208,17 +209,23 @@ pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
         }
     };
 
+    // Atomically claim the next pending job by updating it to Running
+    // This prevents multiple workers from processing the same job
     let job = match sqlx::query_as!(
         Job,
         r#"
-        SELECT id as "id!", session_id, job_type as "job_type!", status as "status!",
-               parameters as "parameters!", result, retry_count as "retry_count!: i32",
-               max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
-               started_at, completed_at, error_message, created_by
-        FROM jobz
-        WHERE status = 'Pending' AND scheduled_at <= unixepoch()
-        ORDER BY scheduled_at ASC
-        LIMIT 1
+        UPDATE jobz
+        SET status = 'Running', started_at = unixepoch()
+        WHERE id = (
+            SELECT id FROM jobz
+            WHERE status = 'Pending' AND scheduled_at <= unixepoch()
+            ORDER BY scheduled_at ASC
+            LIMIT 1
+        )
+        RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
+                  parameters as "parameters!", result, retry_count as "retry_count!: i32",
+                  max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
+                  started_at, completed_at, error_message, created_by
         "#
     )
     .fetch_optional(&pool)
@@ -230,7 +237,7 @@ pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
         }
     };
 
-    GrimoireResponse::success("Retrieved next pending job", job)
+    GrimoireResponse::success("Retrieved and claimed next pending job", job)
 }
 
 /// Mark a job as started

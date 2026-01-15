@@ -7,7 +7,7 @@ use super::music::{
     process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
     process_rescan_directories_job, process_scan_directory_job,
 };
-use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed, mark_job_started};
+use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed};
 use crate::response::GrimoireResponse;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,20 +16,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 /// process a single job by dispatching to the appropriate processor
+/// Note: job should already be marked as 'Running' by get_next_pending_job
 pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
     let start_time = Instant::now();
-
-    // mark job as started
-    let started_job_response = mark_job_started(&job.id).await;
-    let job = match started_job_response.data {
-        Some(j) => j,
-        None => {
-            return GrimoireResponse::failure(
-                "failed to mark job as started",
-                started_job_response.errors,
-            )
-        }
-    };
 
     // get job type
     let job_type = match job.job_type() {
