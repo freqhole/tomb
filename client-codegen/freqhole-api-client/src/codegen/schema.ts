@@ -955,14 +955,6 @@ export const QueryContextSchema = z.object({
   include: z.array(z.string()),
   exclude: z.array(z.string())
 }).nullable(),
-  genres: z.object({
-  include: z.array(z.string()),
-  exclude: z.array(z.string())
-}).nullable(),
-  sub_genres: z.object({
-  include: z.array(z.string()),
-  exclude: z.array(z.string())
-}).nullable(),
   sort_field: z.string().nullable(),
   sort_direction: z.union([z.literal("asc"), z.literal("desc")]).nullable(),
   search_query: z.string().nullable()
@@ -1107,14 +1099,6 @@ export const SearchRequestSchema = z.object({
   page_size: z.number().nullable(),
   context: z.object({
   tags: z.object({
-  include: z.array(z.string()),
-  exclude: z.array(z.string())
-}).nullable(),
-  genres: z.object({
-  include: z.array(z.string()),
-  exclude: z.array(z.string())
-}).nullable(),
-  sub_genres: z.object({
   include: z.array(z.string()),
   exclude: z.array(z.string())
 }).nullable(),
@@ -1518,14 +1502,6 @@ export const SuggestionsRequestSchema = z.object({
   page_size: z.number().nullable(),
   context: z.object({
   tags: z.object({
-  include: z.array(z.string()),
-  exclude: z.array(z.string())
-}).nullable(),
-  genres: z.object({
-  include: z.array(z.string()),
-  exclude: z.array(z.string())
-}).nullable(),
-  sub_genres: z.object({
   include: z.array(z.string()),
   exclude: z.array(z.string())
 }).nullable(),

@@ -195,8 +195,6 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
 
     // extract filters from context
     let tag_filter = req.context.as_ref().and_then(|ctx| ctx.tags.as_ref());
-    let genre_filter = req.context.as_ref().and_then(|ctx| ctx.genres.as_ref());
-    let sub_genre_filter = req.context.as_ref().and_then(|ctx| ctx.sub_genres.as_ref());
 
     let mut response = SearchResponse {
         songs: Vec::new(),
@@ -214,8 +212,6 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
         applied_filters: req.context.as_ref().map(|ctx| {
             serde_json::json!({
                 "tags": ctx.tags,
-                "genres": ctx.genres,
-                "sub_genres": ctx.sub_genres,
             })
         }),
         sort_applied: None,
@@ -225,17 +221,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
     match field {
         SearchField::All => {
             // get best results from each category
-            response.songs = match search_songs(
-                &pool,
-                &req.query,
-                user_id,
-                tag_filter,
-                genre_filter,
-                sub_genre_filter,
-                20,
-                0,
-            )
-            .await
+            response.songs = match search_songs(&pool, &req.query, user_id, tag_filter, 20, 0).await
             {
                 Ok(s) => s,
                 Err(e) => {
@@ -254,18 +240,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                 },
             );
             response.albums = Some(
-                match search_albums(
-                    &pool,
-                    &req.query,
-                    user_id,
-                    tag_filter,
-                    genre_filter,
-                    sub_genre_filter,
-                    10,
-                    0,
-                )
-                .await
-                {
+                match search_albums(&pool, &req.query, user_id, tag_filter, 10, 0).await {
                     Ok(a) => a,
                     Err(e) => {
                         return GrimoireResponse::failure("failed to search albums", vec![e.into()])
@@ -294,32 +269,15 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
             response.total_count = response.songs.len() as i64;
         }
         SearchField::Songs => {
-            response.songs = match search_songs(
-                &pool,
-                &req.query,
-                user_id,
-                tag_filter,
-                genre_filter,
-                sub_genre_filter,
-                page_size,
-                offset,
-            )
-            .await
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    return GrimoireResponse::failure("failed to search songs", vec![e.into()])
-                }
-            };
-            response.total_count = match count_song_results(
-                &pool,
-                &req.query,
-                tag_filter,
-                genre_filter,
-                sub_genre_filter,
-            )
-            .await
-            {
+            response.songs =
+                match search_songs(&pool, &req.query, user_id, tag_filter, page_size, offset).await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to search songs", vec![e.into()])
+                    }
+                };
+            response.total_count = match count_song_results(&pool, &req.query, tag_filter).await {
                 Ok(c) => c,
                 Err(e) => {
                     return GrimoireResponse::failure(
@@ -347,14 +305,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
         }
         SearchField::Albums => {
             let albums = match search_albums(
-                &pool,
-                &req.query,
-                user_id,
-                tag_filter,
-                genre_filter,
-                sub_genre_filter,
-                page_size,
-                offset,
+                &pool, &req.query, user_id, tag_filter, page_size, offset,
             )
             .await
             {

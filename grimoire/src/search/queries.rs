@@ -10,8 +10,6 @@ pub async fn search_songs(
     query: &str,
     user_id: Option<&str>,
     tag_filter: Option<&FilterSet>,
-    _genre_filter: Option<&FilterSet>,
-    _sub_genre_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<SongSearchResult>> {
@@ -298,8 +296,6 @@ pub async fn search_albums(
     query: &str,
     user_id: Option<&str>,
     tag_filter: Option<&FilterSet>,
-    _genre_filter: Option<&FilterSet>,
-    _sub_genre_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<AlbumSearchResult>> {
@@ -671,8 +667,6 @@ pub async fn count_song_results(
     pool: &SqlitePool,
     query: &str,
     tag_filter: Option<&FilterSet>,
-    _genre_filter: Option<&FilterSet>,
-    _sub_genre_filter: Option<&FilterSet>,
 ) -> GrimoireResult<i64> {
     // count with tag filtering matching search_songs logic
 

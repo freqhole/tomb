@@ -75,10 +75,6 @@ pub struct QueryContext {
     #[serde(default)]
     pub tags: Option<FilterSet>, // tag filters (from tagz table)
     #[serde(default)]
-    pub genres: Option<FilterSet>, // genre filters (from genrez table)
-    #[serde(default)]
-    pub sub_genres: Option<FilterSet>, // sub-genre filters (from sub_genrez table)
-    #[serde(default)]
     pub sort_field: Option<String>,
     #[serde(default)]
     pub sort_direction: Option<SortDirection>,
