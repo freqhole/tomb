@@ -25,6 +25,14 @@ pub fn build_router() -> Router<AppState> {
         )
         // music routes
         .route(
+            routes["music"]["suggestions"].path,
+            post(music::search::suggestions_handler),
+        )
+        .route(
+            routes["music"]["search"].path,
+            post(music::search::search_handler),
+        )
+        .route(
             routes["music"]["list_playlists"].path,
             post(music::playlists::list_playlists),
         )

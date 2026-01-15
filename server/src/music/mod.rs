@@ -9,5 +9,6 @@ pub mod genres;
 pub mod musicbrainz;
 pub mod playlists;
 pub mod ratings;
+pub mod search;
 pub mod songs;
 pub mod tags;
