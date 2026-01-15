@@ -19,6 +19,7 @@ pub mod media_blobz;
 pub mod metadata;
 pub mod music;
 pub mod response;
+pub mod search;
 pub mod sessions;
 pub mod upload;
 pub mod users;
@@ -34,6 +35,12 @@ pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
 pub use metadata::{merge_metadata, update_media_blob_metadata, update_song_metadata};
 pub use music::entities::{albums::Album, artists::Artist, songs::Song};
 pub use response::GrimoireResponse;
+pub use search::{
+    get_suggestions, search, AlbumSearchResult, ArtistSearchResult, FilterSet, GenreSearchResult,
+    MatchType, PlaylistSearchResult, QueryContext, SearchField, SearchRequest, SearchResponse,
+    SongSearchResult, SortDirection, Suggestion, SuggestionType, SuggestionsRequest,
+    SuggestionsResponse,
+};
 pub use users::models::AuthResult;
 pub use users::{
     AuthError, CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, FavoritesService,
