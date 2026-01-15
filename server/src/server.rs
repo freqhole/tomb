@@ -18,7 +18,12 @@ use crate::{routes, state::AppState, ApiError};
 /// start the http server
 ///
 /// binds to the configured host:port and serves the application
-pub async fn start_server(state: AppState, host: &str, port: u16) -> Result<(), ApiError> {
+pub async fn start_server(
+    state: AppState,
+    host: &str,
+    port: u16,
+    shutdown_signal: impl std::future::Future<Output = ()> + Send + 'static,
+) -> Result<(), ApiError> {
     // validate app state configuration
     state
         .validate()
@@ -87,8 +92,9 @@ pub async fn start_server(state: AppState, host: &str, port: u16) -> Result<(), 
 
     tracing::info!("server listening on {}", addr);
 
-    // serve application
+    // serve application with graceful shutdown
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
         .await
         .map_err(|e| ApiError::Internal(format!("server error: {}", e)))?;
 
