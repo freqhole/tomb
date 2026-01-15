@@ -9,8 +9,11 @@ use super::music::{
 };
 use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed, mark_job_started};
 use crate::response::GrimoireResponse;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::info;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
 /// process a single job by dispatching to the appropriate processor
 pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
@@ -73,9 +76,41 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
     }
 }
 
-/// simple job processor that processes one job at a time in a loop
+/// Job processor that runs continuously with signal handling for graceful shutdown
+/// Processes jobs one at a time, checking for SIGTERM/SIGINT to stop gracefully
 pub async fn run_job_processor() -> GrimoireResponse<()> {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    info!("job processor started");
+
+    let cancellation_token = CancellationToken::new();
+    let cancellation_token_clone = cancellation_token.clone();
+    let current_job_id = Arc::new(RwLock::new(None::<String>));
+
+    // Spawn signal handlers
+    tokio::spawn(async move {
+        let mut sigterm = signal(SignalKind::terminate()).expect("failed to setup SIGTERM handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("failed to setup SIGINT handler");
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                info!("received SIGTERM, initiating graceful shutdown");
+                cancellation_token_clone.cancel();
+            }
+            _ = sigint.recv() => {
+                info!("received SIGINT, initiating graceful shutdown");
+                cancellation_token_clone.cancel();
+            }
+        }
+    });
+
     loop {
+        // Check if shutdown requested
+        if cancellation_token.is_cancelled() {
+            info!("shutdown requested, stopping job processor");
+            return GrimoireResponse::success("job processor stopped gracefully", ());
+        }
+
         let next_job_response = get_next_pending_job().await;
         let next_job = match next_job_response.data {
             Some(job_opt) => job_opt,
@@ -89,12 +124,38 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
 
         match next_job {
             Some(job) => {
+                // Update current job ID
+                {
+                    let mut current_job = current_job_id.write().await;
+                    *current_job = Some(job.id.clone());
+                }
+
                 info!("processing job: {}", job.id);
-                process_job(job).await;
+                let result = process_job(job.clone()).await;
+
+                // Clear current job ID
+                {
+                    let mut current_job = current_job_id.write().await;
+                    *current_job = None;
+                }
+
+                // Log result
+                if result.success {
+                    info!("job completed successfully: {}", job.id);
+                } else {
+                    warn!("job failed: {}", job.id);
+                }
             }
             None => {
                 // no jobs available, wait a bit before checking again
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                // Use select to allow interruption during sleep
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                    _ = cancellation_token.cancelled() => {
+                        info!("shutdown requested during sleep, stopping job processor");
+                        return GrimoireResponse::success("job processor stopped gracefully", ());
+                    }
+                }
             }
         }
     }

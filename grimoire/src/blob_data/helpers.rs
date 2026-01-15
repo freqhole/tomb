@@ -1,7 +1,8 @@
 //! helper functions for creating thumbnails and waveforms as binary blobs
 //! all output is standardized to WebP format for optimal compression and quality
 
-use crate::error::ErrorDetail;
+use crate::config::GrimoireConfig;
+use crate::error::{ErrorDetail, GrimoireError};
 use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest};
 use crate::response::GrimoireResponse;
 use image::ImageOutputFormat;
@@ -65,9 +66,10 @@ pub async fn create_media_blob_from_file(
 pub async fn create_audio_thumbnail_blob(
     source_blob_id: &str,
     audio_file_path: &str,
+    config: &GrimoireConfig,
 ) -> GrimoireResponse<String> {
     // Try extracting embedded album art first
-    match extract_album_art_to_webp(audio_file_path).await {
+    match extract_album_art_to_webp(audio_file_path, config).await {
         Ok(webp_data) => {
             return create_thumbnail_blob_from_webp_data(source_blob_id, webp_data, "album_art")
                 .await;
@@ -107,8 +109,9 @@ pub async fn create_audio_thumbnail_blob(
 pub async fn create_audio_waveform_blob(
     source_blob_id: &str,
     audio_file_path: &str,
+    config: &GrimoireConfig,
 ) -> GrimoireResponse<String> {
-    let webp_data = match generate_waveform_to_webp(audio_file_path).await {
+    let webp_data = match generate_waveform_to_webp(audio_file_path, config).await {
         Ok(data) => data,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -127,47 +130,52 @@ pub async fn create_audio_waveform_blob(
 /// extract album art from audio file and convert to webp
 async fn extract_album_art_to_webp(
     input_path: &str,
-) -> Result<Vec<u8>, crate::error::GrimoireError> {
+    config: &GrimoireConfig,
+) -> Result<Vec<u8>, GrimoireError> {
     let temp_file = format!("/tmp/thumb_{}.jpg", uuid::Uuid::new_v4());
 
-    let mut cmd = tokio::process::Command::new("ffmpeg");
-    cmd.args([
-        "-i", input_path, "-an", // no audio
-        "-vcodec", "mjpeg", "-vframes", "1", // extract first frame
-        "-q:v", "2",  // high quality
-        "-y", // overwrite output
-        &temp_file,
-    ])
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
+    // Build command from config
+    let args_str = config
+        .media
+        .extract_album_art_args
+        .replace("{input}", input_path)
+        .replace("{output}", &temp_file);
+
+    let args = shell_words::split(&args_str).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("Failed to parse ffmpeg args: {}", e),
+    })?;
+
+    let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
+    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::null());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
-        .map_err(|_| crate::error::GrimoireError::ProcessingFailed {
+        .map_err(|_| GrimoireError::ProcessingFailed {
             message: "Album art extraction timed out".to_string(),
         })?
-        .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+        .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("Failed to run ffmpeg: {}", e),
         })?;
 
     if !output.status.success() {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
+        return Err(GrimoireError::ProcessingFailed {
             message: "ffmpeg failed to extract album art".to_string(),
         });
     }
 
     // Read and convert to WebP
-    let jpeg_data = tokio::fs::read(&temp_file).await.map_err(|_| {
-        crate::error::GrimoireError::ProcessingFailed {
-            message: "No album art found in audio file".to_string(),
-        }
-    })?;
+    let jpeg_data =
+        tokio::fs::read(&temp_file)
+            .await
+            .map_err(|_| GrimoireError::ProcessingFailed {
+                message: "No album art found in audio file".to_string(),
+            })?;
 
     // Clean up temp file
     let _ = tokio::fs::remove_file(&temp_file).await;
 
     if jpeg_data.is_empty() {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
+        return Err(GrimoireError::ProcessingFailed {
             message: "Extracted album art file is empty".to_string(),
         });
     }
@@ -221,7 +229,7 @@ async fn find_album_art_in_directory_to_webp(
         }
     }
 
-    Err(crate::error::GrimoireError::ProcessingFailed {
+    Err(GrimoireError::ProcessingFailed {
         message: "No album art found in directory".to_string(),
     })
 }
@@ -229,44 +237,46 @@ async fn find_album_art_in_directory_to_webp(
 /// generate waveform visualization and convert to webp
 async fn generate_waveform_to_webp(
     input_path: &str,
-) -> Result<Vec<u8>, crate::error::GrimoireError> {
+    config: &GrimoireConfig,
+) -> Result<Vec<u8>, GrimoireError> {
     let temp_file = format!("/tmp/wave_{}.png", uuid::Uuid::new_v4());
 
-    let mut cmd = tokio::process::Command::new("ffmpeg");
-    cmd.args([
-        "-i",
-        input_path,
-        "-filter_complex",
-        "showwavespic=s=800x200:colors=0x3b82f6",
-        "-frames:v",
-        "1",
-        "-y", // overwrite output
-        &temp_file,
-    ])
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
+    // Build command from config
+    let args_str = config
+        .media
+        .generate_waveform_args
+        .replace("{input}", input_path)
+        .replace("{output}", &temp_file);
+
+    let args = shell_words::split(&args_str).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("Failed to parse ffmpeg args: {}", e),
+    })?;
+
+    let mut cmd = tokio::process::Command::new(&config.media.ffmpeg_path);
+    cmd.args(args).stdout(Stdio::null()).stderr(Stdio::null());
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await
-        .map_err(|_| crate::error::GrimoireError::ProcessingFailed {
+        .map_err(|_| GrimoireError::ProcessingFailed {
             message: "Waveform generation timed out".to_string(),
         })?
-        .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+        .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("Failed to run ffmpeg: {}", e),
         })?;
 
     if !output.status.success() {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
+        return Err(GrimoireError::ProcessingFailed {
             message: "ffmpeg failed to generate waveform".to_string(),
         });
     }
 
     // Read PNG and convert to WebP
-    let png_data = tokio::fs::read(&temp_file).await.map_err(|e| {
-        crate::error::GrimoireError::ProcessingFailed {
-            message: format!("Waveform file not created: {}", e),
-        }
-    })?;
+    let png_data =
+        tokio::fs::read(&temp_file)
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("Waveform file not created: {}", e),
+            })?;
 
     // Clean up temp file
     let _ = tokio::fs::remove_file(&temp_file).await;
@@ -276,12 +286,10 @@ async fn generate_waveform_to_webp(
 }
 
 /// convert any image format to webp
-pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, crate::error::GrimoireError> {
+pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     // Try to detect and load the image
-    let img = image::load_from_memory(image_data).map_err(|e| {
-        crate::error::GrimoireError::ProcessingFailed {
-            message: format!("Failed to decode image: {}", e),
-        }
+    let img = image::load_from_memory(image_data).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("Failed to decode image: {}", e),
     })?;
 
     // Convert to WebP
@@ -289,7 +297,7 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, crate::error::Grimo
     let mut cursor = Cursor::new(&mut webp_data);
 
     img.write_to(&mut cursor, ImageOutputFormat::WebP)
-        .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+        .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("Failed to convert to WebP: {}", e),
         })?;
 

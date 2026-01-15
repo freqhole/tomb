@@ -64,6 +64,28 @@ pub struct MediaConfig {
     pub downloads: DownloadsConfig,
     /// Predefined genres for categorization
     pub genres: Vec<GenreMapping>,
+    /// Path to ffmpeg binary
+    #[serde(default = "default_ffmpeg_path")]
+    pub ffmpeg_path: String,
+    /// Args for extracting album art (placeholders: {input}, {output})
+    #[serde(default = "default_extract_album_art_args")]
+    pub extract_album_art_args: String,
+    /// Args for generating waveform (placeholders: {input}, {output})
+    #[serde(default = "default_generate_waveform_args")]
+    pub generate_waveform_args: String,
+}
+
+fn default_ffmpeg_path() -> String {
+    "ffmpeg".to_string()
+}
+
+fn default_extract_album_art_args() -> String {
+    "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}".to_string()
+}
+
+fn default_generate_waveform_args() -> String {
+    "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -y {output}"
+        .to_string()
 }
 
 /// Download configuration
@@ -116,6 +138,11 @@ pub struct ServerConfig {
     /// Fetch music configuration
     #[serde(default)]
     pub fetch_music: Option<FetchMusicConfig>,
+    /// Start job processor in server (default: false)
+    /// When enabled, server spawns a background task to process jobs
+    /// When disabled, jobs must be processed via CLI (freqhole jobs run-processor)
+    #[serde(default)]
+    pub start_job_runner: bool,
 }
 
 /// Authentication configuration

@@ -48,6 +48,24 @@
     // Files with these extensions will be processed
     "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"],
 
+    // FFmpeg configuration for audio processing (OPTIONAL - defaults shown)
+    // Used for extracting album art thumbnails and generating waveform visualizations
+    //
+    // These settings are optional - if omitted, the defaults below will be used.
+    // Customize if you need to:
+    //   - Use a different path to ffmpeg (e.g., "/usr/local/bin/ffmpeg")
+    //   - Change ffmpeg arguments (quality, size, filters, etc.)
+    //   - Swap in alternative tools (avconv, custom scripts, etc.)
+    //
+    // Placeholders in args strings:
+    //   {input}  - replaced with input audio file path
+    //   {output} - replaced with temporary output file path
+    //
+    // The command executed will be: <ffmpeg_path> <args with placeholders replaced>
+    "ffmpeg_path": "ffmpeg",
+    "extract_album_art_args": "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}",
+    "generate_waveform_args": "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -y {output}",
+
     // URL download configuration using yt-dlp
     "downloads": {
       // Enable downloading from URLs (requires yt-dlp installed)
@@ -214,6 +232,20 @@
     // host: "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
     "host": "0.0.0.0",
     "port": 3000,
+
+    // Start job processor in the server (OPTIONAL - default: false)
+    // When enabled (true):
+    //   - Server spawns a background task that continuously processes jobs
+    //   - Jobs are processed automatically as they're created
+    //   - Graceful shutdown on SIGTERM/SIGINT
+    // When disabled (false):
+    //   - Jobs must be processed separately via CLI
+    //   - Run: freqhole jobs run-processor
+    //   - Allows running job processor on a different machine/process
+    //   - Better for production: separate concerns, easier to scale
+    //
+    // Recommendation: Keep false for production, use true for simple dev setups
+    "start_job_runner": true,
 
     // Authentication configuration
     "auth": {

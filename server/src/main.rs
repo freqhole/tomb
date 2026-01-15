@@ -66,6 +66,22 @@ async fn main() -> anyhow::Result<()> {
         server_config.static_files.enabled
     );
 
+    // spawn job runner if enabled
+    if server_config.start_job_runner {
+        tracing::info!("spawning job runner task...");
+        tokio::spawn(async {
+            tracing::info!("job runner started");
+            let result = grimoire::jobs::run_job_processor().await;
+            if result.success {
+                tracing::info!("job runner stopped gracefully");
+            } else {
+                tracing::error!("job runner failed: {}", result.message);
+            }
+        });
+    } else {
+        tracing::info!("job runner disabled - use CLI to process jobs");
+    }
+
     // start server
     tracing::info!("starting http server on {}:{}", host, port);
     server::start_server(state, &host, port).await?;

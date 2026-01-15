@@ -30,6 +30,7 @@ thiserror = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tower = "0.5"
+shell-words = "1.1"
 mime_guess = "2.0"
 httpdate = "1.0"
 tower-http = { version = "0.6", features = ["fs", "compression-gzip", "compression-br", "set-header", "trace", "cors"] }

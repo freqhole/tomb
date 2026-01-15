@@ -5,6 +5,7 @@
 
 use super::models::{ProcessFileParams, ProcessFileResult};
 use crate::blob_data;
+use crate::config;
 use crate::jobs::models::{Job, JobError};
 use crate::music::scanner;
 use serde_json::Value;
@@ -14,6 +15,9 @@ use tracing::{debug, info, warn};
 
 /// process audio file import job - extract metadata, create song record, generate assets
 pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
+    // get config
+    let config = config::get_config();
+
     // parse job parameters
     let params: ProcessFileParams = match serde_json::from_str(&job.parameters) {
         Ok(p) => p,
@@ -104,7 +108,9 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // step 3: generate thumbnail if requested
     let thumbnail_generated = if params.generate_thumbnail {
-        match blob_data::create_audio_thumbnail_blob(&media_blob_id, &params.file_path).await {
+        match blob_data::create_audio_thumbnail_blob(&media_blob_id, &params.file_path, &config)
+            .await
+        {
             response if response.success => match response.data {
                 Some(thumbnail_blob_id) => {
                     debug!("thumbnail generated as blob: {}", thumbnail_blob_id);
@@ -131,7 +137,9 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // step 4: generate waveform if requested
     let waveform_generated = if params.generate_waveform {
-        match blob_data::create_audio_waveform_blob(&media_blob_id, &params.file_path).await {
+        match blob_data::create_audio_waveform_blob(&media_blob_id, &params.file_path, &config)
+            .await
+        {
             response if response.success => match response.data {
                 Some(waveform_blob_id) => {
                     debug!("waveform generated as blob: {}", waveform_blob_id);
