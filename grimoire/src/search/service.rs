@@ -243,7 +243,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                 }
             };
             response.artists = Some(
-                match search_artists(&pool, &req.query, user_id, 10, 0).await {
+                match search_artists(&pool, &req.query, user_id, tag_filter, 10, 0).await {
                     Ok(a) => a,
                     Err(e) => {
                         return GrimoireResponse::failure(
@@ -273,7 +273,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                 },
             );
             response.genres = Some(
-                match search_genres(&pool, &req.query, genre_filter, 10, 0).await {
+                match search_genres(&pool, &req.query, tag_filter, 10, 0).await {
                     Ok(g) => g,
                     Err(e) => {
                         return GrimoireResponse::failure("failed to search genres", vec![e.into()])
@@ -281,7 +281,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                 },
             );
             response.playlists = Some(
-                match search_playlists(&pool, &req.query, user_id, 10, 0).await {
+                match search_playlists(&pool, &req.query, user_id, tag_filter, 10, 0).await {
                     Ok(p) => p,
                     Err(e) => {
                         return GrimoireResponse::failure(
@@ -330,13 +330,18 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
             };
         }
         SearchField::Artists => {
-            let artists = match search_artists(&pool, &req.query, user_id, page_size, offset).await
-            {
-                Ok(a) => a,
-                Err(e) => {
-                    return GrimoireResponse::failure("failed to search artists", vec![e.into()])
-                }
-            };
+            let artists =
+                match search_artists(&pool, &req.query, user_id, tag_filter, page_size, offset)
+                    .await
+                {
+                    Ok(a) => a,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to search artists",
+                            vec![e.into()],
+                        )
+                    }
+                };
             response.total_count = artists.len() as i64;
             response.artists = Some(artists);
         }
@@ -362,25 +367,29 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
             response.albums = Some(albums);
         }
         SearchField::Genres => {
-            let genres =
-                match search_genres(&pool, &req.query, genre_filter, page_size, offset).await {
-                    Ok(g) => g,
-                    Err(e) => {
-                        return GrimoireResponse::failure("failed to search genres", vec![e.into()])
-                    }
-                };
+            let genres = match search_genres(&pool, &req.query, tag_filter, page_size, offset).await
+            {
+                Ok(g) => g,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to search genres", vec![e.into()])
+                }
+            };
             response.total_count = genres.len() as i64;
             response.genres = Some(genres);
         }
         SearchField::Playlists => {
-            let playlists = match search_playlists(&pool, &req.query, user_id, page_size, offset)
-                .await
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    return GrimoireResponse::failure("failed to search playlists", vec![e.into()])
-                }
-            };
+            let playlists =
+                match search_playlists(&pool, &req.query, user_id, tag_filter, page_size, offset)
+                    .await
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to search playlists",
+                            vec![e.into()],
+                        )
+                    }
+                };
             response.total_count = playlists.len() as i64;
             response.playlists = Some(playlists);
         }

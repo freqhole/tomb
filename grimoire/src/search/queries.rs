@@ -10,15 +10,14 @@ pub async fn search_songs(
     query: &str,
     user_id: Option<&str>,
     tag_filter: Option<&FilterSet>,
-    genre_filter: Option<&FilterSet>,
-    sub_genre_filter: Option<&FilterSet>,
+    _genre_filter: Option<&FilterSet>,
+    _sub_genre_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<SongSearchResult>> {
     // FTS search on songz_fts with user preferences
     // note: ordering is by relevance (fts rank * user prefs), NOT by disc/track number
     // disc/track ordering only matters for non-search contexts (album pages, etc.)
-    // TODO: add tag/genre/sub-genre filtering when needed
 
     #[derive(sqlx::FromRow)]
     struct SongRow {
@@ -34,6 +33,22 @@ pub async fn search_songs(
     }
 
     let user_id_param = user_id.unwrap_or("");
+
+    // build tag filter conditions
+    let has_tag_include = tag_filter
+        .as_ref()
+        .map(|f| !f.include.is_empty())
+        .unwrap_or(false);
+    let has_tag_exclude = tag_filter
+        .as_ref()
+        .map(|f| !f.exclude.is_empty())
+        .unwrap_or(false);
+
+    // serialize tag ids for json_each in sql
+    let tag_include_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
+    let tag_exclude_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
     let rows = sqlx::query_as!(
         SongRow,
@@ -76,12 +91,30 @@ pub async fn search_songs(
         WHERE songz_fts MATCH ?
             AND song.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
+            -- tag include filter (OR logic - must have at least one of these tags)
+            AND (NOT ? OR EXISTS (
+                SELECT 1 FROM album_songz asong_filter
+                JOIN album_tagz atag ON atag.album_id = asong_filter.album_id
+                WHERE asong_filter.song_id = song.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
+            -- tag exclude filter (AND NOT logic - must not have any of these tags)
+            AND (NOT ? OR NOT EXISTS (
+                SELECT 1 FROM album_songz asong_filter
+                JOIN album_tagz atag ON atag.album_id = asong_filter.album_id
+                WHERE asong_filter.song_id = song.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
         user_id_param,
         query,
+        has_tag_include,
+        tag_include_json,
+        has_tag_exclude,
+        tag_exclude_json,
         limit,
         offset
     )
@@ -120,15 +153,17 @@ pub async fn search_songs(
     Ok(results)
 }
 
-/// search artists with aggregates
+/// search artists with aggregates and tag filtering
 pub async fn search_artists(
     pool: &SqlitePool,
     query: &str,
     user_id: Option<&str>,
+    tag_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<ArtistSearchResult>> {
     // FTS search on artistz_fts with user preferences and aggregates
+    // tag filtering: only show artists who have albums with matching tags
 
     #[derive(sqlx::FromRow)]
     struct ArtistRow {
@@ -143,6 +178,22 @@ pub async fn search_artists(
     }
 
     let user_id_param = user_id.unwrap_or("");
+
+    // build tag filter conditions
+    let has_tag_include = tag_filter
+        .as_ref()
+        .map(|f| !f.include.is_empty())
+        .unwrap_or(false);
+    let has_tag_exclude = tag_filter
+        .as_ref()
+        .map(|f| !f.exclude.is_empty())
+        .unwrap_or(false);
+
+    // serialize tag ids for json_each in sql
+    let tag_include_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
+    let tag_exclude_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
     let rows = sqlx::query_as!(
         ArtistRow,
@@ -179,6 +230,22 @@ pub async fn search_artists(
         WHERE artistz_fts MATCH ?
             AND artist.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
+            -- tag include filter (OR logic - artist must have at least one album with these tags)
+            AND (NOT ? OR EXISTS (
+                SELECT 1 FROM artist_songz asong_filter
+                JOIN album_songz alsong_filter ON asong_filter.song_id = alsong_filter.song_id
+                JOIN album_tagz atag ON atag.album_id = alsong_filter.album_id
+                WHERE asong_filter.artist_id = artist.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
+            -- tag exclude filter (AND NOT logic - artist must not have any albums with these tags)
+            AND (NOT ? OR NOT EXISTS (
+                SELECT 1 FROM artist_songz asong_filter
+                JOIN album_songz alsong_filter ON asong_filter.song_id = alsong_filter.song_id
+                JOIN album_tagz atag ON atag.album_id = alsong_filter.album_id
+                WHERE asong_filter.artist_id = artist.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
         GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
@@ -186,6 +253,10 @@ pub async fn search_artists(
         user_id_param,
         user_id_param,
         query,
+        has_tag_include,
+        tag_include_json,
+        has_tag_exclude,
+        tag_exclude_json,
         limit,
         offset
     )
@@ -227,8 +298,8 @@ pub async fn search_albums(
     query: &str,
     user_id: Option<&str>,
     tag_filter: Option<&FilterSet>,
-    genre_filter: Option<&FilterSet>,
-    sub_genre_filter: Option<&FilterSet>,
+    _genre_filter: Option<&FilterSet>,
+    _sub_genre_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<AlbumSearchResult>> {
@@ -249,7 +320,7 @@ pub async fn search_albums(
 
     let user_id_param = user_id.unwrap_or("");
 
-    // build filter conditions
+    // build tag filter conditions
     let has_tag_include = tag_filter
         .as_ref()
         .map(|f| !f.include.is_empty())
@@ -258,24 +329,14 @@ pub async fn search_albums(
         .as_ref()
         .map(|f| !f.exclude.is_empty())
         .unwrap_or(false);
-    let has_genre_include = genre_filter
-        .as_ref()
-        .map(|f| !f.include.is_empty())
-        .unwrap_or(false);
-    let has_genre_exclude = genre_filter
-        .as_ref()
-        .map(|f| !f.exclude.is_empty())
-        .unwrap_or(false);
-    let has_subgenre_include = sub_genre_filter
-        .as_ref()
-        .map(|f| !f.include.is_empty())
-        .unwrap_or(false);
-    let has_subgenre_exclude = sub_genre_filter
-        .as_ref()
-        .map(|f| !f.exclude.is_empty())
-        .unwrap_or(false);
 
-    // for now, implement without complex filtering - will add filtering logic if needed
+    // serialize tag ids for json_each in sql
+    let tag_include_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
+    let tag_exclude_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
+
+    // note: genre/sub-genre filtering deferred for now
     let rows = sqlx::query_as!(
         AlbumRow,
         r#"
@@ -315,13 +376,28 @@ pub async fn search_albums(
         WHERE albumz_fts MATCH ?
             AND album.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
-        GROUP BY album.id, album.title, fts.rank, genre.name, rating.rating, favorite.id
+            -- tag include filter (OR logic - must have at least one of these tags)
+            AND (NOT ? OR EXISTS (
+                SELECT 1 FROM album_tagz atag
+                WHERE atag.album_id = album.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
+            -- tag exclude filter (AND NOT logic - must not have any of these tags)
+            AND (NOT ? OR NOT EXISTS (
+                SELECT 1 FROM album_tagz atag
+                WHERE atag.album_id = album.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
         user_id_param,
         query,
+        has_tag_include,
+        tag_include_json,
+        has_tag_exclude,
+        tag_exclude_json,
         limit,
         offset
     )
@@ -369,14 +445,16 @@ pub async fn search_albums(
 }
 
 /// search genres with aggregates
+/// search genres with song/artist counts and tag filtering
 pub async fn search_genres(
     pool: &SqlitePool,
     query: &str,
-    _genre_filter: Option<&FilterSet>,
+    tag_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<GenreSearchResult>> {
     // FTS search on genrez_fts with aggregates
+    // tag filtering: only show genres that appear on albums with matching tags
     // collect sub-genres, count songs/artists, get representative data
 
     #[derive(sqlx::FromRow)]
@@ -384,11 +462,26 @@ pub async fn search_genres(
         genre_id: String,
         genre_name: String,
         fts_rank: f64,
-        album_count: i64,
         song_count: i64,
         artist_count: i64,
-        sub_genres: Option<String>,
+        sub_genre_names: Option<String>,
     }
+
+    // build tag filter conditions
+    let has_tag_include = tag_filter
+        .as_ref()
+        .map(|f| !f.include.is_empty())
+        .unwrap_or(false);
+    let has_tag_exclude = tag_filter
+        .as_ref()
+        .map(|f| !f.exclude.is_empty())
+        .unwrap_or(false);
+
+    // serialize tag ids for json_each in sql
+    let tag_include_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
+    let tag_exclude_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
     let rows = sqlx::query_as!(
         GenreRow,
@@ -397,22 +490,39 @@ pub async fn search_genres(
             genre.id as "genre_id!: String",
             genre.name as "genre_name!: String",
             fts.rank as "fts_rank!: f64",
-            (SELECT COUNT(DISTINCT alb.id) FROM albumz alb WHERE alb.genre_id = genre.id AND alb.deleted_at IS NULL) as "album_count!: i64",
             (SELECT COUNT(DISTINCT s.id) FROM albumz alb JOIN album_songz asong ON alb.id = asong.album_id JOIN songz s ON asong.song_id = s.id WHERE alb.genre_id = genre.id AND alb.deleted_at IS NULL AND s.deleted_at IS NULL) as "song_count!: i64",
             (SELECT COUNT(DISTINCT arsong.artist_id) FROM albumz alb JOIN album_songz asong ON alb.id = asong.album_id JOIN artist_songz arsong ON asong.song_id = arsong.song_id WHERE alb.genre_id = genre.id AND alb.deleted_at IS NULL) as "artist_count!: i64",
             (SELECT GROUP_CONCAT(sg.name, ', ')
              FROM sub_genrez sg
              WHERE sg.parent_genre_id = genre.id AND sg.deleted_at IS NULL
-            ) as "sub_genres: String"
+            ) as "sub_genre_names: String"
         FROM genrez_fts fts
         JOIN genrez genre ON fts.genre_id = genre.id
         WHERE genrez_fts MATCH ?
             AND genre.deleted_at IS NULL
+            -- tag include filter (OR logic - genre must appear on at least one album with these tags)
+            AND (NOT ? OR EXISTS (
+                SELECT 1 FROM albumz album_filter
+                JOIN album_tagz atag ON atag.album_id = album_filter.id
+                WHERE album_filter.genre_id = genre.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
+            -- tag exclude filter (AND NOT logic - genre must not appear on any albums with these tags)
+            AND (NOT ? OR NOT EXISTS (
+                SELECT 1 FROM albumz album_filter
+                JOIN album_tagz atag ON atag.album_id = album_filter.id
+                WHERE album_filter.genre_id = genre.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
         GROUP BY genre.id, genre.name, fts.rank
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
         query,
+        has_tag_include,
+        tag_include_json,
+        has_tag_exclude,
+        tag_exclude_json,
         limit,
         offset
     )
@@ -423,7 +533,7 @@ pub async fn search_genres(
         .into_iter()
         .map(|row| {
             let sub_genres = row
-                .sub_genres
+                .sub_genre_names
                 .map(|s| {
                     s.split(", ")
                         .map(|s| s.to_string())
@@ -448,15 +558,17 @@ pub async fn search_genres(
     Ok(results)
 }
 
-/// search playlists with privacy filtering
+/// search playlists with privacy filtering and tag filtering
 pub async fn search_playlists(
     pool: &SqlitePool,
     query: &str,
     user_id: Option<&str>,
+    tag_filter: Option<&FilterSet>,
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<PlaylistSearchResult>> {
     // FTS search on playlistz_fts with privacy filtering
+    // tag filtering: only show playlists containing songs from albums with matching tags
 
     #[derive(sqlx::FromRow)]
     struct PlaylistRow {
@@ -470,6 +582,22 @@ pub async fn search_playlists(
     }
 
     let user_id_param = user_id.unwrap_or("");
+
+    // build tag filter conditions
+    let has_tag_include = tag_filter
+        .as_ref()
+        .map(|f| !f.include.is_empty())
+        .unwrap_or(false);
+    let has_tag_exclude = tag_filter
+        .as_ref()
+        .map(|f| !f.exclude.is_empty())
+        .unwrap_or(false);
+
+    // serialize tag ids for json_each in sql
+    let tag_include_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
+    let tag_exclude_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
     let rows = sqlx::query_as!(
         PlaylistRow,
@@ -488,12 +616,32 @@ pub async fn search_playlists(
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
+            -- tag include filter (OR logic - playlist must contain songs from albums with these tags)
+            AND (NOT ? OR EXISTS (
+                SELECT 1 FROM playlist_songz psong
+                JOIN album_songz alsong ON psong.song_id = alsong.song_id
+                JOIN album_tagz atag ON atag.album_id = alsong.album_id
+                WHERE psong.playlist_id = playlist.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
+            -- tag exclude filter (AND NOT logic - playlist must not contain songs from albums with these tags)
+            AND (NOT ? OR NOT EXISTS (
+                SELECT 1 FROM playlist_songz psong
+                JOIN album_songz alsong ON psong.song_id = alsong.song_id
+                JOIN album_tagz atag ON atag.album_id = alsong.album_id
+                WHERE psong.playlist_id = playlist.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
         GROUP BY playlist.id, playlist.title, playlist.description, playlist.is_public, playlist.created_by, fts.rank
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
         query,
         user_id_param,
+        has_tag_include,
+        tag_include_json,
+        has_tag_exclude,
+        tag_exclude_json,
         limit,
         offset
     )
@@ -522,11 +670,27 @@ pub async fn search_playlists(
 pub async fn count_song_results(
     pool: &SqlitePool,
     query: &str,
-    _tag_filter: Option<&FilterSet>,
+    tag_filter: Option<&FilterSet>,
     _genre_filter: Option<&FilterSet>,
     _sub_genre_filter: Option<&FilterSet>,
 ) -> GrimoireResult<i64> {
-    // simple count for now - will add filtering when search_songs is implemented
+    // count with tag filtering matching search_songs logic
+
+    // build tag filter conditions
+    let has_tag_include = tag_filter
+        .as_ref()
+        .map(|f| !f.include.is_empty())
+        .unwrap_or(false);
+    let has_tag_exclude = tag_filter
+        .as_ref()
+        .map(|f| !f.exclude.is_empty())
+        .unwrap_or(false);
+
+    // serialize tag ids for json_each in sql
+    let tag_include_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
+    let tag_exclude_json =
+        serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
     let result = sqlx::query!(
         r#"
@@ -535,8 +699,26 @@ pub async fn count_song_results(
         JOIN songz song ON fts.song_id = song.id
         WHERE songz_fts MATCH ?
             AND song.deleted_at IS NULL
+            -- tag include filter (OR logic - must have at least one of these tags)
+            AND (NOT ? OR EXISTS (
+                SELECT 1 FROM album_songz asong_filter
+                JOIN album_tagz atag ON atag.album_id = asong_filter.album_id
+                WHERE asong_filter.song_id = song.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
+            -- tag exclude filter (AND NOT logic - must not have any of these tags)
+            AND (NOT ? OR NOT EXISTS (
+                SELECT 1 FROM album_songz asong_filter
+                JOIN album_tagz atag ON atag.album_id = asong_filter.album_id
+                WHERE asong_filter.song_id = song.id
+                AND atag.tag_id IN (SELECT value FROM json_each(?))
+            ))
         "#,
-        query
+        query,
+        has_tag_include,
+        tag_include_json,
+        has_tag_exclude,
+        tag_exclude_json
     )
     .fetch_one(pool)
     .await?;

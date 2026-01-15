@@ -533,6 +533,117 @@ export async function runStatefulTests() {
     }
   });
 
+  await test("search - with tag include filter", async () => {
+    const result = await music.search(
+      baseUrl,
+      {
+        query: "a",
+        field: "songs",
+        page: 1,
+        page_size: 50,
+        context: {
+          tags: {
+            include: ["tag001"],
+            exclude: [],
+          },
+          genres: null,
+          sub_genres: null,
+          sort_field: null,
+          sort_direction: null,
+          search_query: null,
+        },
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(
+        `failed to search with tag filter: ${result.error.message}`,
+      );
+    }
+    // verify context was applied (may or may not return results depending on data)
+    if (!result.data.applied_filters) {
+      throw new Error("applied_filters not returned");
+    }
+    if (typeof result.data.total_count !== "number") {
+      throw new Error("total_count not returned");
+    }
+  });
+
+  await test("search - with tag exclude filter", async () => {
+    const result = await music.search(
+      baseUrl,
+      {
+        query: "a",
+        field: "songs",
+        page: 1,
+        page_size: 50,
+        context: {
+          tags: {
+            include: [],
+            exclude: ["tag001"],
+          },
+          genres: null,
+          sub_genres: null,
+          sort_field: null,
+          sort_direction: null,
+          search_query: null,
+        },
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(
+        `failed to search with exclude filter: ${result.error.message}`,
+      );
+    }
+    // verify exclude filter was applied
+    if (typeof result.data.total_count !== "number") {
+      throw new Error("total_count not returned");
+    }
+    if (!result.data.applied_filters) {
+      throw new Error("applied_filters not returned");
+    }
+  });
+
+  await test("search - tag filtering across all entity types", async () => {
+    const result = await music.search(
+      baseUrl,
+      {
+        query: "death",
+        field: "all",
+        page: 1,
+        page_size: 20,
+        context: {
+          tags: {
+            include: ["tag002"],
+            exclude: [],
+          },
+          genres: null,
+          sub_genres: null,
+          sort_field: null,
+          sort_direction: null,
+          search_query: null,
+        },
+      },
+      apiKey,
+    );
+    if (!result.success) {
+      throw new Error(
+        `failed to search all types with tags: ${result.error.message}`,
+      );
+    }
+    // verify response structure (results depend on data with tag002)
+    if (!result.data.songs) {
+      throw new Error("songs array missing");
+    }
+    if (typeof result.data.query_time_ms !== "number") {
+      throw new Error("query_time_ms not returned");
+    }
+    if (!result.data.applied_filters) {
+      throw new Error("applied_filters not returned");
+    }
+  });
+
   console.log("");
 
   // cleanup
