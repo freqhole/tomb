@@ -1,7 +1,7 @@
 //! search service orchestration - main entry points for autocomplete and full search
 
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::response::GrimoireResponse;
 use crate::search::helpers::should_include_suggestion;
 use crate::search::models::*;
 use crate::search::queries::*;
@@ -11,40 +11,139 @@ use crate::search::suggestions::*;
 pub async fn get_suggestions(
     req: SuggestionsRequest,
     user_id: Option<&str>,
-) -> GrimoireResult<SuggestionsResponse> {
+) -> GrimoireResponse<SuggestionsResponse> {
     let start = std::time::Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![err.into()])
+        }
+    };
 
     // build FTS query based on field
-    let mut suggestions = Vec::new();
-
-    match req.field {
+    let mut suggestions = match req.field {
         SearchField::All => {
             // query all entity types, merge and sort by confidence
-            suggestions.extend(get_song_suggestions(&pool, &req.partial, user_id).await?);
-            suggestions.extend(get_artist_suggestions(&pool, &req.partial, user_id).await?);
-            suggestions.extend(get_album_suggestions(&pool, &req.partial, user_id).await?);
-            suggestions.extend(get_genre_suggestions(&pool, &req.partial).await?);
-            suggestions.extend(get_sub_genre_suggestions(&pool, &req.partial).await?);
-            suggestions.extend(get_playlist_suggestions(&pool, &req.partial, user_id).await?);
+            let mut all_suggestions = Vec::new();
+            all_suggestions.extend(
+                match get_song_suggestions(&pool, &req.partial, user_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to get song suggestions",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
+            all_suggestions.extend(
+                match get_artist_suggestions(&pool, &req.partial, user_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to get artist suggestions",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
+            all_suggestions.extend(
+                match get_album_suggestions(&pool, &req.partial, user_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to get album suggestions",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
+            all_suggestions.extend(match get_genre_suggestions(&pool, &req.partial).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get genre suggestions",
+                        vec![e.into()],
+                    )
+                }
+            });
+            all_suggestions.extend(match get_sub_genre_suggestions(&pool, &req.partial).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get sub-genre suggestions",
+                        vec![e.into()],
+                    )
+                }
+            });
+            all_suggestions.extend(
+                match get_playlist_suggestions(&pool, &req.partial, user_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to get playlist suggestions",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
+            all_suggestions
         }
-        SearchField::Songs => {
-            suggestions = get_song_suggestions(&pool, &req.partial, user_id).await?;
-        }
-        SearchField::Artists => {
-            suggestions = get_artist_suggestions(&pool, &req.partial, user_id).await?;
-        }
-        SearchField::Albums => {
-            suggestions = get_album_suggestions(&pool, &req.partial, user_id).await?;
-        }
+        SearchField::Songs => match get_song_suggestions(&pool, &req.partial, user_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                return GrimoireResponse::failure("failed to get song suggestions", vec![e.into()])
+            }
+        },
+        SearchField::Artists => match get_artist_suggestions(&pool, &req.partial, user_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to get artist suggestions",
+                    vec![e.into()],
+                )
+            }
+        },
+        SearchField::Albums => match get_album_suggestions(&pool, &req.partial, user_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                return GrimoireResponse::failure("failed to get album suggestions", vec![e.into()])
+            }
+        },
         SearchField::Genres => {
-            suggestions.extend(get_genre_suggestions(&pool, &req.partial).await?);
-            suggestions.extend(get_sub_genre_suggestions(&pool, &req.partial).await?);
+            let mut genre_suggestions = Vec::new();
+            genre_suggestions.extend(match get_genre_suggestions(&pool, &req.partial).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get genre suggestions",
+                        vec![e.into()],
+                    )
+                }
+            });
+            genre_suggestions.extend(match get_sub_genre_suggestions(&pool, &req.partial).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get sub-genre suggestions",
+                        vec![e.into()],
+                    )
+                }
+            });
+            genre_suggestions
         }
         SearchField::Playlists => {
-            suggestions = get_playlist_suggestions(&pool, &req.partial, user_id).await?;
+            match get_playlist_suggestions(&pool, &req.partial, user_id).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get playlist suggestions",
+                        vec![e.into()],
+                    )
+                }
+            }
         }
-    }
+    };
 
     // apply confidence filtering per field type
     suggestions.retain(should_include_suggestion);
@@ -64,22 +163,30 @@ pub async fn get_suggestions(
 
     let query_time_ms = start.elapsed().as_millis() as u64;
 
-    Ok(SuggestionsResponse {
-        suggestions: paginated_suggestions,
-        query_time_ms,
-        total_count: total as u64,
-        page: 1,
-        page_size,
-        total_pages: ((total as u32 + page_size - 1) / page_size).max(1),
-        has_next: total > page_size as usize,
-        has_prev: false,
-    })
+    GrimoireResponse::success(
+        format!("found {} suggestion(s)", total),
+        SuggestionsResponse {
+            suggestions: paginated_suggestions,
+            query_time_ms,
+            total_count: total as u64,
+            page: 1,
+            page_size,
+            total_pages: ((total as u32 + page_size - 1) / page_size).max(1),
+            has_next: total > page_size as usize,
+            has_prev: false,
+        },
+    )
 }
 
 /// full search with user preferences and global context
-pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult<SearchResponse> {
+pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResponse<SearchResponse> {
     let start = std::time::Instant::now();
-    let pool = database::connect().await?;
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![err.into()])
+        }
+    };
 
     let field = req.field.unwrap_or_default();
     let page = req.page.unwrap_or(1);
@@ -118,7 +225,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult
     match field {
         SearchField::All => {
             // get best results from each category
-            response.songs = search_songs(
+            response.songs = match search_songs(
                 &pool,
                 &req.query,
                 user_id,
@@ -128,10 +235,26 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult
                 20,
                 0,
             )
-            .await?;
-            response.artists = Some(search_artists(&pool, &req.query, user_id, 10, 0).await?);
+            .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to search songs", vec![e.into()])
+                }
+            };
+            response.artists = Some(
+                match search_artists(&pool, &req.query, user_id, 10, 0).await {
+                    Ok(a) => a,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to search artists",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
             response.albums = Some(
-                search_albums(
+                match search_albums(
                     &pool,
                     &req.query,
                     user_id,
@@ -141,14 +264,37 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult
                     10,
                     0,
                 )
-                .await?,
+                .await
+                {
+                    Ok(a) => a,
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to search albums", vec![e.into()])
+                    }
+                },
             );
-            response.genres = Some(search_genres(&pool, &req.query, genre_filter, 10, 0).await?);
-            response.playlists = Some(search_playlists(&pool, &req.query, user_id, 10, 0).await?);
+            response.genres = Some(
+                match search_genres(&pool, &req.query, genre_filter, 10, 0).await {
+                    Ok(g) => g,
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to search genres", vec![e.into()])
+                    }
+                },
+            );
+            response.playlists = Some(
+                match search_playlists(&pool, &req.query, user_id, 10, 0).await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to search playlists",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
             response.total_count = response.songs.len() as i64;
         }
         SearchField::Songs => {
-            response.songs = search_songs(
+            response.songs = match search_songs(
                 &pool,
                 &req.query,
                 user_id,
@@ -158,23 +304,44 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult
                 page_size,
                 offset,
             )
-            .await?;
-            response.total_count = count_song_results(
+            .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to search songs", vec![e.into()])
+                }
+            };
+            response.total_count = match count_song_results(
                 &pool,
                 &req.query,
                 tag_filter,
                 genre_filter,
                 sub_genre_filter,
             )
-            .await?;
+            .await
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to count song results",
+                        vec![e.into()],
+                    )
+                }
+            };
         }
         SearchField::Artists => {
-            let artists = search_artists(&pool, &req.query, user_id, page_size, offset).await?;
+            let artists = match search_artists(&pool, &req.query, user_id, page_size, offset).await
+            {
+                Ok(a) => a,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to search artists", vec![e.into()])
+                }
+            };
             response.total_count = artists.len() as i64;
             response.artists = Some(artists);
         }
         SearchField::Albums => {
-            let albums = search_albums(
+            let albums = match search_albums(
                 &pool,
                 &req.query,
                 user_id,
@@ -184,17 +351,36 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult
                 page_size,
                 offset,
             )
-            .await?;
+            .await
+            {
+                Ok(a) => a,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to search albums", vec![e.into()])
+                }
+            };
             response.total_count = albums.len() as i64;
             response.albums = Some(albums);
         }
         SearchField::Genres => {
-            let genres = search_genres(&pool, &req.query, genre_filter, page_size, offset).await?;
+            let genres =
+                match search_genres(&pool, &req.query, genre_filter, page_size, offset).await {
+                    Ok(g) => g,
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to search genres", vec![e.into()])
+                    }
+                };
             response.total_count = genres.len() as i64;
             response.genres = Some(genres);
         }
         SearchField::Playlists => {
-            let playlists = search_playlists(&pool, &req.query, user_id, page_size, offset).await?;
+            let playlists = match search_playlists(&pool, &req.query, user_id, page_size, offset)
+                .await
+            {
+                Ok(p) => p,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to search playlists", vec![e.into()])
+                }
+            };
             response.total_count = playlists.len() as i64;
             response.playlists = Some(playlists);
         }
@@ -204,5 +390,8 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireResult
     response.has_next = page < response.total_pages;
     response.query_time_ms = start.elapsed().as_millis() as u64;
 
-    Ok(response)
+    GrimoireResponse::success(
+        format!("found {} result(s)", response.total_count),
+        response,
+    )
 }
