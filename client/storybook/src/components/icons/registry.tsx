@@ -219,6 +219,12 @@ export const AlertTriangleIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const LoaderIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Loading"}>
+    <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z" />
+  </BaseIcon>
+);
+
 // Freqhole Brand Icon
 export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   <svg
@@ -315,6 +321,7 @@ export const IconRegistry = {
   check: CheckIcon,
   x: XIcon,
   alertTriangle: AlertTriangleIcon,
+  loader: LoaderIcon,
 
   // Brand
   freqhole: FreqholeIcon,

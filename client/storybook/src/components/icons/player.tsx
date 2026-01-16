@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import type { IconProps } from "./index";
 
 // Base icon wrapper for consistent behavior
