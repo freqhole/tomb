@@ -2,7 +2,8 @@ import type { JSX } from "solid-js";
 import { splitProps } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
 
-export interface IconButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface IconButtonProps
+  extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   icon: IconName;
   variant?: "default" | "ghost" | "outline" | "accent" | "danger";
   size?: "sm" | "md" | "lg";
@@ -57,7 +58,7 @@ export function IconButton(props: IconButtonProps) {
       case "outline":
         return `${base} border border-[var(--color-border-default)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] focus:ring-[var(--color-border-strong)]`;
       case "accent":
-        return `${base} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white focus:ring-[var(--color-accent-500)]`;
+        return `${base} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] focus:ring-[var(--color-accent-500)]`;
       case "danger":
         return `${base} hover:bg-[var(--color-bg-hover)] text-[var(--color-error)] focus:ring-[var(--color-error)]`;
       case "ghost":
@@ -77,11 +78,7 @@ export function IconButton(props: IconButtonProps) {
       class={`${variantClasses()} ${sizeClasses()} ${disabledClasses()} ${local.class || ""}`}
       {...rest}
     >
-      <Icon
-        name={local.icon}
-        size={iconSizeMap()}
-        color="currentColor"
-      />
+      <Icon name={local.icon} size={iconSizeMap()} color="currentColor" />
     </button>
   );
 }

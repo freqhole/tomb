@@ -29,11 +29,11 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
   const sizeClasses = () => {
     switch (size()) {
       case "sm":
-        return "px-2 py-0.5 text-xs gap-1";
+        return "px-2 py-0.5 text-xs gap-1.5";
       case "lg":
-        return "px-4 py-2 text-sm gap-2";
+        return "px-4 py-2 text-sm gap-2.5";
       default:
-        return "px-3 py-1 text-sm gap-1.5";
+        return "px-3 py-1 text-sm gap-2";
     }
   };
 
@@ -53,13 +53,13 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
 
     switch (variant()) {
       case "accent":
-        return `${base} bg-[var(--color-accent-500)] bg-opacity-20 text-[var(--color-accent-500)] border border-[var(--color-accent-500)] border-opacity-30`;
+        return `${base} bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] border border-[var(--color-accent-500)]`;
       case "success":
-        return `${base} bg-[var(--color-success)] bg-opacity-20 text-[var(--color-success)] border border-[var(--color-success)] border-opacity-30`;
+        return `${base} bg-[var(--color-success)] text-[var(--color-text-on-success)] border border-[var(--color-success)]`;
       case "warning":
-        return `${base} bg-[var(--color-warning)] bg-opacity-20 text-[var(--color-warning)] border border-[var(--color-warning)] border-opacity-30`;
+        return `${base} bg-[var(--color-warning)] text-[var(--color-text-on-warning)] border border-[var(--color-warning)]`;
       case "error":
-        return `${base} bg-[var(--color-error)] bg-opacity-20 text-[var(--color-error)] border border-[var(--color-error)] border-opacity-30`;
+        return `${base} bg-[var(--color-error)] text-[var(--color-text-on-error)] border border-[var(--color-error)]`;
       case "outline":
         return `${base} bg-transparent text-[var(--color-text-secondary)] border border-[var(--color-border-default)]`;
       case "default":
@@ -84,7 +84,7 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
             e.stopPropagation();
             local.onRemove?.();
           }}
-          class="ml-1 hover:bg-black hover:bg-opacity-20 rounded-full p-0.5 transition-colors"
+          class="ml-1 hover:bg-[var(--color-overlay-hover)] rounded-full p-0.5 transition-colors"
           aria-label="remove"
         >
           <Icon name="close" size={iconSize() - 2} color="currentColor" />

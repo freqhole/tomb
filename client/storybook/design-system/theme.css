@@ -46,6 +46,12 @@
     --color-error: #ff3355;
     --color-info: #00aaff;
 
+    /* text colors for colored backgrounds */
+    --color-text-on-accent: #ffffff;
+    --color-text-on-success: #000000;
+    --color-text-on-warning: #000000;
+    --color-text-on-error: #ffffff;
+
     /* legacy dark scale (for compatibility) */
     --color-dark-50: #f8f9fa;
     --color-dark-100: #f1f3f4;
@@ -57,6 +63,9 @@
     --color-dark-700: #5f6368;
     --color-dark-800: #3c4043;
     --color-dark-900: #202124;
+
+    /* interaction states */
+    --color-overlay-hover: rgba(0, 0, 0, 0.2);
 
     /* legacy magenta scale (for compatibility) - updated to hot pink */
     --color-magenta-50: #fff0fb;

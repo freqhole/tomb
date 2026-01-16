@@ -1,6 +1,7 @@
 import { JSX, splitProps } from "solid-js";
 
-export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps
+  extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   /** visual style variant */
   variant?: "primary" | "secondary" | "ghost" | "danger";
   /** size variant */
@@ -26,15 +27,15 @@ export function Button(props: ButtonProps) {
   const variantClasses = () => {
     switch (variant()) {
       case "primary":
-        return "bg-magenta-500 hover:bg-magenta-600 text-white";
+        return "bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)]";
       case "secondary":
-        return "bg-gray-700 hover:bg-gray-600 text-white";
+        return "bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]";
       case "ghost":
-        return "bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white";
+        return "bg-transparent hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]";
       case "danger":
-        return "bg-red-600 hover:bg-red-700 text-white";
+        return "bg-[var(--color-error)] hover:bg-[var(--color-error)] hover:brightness-90 text-[var(--color-text-on-error)]";
       default:
-        return "bg-magenta-500 hover:bg-magenta-600 text-white";
+        return "bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)]";
     }
   };
 
@@ -62,9 +63,9 @@ export function Button(props: ButtonProps) {
         transition-colors
         focus:outline-none
         focus:ring-2
-        focus:ring-magenta-500
+        focus:ring-[var(--color-accent-500)]
         focus:ring-offset-2
-        focus:ring-offset-dark-900
+        focus:ring-offset-[var(--color-bg-primary)]
         disabled:opacity-50
         disabled:cursor-not-allowed
         ${local.class || ""}

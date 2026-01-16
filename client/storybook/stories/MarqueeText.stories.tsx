@@ -21,7 +21,7 @@ type Story = StoryObj<typeof meta>;
 export const ShortText: Story = {
   args: {
     text: "short text",
-    class: "w-64 text-white",
+    class: "w-64 text-[var(--color-text-primary)]",
   },
 };
 
@@ -29,7 +29,7 @@ export const ShortText: Story = {
 export const LongText: Story = {
   args: {
     text: "this is a very long text that will definitely overflow the container and trigger the marquee animation effect",
-    class: "w-64 text-white",
+    class: "w-64 text-[var(--color-text-primary)]",
   },
 };
 
@@ -37,7 +37,7 @@ export const LongText: Story = {
 export const NarrowContainer: Story = {
   args: {
     text: "pink floyd - the dark side of the moon",
-    class: "w-32 text-white",
+    class: "w-32 text-[var(--color-text-primary)]",
   },
 };
 
@@ -61,7 +61,8 @@ export const GenreList: Story = {
 export const InteractiveWidth: Story = {
   render: () => {
     const [width, setWidth] = createSignal(200);
-    const longText = "the beatles - sgt. pepper's lonely hearts club band (remastered 2009)";
+    const longText =
+      "the beatles - sgt. pepper's lonely hearts club band (remastered 2009)";
 
     return (
       <div class="p-4 space-y-4">
@@ -82,7 +83,10 @@ export const InteractiveWidth: Story = {
           style={{ width: `${width()}px` }}
           class="border border-gray-700 rounded p-2"
         >
-          <MarqueeText text={longText} class="text-white" />
+          <MarqueeText
+            text={longText}
+            class="text-[var(--color-text-primary)]"
+          />
         </div>
         <div class="text-gray-500 text-xs">
           resize the container to see when marquee activates
@@ -101,7 +105,7 @@ export const MultipleMarquees: Story = {
       </div>
       <MarqueeText
         text="tame impala - let it happen"
-        class="text-white text-sm"
+        class="text-[var(--color-text-primary)] text-sm"
       />
       <MarqueeText
         text="radiohead - paranoid android (live)"
@@ -127,7 +131,8 @@ export const MultipleMarquees: Story = {
 export const EmptyText: Story = {
   args: {
     text: "",
-    class: "w-64 text-white border border-gray-700 h-8",
+    class:
+      "w-64 text-[var(--color-text-primary)] border border-[var(--color-border-default)] h-8",
   },
 };
 
@@ -144,7 +149,11 @@ export const InCard: Story = {
   render: () => (
     <div class="w-48 bg-dark-800 rounded-lg p-3 space-y-2">
       <div class="w-full h-32 bg-magenta-800/30 rounded flex items-center justify-center">
-        <svg class="w-12 h-12 text-magenta-400" fill="currentColor" viewBox="0 0 24 24">
+        <svg
+          class="w-12 h-12 text-magenta-400"
+          fill="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
         </svg>
       </div>
@@ -152,10 +161,7 @@ export const InCard: Story = {
         text="in the aeroplane over the sea"
         class="text-white font-medium text-sm"
       />
-      <MarqueeText
-        text="neutral milk hotel"
-        class="text-gray-400 text-xs"
-      />
+      <MarqueeText text="neutral milk hotel" class="text-gray-400 text-xs" />
       <MarqueeText
         text="indie rock, lo-fi, psychedelic folk"
         class="text-gray-600 text-xs bg-black/50 px-1 py-0.5 rounded inline-block"

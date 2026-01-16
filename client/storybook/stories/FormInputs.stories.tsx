@@ -33,31 +33,6 @@ export const BasicTextInput: Story = {
   },
 };
 
-// text input sizes
-export const TextInputSizes: Story = {
-  render: () => (
-    <div class="p-8 bg-[var(--color-bg-primary)]">
-      <div class="max-w-md space-y-4">
-        <TextInput
-          label="small"
-          size="sm"
-          placeholder="small input..."
-        />
-        <TextInput
-          label="medium (default)"
-          size="md"
-          placeholder="medium input..."
-        />
-        <TextInput
-          label="large"
-          size="lg"
-          placeholder="large input..."
-        />
-      </div>
-    </div>
-  ),
-};
-
 // text input variants
 export const TextInputVariants: Story = {
   render: () => (
@@ -86,18 +61,32 @@ export const TextInputWithIcons: Story = {
         <TextInput
           label="search"
           placeholder="search songs..."
-          leftIcon={<Icon name="search" size={16} color="var(--color-text-muted)" />}
+          leftIcon={
+            <Icon name="search" size={18} color="var(--color-text-muted)" />
+          }
         />
         <TextInput
           label="email"
           type="email"
           placeholder="your@email.com"
-          leftIcon={<Icon name="user" size={16} color="var(--color-text-muted)" />}
+          leftIcon={
+            <Icon name="user" size={18} color="var(--color-text-muted)" />
+          }
         />
         <TextInput
           label="upload file"
           placeholder="select a file..."
-          rightIcon={<Icon name="upload" size={16} color="var(--color-text-muted)" />}
+          rightIcon={
+            <Icon name="upload" size={18} color="var(--color-text-muted)" />
+          }
+        />
+        <TextInput
+          label="email"
+          type="email"
+          placeholder="your@email.com"
+          leftIcon={
+            <Icon name="user" size={16} color="var(--color-text-muted)" />
+          }
         />
       </div>
     </div>
@@ -133,14 +122,14 @@ export const TextInputValidation: Story = {
           <button
             type="button"
             onClick={() => setSubmitted(true)}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
           >
             validate
           </button>
 
           {!emailError() && submitted() && (
-            <div class="p-3 bg-[var(--color-success)] bg-opacity-20 border border-[var(--color-success)] rounded">
-              <span class="body-small text-[var(--color-success)]">
+            <div class="p-3 bg-[var(--color-success)] border border-[var(--color-success)] rounded">
+              <span class="body-small text-[var(--color-text-on-success)]">
                 email is valid!
               </span>
             </div>
@@ -156,10 +145,7 @@ export const TextInputStates: Story = {
   render: () => (
     <div class="p-8 bg-[var(--color-bg-primary)]">
       <div class="max-w-md space-y-4">
-        <TextInput
-          label="normal state"
-          placeholder="type something..."
-        />
+        <TextInput label="normal state" placeholder="type something..." />
         <TextInput
           label="disabled state"
           placeholder="cannot edit..."
@@ -196,9 +182,7 @@ export const BasicTextArea: Story = {
             placeholder="enter description..."
             rows={4}
           />
-          <div class="mt-4 caption">
-            character count: {value().length}
-          </div>
+          <div class="mt-4 caption">character count: {value().length}</div>
         </div>
       </div>
     );
@@ -291,14 +275,14 @@ export const TextAreaValidation: Story = {
           <button
             type="button"
             onClick={() => setSubmitted(true)}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
           >
             validate
           </button>
 
           {!bioError() && submitted() && (
-            <div class="p-3 bg-[var(--color-success)] bg-opacity-20 border border-[var(--color-success)] rounded">
-              <span class="body-small text-[var(--color-success)]">
+            <div class="p-3 bg-[var(--color-success)] border border-[var(--color-success)] rounded">
+              <span class="body-small text-[var(--color-text-on-success)]">
                 bio is valid!
               </span>
             </div>
@@ -422,7 +406,7 @@ export const CompleteForm: Story = {
               </button>
               <button
                 type="submit"
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 save changes
               </button>
@@ -439,39 +423,13 @@ export const InputTypes: Story = {
   render: () => (
     <div class="p-8 bg-[var(--color-bg-primary)]">
       <div class="max-w-md space-y-4">
-        <TextInput
-          label="text"
-          type="text"
-          placeholder="text input..."
-        />
-        <TextInput
-          label="email"
-          type="email"
-          placeholder="email@example.com"
-        />
-        <TextInput
-          label="password"
-          type="password"
-          placeholder="password"
-        />
-        <TextInput
-          label="number"
-          type="number"
-          placeholder="123"
-        />
-        <TextInput
-          label="url"
-          type="url"
-          placeholder="https://example.com"
-        />
-        <TextInput
-          label="date"
-          type="date"
-        />
-        <TextInput
-          label="time"
-          type="time"
-        />
+        <TextInput label="text" type="text" placeholder="text input..." />
+        <TextInput label="email" type="email" placeholder="email@example.com" />
+        <TextInput label="password" type="password" placeholder="password" />
+        <TextInput label="number" type="number" placeholder="123" />
+        <TextInput label="url" type="url" placeholder="https://example.com" />
+        <TextInput label="date" type="date" />
+        <TextInput label="time" type="time" />
       </div>
     </div>
   ),
@@ -489,7 +447,9 @@ export const SearchInput: Story = {
             placeholder="search songs, albums, artists..."
             value={search()}
             onInput={(e) => setSearch(e.currentTarget.value)}
-            leftIcon={<Icon name="search" size={16} color="var(--color-text-muted)" />}
+            leftIcon={
+              <Icon name="search" size={18} color="var(--color-text-muted)" />
+            }
             variant="filled"
           />
           {search() && (

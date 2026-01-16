@@ -34,11 +34,44 @@ export function TextInput(props: TextInputProps) {
   const sizeClasses = () => {
     switch (size()) {
       case "sm":
-        return "px-3 py-1.5 text-sm";
+        return "px-3 py-1.5 text-sm h-8";
       case "lg":
-        return "px-4 py-3 text-base";
+        return "px-4 py-3 text-base h-12";
       default:
-        return "px-3 py-2 text-sm";
+        return "px-3 py-2 text-sm h-10";
+    }
+  };
+
+  const iconSize = () => {
+    switch (size()) {
+      case "sm":
+        return 16;
+      case "lg":
+        return 20;
+      default:
+        return 18;
+    }
+  };
+
+  const leftPadding = () => {
+    switch (size()) {
+      case "sm":
+        return "pl-9";
+      case "lg":
+        return "pl-12";
+      default:
+        return "pl-10";
+    }
+  };
+
+  const rightPadding = () => {
+    switch (size()) {
+      case "sm":
+        return "pr-9";
+      case "lg":
+        return "pr-12";
+      default:
+        return "pr-10";
     }
   };
 
@@ -81,7 +114,7 @@ export function TextInput(props: TextInputProps) {
 
       <div class="relative">
         <Show when={local.leftIcon}>
-          <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+          <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
             {local.leftIcon}
           </div>
         </Show>
@@ -92,23 +125,27 @@ export function TextInput(props: TextInputProps) {
             ${sizeClasses()}
             ${textColorClass()}
             ${placeholderClass()}
-            ${local.leftIcon ? "pl-10" : ""}
-            ${local.rightIcon ? "pr-10" : ""}
+            ${local.leftIcon ? leftPadding() : ""}
+            ${local.rightIcon || local.error ? rightPadding() : ""}
             focus:outline-none
           `}
           disabled={local.disabled}
           {...rest}
         />
 
-        <Show when={local.rightIcon}>
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+        <Show when={local.rightIcon && !local.error}>
+          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
             {local.rightIcon}
           </div>
         </Show>
 
         <Show when={local.error}>
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-            <Icon name="alertTriangle" size={16} color="var(--color-error)" />
+          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
+            <Icon
+              name="alertTriangle"
+              size={iconSize()}
+              color="var(--color-error)"
+            />
           </div>
         </Show>
       </div>

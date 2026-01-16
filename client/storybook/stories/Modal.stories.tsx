@@ -46,7 +46,7 @@ export const Default: Story = {
         <button
           type="button"
           onClick={modal.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           open modal
         </button>
@@ -72,7 +72,7 @@ export const Default: Story = {
               <button
                 type="button"
                 onClick={modal.close}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 ok
               </button>
@@ -105,7 +105,7 @@ export const Sizes: Story = {
               <button
                 type="button"
                 onClick={() => setOpenModal(size.value)}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors mr-2"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors mr-2"
               >
                 open {size.name} modal
               </button>
@@ -116,7 +116,10 @@ export const Sizes: Story = {
                 title={`${size.name} modal`}
                 size={size.value}
               >
-                <BodyText size="base" class="text-[var(--color-text-secondary)]">
+                <BodyText
+                  size="base"
+                  class="text-[var(--color-text-secondary)]"
+                >
                   this is a {size.name} modal. the content area adjusts based on
                   the size prop.
                 </BodyText>
@@ -150,7 +153,7 @@ export const WithForm: Story = {
         <button
           type="button"
           onClick={modal.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           open form modal
         </button>
@@ -217,7 +220,7 @@ export const WithForm: Story = {
               </button>
               <button
                 type="submit"
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 send message
               </button>
@@ -303,7 +306,7 @@ export const ScrollableContent: Story = {
         <button
           type="button"
           onClick={modal.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           open scrollable modal
         </button>
@@ -317,17 +320,20 @@ export const ScrollableContent: Story = {
           <div class="space-y-4">
             {Array.from({ length: 20 }, (_, i) => (
               <div>
-                <Heading level={6} class="text-[var(--color-text-primary)] mb-2">
+                <Heading
+                  level={6}
+                  class="text-[var(--color-text-primary)] mb-2"
+                >
                   section {i + 1}
                 </Heading>
                 <BodyText
                   size="small"
                   class="text-[var(--color-text-secondary)]"
                 >
-                  lorem ipsum dolor sit amet, consectetur adipiscing elit. sed do
-                  eiusmod tempor incididunt ut labore et dolore magna aliqua. ut
-                  enim ad minim veniam, quis nostrud exercitation ullamco laboris
-                  nisi ut aliquip ex ea commodo consequat.
+                  lorem ipsum dolor sit amet, consectetur adipiscing elit. sed
+                  do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+                  ut enim ad minim veniam, quis nostrud exercitation ullamco
+                  laboris nisi ut aliquip ex ea commodo consequat.
                 </BodyText>
               </div>
             ))}
@@ -342,7 +348,7 @@ export const ScrollableContent: Story = {
               <button
                 type="button"
                 onClick={modal.close}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 accept
               </button>
@@ -364,7 +370,7 @@ export const NoCloseButton: Story = {
         <button
           type="button"
           onClick={modal.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           open modal without close button
         </button>
@@ -378,14 +384,14 @@ export const NoCloseButton: Story = {
         >
           <div class="space-y-4">
             <BodyText size="base" class="text-[var(--color-text-secondary)]">
-              you must choose an option to continue. clicking outside or pressing
-              escape will still close the modal.
+              you must choose an option to continue. clicking outside or
+              pressing escape will still close the modal.
             </BodyText>
             <div class="flex gap-2 justify-end">
               <button
                 type="button"
                 onClick={modal.close}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 continue
               </button>
@@ -407,7 +413,7 @@ export const NoBackdropClose: Story = {
         <button
           type="button"
           onClick={modal.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           open modal (no backdrop close)
         </button>
@@ -428,7 +434,7 @@ export const NoBackdropClose: Story = {
               <button
                 type="button"
                 onClick={modal.close}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 got it
               </button>
@@ -451,7 +457,7 @@ export const NestedModals: Story = {
         <button
           type="button"
           onClick={modal1.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           open first modal
         </button>
@@ -470,7 +476,7 @@ export const NestedModals: Story = {
             <button
               type="button"
               onClick={modal2.open}
-              class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+              class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
             >
               open second modal
             </button>
@@ -491,7 +497,7 @@ export const NestedModals: Story = {
               <button
                 type="button"
                 onClick={modal2.close}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 close
               </button>
@@ -513,7 +519,7 @@ export const SongEditModal: Story = {
         <button
           type="button"
           onClick={modal.open}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           edit song
         </button>
@@ -615,7 +621,7 @@ export const SongEditModal: Story = {
               <button
                 type="button"
                 onClick={modal.close}
-                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+                class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
               >
                 save changes
               </button>

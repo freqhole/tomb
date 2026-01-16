@@ -86,7 +86,7 @@ export function Modal(props: ModalProps) {
       ref={dialogRef}
       onClick={handleBackdropClick}
       onCancel={handleCancel}
-      class="bg-transparent p-0 max-w-none max-h-none backdrop:bg-black backdrop:bg-opacity-60 backdrop:backdrop-blur-sm"
+      class="bg-transparent p-0 max-w-none max-h-none m-auto backdrop:bg-black backdrop:bg-opacity-60 backdrop:backdrop-blur-sm"
     >
       <div
         class={`

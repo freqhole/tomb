@@ -350,7 +350,7 @@ export const WithCustomContent: Story = {
             menu.handleButtonClick(e);
             setPlaylistName("");
           }}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-white rounded transition-colors"
+          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
         >
           create new playlist
         </button>

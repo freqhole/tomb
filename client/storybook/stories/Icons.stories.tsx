@@ -2,7 +2,11 @@ import { For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import * as NavigationIcons from "../src/components/icons/navigation";
 import * as PlayerIcons from "../src/components/icons/player";
-import { Icon, IconRegistry, type IconName } from "../src/components/icons/registry";
+import {
+  Icon,
+  IconRegistry,
+  type IconName,
+} from "../src/components/icons/registry";
 
 const meta = {
   title: "Components/Icons",
@@ -35,7 +39,7 @@ export const AllIcons: Story = {
         "repeatOne",
         "queue",
       ] as IconName[],
-      "navigation": [
+      navigation: [
         "music",
         "album",
         "artist",
@@ -47,14 +51,8 @@ export const AllIcons: Story = {
         "recent",
         "search",
       ] as IconName[],
-      "layout & view": [
-        "menu",
-        "grid",
-        "list",
-        "filter",
-        "sort",
-      ] as IconName[],
-      "arrows": [
+      "layout & view": ["menu", "grid", "list", "filter", "sort"] as IconName[],
+      arrows: [
         "arrowUp",
         "arrowDown",
         "arrowLeft",
@@ -64,7 +62,7 @@ export const AllIcons: Story = {
         "chevronLeft",
         "chevronRight",
       ] as IconName[],
-      "actions": [
+      actions: [
         "add",
         "edit",
         "delete",
@@ -75,7 +73,7 @@ export const AllIcons: Story = {
         "favoriteOutline",
       ] as IconName[],
       "auth & user": ["logout", "user"] as IconName[],
-      "system": [
+      system: [
         "settings",
         "info",
         "upload",
@@ -83,7 +81,7 @@ export const AllIcons: Story = {
         "x",
         "alertTriangle",
       ] as IconName[],
-      "brand": ["freqhole"] as IconName[],
+      brand: ["freqhole"] as IconName[],
     };
 
     return (
@@ -213,7 +211,11 @@ export const PlayerControls: Story = {
               type="button"
               class="p-3 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] transition-colors"
             >
-              <Icon name="play" size={32} color="#ffffff" />
+              <Icon
+                name="play"
+                size={32}
+                color="var(--color-text-on-accent)"
+              />
             </button>
             <button
               type="button"
@@ -287,11 +289,7 @@ export const PlayerControls: Story = {
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="volume"
-                size={20}
-                color="var(--color-text-primary)"
-              />
+              <Icon name="volume" size={20} color="var(--color-text-primary)" />
             </button>
             <button
               type="button"
@@ -396,8 +394,14 @@ export const ActionButtons: Story = {
               type="button"
               class="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] rounded transition-colors"
             >
-              <Icon name="add" size={16} color="#ffffff" />
-              <span class="body-small text-white">add song</span>
+              <Icon
+                name="add"
+                size={16}
+                color="var(--color-text-on-accent)"
+              />
+              <span class="body-small text-[var(--color-text-on-accent)]">
+                add song
+              </span>
             </button>
             <button
               type="button"
@@ -451,7 +455,11 @@ export const ActionButtons: Story = {
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
               title="close"
             >
-              <Icon name="close" size={20} color="var(--color-text-secondary)" />
+              <Icon
+                name="close"
+                size={20}
+                color="var(--color-text-secondary)"
+              />
             </button>
           </div>
         </div>
