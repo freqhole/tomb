@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { Alert } from "../src/components/feedback/Alert";
 import { TextArea } from "../src/components/forms/TextArea";
 import { TextInput } from "../src/components/forms/TextInput";
 import { Icon } from "../src/components/icons/registry";
@@ -128,11 +129,7 @@ export const TextInputValidation: Story = {
           </button>
 
           {!emailError() && submitted() && (
-            <div class="p-3 bg-[var(--color-success)] border border-[var(--color-success)] rounded">
-              <span class="body-small text-[var(--color-text-on-success)]">
-                email is valid!
-              </span>
-            </div>
+            <Alert variant="success">email is valid!</Alert>
           )}
         </div>
       </div>
@@ -281,11 +278,7 @@ export const TextAreaValidation: Story = {
           </button>
 
           {!bioError() && submitted() && (
-            <div class="p-3 bg-[var(--color-success)] border border-[var(--color-success)] rounded">
-              <span class="body-small text-[var(--color-text-on-success)]">
-                bio is valid!
-              </span>
-            </div>
+            <Alert variant="success">bio is valid!</Alert>
           )}
         </div>
       </div>

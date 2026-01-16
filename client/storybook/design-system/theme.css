@@ -46,11 +46,22 @@
     --color-error: #ff3355;
     --color-info: #00aaff;
 
-    /* text colors for colored backgrounds */
+    /* text colors for colored backgrounds
+
+       IMPORTANT: Use these variables for SOLID backgrounds only!
+
+       For TRANSLUCENT backgrounds (alerts, highlights with bg-opacity):
+       - Use --color-text-primary for body text
+       - Use the semantic color (success/warning/error/info) for icons and borders
+
+       For SOLID backgrounds (badges, buttons):
+       - Use these text-on-[color] variables for proper contrast
+    */
     --color-text-on-accent: #ffffff;
     --color-text-on-success: #000000;
     --color-text-on-warning: #000000;
     --color-text-on-error: #ffffff;
+    --color-text-on-info: #000000;
 
     /* legacy dark scale (for compatibility) */
     --color-dark-50: #f8f9fa;

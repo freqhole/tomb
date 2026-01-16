@@ -125,7 +125,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show
           when={props.collection.imageUrl}
           fallback={
-            <div class="w-full h-full flex items-center justify-center bg-gray-800 rounded-lg">
+            <div class="w-full h-full flex items-center justify-center bg-[var(--color-bg-elevated)] rounded-lg">
               <MediaImage
                 imageUrl={null}
                 alt={props.collection.title}
@@ -175,7 +175,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         {/* subtitle */}
         <Show when={props.collection.subtitle}>
           <div
-            class={`text-gray-400 ${classes.subtitle} truncate group-hover:text-white transition-colors`}
+            class={`text-[var(--color-text-muted)] ${classes.subtitle} truncate group-hover:text-[var(--color-text-primary)] transition-colors`}
             title={props.collection.subtitle || ""}
           >
             {props.collection.subtitle}
@@ -191,7 +191,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           }
         >
           <div
-            class={`text-gray-500 ${classes.subtitle} truncate group-hover:text-gray-300 transition-colors`}
+            class={`text-[var(--color-text-tertiary)] ${classes.subtitle} truncate group-hover:text-[var(--color-text-secondary)] transition-colors`}
             title={`by ${props.collection.artist}`}
           >
             by {props.collection.artist}
@@ -200,7 +200,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
         {/* metadata row */}
         <div
-          class={`text-gray-500 ${classes.meta} group-hover:text-gray-300 transition-colors`}
+          class={`text-[var(--color-text-tertiary)] ${classes.meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
         >
           <div class="flex items-center gap-2 flex-wrap">
             {/* year */}
@@ -209,7 +209,11 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             </Show>
 
             {/* track count */}
-            <Show when={props.collection.trackCount && props.collection.trackCount > 0}>
+            <Show
+              when={
+                props.collection.trackCount && props.collection.trackCount > 0
+              }
+            >
               <span>
                 {props.collection.trackCount} track
                 {props.collection.trackCount !== 1 ? "s" : ""}
@@ -232,7 +236,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show when={props.showGenres && props.collection.genres}>
           <MarqueeText
             text={props.collection.genres!}
-            class={`${classes.meta} text-gray-600 group-hover:text-gray-400 transition-colors bg-black/50 px-1 py-0.5 inline-block rounded`}
+            class={`${classes.meta} text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 inline-block rounded`}
           />
         </Show>
       </div>

@@ -1,9 +1,20 @@
 import type { JSX, ParentComponent } from "solid-js";
 import { splitProps } from "solid-js";
+import {
+  solidColors,
+  type SolidColorVariant,
+} from "../../../design-system/colors";
 import { Icon, type IconName } from "../icons/registry";
 
 export interface BadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
-  variant?: "default" | "accent" | "success" | "warning" | "error" | "outline";
+  variant?:
+    | "default"
+    | "accent"
+    | "success"
+    | "warning"
+    | "error"
+    | "info"
+    | "outline";
   size?: "sm" | "md" | "lg";
   icon?: IconName;
   removable?: boolean;
@@ -51,15 +62,19 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
   const variantClasses = () => {
     const base = "inline-flex items-center rounded-full font-medium";
 
+    // use centralized color system for semantic colors
+    if (
+      variant() === "accent" ||
+      variant() === "success" ||
+      variant() === "warning" ||
+      variant() === "error" ||
+      variant() === "info"
+    ) {
+      const colors = solidColors[variant() as SolidColorVariant];
+      return `${base} bg-[${colors.bg}] text-[${colors.text}] border border-[${colors.border}]`;
+    }
+
     switch (variant()) {
-      case "accent":
-        return `${base} bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] border border-[var(--color-accent-500)]`;
-      case "success":
-        return `${base} bg-[var(--color-success)] text-[var(--color-text-on-success)] border border-[var(--color-success)]`;
-      case "warning":
-        return `${base} bg-[var(--color-warning)] text-[var(--color-text-on-warning)] border border-[var(--color-warning)]`;
-      case "error":
-        return `${base} bg-[var(--color-error)] text-[var(--color-text-on-error)] border border-[var(--color-error)]`;
       case "outline":
         return `${base} bg-transparent text-[var(--color-text-secondary)] border border-[var(--color-border-default)]`;
       case "default":

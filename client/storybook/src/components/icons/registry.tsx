@@ -138,6 +138,37 @@ export const FavoriteOutlineIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const StarIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Star"}>
+    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+  </BaseIcon>
+);
+
+export const StarOutlineIcon = (props: IconProps) => {
+  const size = () => props.size ?? 16;
+  const color = () => props.color ?? "currentColor";
+
+  return (
+    <svg
+      width={size()}
+      height={size()}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color()}
+      stroke-width="2"
+      class={props.className}
+      aria-label={props["aria-label"] ?? "Star outline"}
+      role="img"
+      style={{
+        "flex-shrink": 0,
+        transition: "color 0.2s ease",
+      }}
+    >
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </svg>
+  );
+};
+
 // Auth Icons
 export const LogoutIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Logout"}>
@@ -270,6 +301,8 @@ export const IconRegistry = {
   more: MoreIcon,
   favorite: FavoriteIcon,
   favoriteOutline: FavoriteOutlineIcon,
+  star: StarIcon,
+  starOutline: StarOutlineIcon,
 
   // Auth & user
   logout: LogoutIcon,

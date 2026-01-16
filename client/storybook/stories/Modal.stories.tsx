@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { BodyText, Heading } from "../design-system/typography";
 import { IconButton } from "../src/components/buttons/IconButton";
+import { Alert } from "../src/components/feedback/Alert";
 import { Modal, useModal } from "../src/components/overlays/Modal";
 
 const meta = {
@@ -255,10 +256,8 @@ export const ConfirmationDialog: Story = {
         </button>
 
         {confirmed() && (
-          <div class="mt-4 p-3 bg-[var(--color-success)] bg-opacity-20 border border-[var(--color-success)] rounded">
-            <span class="body-small text-[var(--color-success)]">
-              song deleted successfully
-            </span>
+          <div class="mt-4">
+            <Alert variant="success">song deleted successfully</Alert>
           </div>
         )}
 

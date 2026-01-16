@@ -24,7 +24,7 @@ export function IconToggle(props: IconToggleProps) {
     <button
       class={`
         flex items-center justify-center w-full h-full transition-colors
-        ${props.active ? "text-magenta-500" : "text-gray-400 hover:text-white"}
+        ${props.active ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"}
         ${props.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
         ${props.class || ""}
       `}

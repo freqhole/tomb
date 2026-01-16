@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import { splitProps } from "solid-js";
+import { solidColors } from "../../../design-system/colors";
 import { Icon, type IconName } from "../icons/registry";
 
 export interface IconButtonProps
@@ -57,8 +58,10 @@ export function IconButton(props: IconButtonProps) {
         return `${base} bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] focus:ring-[var(--color-border-strong)]`;
       case "outline":
         return `${base} border border-[var(--color-border-default)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] focus:ring-[var(--color-border-strong)]`;
-      case "accent":
-        return `${base} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] focus:ring-[var(--color-accent-500)]`;
+      case "accent": {
+        const colors = solidColors.accent;
+        return `${base} bg-[${colors.bg}] hover:bg-[var(--color-accent-400)] text-[${colors.text}] focus:ring-[${colors.border}]`;
+      }
       case "danger":
         return `${base} hover:bg-[var(--color-bg-hover)] text-[var(--color-error)] focus:ring-[var(--color-error)]`;
       case "ghost":

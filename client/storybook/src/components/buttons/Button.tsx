@@ -1,4 +1,5 @@
 import { JSX, splitProps } from "solid-js";
+import { solidColors } from "../../../design-system/colors";
 
 export interface ButtonProps
   extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -26,16 +27,22 @@ export function Button(props: ButtonProps) {
 
   const variantClasses = () => {
     switch (variant()) {
-      case "primary":
-        return "bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)]";
+      case "primary": {
+        const colors = solidColors.accent;
+        return `bg-[${colors.bg}] hover:bg-[var(--color-accent-400)] text-[${colors.text}]`;
+      }
       case "secondary":
         return "bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]";
       case "ghost":
         return "bg-transparent hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]";
-      case "danger":
-        return "bg-[var(--color-error)] hover:bg-[var(--color-error)] hover:brightness-90 text-[var(--color-text-on-error)]";
-      default:
-        return "bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)]";
+      case "danger": {
+        const colors = solidColors.error;
+        return `bg-[${colors.bg}] hover:bg-[${colors.bg}] hover:brightness-90 text-[${colors.text}]`;
+      }
+      default: {
+        const colors = solidColors.accent;
+        return `bg-[${colors.bg}] hover:bg-[var(--color-accent-400)] text-[${colors.text}]`;
+      }
     }
   };
 

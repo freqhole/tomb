@@ -85,6 +85,15 @@ export const Variants: Story = {
         </div>
 
         <div>
+          <div class="caption mb-2">info</div>
+          <div class="flex gap-2 flex-wrap">
+            <Badge variant="info">beta</Badge>
+            <Badge variant="info">new</Badge>
+            <Badge variant="info">updated</Badge>
+          </div>
+        </div>
+
+        <div>
           <div class="caption mb-2">outline</div>
           <div class="flex gap-2 flex-wrap">
             <Badge variant="outline">electronic</Badge>
