@@ -1,4 +1,11 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import {
+  BodyText,
+  Caption,
+  Heading,
+  Label,
+  Monospace,
+} from "../design-system/typography";
 
 const meta = {
   title: "Design System/Typography",
@@ -60,7 +67,7 @@ export const Headings: Story = {
 };
 
 // showcase body text sizes
-export const BodyText: Story = {
+export const BodyTextSizes: Story = {
   render: () => (
     <div class="p-8 space-y-6 bg-[var(--color-bg-primary)]">
       <div>
@@ -340,6 +347,95 @@ export const RealWorldExample: Story = {
         </div>
 
         <div class="caption pt-4">total duration: 42:49 • 10 tracks</div>
+      </div>
+    </div>
+  ),
+};
+
+// showcase new typography components
+export const TypographyComponents: Story = {
+  render: () => (
+    <div class="p-8 space-y-8 bg-[var(--color-bg-primary)]">
+      <div>
+        <Caption class="mb-4">heading component with level prop</Caption>
+        <div class="space-y-3">
+          <Heading level={1} class="text-[var(--color-text-primary)]">
+            heading level 1
+          </Heading>
+          <Heading level={2} class="text-[var(--color-text-primary)]">
+            heading level 2
+          </Heading>
+          <Heading level={3} class="text-[var(--color-text-primary)]">
+            heading level 3
+          </Heading>
+          <Heading level={4} class="text-[var(--color-text-primary)]">
+            heading level 4
+          </Heading>
+          <Heading level={5} class="text-[var(--color-text-primary)]">
+            heading level 5
+          </Heading>
+          <Heading level={6} class="text-[var(--color-text-primary)]">
+            heading level 6
+          </Heading>
+        </div>
+      </div>
+
+      <div>
+        <Caption class="mb-4">body text component with size prop</Caption>
+        <div class="space-y-3">
+          <BodyText size="large" class="text-[var(--color-text-primary)]">
+            large body text - perfect for introductory paragraphs
+          </BodyText>
+          <BodyText size="base" class="text-[var(--color-text-primary)]">
+            base body text - the default size for most content
+          </BodyText>
+          <BodyText size="small" class="text-[var(--color-text-primary)]">
+            small body text - good for secondary information
+          </BodyText>
+          <BodyText size="xs" class="text-[var(--color-text-primary)]">
+            extra small body text - for fine print or metadata
+          </BodyText>
+        </div>
+      </div>
+
+      <div>
+        <Caption class="mb-4">specialized components</Caption>
+        <div class="space-y-3">
+          <div>
+            <Label class="text-[var(--color-text-secondary)]">
+              section label
+            </Label>
+          </div>
+          <div>
+            <Caption>caption text for supplementary information</Caption>
+          </div>
+          <div>
+            <Monospace class="text-[var(--color-text-primary)]">
+              const duration = "3:45";
+            </Monospace>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <Caption class="mb-4">real-world usage example</Caption>
+        <div class="max-w-2xl">
+          <Heading level={2} class="text-[var(--color-text-primary)] mb-2">
+            speak to me
+          </Heading>
+          <Caption class="mb-4">
+            pink floyd • dark side of the moon • 1973
+          </Caption>
+          <BodyText size="base" class="text-[var(--color-text-secondary)] mb-4">
+            the opening track sets the stage with a collage of sounds, including
+            a heartbeat, cash register, and spoken voices that introduce themes
+            explored throughout the album.
+          </BodyText>
+          <div class="flex gap-4 items-center">
+            <Label class="text-[var(--color-text-secondary)]">duration</Label>
+            <Monospace class="text-[var(--color-text-primary)]">1:13</Monospace>
+          </div>
+        </div>
       </div>
     </div>
   ),
