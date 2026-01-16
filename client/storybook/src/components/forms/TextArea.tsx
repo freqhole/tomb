@@ -8,7 +8,6 @@ export interface TextAreaProps
   error?: string;
   hint?: string;
   variant?: "default" | "filled";
-  resize?: "none" | "vertical" | "horizontal" | "both";
   class?: string;
 }
 
@@ -19,26 +18,11 @@ export function TextArea(props: TextAreaProps) {
     "error",
     "hint",
     "variant",
-    "resize",
     "class",
     "disabled",
   ]);
 
   const variant = () => local.variant || "default";
-  const resize = () => local.resize || "vertical";
-
-  const resizeClass = () => {
-    switch (resize()) {
-      case "none":
-        return "resize-none";
-      case "horizontal":
-        return "resize-x";
-      case "both":
-        return "resize";
-      default:
-        return "resize-y";
-    }
-  };
 
   const variantClasses = () => {
     const base = "w-full rounded border transition-colors";
@@ -81,7 +65,7 @@ export function TextArea(props: TextAreaProps) {
         <textarea
           class={`
             ${variantClasses()}
-            ${resizeClass()}
+            resize-y
             ${textColorClass()}
             ${placeholderClass()}
             px-3 py-2 text-sm

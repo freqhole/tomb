@@ -208,34 +208,25 @@ export const TextAreaVariants: Story = {
   ),
 };
 
-// textarea resize options
-export const TextAreaResize: Story = {
+// textarea with multiple rows
+export const TextAreaMultipleRows: Story = {
   render: () => (
     <div class="p-8 bg-[var(--color-bg-primary)]">
       <div class="max-w-md space-y-4">
         <TextArea
-          label="no resize"
-          resize="none"
-          placeholder="cannot resize..."
-          rows={3}
+          label="short textarea"
+          placeholder="enter a brief description..."
+          rows={2}
         />
         <TextArea
-          label="vertical resize (default)"
-          resize="vertical"
-          placeholder="resize vertically..."
-          rows={3}
+          label="medium textarea"
+          placeholder="enter your message..."
+          rows={4}
         />
         <TextArea
-          label="horizontal resize"
-          resize="horizontal"
-          placeholder="resize horizontally..."
-          rows={3}
-        />
-        <TextArea
-          label="both directions"
-          resize="both"
-          placeholder="resize in any direction..."
-          rows={3}
+          label="long textarea"
+          placeholder="enter detailed information..."
+          rows={8}
         />
       </div>
     </div>

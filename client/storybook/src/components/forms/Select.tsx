@@ -1,27 +1,40 @@
 import type { JSX } from "solid-js";
-import { Show, splitProps } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  onCleanup,
+  onMount,
+  splitProps,
+} from "solid-js";
 import { Icon } from "../icons/registry";
 
-export interface TextInputProps
-  extends Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "size"> {
+export interface SelectOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface SelectProps
+  extends JSX.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
   hint?: string;
   variant?: "default" | "filled";
-  leftIcon?: JSX.Element;
-  rightIcon?: JSX.Element;
+  options: SelectOption[];
+  placeholder?: string;
   class?: string;
 }
 
-// text input component with label, validation, and icons
-export function TextInput(props: TextInputProps) {
+// select/dropdown component with label, validation, and styling
+export function Select(props: SelectProps) {
   const [local, rest] = splitProps(props, [
     "label",
     "error",
     "hint",
     "variant",
-    "leftIcon",
-    "rightIcon",
+    "options",
+    "placeholder",
     "class",
     "disabled",
   ]);
@@ -29,10 +42,10 @@ export function TextInput(props: TextInputProps) {
   const variant = () => local.variant || "default";
 
   const variantClasses = () => {
-    const base = "w-full rounded border transition-colors";
+    const base = "w-full rounded border transition-colors appearance-none";
     const disabled = local.disabled
       ? "opacity-50 cursor-not-allowed bg-[var(--color-bg-tertiary)]"
-      : "";
+      : "cursor-pointer";
 
     if (local.error) {
       return `${base} border-[var(--color-error)] focus:ring-2 focus:ring-[var(--color-error)] focus:ring-opacity-50 ${disabled}`;
@@ -53,10 +66,6 @@ export function TextInput(props: TextInputProps) {
     return "text-[var(--color-text-primary)]";
   };
 
-  const placeholderClass = () => {
-    return "placeholder:text-[var(--color-text-muted)]";
-  };
-
   return (
     <div class={`space-y-1 ${local.class || ""}`}>
       <Show when={local.label}>
@@ -66,37 +75,46 @@ export function TextInput(props: TextInputProps) {
       </Show>
 
       <div class="relative">
-        <Show when={local.leftIcon}>
-          <div class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
-            {local.leftIcon}
-          </div>
-        </Show>
-
-        <input
+        <select
           class={`
             ${variantClasses()}
-            px-3 py-2 text-sm h-10
+            px-3 py-2 text-sm
             ${textColorClass()}
-            ${placeholderClass()}
-            ${local.leftIcon ? "pl-10" : ""}
-            ${local.rightIcon || local.error ? "pr-10" : ""}
+            pr-10
             focus:outline-none
           `}
           disabled={local.disabled}
           {...rest}
-        />
+        >
+          <Show when={local.placeholder}>
+            <option value="" disabled selected>
+              {local.placeholder}
+            </option>
+          </Show>
+          <For each={local.options}>
+            {(option) => (
+              <option value={option.value} disabled={option.disabled}>
+                {option.label}
+              </option>
+            )}
+          </For>
+        </select>
 
-        <Show when={local.rightIcon && !local.error}>
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
-            {local.rightIcon}
-          </div>
-        </Show>
-
-        <Show when={local.error}>
-          <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
-            <Icon name="alertTriangle" size={18} color="var(--color-error)" />
-          </div>
-        </Show>
+        {/* custom dropdown arrow */}
+        <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
+          <Show
+            when={local.error}
+            fallback={
+              <Icon
+                name="chevronDown"
+                size={16}
+                color="var(--color-text-tertiary)"
+              />
+            }
+          >
+            <Icon name="alertTriangle" size={16} color="var(--color-error)" />
+          </Show>
+        </div>
       </div>
 
       <Show when={local.error}>

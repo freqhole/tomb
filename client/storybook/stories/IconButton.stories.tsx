@@ -19,7 +19,7 @@ const meta = {
     },
     size: {
       control: "select",
-      options: ["sm", "md", "lg"],
+      options: ["sm", "default"],
       description: "button size",
     },
     disabled: {
@@ -113,22 +113,12 @@ export const Sizes: Story = {
         </div>
 
         <div>
-          <div class="caption mb-3">medium (default)</div>
+          <div class="caption mb-3">default</div>
           <div class="flex gap-2 items-center">
-            <IconButton icon="play" size="md" aria-label="play" />
-            <IconButton icon="pause" size="md" aria-label="pause" />
-            <IconButton icon="add" size="md" aria-label="add" />
-            <IconButton icon="edit" size="md" aria-label="edit" />
-          </div>
-        </div>
-
-        <div>
-          <div class="caption mb-3">large</div>
-          <div class="flex gap-2 items-center">
-            <IconButton icon="play" size="lg" aria-label="play" />
-            <IconButton icon="pause" size="lg" aria-label="pause" />
-            <IconButton icon="add" size="lg" aria-label="add" />
-            <IconButton icon="edit" size="lg" aria-label="edit" />
+            <IconButton icon="play" aria-label="play" />
+            <IconButton icon="pause" aria-label="pause" />
+            <IconButton icon="add" aria-label="add" />
+            <IconButton icon="edit" aria-label="edit" />
           </div>
         </div>
       </div>
@@ -143,9 +133,19 @@ export const Disabled: Story = {
       <div class="space-y-4">
         <div class="flex gap-2">
           <IconButton icon="play" disabled aria-label="play" />
-          <IconButton icon="pause" disabled variant="default" aria-label="pause" />
+          <IconButton
+            icon="pause"
+            disabled
+            variant="default"
+            aria-label="pause"
+          />
           <IconButton icon="add" disabled variant="accent" aria-label="add" />
-          <IconButton icon="delete" disabled variant="danger" aria-label="delete" />
+          <IconButton
+            icon="delete"
+            disabled
+            variant="danger"
+            aria-label="delete"
+          />
         </div>
       </div>
     </div>
@@ -164,7 +164,6 @@ export const PlayPauseToggle: Story = {
             <IconButton
               icon={isPlaying() ? "pause" : "play"}
               variant="accent"
-              size="lg"
               onClick={() => setIsPlaying(!isPlaying())}
               aria-label={isPlaying() ? "pause" : "play"}
             />
@@ -206,7 +205,9 @@ export const PlayerControls: Story = {
   render: () => {
     const [isPlaying, setIsPlaying] = createSignal(false);
     const [isShuffle, setIsShuffle] = createSignal(false);
-    const [repeatMode, setRepeatMode] = createSignal<"off" | "all" | "one">("off");
+    const [repeatMode, setRepeatMode] = createSignal<"off" | "all" | "one">(
+      "off",
+    );
 
     const cycleRepeat = () => {
       const modes: Array<"off" | "all" | "one"> = ["off", "all", "one"];
@@ -228,7 +229,6 @@ export const PlayerControls: Story = {
             <IconButton
               icon={isPlaying() ? "pause" : "play"}
               variant="accent"
-              size="lg"
               onClick={() => setIsPlaying(!isPlaying())}
               aria-label={isPlaying() ? "pause" : "play"}
             />

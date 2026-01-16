@@ -6,7 +6,7 @@ export interface ButtonProps
   /** visual style variant */
   variant?: "primary" | "secondary" | "ghost" | "danger";
   /** size variant */
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "default";
   /** whether button spans full width */
   fullWidth?: boolean;
   /** children/content */
@@ -50,10 +50,6 @@ export function Button(props: ButtonProps) {
     switch (size()) {
       case "sm":
         return "px-2 py-1 text-xs";
-      case "md":
-        return "px-3 py-2 text-sm";
-      case "lg":
-        return "px-4 py-3 text-base";
       default:
         return "px-3 py-2 text-sm";
     }

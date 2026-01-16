@@ -4,7 +4,7 @@ import { IconToggle } from "../src/components/buttons/IconToggle";
 import { Icon } from "../src/components/icons/registry";
 
 const meta = {
-  title: "Components/IconToggle",
+  title: "Components/Buttons/IconToggle",
   component: IconToggle,
   tags: ["autodocs"],
   argTypes: {

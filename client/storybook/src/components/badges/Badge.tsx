@@ -15,7 +15,7 @@ export interface BadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
     | "error"
     | "info"
     | "outline";
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "default";
   icon?: IconName;
   removable?: boolean;
   onRemove?: () => void;
@@ -41,8 +41,6 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
     switch (size()) {
       case "sm":
         return "px-2 py-0.5 text-xs gap-1.5";
-      case "lg":
-        return "px-4 py-2 text-sm gap-2.5";
       default:
         return "px-3 py-1 text-sm gap-2";
     }
@@ -52,8 +50,6 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
     switch (size()) {
       case "sm":
         return 12;
-      case "lg":
-        return 16;
       default:
         return 14;
     }

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Button } from "../src/components/buttons/Button";
 
 const meta = {
-  title: "Components/Button",
+  title: "Components/Buttons/Button",
   component: Button,
   tags: ["autodocs"],
   argTypes: {
@@ -14,7 +14,7 @@ const meta = {
     },
     size: {
       control: "select",
-      options: ["sm", "md", "lg"],
+      options: ["sm", "default"],
       description: "size variant",
     },
     fullWidth: {
@@ -71,22 +71,6 @@ export const Small: Story = {
   },
 };
 
-// medium size (default)
-export const Medium: Story = {
-  args: {
-    size: "md",
-    children: "medium button",
-  },
-};
-
-// large size
-export const Large: Story = {
-  args: {
-    size: "lg",
-    children: "large button",
-  },
-};
-
 // disabled state
 export const Disabled: Story = {
   args: {
@@ -110,8 +94,11 @@ export const Interactive: Story = {
 
     return (
       <div class="p-4 space-y-4">
-        <div class="text-gray-300 text-sm">
-          clicked: <span class="text-magenta-400 font-bold">{count()}</span>{" "}
+        <div class="text-[var(--color-text-secondary)] text-sm">
+          clicked:{" "}
+          <span class="text-[var(--color-accent-500)] font-bold">
+            {count()}
+          </span>{" "}
           times
         </div>
         <Button onClick={() => setCount(count() + 1)}>click me</Button>
@@ -125,7 +112,7 @@ export const AllVariants: Story = {
   render: () => (
     <div class="p-4 space-y-4">
       <div class="space-y-2">
-        <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">
+        <div class="label text-[var(--color-text-secondary)] mb-2">
           variants
         </div>
         <div class="flex gap-2 flex-wrap">
@@ -137,20 +124,15 @@ export const AllVariants: Story = {
       </div>
 
       <div class="space-y-2">
-        <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">
-          sizes
-        </div>
+        <div class="label text-[var(--color-text-secondary)] mb-2">sizes</div>
         <div class="flex gap-2 items-center flex-wrap">
           <Button size="sm">small</Button>
-          <Button size="md">medium</Button>
-          <Button size="lg">large</Button>
+          <Button>default</Button>
         </div>
       </div>
 
       <div class="space-y-2">
-        <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">
-          states
-        </div>
+        <div class="label text-[var(--color-text-secondary)] mb-2">states</div>
         <div class="flex gap-2 flex-wrap">
           <Button>enabled</Button>
           <Button disabled>disabled</Button>

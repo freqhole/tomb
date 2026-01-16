@@ -125,28 +125,11 @@ export const Sizes: Story = {
         </div>
 
         <div>
-          <div class="caption mb-2">medium (default)</div>
+          <div class="caption mb-2">default</div>
           <div class="flex gap-2 items-center">
-            <Badge size="md">rock</Badge>
-            <Badge size="md" variant="accent">
-              featured
-            </Badge>
-            <Badge size="md" variant="success">
-              verified
-            </Badge>
-          </div>
-        </div>
-
-        <div>
-          <div class="caption mb-2">large</div>
-          <div class="flex gap-2 items-center">
-            <Badge size="lg">rock</Badge>
-            <Badge size="lg" variant="accent">
-              featured
-            </Badge>
-            <Badge size="lg" variant="success">
-              verified
-            </Badge>
+            <Badge>rock</Badge>
+            <Badge variant="accent">featured</Badge>
+            <Badge variant="success">verified</Badge>
           </div>
         </div>
       </div>

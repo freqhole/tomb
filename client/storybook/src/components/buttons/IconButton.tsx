@@ -7,7 +7,7 @@ export interface IconButtonProps
   extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   icon: IconName;
   variant?: "default" | "ghost" | "outline" | "accent" | "danger";
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "default";
   iconSize?: number;
   class?: string;
   "aria-label": string;
@@ -30,8 +30,6 @@ export function IconButton(props: IconButtonProps) {
     switch (size()) {
       case "sm":
         return "p-1";
-      case "lg":
-        return "p-3";
       default:
         return "p-2";
     }
@@ -42,8 +40,6 @@ export function IconButton(props: IconButtonProps) {
     switch (size()) {
       case "sm":
         return 16;
-      case "lg":
-        return 24;
       default:
         return 20;
     }

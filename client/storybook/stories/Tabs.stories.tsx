@@ -433,9 +433,7 @@ export const AddMusicModal: Story = {
                     <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
                       supports mp3, flac, wav, m4a, ogg • max 1gb per file
                     </p>
-                    <Button variant="primary" size="lg">
-                      select files
-                    </Button>
+                    <Button variant="primary">select files</Button>
                   </div>
                 </TabPanel>
 
@@ -458,9 +456,7 @@ export const AddMusicModal: Story = {
                     />
 
                     <div class="flex justify-center">
-                      <Button variant="primary" size="lg">
-                        download
-                      </Button>
+                      <Button variant="primary">download</Button>
                     </div>
                   </div>
                 </TabPanel>
