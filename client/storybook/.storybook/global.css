@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+/* define custom theme variables */
+@theme {
+    --color-dark-50: #f8f9fa;
+    --color-dark-100: #f1f3f4;
+    --color-dark-200: #e8eaed;
+    --color-dark-300: #dadce0;
+    --color-dark-400: #bdc1c6;
+    --color-dark-500: #9aa0a6;
+    --color-dark-600: #80868b;
+    --color-dark-700: #5f6368;
+    --color-dark-800: #3c4043;
+    --color-dark-900: #202124;
+
+    --color-magenta-50: #fdf4ff;
+    --color-magenta-100: #fae8ff;
+    --color-magenta-200: #f5d0fe;
+    --color-magenta-300: #f0abfc;
+    --color-magenta-400: #e879f9;
+    --color-magenta-500: #d946ef;
+    --color-magenta-600: #c026d3;
+    --color-magenta-700: #a21caf;
+    --color-magenta-800: #86198f;
+    --color-magenta-900: #701a75;
+}
+
+/* base dark theme styles for storybook */
+body {
+    background-color: var(--color-dark-900);
+    color: white;
+    margin: 0;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+        sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ensure storybook canvas uses dark theme */
+.sb-show-main {
+    background-color: var(--color-dark-900);
+}
+
+/* custom scrollbar for dark theme */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background-color: var(--color-dark-800);
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--color-dark-600);
+    border-radius: 0.25rem;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-dark-500);
+}

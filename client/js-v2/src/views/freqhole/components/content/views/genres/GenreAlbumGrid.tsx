@@ -1,0 +1,260 @@
+import { For, Show, createSignal, onMount } from "solid-js";
+import { apiClient } from "../../../../../../lib/api-client";
+import type { GenreAlbum } from "../../../../../../lib/music/schemas/genre";
+import { useGlobalEvents } from "../../../../hooks/useGlobalEvents";
+
+interface GenreAlbumGridProps {
+  albums: GenreAlbum[];
+  loading?: boolean;
+  class?: string;
+  onAlbumClick?: (album: GenreAlbum) => void;
+  onAlbumDoubleClick?: (album: GenreAlbum) => void;
+}
+
+export function GenreAlbumGrid(props: GenreAlbumGridProps) {
+  const events = useGlobalEvents();
+
+  // Marquee animation component
+  const MarqueeText = (props: {
+    text: string;
+    class?: string;
+    title?: string;
+  }) => {
+    const [shouldMarquee, setShouldMarquee] = createSignal(false);
+    let containerRef: HTMLDivElement | undefined;
+    let textRef: HTMLSpanElement | undefined;
+
+    onMount(() => {
+      // Add CSS keyframes for marquee animation
+      if (!document.querySelector("#marquee-styles")) {
+        const style = document.createElement("style");
+        style.id = "marquee-styles";
+        style.textContent = `
+          @keyframes marquee-bounce {
+            0%, 25% { transform: translateX(0%); }
+            50%, 75% { transform: translateX(calc(-100% + var(--container-width))); }
+            100% { transform: translateX(0%); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Check if text overflows
+      const checkOverflow = () => {
+        if (containerRef && textRef) {
+          const containerWidth = containerRef.offsetWidth;
+          const textWidth = textRef.scrollWidth;
+          setShouldMarquee(textWidth > containerWidth);
+
+          if (textWidth > containerWidth) {
+            containerRef.style.setProperty(
+              "--container-width",
+              `${containerWidth}px`
+            );
+          }
+        }
+      };
+
+      // Check on mount and resize
+      setTimeout(checkOverflow, 10); // Small delay to ensure layout is complete
+      window.addEventListener("resize", checkOverflow);
+
+      return () => window.removeEventListener("resize", checkOverflow);
+    });
+
+    return (
+      <div
+        ref={containerRef!}
+        class={`relative overflow-hidden ${props.class || ""}`}
+        title={props.title || props.text}
+      >
+        <span
+          ref={textRef!}
+          class={
+            shouldMarquee()
+              ? "inline-block whitespace-nowrap"
+              : "truncate block"
+          }
+          style={
+            shouldMarquee()
+              ? {
+                  animation: "marquee-bounce 4s ease-in-out infinite",
+                }
+              : {}
+          }
+        >
+          {props.text}
+        </span>
+      </div>
+    );
+  };
+
+  // Helper function for getting album image URLs
+  const getAlbumImageUrl = (albumThumbnailId: string | null) => {
+    if (!albumThumbnailId) return null;
+    return `${apiClient.getBaseUrl()}/api/blobs/${albumThumbnailId}`;
+  };
+
+  // format duration helper
+  const formatDuration = (seconds: number | string): string => {
+    const secs = typeof seconds === "string" ? parseFloat(seconds) : seconds;
+    if (isNaN(secs) || secs < 60) {
+      return `${Math.floor(secs)}s`;
+    }
+    if (secs < 3600) {
+      const mins = Math.floor(secs / 60);
+      const remainSecs = Math.floor(secs % 60);
+      return `${mins}:${remainSecs.toString().padStart(2, "0")}`;
+    }
+    const hours = Math.floor(secs / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  };
+
+  const handleAlbumClick = (album: GenreAlbum) => {
+    props.onAlbumClick?.(album);
+  };
+
+  const handleAlbumDoubleClick = (album: GenreAlbum) => {
+    props.onAlbumDoubleClick?.(album);
+  };
+
+  const handleAlbumPlay = async (album: GenreAlbum, event: MouseEvent) => {
+    event.stopPropagation();
+
+    try {
+      if (!album.album) {
+        console.error("album name is null, cannot play album");
+        return;
+      }
+      const tracks = await apiClient.getAlbumTracks(
+        album.album,
+        album.artist || undefined
+      );
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        // Play first track and queue the rest
+        events.emit("song:play", { song: tracks[0], replaceQueue: true });
+
+        tracks.slice(1).forEach((track) => {
+          events.emit("song:queue", { song: track });
+        });
+      }
+    } catch (error) {
+      console.error("failed to play album:", error);
+    }
+  };
+
+  return (
+    <div class={`${props.class || ""}`}>
+      <Show
+        when={props.albums.length > 0}
+        fallback={
+          <Show when={!props.loading}>
+            <div class="text-center text-gray-400">
+              <p class="text-sm">no albums found</p>
+            </div>
+          </Show>
+        }
+      >
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          <For each={props.albums}>
+            {(album) => (
+              <div
+                class="group cursor-pointer"
+                onClick={() => handleAlbumClick(album)}
+                onDblClick={() => handleAlbumDoubleClick(album)}
+              >
+                <div class="transition-colors">
+                  {/* Album artwork */}
+                  <div class="aspect-square bg-magenta-800/30 flex items-center justify-center relative overflow-hidden">
+                    <Show
+                      when={getAlbumImageUrl(album.album_thumbnail_id)}
+                      fallback={
+                        <div class="w-full h-full flex items-center justify-center">
+                          <svg
+                            class="w-12 h-12 text-magenta-400"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                          </svg>
+                        </div>
+                      }
+                    >
+                      <img
+                        src={getAlbumImageUrl(album.album_thumbnail_id)!}
+                        alt={`${album.album || "album"} by ${album.artist || "unknown artist"}`}
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </Show>
+
+                    {/* Hover overlay with play button */}
+                    <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        class="w-12 h-12 bg-magenta-600 text-white flex items-center justify-center hover:bg-magenta-500 transition-colors"
+                        onClick={(e) => handleAlbumPlay(album, e)}
+                      >
+                        <svg
+                          class="w-6 h-6 ml-1"
+                          fill="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Album info */}
+                  <div class="group relative -top-9 bg-gradient-to-b from-black/50 to-black/90 hover:bg-black hover:bg-none">
+                    <MarqueeText
+                      text={album.album || "untitled"}
+                      class="text-white font-medium text-sm"
+                    />
+
+                    <MarqueeText
+                      text={album.artist || "unknown artist"}
+                      class="text-xs text-gray-200 group-hover:text-white"
+                    />
+
+                    <div class="text-xs text-gray-400 group-hover:text-white">
+                      <Show when={album.year}>
+                        <span>{album.year} • </span>
+                      </Show>
+                      <span>
+                        {album.track_count || 0} track
+                        {album.track_count !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                      <Show when={album.total_duration}>
+                        <span class="text-xs text-gray-500 group-hover:text-white">
+                          {formatDuration(album.total_duration!)}
+                        </span>
+                      </Show>
+
+                      <Show when={album.genres}>
+                        <MarqueeText
+                          text={album.genres || ""}
+                          class="text-xs text-gray-500 group-hover:text-white inline-block bg-black/90 px-1 py-1 ml-1"
+                        />
+                      </Show>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <Show when={props.loading}>
+        <div class="text-center">
+          <div class="text-gray-400 text-sm">loading albums...</div>
+        </div>
+      </Show>
+    </div>
+  );
+}
