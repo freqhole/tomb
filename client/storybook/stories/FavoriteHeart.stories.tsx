@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { FavoriteHeart } from "../src/components/ratings/FavoriteHeart";
 
 const meta = {
-  title: "Components/Ratings/Favorite Heart",
+  title: "Components/Forms/Favorite Heart",
   component: FavoriteHeart,
   tags: ["autodocs"],
   argTypes: {

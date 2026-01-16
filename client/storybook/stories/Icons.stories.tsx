@@ -9,7 +9,7 @@ import {
 } from "../src/components/icons/registry";
 
 const meta = {
-  title: "Components/Icons",
+  title: "Components/Media/Icons",
   tags: ["autodocs"],
 } satisfies Meta;
 
@@ -211,11 +211,7 @@ export const PlayerControls: Story = {
               type="button"
               class="p-3 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] transition-colors"
             >
-              <Icon
-                name="play"
-                size={32}
-                color="var(--color-text-on-accent)"
-              />
+              <Icon name="play" size={32} color="var(--color-text-on-accent)" />
             </button>
             <button
               type="button"
@@ -394,11 +390,7 @@ export const ActionButtons: Story = {
               type="button"
               class="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] rounded transition-colors"
             >
-              <Icon
-                name="add"
-                size={16}
-                color="var(--color-text-on-accent)"
-              />
+              <Icon name="add" size={16} color="var(--color-text-on-accent)" />
               <span class="body-small text-[var(--color-text-on-accent)]">
                 add song
               </span>

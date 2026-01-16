@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { StarRatingCompact } from "../src/components/ratings/StarRatingCompact";
 
 const meta = {
-  title: "Components/Ratings/Star Rating Compact",
+  title: "Components/Forms/Star Rating Compact",
   component: StarRatingCompact,
   tags: ["autodocs"],
   argTypes: {
@@ -369,10 +369,7 @@ export const AllCombinations: Story = {
           <div class="caption">md</div>
           {[0, 1, 2, 3, 4, 5].map((r) => (
             <div class="flex justify-center">
-              <StarRatingCompact
-                size="md"
-                rating={r}
-              />
+              <StarRatingCompact size="md" rating={r} />
             </div>
           ))}
 
@@ -380,10 +377,7 @@ export const AllCombinations: Story = {
           <div class="caption">lg</div>
           {[0, 1, 2, 3, 4, 5].map((r) => (
             <div class="flex justify-center">
-              <StarRatingCompact
-                size="lg"
-                rating={r}
-              />
+              <StarRatingCompact size="lg" rating={r} />
             </div>
           ))}
         </div>
@@ -403,9 +397,7 @@ export const WithFavoriteHeart: Story = {
     ]);
 
     const updateRating = (id: string, rating: number) => {
-      setSongs(
-        songs().map((s) => (s.id === id ? { ...s, rating } : s))
-      );
+      setSongs(songs().map((s) => (s.id === id ? { ...s, rating } : s)));
     };
 
     return (

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { SearchSortControls } from "../src/components/controls/SearchSortControls";
 
 const meta = {
-  title: "Components/SearchSortControls",
+  title: "Components/Forms/SearchSortControls",
   component: SearchSortControls,
   tags: ["autodocs"],
   argTypes: {
@@ -75,13 +75,19 @@ export const Disabled: Story = {
 export const Interactive: Story = {
   render: () => {
     const [sortBy, setSortBy] = createSignal("title");
-    const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
+    const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">(
+      "desc",
+    );
 
     return (
       <div class="p-4">
         <div class="mb-4 text-gray-300 text-sm">
-          <p>current sort: <span class="text-magenta-400">{sortBy()}</span></p>
-          <p>direction: <span class="text-magenta-400">{sortDirection()}</span></p>
+          <p>
+            current sort: <span class="text-magenta-400">{sortBy()}</span>
+          </p>
+          <p>
+            direction: <span class="text-magenta-400">{sortDirection()}</span>
+          </p>
         </div>
         <SearchSortControls
           sortFields={musicSortFields}
@@ -99,7 +105,9 @@ export const Interactive: Story = {
 export const CombinedCallback: Story = {
   render: () => {
     const [sortBy, setSortBy] = createSignal("date");
-    const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
+    const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">(
+      "asc",
+    );
     const [log, setLog] = createSignal<string[]>([]);
 
     const handleSortChange = (field: string, direction: "asc" | "desc") => {

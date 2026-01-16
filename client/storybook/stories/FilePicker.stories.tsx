@@ -4,7 +4,7 @@ import { Button } from "../src/components/buttons/Button";
 import { FilePicker } from "../src/components/upload/FilePicker";
 
 const meta = {
-  title: "Components/Upload/FilePicker",
+  title: "Components/Forms/FilePicker",
   component: FilePicker,
   tags: ["autodocs"],
   argTypes: {
