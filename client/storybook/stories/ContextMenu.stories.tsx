@@ -1,11 +1,11 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { IconButton } from "../src/components/buttons/IconButton";
+import { Icon } from "../src/components/icons/registry";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
 import {
   ContextMenu,
-  useContextMenu,
-  useLongPress,
+  DropdownMenu,
 } from "../src/components/overlays/ContextMenu";
 
 const meta = {
@@ -20,8 +20,6 @@ type Story = StoryObj<typeof meta>;
 // basic context menu on right-click
 export const RightClickMenu: Story = {
   render: () => {
-    const menu = useContextMenu();
-
     const actions: MenuAction[] = [
       {
         label: "play",
@@ -54,25 +52,16 @@ export const RightClickMenu: Story = {
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <div
-          class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center"
-          onContextMenu={menu.handleContextMenu}
-        >
-          <p class="body-base text-[var(--color-text-primary)] mb-2">
-            right-click anywhere in this box
-          </p>
-          <p class="caption text-[var(--color-text-tertiary)]">
-            try right-clicking to open the context menu
-          </p>
-        </div>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={actions}
-        />
+        <ContextMenu actions={actions}>
+          <div class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center">
+            <p class="body-base text-[var(--color-text-primary)] mb-2">
+              right-click anywhere in this box
+            </p>
+            <p class="caption text-[var(--color-text-tertiary)]">
+              try right-clicking to open the context menu
+            </p>
+          </div>
+        </ContextMenu>
       </div>
     );
   },
@@ -81,8 +70,6 @@ export const RightClickMenu: Story = {
 // button click menu (dropdown style)
 export const ButtonMenu: Story = {
   render: () => {
-    const menu = useContextMenu();
-
     const actions: MenuAction[] = [
       {
         label: "profile",
@@ -104,17 +91,8 @@ export const ButtonMenu: Story = {
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <IconButton
-          icon="more"
-          onClick={menu.handleButtonClick}
-          aria-label="open menu"
-        />
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
+        <DropdownMenu
+          trigger={<IconButton icon="more" aria-label="open menu" />}
           actions={actions}
         />
       </div>
@@ -122,64 +100,48 @@ export const ButtonMenu: Story = {
   },
 };
 
-// mobile long-press
+// mobile long-press support (kobalte handles this automatically with onContextMenu)
 export const MobileLongPress: Story = {
   render: () => {
-    const menu = useContextMenu();
-    const longPress = useLongPress((event) => {
-      menu.handleLongPress(event);
-    });
-
     const actions: MenuAction[] = [
       {
-        label: "play",
-        icon: "play" as const,
-        onClick: () => console.log("play"),
-      },
-      {
-        label: "add to queue",
-        icon: "queue" as const,
-        onClick: () => console.log("queue"),
+        label: "copy link",
+        icon: "edit" as const,
+        onClick: () => console.log("copy"),
       },
       {
         label: "share",
         icon: "upload" as const,
         onClick: () => console.log("share"),
       },
+      {
+        label: "report",
+        icon: "alertTriangle" as const,
+        onClick: () => console.log("report"),
+      },
     ];
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <div
-          class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center touch-none"
-          {...longPress}
-        >
-          <p class="body-base text-[var(--color-text-primary)] mb-2">
-            long-press this box (mobile)
-          </p>
-          <p class="caption text-[var(--color-text-tertiary)]">
-            on mobile devices, press and hold for 500ms to open menu
-          </p>
-        </div>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={actions}
-        />
+        <ContextMenu actions={actions}>
+          <div class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center touch-none">
+            <p class="body-base text-[var(--color-text-primary)] mb-2">
+              long-press here (mobile) or right-click
+            </p>
+            <p class="caption text-[var(--color-text-tertiary)]">
+              kobalte handles mobile long-press automatically
+            </p>
+          </div>
+        </ContextMenu>
       </div>
     );
   },
 };
 
 // song row context menu
+// song row menu (realistic use case)
 export const SongRowMenu: Story = {
   render: () => {
-    const [menuFor, setMenuFor] = createSignal<string | null>(null);
-    const menu = useContextMenu();
-
     const songs = [
       { id: "1", title: "speak to me", artist: "pink floyd", duration: "1:13" },
       {
@@ -237,33 +199,21 @@ export const SongRowMenu: Story = {
         <div class="max-w-2xl space-y-2">
           <div class="caption mb-4">right-click on any song row</div>
           {songs.map((song) => (
-            <div
-              class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors cursor-default"
-              onContextMenu={(e) => {
-                menu.handleContextMenu(e);
-                setMenuFor(song.id);
-              }}
-            >
-              <div class="flex-1">
-                <div class="body-small text-[var(--color-text-primary)]">
-                  {song.title}
+            <ContextMenu actions={getActions(song.id)}>
+              <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors cursor-default">
+                <div class="flex-1">
+                  <div class="body-small text-[var(--color-text-primary)]">
+                    {song.title}
+                  </div>
+                  <div class="caption">{song.artist}</div>
                 </div>
-                <div class="caption">{song.artist}</div>
+                <div class="monospace caption text-[var(--color-text-muted)]">
+                  {song.duration}
+                </div>
               </div>
-              <div class="monospace caption text-[var(--color-text-muted)]">
-                {song.duration}
-              </div>
-            </div>
+            </ContextMenu>
           ))}
         </div>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={menuFor() ? getActions(menuFor()!) : []}
-        />
       </div>
     );
   },
@@ -272,28 +222,26 @@ export const SongRowMenu: Story = {
 // disabled actions
 export const DisabledActions: Story = {
   render: () => {
-    const menu = useContextMenu();
-
     const actions: MenuAction[] = [
       {
-        label: "play",
-        icon: "play" as const,
-        onClick: () => console.log("play"),
+        label: "available action",
+        icon: "check" as const,
+        onClick: () => console.log("available"),
       },
       {
-        label: "pause",
-        icon: "pause" as const,
-        onClick: () => console.log("pause"),
+        label: "disabled action",
+        icon: "x" as const,
+        onClick: () => console.log("disabled"),
         disabled: true,
       },
       { type: "separator" as const },
       {
-        label: "edit",
-        icon: "edit" as const,
-        onClick: () => console.log("edit"),
+        label: "another available",
+        icon: "play" as const,
+        onClick: () => console.log("play"),
       },
       {
-        label: "delete",
+        label: "also disabled",
         icon: "delete" as const,
         onClick: () => console.log("delete"),
         disabled: true,
@@ -302,34 +250,25 @@ export const DisabledActions: Story = {
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <div
-          class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center"
-          onContextMenu={menu.handleContextMenu}
-        >
-          <p class="body-base text-[var(--color-text-primary)] mb-2">
-            right-click to see disabled actions
-          </p>
-          <p class="caption text-[var(--color-text-tertiary)]">
-            some menu items are disabled and cannot be clicked
-          </p>
-        </div>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={actions}
-        />
+        <ContextMenu actions={actions}>
+          <div class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center">
+            <p class="body-base text-[var(--color-text-primary)] mb-2">
+              right-click for menu with disabled items
+            </p>
+            <p class="caption text-[var(--color-text-tertiary)]">
+              some actions are disabled
+            </p>
+          </div>
+        </ContextMenu>
       </div>
     );
   },
 };
 
 // menu with custom content
+// with custom content (text input for playlist creation)
 export const WithCustomContent: Story = {
   render: () => {
-    const menu = useContextMenu();
     const [playlistName, setPlaylistName] = createSignal("");
 
     const actions: MenuAction[] = [
@@ -338,54 +277,43 @@ export const WithCustomContent: Story = {
         icon: "add" as const,
         onClick: () => console.log("create", playlistName()),
       },
-      { type: "separator" as const },
-      { label: "cancel", icon: "close" as const, onClick: () => menu.close() },
     ];
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <button
-          type="button"
-          onClick={(e) => {
-            menu.handleButtonClick(e);
-            setPlaylistName("");
-          }}
-          class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-        >
-          create new playlist
-        </button>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={actions}
-        >
-          <div class="space-y-2">
-            <label class="label text-[var(--color-text-secondary)] block">
-              playlist name
-            </label>
-            <input
-              type="text"
-              value={playlistName()}
-              onInput={(e) => setPlaylistName(e.currentTarget.value)}
-              placeholder="enter name..."
-              class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] focus:border-transparent"
+        <DropdownMenu
+          trigger={
+            <IconButton
+              icon="add"
+              variant="accent"
+              aria-label="create playlist"
             />
-          </div>
-        </ContextMenu>
+          }
+          actions={actions}
+          header={
+            <div>
+              <label class="label text-[var(--color-text-secondary)] block mb-2">
+                playlist name
+              </label>
+              <input
+                type="text"
+                value={playlistName()}
+                onInput={(e) => setPlaylistName(e.currentTarget.value)}
+                placeholder="enter playlist name"
+                class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50"
+              />
+            </div>
+          }
+        />
       </div>
     );
   },
 };
 
 // album grid context menu
+// album grid menu (realistic use case)
 export const AlbumGridMenu: Story = {
   render: () => {
-    const [menuFor, setMenuFor] = createSignal<string | null>(null);
-    const menu = useContextMenu();
-
     const albums = [
       { id: "1", title: "the dark side of the moon", artist: "pink floyd" },
       { id: "2", title: "the wall", artist: "pink floyd" },
@@ -400,68 +328,57 @@ export const AlbumGridMenu: Story = {
         onClick: () => console.log("play", albumId),
       },
       {
-        label: "shuffle album",
-        icon: "shuffle" as const,
-        onClick: () => console.log("shuffle", albumId),
+        label: "play next",
+        icon: "next" as const,
+        onClick: () => console.log("play next", albumId),
       },
       { type: "separator" as const },
-      {
-        label: "add to queue",
-        icon: "queue" as const,
-        onClick: () => console.log("queue", albumId),
-      },
       {
         label: "add to playlist",
         icon: "playlist" as const,
         onClick: () => console.log("playlist", albumId),
       },
+      {
+        label: "favorite album",
+        icon: "favorite" as const,
+        onClick: () => console.log("favorite", albumId),
+      },
       { type: "separator" as const },
       {
-        label: "go to artist",
-        icon: "artist" as const,
-        onClick: () => console.log("artist", albumId),
+        label: "edit album info",
+        icon: "edit" as const,
+        onClick: () => console.log("edit", albumId),
       },
       {
-        label: "album info",
-        icon: "info" as const,
-        onClick: () => console.log("info", albumId),
+        label: "delete album",
+        icon: "delete" as const,
+        onClick: () => console.log("delete", albumId),
+        destructive: true,
       },
     ];
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <div class="caption mb-4">right-click on any album card</div>
-        <div class="grid grid-cols-4 gap-4">
+        <div class="caption mb-4">right-click on any album</div>
+        <div class="grid grid-cols-2 gap-4 max-w-2xl">
           {albums.map((album) => (
-            <div
-              class="bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden hover:bg-[var(--color-bg-hover)] transition-colors cursor-default"
-              onContextMenu={(e) => {
-                menu.handleContextMenu(e);
-                setMenuFor(album.id);
-              }}
-            >
-              <div class="aspect-square bg-[var(--color-bg-tertiary)] flex items-center justify-center">
-                <span class="caption text-[var(--color-text-muted)]">
-                  album
-                </span>
-              </div>
-              <div class="p-3">
+            <ContextMenu actions={getActions(album.id)}>
+              <div class="p-4 bg-[var(--color-bg-secondary)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors cursor-default">
+                <div class="aspect-square bg-[var(--color-bg-tertiary)] rounded mb-3 flex items-center justify-center">
+                  <Icon
+                    name="music"
+                    size={48}
+                    color="var(--color-text-muted)"
+                  />
+                </div>
                 <div class="body-small text-[var(--color-text-primary)] truncate">
                   {album.title}
                 </div>
                 <div class="caption truncate">{album.artist}</div>
               </div>
-            </div>
+            </ContextMenu>
           ))}
         </div>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={menuFor() ? getActions(menuFor()!) : []}
-        />
       </div>
     );
   },
@@ -470,7 +387,6 @@ export const AlbumGridMenu: Story = {
 // destructive action confirmation
 export const DestructiveAction: Story = {
   render: () => {
-    const menu = useContextMenu();
     const [deleted, setDeleted] = createSignal(false);
 
     const actions: MenuAction[] = [
@@ -489,8 +405,9 @@ export const DestructiveAction: Story = {
         label: "delete permanently",
         icon: "delete" as const,
         onClick: () => {
-          setDeleted(true);
-          setTimeout(() => setDeleted(false), 3000);
+          if (confirm("are you sure you want to delete this item?")) {
+            setDeleted(true);
+          }
         },
         destructive: true,
       },
@@ -498,45 +415,34 @@ export const DestructiveAction: Story = {
 
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <div
-          class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center"
-          onContextMenu={menu.handleContextMenu}
-        >
-          <p class="body-base text-[var(--color-text-primary)] mb-2">
-            right-click to see destructive action
-          </p>
-          <p class="caption text-[var(--color-text-tertiary)]">
-            the delete option is styled in red to indicate danger
-          </p>
-        </div>
-
-        {deleted() && (
-          <div class="mt-4 p-3 bg-[var(--color-error)] bg-opacity-20 border border-[var(--color-error)] rounded">
-            <span class="body-small text-[var(--color-error)]">
-              item deleted permanently
-            </span>
+        {!deleted() ? (
+          <ContextMenu actions={actions}>
+            <div class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center">
+              <p class="body-base text-[var(--color-text-primary)] mb-2">
+                right-click and select delete
+              </p>
+              <p class="caption text-[var(--color-text-tertiary)]">
+                destructive actions are highlighted in red
+              </p>
+            </div>
+          </ContextMenu>
+        ) : (
+          <div class="p-8 bg-[var(--color-bg-secondary)] rounded-lg text-center">
+            <p class="body-base text-[var(--color-text-tertiary)]">
+              item deleted
+            </p>
           </div>
         )}
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={menu.close}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={actions}
-        />
       </div>
     );
   },
 };
 
 // nested menu simulation (multi-level)
+// nested actions (kobalte supports submenus - placeholder for future enhancement)
 export const NestedActionsSimulation: Story = {
   render: () => {
-    const menu = useContextMenu();
-    const [showPlaylistSubmenu, setShowPlaylistSubmenu] = createSignal(false);
-
-    const mainActions: MenuAction[] = [
+    const actions: MenuAction[] = [
       {
         label: "play",
         icon: "play" as const,
@@ -548,11 +454,10 @@ export const NestedActionsSimulation: Story = {
         onClick: () => console.log("queue"),
       },
       {
-        label: "add to playlist →",
+        label: "add to playlist",
         icon: "playlist" as const,
-        onClick: () => {
-          setShowPlaylistSubmenu(true);
-        },
+        onClick: () =>
+          console.log("add to playlist (submenu support coming soon)"),
       },
       { type: "separator" as const },
       {
@@ -562,63 +467,18 @@ export const NestedActionsSimulation: Story = {
       },
     ];
 
-    const playlistActions: MenuAction[] = [
-      {
-        label: "← back",
-        icon: "arrowLeft" as const,
-        onClick: () => setShowPlaylistSubmenu(false),
-      },
-      { type: "separator" as const },
-      {
-        label: "workout vibes",
-        icon: "playlist" as const,
-        onClick: () => console.log("playlist 1"),
-      },
-      {
-        label: "chill sunday",
-        icon: "playlist" as const,
-        onClick: () => console.log("playlist 2"),
-      },
-      {
-        label: "90s nostalgia",
-        icon: "playlist" as const,
-        onClick: () => console.log("playlist 3"),
-      },
-      { type: "separator" as const },
-      {
-        label: "create new playlist",
-        icon: "add" as const,
-        onClick: () => console.log("new"),
-      },
-    ];
-
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
-        <div
-          class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center"
-          onContextMenu={(e) => {
-            menu.handleContextMenu(e);
-            setShowPlaylistSubmenu(false);
-          }}
-        >
-          <p class="body-base text-[var(--color-text-primary)] mb-2">
-            right-click and select "add to playlist"
-          </p>
-          <p class="caption text-[var(--color-text-tertiary)]">
-            demonstrates a two-level menu simulation
-          </p>
-        </div>
-
-        <ContextMenu
-          isOpen={menu.isOpen()}
-          onClose={() => {
-            menu.close();
-            setShowPlaylistSubmenu(false);
-          }}
-          x={menu.position().x}
-          y={menu.position().y}
-          actions={showPlaylistSubmenu() ? playlistActions : mainActions}
-        />
+        <ContextMenu actions={actions}>
+          <div class="p-8 bg-[var(--color-bg-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border-default)] text-center">
+            <p class="body-base text-[var(--color-text-primary)] mb-2">
+              right-click for menu
+            </p>
+            <p class="caption text-[var(--color-text-tertiary)]">
+              kobalte supports submenus - can enhance this later
+            </p>
+          </div>
+        </ContextMenu>
       </div>
     );
   },
