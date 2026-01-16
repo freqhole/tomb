@@ -2,6 +2,7 @@ import { Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
+import { VolumeControl } from "./VolumeControl";
 
 export interface PlayerBarSong {
   /** song id */
@@ -223,22 +224,11 @@ export function PlayerBar(props: PlayerBarProps) {
           </div>
 
           {/* volume control */}
-          <div class="flex items-center flex-shrink-0">
-            <button
-              class="p-2 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
-              onClick={() => {
-                /* volume control will be separate component */
-              }}
-              title={`volume: ${Math.round(props.volume * 100)}%`}
-              aria-label="volume"
-            >
-              <Icon
-                name={props.volume === 0 ? "volumeOff" : "volume"}
-                size={20}
-                color="var(--color-accent-500)"
-              />
-            </button>
-          </div>
+          <VolumeControl
+            volume={props.volume}
+            onVolumeChange={props.onVolumeChange}
+            class="flex-shrink-0"
+          />
 
           {/* queue toggle */}
           <div class="flex items-center flex-shrink-0">
