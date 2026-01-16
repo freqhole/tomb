@@ -11,24 +11,29 @@ const meta = {
       control: "text",
       description: "text content to display",
     },
+    hoverOnly: {
+      control: "boolean",
+      description:
+        "only marquee on hover (default: false = always marquee when overflow)",
+    },
   },
 } satisfies Meta<typeof MarqueeText>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// short text that fits - should not marquee
-export const ShortText: Story = {
-  args: {
-    text: "short text",
-    class: "w-64 text-[var(--color-text-primary)]",
-  },
-};
-
 // long text that overflows - should marquee
 export const LongText: Story = {
   args: {
     text: "this is a very long text that will definitely overflow the container and trigger the marquee animation effect",
+    class: "w-64 text-[var(--color-text-primary)]",
+  },
+};
+
+// short text that fits - should not marquee
+export const ShortText: Story = {
+  args: {
+    text: "short text",
     class: "w-64 text-[var(--color-text-primary)]",
   },
 };
@@ -47,6 +52,54 @@ export const CustomStyling: Story = {
     text: "led zeppelin - stairway to heaven (live at madison square garden)",
     class: "w-48 text-magenta-400 font-bold text-sm",
   },
+};
+
+// hover only - marquee only when hovering
+export const HoverOnly: Story = {
+  args: {
+    text: "this text will only marquee when you hover over it - try it out!",
+    class:
+      "w-64 text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded",
+    hoverOnly: true,
+  },
+};
+
+// always marquee (default behavior)
+export const AlwaysMarquee: Story = {
+  args: {
+    text: "this text always marquees when it overflows - no hover needed",
+    class:
+      "w-64 text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded",
+    hoverOnly: false,
+  },
+};
+
+// hover only comparison
+export const HoverOnlyComparison: Story = {
+  render: () => (
+    <div class="p-4 space-y-4 w-80">
+      <div class="space-y-2">
+        <div class="text-gray-400 text-xs uppercase tracking-wide">
+          always marquee (default)
+        </div>
+        <MarqueeText
+          text="pink floyd - shine on you crazy diamond (parts i-ix)"
+          class="text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded"
+          hoverOnly={false}
+        />
+      </div>
+      <div class="space-y-2">
+        <div class="text-gray-400 text-xs uppercase tracking-wide">
+          hover only - hover to see animation
+        </div>
+        <MarqueeText
+          text="pink floyd - shine on you crazy diamond (parts i-ix)"
+          class="text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded"
+          hoverOnly={true}
+        />
+      </div>
+    </div>
+  ),
 };
 
 // genre list example

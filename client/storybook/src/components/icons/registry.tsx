@@ -1,4 +1,5 @@
 // Import all icon components
+import { Dynamic } from "solid-js/web";
 import {
   NextIcon,
   PauseIcon,
@@ -331,12 +332,18 @@ export type IconName = keyof typeof IconRegistry;
 
 // Dynamic icon component
 export const Icon = (props: IconProps & { name: IconName }) => {
-  const IconComponent = IconRegistry[props.name];
-  if (!IconComponent) {
-    console.warn(`Icon "${props.name}" not found in registry`);
-    return null;
-  }
-  return <IconComponent {...props} />;
+  return (
+    <Dynamic
+      component={
+        IconRegistry[props.name] ??
+        (() => {
+          console.warn(`Icon "${props.name}" not found in registry`);
+          return null;
+        })
+      }
+      {...props}
+    />
+  );
 };
 
 // Preset icon sizes for consistency

@@ -7,13 +7,22 @@ interface MarqueeTextProps {
   class?: string;
   /** tooltip text (defaults to the text content) */
   title?: string;
+  /** only marquee on hover (default: false = always marquee when overflow) */
+  hoverOnly?: boolean;
 }
 
 export function MarqueeText(props: MarqueeTextProps): JSX.Element {
   const [shouldMarquee, setShouldMarquee] = createSignal(false);
   const [animationDuration, setAnimationDuration] = createSignal(4);
+  const [isHovering, setIsHovering] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
   let textRef: HTMLSpanElement | undefined;
+
+  const shouldAnimate = () => {
+    if (!shouldMarquee()) return false;
+    if (props.hoverOnly) return isHovering();
+    return true;
+  };
 
   onMount(() => {
     // add css keyframes for marquee animation if not exists
@@ -41,7 +50,7 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
         if (shouldScroll) {
           containerRef.style.setProperty(
             "--container-width",
-            `${containerWidth}px`
+            `${containerWidth}px`,
           );
 
           // calculate duration based on text length for consistent speed
@@ -64,14 +73,18 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
       ref={containerRef!}
       class={`relative overflow-hidden ${props.class || ""}`}
       title={props.title || props.text}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
     >
       <span
         ref={textRef!}
         class={
-          shouldMarquee() ? "inline-block whitespace-nowrap" : "truncate block"
+          shouldMarquee()
+            ? "inline-block whitespace-nowrap pr-4"
+            : "truncate block"
         }
         style={
-          shouldMarquee()
+          shouldAnimate()
             ? {
                 animation: `marquee-bounce ${animationDuration()}s ease-in-out infinite`,
               }
