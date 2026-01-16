@@ -237,7 +237,7 @@ export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   >
     <path
       d="M250 405L125 155L375 155L303.611 340.714L250 405Z"
-      fill={props.color ?? "#FF00FF"}
+      fill={props.color ?? "var(--color-accent-500)"}
     />
   </svg>
 );

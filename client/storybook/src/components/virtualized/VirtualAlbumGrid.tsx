@@ -68,7 +68,7 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   return (
     <div
       ref={parentRef!}
-      class={`overflow-auto bg-dark-900 ${props.class || ""}`}
+      class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
       style={{ height: `${height()}px` }}
     >
       {/* virtual grid container */}

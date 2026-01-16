@@ -64,7 +64,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   };
 
   const getFallbackIcon = (): JSX.Element => {
-    const iconClass = `${getIconSize()} text-magenta-400`;
+    const iconClass = `${getIconSize()} text-[var(--color-accent-500)]`;
 
     switch (props.domainType) {
       case "album":
@@ -106,7 +106,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   const hoverClasses = props.enableHover
     ? "transition-transform hover:scale-105"
     : "";
-  const baseClasses = `${sizeClasses} bg-magenta-800/30 rounded overflow-hidden ${hoverClasses} ${props.class || ""}`;
+  const baseClasses = `${sizeClasses} bg-[var(--color-bg-elevated)] rounded overflow-hidden ${hoverClasses} ${props.class || ""}`;
 
   return (
     <div class={baseClasses}>
@@ -115,7 +115,9 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         fallback={
           <Show
             when={props.showFallback !== false}
-            fallback={<div class="w-full h-full bg-magenta-800/30" />}
+            fallback={
+              <div class="w-full h-full bg-[var(--color-bg-elevated)]" />
+            }
           >
             <div class="w-full h-full flex items-center justify-center">
               {getFallbackIcon()}
@@ -126,7 +128,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         <div class="relative w-full h-full">
           {/* loading placeholder */}
           <Show when={!imageLoaded()}>
-            <div class="absolute inset-0 bg-magenta-800/30 animate-pulse" />
+            <div class="absolute inset-0 bg-[var(--color-bg-elevated)] animate-pulse" />
           </Show>
 
           {/* actual image */}

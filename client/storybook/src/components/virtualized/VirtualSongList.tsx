@@ -193,12 +193,12 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   return (
     <div
       ref={parentRef!}
-      class={`overflow-auto bg-dark-900 ${props.class || ""}`}
+      class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
       style={{ height: `${height()}px` }}
     >
       {/* sticky header row with grid layout */}
       <div
-        class="sticky top-0 z-10 bg-dark-800 border-b border-dark-700 text-xs text-gray-400 font-medium uppercase tracking-wide"
+        class="sticky top-0 z-10 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] text-xs text-[var(--color-text-tertiary)] font-medium uppercase tracking-wide"
         style={{
           display: "grid",
           "grid-template-columns": getGridTemplate(),
@@ -207,7 +207,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
       >
         <Show when={showTrackNumber()}>
           <button
-            class="px-3 py-3 text-left hover:text-white hover:bg-dark-700 transition-colors"
+            class="px-3 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             onClick={() => handleSort("track")}
           >
             # {getSortIcon("track")}
@@ -215,7 +215,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
         </Show>
 
         <button
-          class="px-4 py-3 text-left hover:text-white hover:bg-dark-700 transition-colors"
+          class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
           onClick={() => handleSort("title")}
         >
           title {getSortIcon("title")}
@@ -223,7 +223,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
         <Show when={showArtist()}>
           <button
-            class="px-4 py-3 text-left hover:text-white hover:bg-dark-700 transition-colors"
+            class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             onClick={() => handleSort("artist")}
           >
             artist {getSortIcon("artist")}
@@ -232,7 +232,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
         <Show when={showAlbum()}>
           <button
-            class="px-4 py-3 text-left hover:text-white hover:bg-dark-700 transition-colors"
+            class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             onClick={() => handleSort("album")}
           >
             album {getSortIcon("album")}
@@ -240,14 +240,14 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
         </Show>
 
         <button
-          class="px-4 py-3 text-left hover:text-white hover:bg-dark-700 transition-colors"
+          class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
           onClick={() => handleSort("year")}
         >
           year {getSortIcon("year")}
         </button>
 
         <button
-          class="px-4 py-3 text-right hover:text-white hover:bg-dark-700 transition-colors"
+          class="px-4 py-3 text-right hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
           onClick={() => handleSort("duration")}
         >
           time {getSortIcon("duration")}
@@ -255,7 +255,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
         <Show when={showFavorites()}>
           <button
-            class="px-3 py-3 text-center hover:text-white hover:bg-dark-700 transition-colors"
+            class="px-3 py-3 text-center hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             onClick={() => handleSort("favorite")}
           >
             <svg
@@ -270,7 +270,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
         <Show when={showRating()}>
           <button
-            class="px-3 py-3 text-center hover:text-white hover:bg-dark-700 transition-colors"
+            class="px-3 py-3 text-center hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             onClick={() => handleSort("rating")}
           >
             ★ {getSortIcon("rating")}
@@ -312,10 +312,10 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <div
                   class={`
                     h-full cursor-pointer
-                    border-b border-dark-800
+                    border-b border-[var(--color-border-subtle)]
                     transition-colors
-                    ${isPlaying ? "bg-magenta-900/20 text-magenta-400" : "text-white hover:bg-dark-800"}
-                    ${isSelected ? "bg-dark-700" : ""}
+                    ${isPlaying ? "bg-[var(--color-accent-500)] bg-opacity-10 text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
+                    ${isSelected ? "bg-[var(--color-bg-hover)]" : ""}
                   `}
                   style={{
                     display: "grid",
@@ -329,7 +329,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 >
                   {/* track number */}
                   <Show when={showTrackNumber()}>
-                    <div class="px-3 text-center text-gray-500 text-sm tabular-nums">
+                    <div class="px-3 text-center text-[var(--color-text-tertiary)] text-sm tabular-nums">
                       {getTrackNumber(song, virtualRow.index)}
                     </div>
                   </Show>
@@ -342,24 +342,28 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   {/* artist */}
                   <Show when={showArtist()}>
                     <div class="px-4 min-w-0">
-                      <div class="truncate text-gray-400">{song.artist}</div>
+                      <div class="truncate text-[var(--color-text-secondary)]">
+                        {song.artist}
+                      </div>
                     </div>
                   </Show>
 
                   {/* album */}
                   <Show when={showAlbum()}>
                     <div class="px-4 min-w-0">
-                      <div class="truncate text-gray-400">{song.album}</div>
+                      <div class="truncate text-[var(--color-text-secondary)]">
+                        {song.album}
+                      </div>
                     </div>
                   </Show>
 
                   {/* year */}
-                  <div class="px-4 text-left text-gray-500 text-sm tabular-nums">
+                  <div class="px-4 text-left text-[var(--color-text-tertiary)] text-sm tabular-nums">
                     {song.year || "—"}
                   </div>
 
                   {/* duration */}
-                  <div class="px-4 text-right text-gray-500 text-sm tabular-nums">
+                  <div class="px-4 text-right text-[var(--color-text-tertiary)] text-sm tabular-nums">
                     {song.duration}
                   </div>
 
@@ -369,8 +373,8 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                       <button
                         class={`w-4 h-4 transition-colors ${
                           song.userIsFavorite
-                            ? "text-magenta-500"
-                            : "text-gray-600 hover:text-gray-400"
+                            ? "text-[var(--color-accent-500)]"
+                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                         }`}
                         onClick={(e) => handleFavoriteClick(e, song)}
                         title={
@@ -396,8 +400,8 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                       <button
                         class={`text-sm transition-colors ${
                           song.userRating
-                            ? "text-magenta-400"
-                            : "text-gray-600 hover:text-gray-400"
+                            ? "text-[var(--color-accent-500)]"
+                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                         }`}
                         onClick={(e) => handleRatingClick(e, song)}
                         title={`rating: ${song.userRating || 0}/5 (click to cycle)`}
@@ -410,7 +414,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   {/* tags */}
                   <Show when={showTags()}>
                     <div class="px-4 min-w-0">
-                      <div class="truncate text-xs text-gray-600">
+                      <div class="truncate text-xs text-[var(--color-text-muted)]">
                         {song.tags?.join(", ") || ""}
                       </div>
                     </div>

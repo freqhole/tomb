@@ -67,10 +67,10 @@ export function StarRatingCompact(props: StarRatingCompactProps) {
   };
 
   const fillColor = props.selected
-    ? "#eeddee"
+    ? "var(--color-text-secondary)"
     : "var(--color-accent-500)";
   const emptyColor = props.selected
-    ? "#333333"
+    ? "var(--color-bg-elevated)"
     : "var(--color-text-muted)";
 
   return (

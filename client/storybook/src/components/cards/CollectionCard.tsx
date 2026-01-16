@@ -120,7 +120,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
     >
       {/* image/artwork area */}
       <div
-        class={`${classes.container} bg-magenta-800/30 rounded-lg overflow-visible mb-1 relative`}
+        class={`${classes.container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg overflow-visible mb-1 relative`}
       >
         <Show
           when={props.collection.imageUrl}
@@ -147,7 +147,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         {/* hover overlay with play button */}
         <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button
-            class={`${classes.playButton} bg-magenta-600 hover:bg-magenta-500 text-white flex items-center justify-center transition-colors`}
+            class={`${classes.playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors`}
             onClick={handlePlay}
             title={`play ${props.collection.domainType}`}
           >
@@ -166,7 +166,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
       <div class="space-y-0.5 min-w-0">
         {/* title */}
         <div
-          class={`text-white font-medium ${classes.title} truncate group-hover:text-magenta-300 transition-colors`}
+          class={`text-[var(--color-text-primary)] font-medium ${classes.title} truncate group-hover:text-[var(--color-accent-500)] transition-colors`}
           title={props.collection.title}
         >
           {props.collection.title}
