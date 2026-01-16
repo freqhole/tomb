@@ -44,8 +44,6 @@ export interface SearchInputProps {
   class?: string;
   /** variant style */
   variant?: "default" | "filled";
-  /** controlled value to show clear button */
-  value?: string;
 }
 
 // get display name for category
@@ -154,6 +152,7 @@ export function SearchInput(props: SearchInputProps) {
         debounceOptionsMillisecond={local.debounceMs ?? 300}
         disabled={local.disabled}
         triggerMode="input"
+        multiple={false}
         itemComponent={(itemProps) => (
           <Search.Item item={itemProps.item} class="outline-none">
             <div
