@@ -1,6 +1,7 @@
 import addonA11y from "@storybook/addon-a11y";
 import addonDocs from "@storybook/addon-docs";
 import { definePreview } from "storybook-solidjs-vite";
+import { themes } from "storybook/theming";
 import "./global.css";
 
 export default definePreview({
@@ -8,22 +9,7 @@ export default definePreview({
   parameters: {
     // dark theme for storybook UI
     docs: {
-      theme: {
-        base: "dark",
-        colorPrimary: "#d946ef",
-        colorSecondary: "#d946ef",
-        appBg: "#202124",
-        appContentBg: "#202124",
-        appBorderColor: "#3c4043",
-        textColor: "#ffffff",
-        textInverseColor: "#202124",
-        barTextColor: "#ffffff",
-        barSelectedColor: "#d946ef",
-        barBg: "#202124",
-        inputBg: "#3c4043",
-        inputBorder: "#5f6368",
-        inputTextColor: "#ffffff",
-      },
+      theme: themes.dark,
     },
     // automatically create action args for all props that start with 'on'
     actions: {

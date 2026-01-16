@@ -24,6 +24,7 @@
     "@storybook/addon-vitest": "^10.1.11",
     "@storybook/builder-vite": "^10.1.11",
     "@tailwindcss/postcss": "^4.1.18",
+    "@tanstack/solid-virtual": "^3.13.18",
     "@types/node": "^25.0.9",
     "@vitest/browser": "^4.0.17",
     "@vitest/browser-playwright": "^4.0.17",
