@@ -22,7 +22,7 @@ interface TabsContextValue {
 
 const TabsContext = createContext<TabsContextValue>();
 
-interface TabsProps {
+export interface TabsProps {
   activeTab: string;
   onTabChange: (id: string) => void;
   class?: string;
