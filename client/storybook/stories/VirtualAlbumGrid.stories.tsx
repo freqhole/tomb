@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { CollectionCardData } from "../src/components/cards/CollectionCard";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
+import { generateBulkAlbums } from "./mockData";
 
 const meta = {
   title: "Components/Virtualized/VirtualAlbumGrid",
@@ -35,66 +36,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// generate mock album data
+// generate mock album data using shared data
 const generateAlbums = (count: number): CollectionCardData[] => {
-  const artists = [
-    "Pink Floyd",
-    "Radiohead",
-    "The Beatles",
-    "Led Zeppelin",
-    "King Crimson",
-    "Tool",
-    "Tame Impala",
-    "Aphex Twin",
-    "Godspeed You! Black Emperor",
-    "Swans",
-    "Talking Heads",
-    "Black Midi",
-    "Neutral Milk Hotel",
-    "Sufjan Stevens",
-    "Sigur Rós",
-  ];
-
-  const albumNames = [
-    "Dark Side of the Moon",
-    "OK Computer",
-    "Abbey Road",
-    "Physical Graffiti",
-    "In the Court of the Crimson King",
-    "Lateralus",
-    "Currents",
-    "Selected Ambient Works",
-    "Lift Your Skinny Fists",
-    "The Seer",
-    "Remain in Light",
-    "Cavalcade",
-    "In the Aeroplane Over the Sea",
-    "Illinois",
-    "Ágætis byrjun",
-  ];
-
-  const genres = [
-    "progressive rock, psychedelic rock",
-    "alternative rock, art rock",
-    "indie rock, lo-fi",
-    "electronic, ambient",
-    "post-rock, experimental",
-    "math rock, noise rock",
-  ];
-
-  return Array.from({ length: count }, (_, i) => ({
-    id: `album-${i}`,
-    title: albumNames[i % albumNames.length],
-    domainType: "album" as const,
-    imageUrl: i % 3 === 0 ? null : `https://picsum.photos/400/400?random=${i}`,
-    artist: artists[i % artists.length],
-    album: albumNames[i % albumNames.length],
-    year: 1970 + Math.floor(Math.random() * 50),
-    trackCount: 8 + Math.floor(Math.random() * 15),
-    totalDuration: `${Math.floor(Math.random() * 60) + 20}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`,
-    genres: genres[i % genres.length],
-    playCount: Math.floor(Math.random() * 1000),
-  }));
+  return generateBulkAlbums(count);
 };
 
 // default grid (4 columns, 100 albums)
@@ -156,7 +100,8 @@ export const MassiveCollection: Story = {
 export const Interactive: Story = {
   render: () => {
     const albums = generateAlbums(200);
-    const [selectedAlbum, setSelectedAlbum] = createSignal<CollectionCardData | null>(null);
+    const [selectedAlbum, setSelectedAlbum] =
+      createSignal<CollectionCardData | null>(null);
     const [lastAction, setLastAction] = createSignal("");
 
     const handleClick = (album: CollectionCardData) => {

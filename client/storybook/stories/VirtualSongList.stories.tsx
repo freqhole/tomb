@@ -6,6 +6,7 @@ import {
   SortField,
   VirtualSongList,
 } from "../src/components/virtualized/VirtualSongList";
+import { generateBulkSongs } from "./mockData";
 
 const meta = {
   title: "Components/Virtualized/VirtualSongList",
@@ -43,83 +44,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// generate mock song data
+// generate mock song data using shared data
 const generateSongs = (count: number): Song[] => {
-  const artists = [
-    "Pink Floyd",
-    "Radiohead",
-    "The Beatles",
-    "Led Zeppelin",
-    "King Crimson",
-    "Tool",
-    "Tame Impala",
-    "Aphex Twin",
-    "Godspeed You! Black Emperor",
-    "Swans",
-    "Talking Heads",
-    "Black Midi",
-  ];
-
-  const albums = [
-    "Dark Side of the Moon",
-    "OK Computer",
-    "Abbey Road",
-    "Physical Graffiti",
-    "In the Court of the Crimson King",
-    "Lateralus",
-    "Currents",
-    "Selected Ambient Works",
-    "Lift Your Skinny Fists",
-    "The Seer",
-    "Remain in Light",
-    "Cavalcade",
-  ];
-
-  const tags = [
-    ["progressive rock", "psychedelic"],
-    ["alternative", "art rock"],
-    ["classic rock", "british"],
-    ["metal", "progressive"],
-    ["electronic", "ambient"],
-    ["indie", "experimental"],
-    [],
-  ];
-
-  // generate songs grouped by album with proper disc/track numbers
-  const songsPerAlbum = 12; // average tracks per album
-  const results: Song[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const albumIndex = Math.floor(i / songsPerAlbum);
-    const trackInAlbum = i % songsPerAlbum;
-
-    // some albums have 2 discs
-    const hasMultipleDiscs = albumIndex % 3 === 0;
-    const tracksPerDisc = hasMultipleDiscs ? 6 : songsPerAlbum;
-    const discNumber = hasMultipleDiscs
-      ? Math.floor(trackInAlbum / tracksPerDisc) + 1
-      : 1;
-    const trackNumber = hasMultipleDiscs
-      ? (trackInAlbum % tracksPerDisc) + 1
-      : trackInAlbum + 1;
-
-    results.push({
-      id: `song-${i}`,
-      title: `${albums[albumIndex % albums.length]} - Track ${trackNumber}`,
-      artist: artists[albumIndex % artists.length],
-      album: albums[albumIndex % albums.length],
-      duration: `${Math.floor(Math.random() * 5) + 2}:${String(Math.floor(Math.random() * 60)).padStart(2, "0")}`,
-      year: 1970 + Math.floor(Math.random() * 50),
-      discNumber,
-      trackNumber,
-      userIsFavorite: Math.random() > 0.7,
-      userRating:
-        Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : null,
-      tags: tags[albumIndex % tags.length],
-    });
-  }
-
-  return results;
+  return generateBulkSongs(count);
 };
 
 // default view - all columns

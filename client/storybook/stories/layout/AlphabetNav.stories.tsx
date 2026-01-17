@@ -3,6 +3,7 @@ import { createEffect, createSignal, For, onMount } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { AlphabetNav } from "../../src/components/navigation/AlphabetNav";
 import { MarqueeText } from "../../src/components/text/MarqueeText";
+import { generateAlphabetArtists } from "../mockData";
 
 const meta = {
   title: "Layout/AlphabetNav",

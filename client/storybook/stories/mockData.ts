@@ -120,3 +120,138 @@ export function getGenreByName(name: string): Genre | undefined {
     (genre) => genre.name.toLowerCase() === name.toLowerCase(),
   );
 }
+
+// helper to format duration from seconds to MM:SS or H:MM:SS
+export function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+// helper to generate bulk songs using shared artist/album/genre names
+export function generateBulkSongs(count: number): Array<{
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: string;
+  year: number;
+  discNumber: number;
+  trackNumber: number;
+  userIsFavorite: boolean;
+  userRating: number | null;
+  tags: string[];
+}> {
+  const artistNames = mockArtists.map((a) => a.name);
+  const albumNames = mockAlbums.map((a) => a.title);
+  const genreNames = mockGenres.map((g) => g.name);
+
+  const songsPerAlbum = 12;
+  const results = [];
+
+  for (let i = 0; i < count; i++) {
+    const albumIndex = Math.floor(i / songsPerAlbum);
+    const trackInAlbum = i % songsPerAlbum;
+
+    // some albums have 2 discs
+    const hasMultipleDiscs = albumIndex % 3 === 0;
+    const tracksPerDisc = hasMultipleDiscs ? 6 : songsPerAlbum;
+    const discNumber = hasMultipleDiscs
+      ? Math.floor(trackInAlbum / tracksPerDisc) + 1
+      : 1;
+    const trackNumber = hasMultipleDiscs
+      ? (trackInAlbum % tracksPerDisc) + 1
+      : trackInAlbum + 1;
+
+    const durationSeconds =
+      Math.floor(Math.random() * 5) * 60 + Math.floor(Math.random() * 60) + 120;
+
+    results.push({
+      id: `song-${i}`,
+      title: `${albumNames[albumIndex % albumNames.length]} - Track ${trackNumber}`,
+      artist: artistNames[albumIndex % artistNames.length],
+      album: albumNames[albumIndex % albumNames.length],
+      duration: formatDuration(durationSeconds),
+      year: 1970 + Math.floor(Math.random() * 50),
+      discNumber,
+      trackNumber,
+      userIsFavorite: Math.random() > 0.7,
+      userRating:
+        Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : null,
+      tags:
+        Math.random() > 0.3
+          ? [
+              genreNames[Math.floor(Math.random() * genreNames.length)],
+              genreNames[Math.floor(Math.random() * genreNames.length)],
+            ].filter((v, i, a) => a.indexOf(v) === i)
+          : [],
+    });
+  }
+
+  return results;
+}
+
+// helper to generate bulk albums using shared artist/genre names
+export function generateBulkAlbums(count: number): Array<{
+  id: string;
+  title: string;
+  domainType: "album";
+  imageUrl: string | null;
+  artist: string;
+  album: string;
+  year: number;
+  trackCount: number;
+  totalDuration: string;
+  genres: string;
+  playCount: number;
+}> {
+  const artistNames = mockArtists.map((a) => a.name);
+  const albumNames = mockAlbums.map((a) => a.title);
+  const genresList = mockGenres.map((g) => g.name);
+
+  return Array.from({ length: count }, (_, i) => {
+    const totalSeconds =
+      (Math.floor(Math.random() * 60) + 20) * 60 +
+      Math.floor(Math.random() * 60);
+
+    return {
+      id: `album-${i}`,
+      title: albumNames[i % albumNames.length],
+      domainType: "album" as const,
+      imageUrl:
+        i % 3 === 0 ? null : `https://picsum.photos/seed/album${i}/300/300`,
+      artist: artistNames[i % artistNames.length],
+      album: albumNames[i % albumNames.length],
+      year: 1970 + Math.floor(Math.random() * 50),
+      trackCount: 8 + Math.floor(Math.random() * 15),
+      totalDuration: formatDuration(totalSeconds),
+      genres: [
+        genresList[Math.floor(Math.random() * genresList.length)],
+        genresList[Math.floor(Math.random() * genresList.length)],
+      ]
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .join(", "),
+      playCount: Math.floor(Math.random() * 1000),
+    };
+  });
+}
+
+// helper to generate alphabet-sorted artists for AlphabetNav
+export function generateAlphabetArtists(): Array<{
+  name: string;
+  songCount: number;
+  albumCount: number;
+}> {
+  return mockArtists
+    .map((artist) => ({
+      name: artist.name,
+      songCount: artist.songCount,
+      albumCount: artist.albumCount,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
