@@ -2,14 +2,20 @@ import { Show, createEffect, createSignal, onMount } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { PlayerBar } from "../components/player/PlayerBar";
+import { QueueSidebar } from "../components/player/QueueSidebar";
 import {
+  canGoNext,
+  canGoPrevious,
   currentTime,
   duration,
+  isLoading,
   isPlaying,
   playNext,
   playPrevious,
-  playQueue,
+  playSong,
+  seek,
   setPlayerVolume,
+  stop,
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
@@ -23,7 +29,12 @@ import {
 import type { MusicSong } from "../music/services/storage/types";
 import { LibraryView } from "../music/views/LibraryView";
 import { generateUUID } from "../utils/uuid";
-import { appState, initAppDB } from "./services/storage/db";
+import {
+  appState,
+  initAppDB,
+  setCurrentSong,
+  setQueue,
+} from "./services/storage/db";
 
 export function App() {
   const [isAddMusicOpen, setIsAddMusicOpen] = createSignal(false);
@@ -31,6 +42,7 @@ export function App() {
   const [currentSongData, setCurrentSongData] = createSignal<MusicSong | null>(
     null,
   );
+  const [queueOpen, setQueueOpen] = createSignal(false);
 
   // initialize databases on mount
   onMount(async () => {
@@ -80,38 +92,111 @@ export function App() {
   };
 
   const handleSongDoubleClick = async (songId: string) => {
-    // play this song and queue all songs
-    const allSongIds = songs().map((s) => s.id);
-    await playQueue(allSongIds);
+    // add song to end of queue and play it
+    const state = appState();
+    const currentQueue = state?.queue || [];
+
+    // add to end of queue if not already there
+    if (!currentQueue.includes(songId)) {
+      const newQueue = [...currentQueue, songId];
+      await setQueue(newQueue);
+    }
+
+    // play the clicked song
+    await playSong(songId);
   };
 
   const handleSeek = (percentage: number) => {
     const dur = duration();
     const timeInSeconds = (percentage / 100) * dur;
-    const audio = document.querySelector("audio");
-    if (audio) {
-      audio.currentTime = timeInSeconds;
-    }
+    seek(timeInSeconds);
   };
 
   return (
     <div
       class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
       style={{
-        "--player-bar-height": appState()?.current_song_id ? "80px" : "0px",
+        "--player-bar-height":
+          (appState()?.queue.length || 0) > 0 ? "80px" : "0px",
       }}
     >
-      <Show
-        when={songs().length === 0}
-        fallback={
-          <LibraryView
-            onAddMusic={() => setIsAddMusicOpen(true)}
-            onSongDoubleClick={(song) => handleSongDoubleClick(song.id)}
-          />
-        }
+      <div
+        class="flex-1 overflow-hidden flex"
+        style={{ "padding-bottom": "var(--player-bar-height)" }}
       >
-        <EmptyState onAddMusic={() => setIsAddMusicOpen(true)} />
-      </Show>
+        <div class="flex-1 overflow-hidden">
+          <Show
+            when={songs().length === 0}
+            fallback={
+              <LibraryView
+                onAddMusic={() => setIsAddMusicOpen(true)}
+                onSongDoubleClick={(song) => handleSongDoubleClick(song.id)}
+              />
+            }
+          >
+            <EmptyState onAddMusic={() => setIsAddMusicOpen(true)} />
+          </Show>
+        </div>
+
+        {/* queue sidebar */}
+        <QueueSidebar
+          isOpen={queueOpen()}
+          variant="inline"
+          songs={
+            (appState()
+              ?.queue.map((songId) => {
+                const song = songs().find((s) => s.id === songId);
+                return song
+                  ? {
+                      id: song.id,
+                      title: song.title,
+                      artist: song.artist,
+                      duration: song.duration,
+                    }
+                  : null;
+              })
+              .filter(Boolean) as any[]) || []
+          }
+          currentIndex={
+            appState()?.current_song_id
+              ? appState()!.queue.indexOf(appState()!.current_song_id)
+              : -1
+          }
+          onClose={() => setQueueOpen(false)}
+          onSongClick={async (index) => {
+            const state = appState();
+            if (state?.queue[index]) {
+              await playSong(state.queue[index]);
+            }
+          }}
+          onSongDoubleClick={async (index) => {
+            const state = appState();
+            if (state?.queue[index]) {
+              await playSong(state.queue[index]);
+            }
+          }}
+          onRemoveSong={async (index) => {
+            const state = appState();
+            if (state?.queue) {
+              const removedSongId = state.queue[index];
+              const newQueue = state.queue.filter((_, i) => i !== index);
+              await setQueue(newQueue);
+
+              // if we removed the currently playing song, stop playback and clear it
+              if (removedSongId === state.current_song_id) {
+                stop();
+                await setCurrentSong(null);
+              }
+            }
+          }}
+          onClearAll={async () => {
+            // stop playback and clear current song
+            stop();
+            await setCurrentSong(null);
+            await setQueue([]);
+          }}
+        />
+      </div>
 
       <AddMusicModal
         isOpen={isAddMusicOpen()}
@@ -121,30 +206,35 @@ export function App() {
       />
 
       {/* player bar */}
-      <Show when={currentSongData()}>
-        {(song) => (
-          <PlayerBar
-            song={{
-              id: song().id,
-              title: song().title,
-              artist: song().artist,
-              album: song().album,
-              isFavorite: false,
-            }}
-            isPlaying={isPlaying()}
-            currentTime={currentTime()}
-            duration={duration()}
-            volume={volume()}
-            queueOpen={false}
-            onPlayPause={togglePlayback}
-            onPrevious={playPrevious}
-            onNext={playNext}
-            onSeek={handleSeek}
-            onVolumeChange={setPlayerVolume}
-            onQueueToggle={() => console.log("queue toggle")}
-            queueLength={appState()?.queue.length || 0}
-          />
-        )}
+      <Show when={(appState()?.queue.length || 0) > 0}>
+        <PlayerBar
+          song={
+            currentSongData()
+              ? {
+                  id: currentSongData()!.id,
+                  title: currentSongData()!.title,
+                  artist: currentSongData()!.artist,
+                  album: currentSongData()!.album,
+                  isFavorite: false,
+                }
+              : undefined
+          }
+          isPlaying={isPlaying()}
+          isLoading={isLoading()}
+          currentTime={currentTime()}
+          duration={duration()}
+          volume={volume()}
+          queueOpen={queueOpen()}
+          onPlayPause={togglePlayback}
+          onPrevious={playPrevious}
+          onNext={playNext}
+          onSeek={handleSeek}
+          onVolumeChange={setPlayerVolume}
+          onQueueToggle={() => setQueueOpen(!queueOpen())}
+          queueLength={appState()?.queue.length || 0}
+          canGoNext={canGoNext()}
+          canGoPrevious={canGoPrevious()}
+        />
       </Show>
     </div>
   );

@@ -15,6 +15,23 @@ const [duration, setDuration] = createSignal(0);
 const [volume, setVolume] = createSignal(1.0);
 const [isLoading, setIsLoading] = createSignal(false);
 
+// computed signals for next/prev availability
+const canGoNext = () => {
+  const state = appState();
+  if (!state?.queue.length) return false;
+  const currentId = state.current_song_id;
+  const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
+  return currentIdx >= 0 && currentIdx < state.queue.length - 1;
+};
+
+const canGoPrevious = () => {
+  const state = appState();
+  if (!state?.queue.length) return false;
+  const currentId = state.current_song_id;
+  const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
+  return currentIdx > 0;
+};
+
 // audio element (singleton)
 let audioElement: HTMLAudioElement | null = null;
 
@@ -201,12 +218,24 @@ export async function togglePlayback(): Promise<void> {
   if (isPlaying()) {
     pause();
   } else {
-    // if no song is playing, play first in queue
-    const state = appState();
-    if (!state?.current_song_id && state?.queue.length) {
-      await playSong(state.queue[0]);
-    } else if (state?.current_song_id) {
-      await audio.play();
+    try {
+      setIsLoading(true);
+      // if no song is playing, play first in queue
+      const state = appState();
+      if (!state?.current_song_id && state?.queue.length) {
+        await playSong(state.queue[0]);
+      } else if (state?.current_song_id) {
+        // if audio src is empty (page reload), reload the song
+        if (!audio.src) {
+          await playSong(state.current_song_id);
+        } else {
+          await audio.play();
+        }
+      }
+      setIsLoading(false);
+    } catch (error) {
+      console.error("failed to toggle playback:", error);
+      setIsLoading(false);
     }
   }
 }
@@ -215,6 +244,15 @@ export async function togglePlayback(): Promise<void> {
 export function pause(): void {
   const audio = initAudio();
   audio.pause();
+}
+
+// stop playback (pause and reset to beginning)
+export function stop(): void {
+  const audio = initAudio();
+  audio.pause();
+  audio.currentTime = 0;
+  setIsPlaying(false);
+  setCurrentTime(0);
 }
 
 // play
@@ -240,30 +278,26 @@ export function setPlayerVolume(vol: number): void {
 
 // play next song in queue
 export async function playNext(): Promise<void> {
-  const state = appState();
-  if (!state?.queue.length) return;
+  if (!canGoNext()) return;
 
+  const state = appState();
   const currentId = state.current_song_id;
   const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
   const nextIdx = currentIdx + 1;
 
-  if (nextIdx < state.queue.length) {
-    await playSong(state.queue[nextIdx]);
-  }
+  await playSong(state.queue[nextIdx]);
 }
 
 // play previous song in queue
 export async function playPrevious(): Promise<void> {
-  const state = appState();
-  if (!state?.queue.length) return;
+  if (!canGoPrevious()) return;
 
+  const state = appState();
   const currentId = state.current_song_id;
   const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
   const prevIdx = currentIdx - 1;
 
-  if (prevIdx >= 0) {
-    await playSong(state.queue[prevIdx]);
-  }
+  await playSong(state.queue[prevIdx]);
 }
 
 // handle song ended
@@ -300,4 +334,12 @@ export function cleanup(): void {
 }
 
 // export signals
-export { currentTime, duration, isLoading, isPlaying, volume };
+export {
+  canGoNext,
+  canGoPrevious,
+  currentTime,
+  duration,
+  isLoading,
+  isPlaying,
+  volume,
+};
