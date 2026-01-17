@@ -810,8 +810,7 @@ export const FullAppDemo: Story = {
               genres: "rock",
               playCount: 100,
             }))}
-            columns={5}
-            height={window.innerHeight - 260}
+            height={window.innerHeight - 180}
             cardSize="medium"
             showYear={true}
             onAlbumClick={(album) => {

@@ -120,7 +120,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
     >
       {/* image/artwork area */}
       <div
-        class={`${classes.container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg overflow-hidden mb-2 relative`}
+        class={`${classes.container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg mb-2 relative transition-all duration-300 group-hover:rounded-none`}
       >
         <Show
           when={props.collection.imageUrl}
@@ -139,7 +139,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           <img
             src={props.collection.imageUrl!}
             alt={props.collection.title}
-            class={`${classes.image} object-cover rounded-lg`}
+            class={`${classes.image} object-cover transition-transform duration-300 group-hover:scale-105`}
             loading="lazy"
           />
         </Show>

@@ -1,5 +1,12 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createSignal, For, JSX } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  JSX,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { CollectionCard, CollectionCardData } from "../cards/CollectionCard";
 
 export interface VirtualAlbumGridProps {
@@ -24,25 +31,61 @@ export interface VirtualAlbumGridProps {
 
 export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   let parentRef: HTMLDivElement | undefined;
-  const columns = () => props.columns || 4;
-  const height = () => props.height || 600;
-  const cardSize = () => props.cardSize || "medium";
+  const [containerWidth, setContainerWidth] = createSignal(0);
+  const gap = 16;
 
-  // calculate card height based on size
-  // cards are square images + text below, so need image height + text space
-  const getCardHeight = () => {
-    switch (cardSize()) {
-      case "small":
-        return 240; // ~160px image + 80px text
-      case "large":
-        return 420; // ~300px image + 120px text
-      default: // medium
-        return 340; // ~220px image + 120px text
-    }
+  // calculate responsive columns from width
+  const getColumnsForWidth = (width: number): number => {
+    if (props.columns) return props.columns;
+    if (width < 1024) return 3;
+    if (width < 1280) return 4;
+    return 5;
   };
 
-  // calculate gap size
-  const gap = 16;
+  const columns = () => getColumnsForWidth(containerWidth());
+
+  // estimate text height based on card size
+  const getTextHeight = () => {
+    const size = props.cardSize || "medium";
+    return size === "small" ? 80 : size === "large" ? 120 : 100;
+  };
+
+  // calculate card height: column width + text height
+  const getCardHeight = () => {
+    const width = containerWidth();
+    if (width === 0) {
+      // initial estimate before measurement
+      const size = props.cardSize || "medium";
+      return size === "small" ? 240 : size === "large" ? 420 : 340;
+    }
+    const cols = getColumnsForWidth(width);
+    const effectiveWidth = width - gap * 2;
+    const columnWidth = (effectiveWidth - gap * (cols - 1)) / cols;
+    return columnWidth + getTextHeight();
+  };
+
+  // measure container with debounced ResizeObserver
+  onMount(() => {
+    if (!parentRef) return;
+
+    // set initial width immediately
+    setContainerWidth(parentRef.clientWidth);
+
+    let timeoutId: number;
+    const observer = new ResizeObserver((entries) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        const width = entries[0]?.contentRect.width;
+        if (width) setContainerWidth(width);
+      }, 16) as unknown as number; // ~60fps debounce
+    });
+
+    observer.observe(parentRef);
+    onCleanup(() => {
+      clearTimeout(timeoutId);
+      observer.disconnect();
+    });
+  });
 
   // calculate number of rows needed
   const getRowCount = () => {
@@ -59,6 +102,12 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     overscan: 2,
   });
 
+  // remeasure virtualizer when columns change
+  createEffect(() => {
+    columns(); // track columns signal
+    rowVirtualizer.measure();
+  });
+
   // get albums for a specific row
   const getAlbumsForRow = (rowIndex: number): CollectionCardData[] => {
     const startIndex = rowIndex * columns();
@@ -70,7 +119,7 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
-      style={{ height: `${height()}px` }}
+      style={{ height: `${props.height || 600}px` }}
     >
       {/* virtual grid container */}
       <div
@@ -108,7 +157,7 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
                     {(album) => (
                       <CollectionCard
                         collection={album}
-                        size={cardSize()}
+                        size={props.cardSize}
                         showYear={props.showYear}
                         showGenres={props.showGenres}
                         onClick={props.onAlbumClick}
