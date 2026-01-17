@@ -4,6 +4,7 @@ import { playwright } from "@vitest/browser-playwright";
 import path from "path";
 import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
+import solidPlugin from "vite-plugin-solid";
 
 const dirname =
   typeof __dirname !== "undefined"
@@ -11,7 +12,7 @@ const dirname =
     : path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [],
+  plugins: [solidPlugin()],
   test: {
     projects: [
       {
