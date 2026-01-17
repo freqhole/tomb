@@ -5,6 +5,7 @@ import {
   DraggableRow,
   DraggableRowSongContent,
 } from "../src/components/lists/DraggableRow";
+import { mockSongs, type Song } from "./mockData";
 
 const meta = {
   title: "Components/Lists/DraggableRow",
@@ -36,87 +37,6 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-interface Song {
-  id: string;
-  title: string;
-  artist: string;
-  album: string;
-  durationSeconds: number;
-}
-
-const mockSongs: Song[] = [
-  {
-    id: "1",
-    title: "bohemian rhapsody",
-    artist: "queen",
-    album: "a night at the opera",
-    durationSeconds: 354,
-  },
-  {
-    id: "2",
-    title: "stairway to heaven",
-    artist: "led zeppelin",
-    album: "led zeppelin iv",
-    durationSeconds: 482,
-  },
-  {
-    id: "3",
-    title: "hotel california",
-    artist: "eagles",
-    album: "hotel california",
-    durationSeconds: 391,
-  },
-  {
-    id: "4",
-    title: "comfortably numb",
-    artist: "pink floyd",
-    album: "the wall",
-    durationSeconds: 382,
-  },
-  {
-    id: "5",
-    title: "smells like teen spirit",
-    artist: "nirvana",
-    album: "nevermind",
-    durationSeconds: 301,
-  },
-  {
-    id: "6",
-    title: "imagine",
-    artist: "john lennon",
-    album: "imagine",
-    durationSeconds: 183,
-  },
-  {
-    id: "7",
-    title: "sweet child o' mine",
-    artist: "guns n' roses",
-    album: "appetite for destruction",
-    durationSeconds: 356,
-  },
-  {
-    id: "8",
-    title: "november rain",
-    artist: "guns n' roses",
-    album: "use your illusion i",
-    durationSeconds: 537,
-  },
-  {
-    id: "9",
-    title: "yesterday",
-    artist: "the beatles",
-    album: "help!",
-    durationSeconds: 123,
-  },
-  {
-    id: "10",
-    title: "billie jean",
-    artist: "michael jackson",
-    album: "thriller",
-    durationSeconds: 294,
-  },
-];
 
 // interactive playlist with drag and drop
 export const Interactive: Story = {
@@ -257,10 +177,10 @@ export const Default: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0} onClick={() => console.log("clicked")}>
         <DraggableRowSongContent
-          title="bohemian rhapsody"
-          artist="queen"
-          album="a night at the opera"
-          durationSeconds={354}
+          title={mockSongs[17].title}
+          artist={mockSongs[17].artist}
+          album={mockSongs[17].album}
+          durationSeconds={mockSongs[17].durationSeconds}
         />
       </DraggableRow>
     </div>
@@ -272,10 +192,10 @@ export const Dragging: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0} isDragging={true}>
         <DraggableRowSongContent
-          title="stairway to heaven"
-          artist="led zeppelin"
-          album="led zeppelin iv"
-          durationSeconds={482}
+          title={mockSongs[11].title}
+          artist={mockSongs[11].artist}
+          album={mockSongs[11].album}
+          durationSeconds={mockSongs[11].durationSeconds}
         />
       </DraggableRow>
     </div>
@@ -287,10 +207,10 @@ export const DropTarget: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0} isDropTarget={true}>
         <DraggableRowSongContent
-          title="hotel california"
-          artist="eagles"
-          album="hotel california"
-          durationSeconds={391}
+          title={mockSongs[0].title}
+          artist={mockSongs[0].artist}
+          album={mockSongs[0].album}
+          durationSeconds={mockSongs[0].durationSeconds}
         />
       </DraggableRow>
     </div>
@@ -302,10 +222,10 @@ export const Selected: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0} isSelected={true}>
         <DraggableRowSongContent
-          title="comfortably numb"
-          artist="pink floyd"
-          album="the wall"
-          durationSeconds={382}
+          title={mockSongs[0].title}
+          artist={mockSongs[0].artist}
+          album={mockSongs[0].album}
+          durationSeconds={mockSongs[0].durationSeconds}
         />
       </DraggableRow>
     </div>
@@ -317,10 +237,10 @@ export const WithActions: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0} onClick={() => console.log("clicked")}>
         <DraggableRowSongContent
-          title="smells like teen spirit"
-          artist="nirvana"
-          album="nevermind"
-          durationSeconds={301}
+          title={mockSongs[22].title}
+          artist={mockSongs[22].artist}
+          album={mockSongs[22].album}
+          durationSeconds={mockSongs[22].durationSeconds}
           actions={
             <>
               <IconButton
@@ -369,10 +289,10 @@ export const HoverInteraction: Story = {
       </p>
       <DraggableRow id="1" index={0} onClick={() => console.log("clicked")}>
         <DraggableRowSongContent
-          title="imagine"
-          artist="john lennon"
-          album="imagine"
-          durationSeconds={183}
+          title={mockSongs[1].title}
+          artist={mockSongs[1].artist}
+          album={mockSongs[1].album}
+          durationSeconds={mockSongs[1].durationSeconds}
         />
       </DraggableRow>
     </div>
@@ -384,10 +304,10 @@ export const Disabled: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0} disabled={true}>
         <DraggableRowSongContent
-          title="sweet child o' mine"
-          artist="guns n' roses"
-          album="appetite for destruction"
-          durationSeconds={356}
+          title={mockSongs[22].title}
+          artist={mockSongs[22].artist}
+          album={mockSongs[22].album}
+          durationSeconds={mockSongs[22].durationSeconds}
         />
       </DraggableRow>
     </div>
@@ -399,9 +319,9 @@ export const NoDuration: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0}>
         <DraggableRowSongContent
-          title="yesterday"
-          artist="the beatles"
-          album="help!"
+          title={mockSongs[15].title}
+          artist={mockSongs[15].artist}
+          album={mockSongs[15].album}
         />
       </DraggableRow>
     </div>
@@ -413,9 +333,9 @@ export const LongTitle: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <DraggableRow id="1" index={0}>
         <DraggableRowSongContent
-          title="this is an extremely long song title that should truncate properly and not wrap to multiple lines"
-          artist="an artist with a very long name that also needs truncation"
-          album="the album with the longest name you've ever seen in your entire life"
+          title="This Is An Extremely Long Song Title That Should Truncate Properly And Not Wrap To Multiple Lines"
+          artist="An Artist With A Very Long Name That Also Needs Truncation"
+          album="The Album With The Longest Name You've Ever Seen In Your Entire Life"
           durationSeconds={999}
         />
       </DraggableRow>
@@ -429,46 +349,46 @@ export const MultipleStates: Story = {
     <div class="p-6 bg-[var(--color-bg-primary)] space-y-1">
       <DraggableRow id="1" index={0}>
         <DraggableRowSongContent
-          title="normal state"
-          artist="default row"
-          album="no interaction"
-          durationSeconds={180}
+          title={mockSongs[2].title}
+          artist={mockSongs[2].artist}
+          album={mockSongs[2].album}
+          durationSeconds={mockSongs[2].durationSeconds}
         />
       </DraggableRow>
 
       <DraggableRow id="2" index={1} isSelected={true}>
         <DraggableRowSongContent
-          title="selected state"
-          artist="highlighted row"
-          album="clicked once"
-          durationSeconds={240}
+          title={mockSongs[3].title}
+          artist={mockSongs[3].artist}
+          album={mockSongs[3].album}
+          durationSeconds={mockSongs[3].durationSeconds}
         />
       </DraggableRow>
 
       <DraggableRow id="3" index={2} isDragging={true}>
         <DraggableRowSongContent
-          title="dragging state"
-          artist="being moved"
-          album="ghost appearance"
-          durationSeconds={195}
+          title={mockSongs[4].title}
+          artist={mockSongs[4].artist}
+          album={mockSongs[4].album}
+          durationSeconds={mockSongs[4].durationSeconds}
         />
       </DraggableRow>
 
       <DraggableRow id="4" index={3} isDropTarget={true}>
         <DraggableRowSongContent
-          title="drop target state"
-          artist="target zone"
-          album="highlighted border"
-          durationSeconds={320}
+          title={mockSongs[5].title}
+          artist={mockSongs[5].artist}
+          album={mockSongs[5].album}
+          durationSeconds={mockSongs[5].durationSeconds}
         />
       </DraggableRow>
 
       <DraggableRow id="5" index={4} disabled={true}>
         <DraggableRowSongContent
-          title="disabled state"
-          artist="non-draggable"
-          album="locked in place"
-          durationSeconds={205}
+          title={mockSongs[6].title}
+          artist={mockSongs[6].artist}
+          album={mockSongs[6].album}
+          durationSeconds={mockSongs[6].durationSeconds}
         />
       </DraggableRow>
     </div>

@@ -2,9 +2,11 @@ import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
   TopNav,
+  type NavMenuItem,
   type NavMenuSection,
   type RecentPlaylist,
 } from "../src/components/navigation/TopNav";
+import { mockPlaylists } from "./mockData";
 
 const meta = {
   title: "Components/Navigation/TopNav",
@@ -80,33 +82,13 @@ const mockMainNavSections: NavMenuSection[] = [
   },
 ];
 
-const mockRecentPlaylists: RecentPlaylist[] = [
-  {
-    id: "1",
-    name: "summer vibes 2024",
-    onClick: () => console.log("open playlist: summer vibes"),
-  },
-  {
-    id: "2",
-    name: "chill coding",
-    onClick: () => console.log("open playlist: chill coding"),
-  },
-  {
-    id: "3",
-    name: "workout energy",
-    onClick: () => console.log("open playlist: workout energy"),
-  },
-  {
-    id: "4",
-    name: "indie discoveries",
-    onClick: () => console.log("open playlist: indie discoveries"),
-  },
-  {
-    id: "5",
-    name: "late night jazz",
-    onClick: () => console.log("open playlist: late night jazz"),
-  },
-];
+const mockRecentPlaylists: RecentPlaylist[] = mockPlaylists
+  .slice(0, 5)
+  .map((playlist) => ({
+    id: playlist.id,
+    name: playlist.name,
+    onClick: () => console.log("open playlist:", playlist.name),
+  }));
 
 // interactive example with full layout
 export const Interactive: Story = {

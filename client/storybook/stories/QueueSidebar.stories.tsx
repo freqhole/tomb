@@ -1,10 +1,11 @@
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
 import {
   QueueSidebar,
   type QueueSong,
 } from "../src/components/player/QueueSidebar";
+import { mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Player/QueueSidebar",
@@ -21,68 +22,20 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const mockSongs: QueueSong[] = [
-  {
-    id: "1",
-    title: "paranoid android",
-    artist: "radiohead",
-    duration: 383,
-    thumbnailUrl:
-      "https://lastfm.freetls.fastly.net/i/u/300x300/c6f59c1e5e7240a4c0d427abd71f3dbb.jpg",
-  },
-  {
-    id: "2",
-    title: "comfortably numb",
-    artist: "pink floyd",
-    duration: 389,
-  },
-  {
-    id: "3",
-    title: "stairway to heaven",
-    artist: "led zeppelin",
-    duration: 482,
-    thumbnailUrl: "https://picsum.photos/seed/ledzep/300/300",
-  },
-  {
-    id: "4",
-    title: "bohemian rhapsody",
-    artist: "queen",
-    duration: 355,
-    thumbnailUrl: "https://picsum.photos/seed/queen/300/300",
-  },
-  {
-    id: "5",
-    title: "hotel california",
-    artist: "eagles",
-    duration: 391,
-  },
-  {
-    id: "6",
-    title: "wish you were here",
-    artist: "pink floyd",
-    duration: 334,
-    thumbnailUrl: "https://picsum.photos/seed/wywh/300/300",
-  },
-  {
-    id: "7",
-    title: "shine on you crazy diamond",
-    artist: "pink floyd",
-    duration: 810,
-  },
-  {
-    id: "8",
-    title: "echoes",
-    artist: "pink floyd",
-    duration: 1433,
-    thumbnailUrl: "https://picsum.photos/seed/echoes/300/300",
-  },
-];
+// map mock songs to queue format
+const mockQueueSongs: QueueSong[] = mockSongs.slice(0, 8).map((song) => ({
+  id: song.id,
+  title: song.title,
+  artist: song.artist,
+  duration: song.durationSeconds,
+  thumbnailUrl: song.thumbnailUrl,
+}));
 
 // interactive example
 export const Interactive: Story = {
   render: () => {
     const [isOpen, setIsOpen] = createSignal(true);
-    const [songs, setSongs] = createSignal(mockSongs);
+    const [songs, setSongs] = createSignal(mockQueueSongs);
     const [currentIndex, setCurrentIndex] = createSignal(0);
 
     const handleSongClick = (index: number) => {
@@ -323,7 +276,7 @@ export const Closed: Story = {
           </button>
         </div>
         <QueueSidebar
-          songs={mockSongs}
+          songs={mockQueueSongs}
           currentIndex={0}
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
@@ -447,7 +400,7 @@ export const PlayingFirstSong: Story = {
           </button>
         </div>
         <QueueSidebar
-          songs={mockSongs}
+          songs={mockQueueSongs}
           currentIndex={0}
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
@@ -476,7 +429,7 @@ export const PlayingLastSong: Story = {
           </button>
         </div>
         <QueueSidebar
-          songs={mockSongs}
+          songs={mockQueueSongs}
           currentIndex={mockSongs.length - 1}
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}

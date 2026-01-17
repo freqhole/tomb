@@ -4,6 +4,7 @@ import { SearchSortControls } from "../../src/components/controls/SearchSortCont
 import { HeadingSection } from "../../src/components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../src/components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../src/components/navigation/AlphabetNav";
+import { mockArtists, type Artist } from "../mockData";
 
 const meta = {
   title: "Layout/TwoColumnLayout",
@@ -16,41 +17,6 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-// mock artist data
-interface MockArtist {
-  id: string;
-  name: string;
-  songCount: number;
-  albumCount: number;
-}
-
-const mockArtists: MockArtist[] = [
-  { id: "1", name: "AC/DC", songCount: 42, albumCount: 8 },
-  { id: "2", name: "Aphex Twin", songCount: 156, albumCount: 12 },
-  { id: "3", name: "Arctic Monkeys", songCount: 67, albumCount: 6 },
-  { id: "4", name: "The Beatles", songCount: 213, albumCount: 13 },
-  { id: "5", name: "Björk", songCount: 89, albumCount: 9 },
-  { id: "6", name: "Bob Dylan", songCount: 387, albumCount: 39 },
-  { id: "7", name: "David Bowie", songCount: 342, albumCount: 27 },
-  { id: "8", name: "Daft Punk", songCount: 48, albumCount: 4 },
-  { id: "9", name: "Gorillaz", songCount: 94, albumCount: 7 },
-  { id: "10", name: "Kendrick Lamar", songCount: 78, albumCount: 5 },
-  { id: "11", name: "Led Zeppelin", songCount: 94, albumCount: 8 },
-  { id: "12", name: "Massive Attack", songCount: 67, albumCount: 5 },
-  { id: "13", name: "Metallica", songCount: 156, albumCount: 10 },
-  { id: "14", name: "Nine Inch Nails", songCount: 123, albumCount: 9 },
-  { id: "15", name: "Nirvana", songCount: 87, albumCount: 3 },
-  { id: "16", name: "Pink Floyd", songCount: 165, albumCount: 15 },
-  { id: "17", name: "Portishead", songCount: 37, albumCount: 3 },
-  { id: "18", name: "Radiohead", songCount: 158, albumCount: 9 },
-  { id: "19", name: "Red Hot Chili Peppers", songCount: 178, albumCount: 11 },
-  { id: "20", name: "The Smiths", songCount: 73, albumCount: 4 },
-  { id: "21", name: "Tool", songCount: 46, albumCount: 5 },
-  { id: "22", name: "The Velvet Underground", songCount: 54, albumCount: 4 },
-  { id: "23", name: "The White Stripes", songCount: 89, albumCount: 6 },
-  { id: "24", name: "Ween", songCount: 267, albumCount: 14 },
-];
 
 // sort fields
 const artistSortFields = [
@@ -65,7 +31,7 @@ const artistSortFields = [
  */
 export const ArtistListWithDetail: Story = {
   render: () => {
-    const [selectedArtist, setSelectedArtist] = createSignal<MockArtist | null>(
+    const [selectedArtist, setSelectedArtist] = createSignal<Artist | null>(
       null,
     );
     const [sortBy, setSortBy] = createSignal("artist");
@@ -79,7 +45,7 @@ export const ArtistListWithDetail: Story = {
     // sort artists
     const sortedArtists = () => {
       const artists = [...mockArtists];
-      const field = sortBy() as keyof MockArtist;
+      const field = sortBy() as keyof Artist;
       const dir = sortDirection();
 
       artists.sort((a, b) => {

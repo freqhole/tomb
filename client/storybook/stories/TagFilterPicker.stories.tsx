@@ -1,44 +1,21 @@
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { Badge } from "../src/components/badges/Badge";
 import {
   TagFilterPicker,
   type TagFilter,
   type TagOption,
 } from "../src/components/forms/TagFilterPicker";
+import { mockTags } from "./mockData";
 
 const meta = {
   title: "Components/Forms/TagFilterPicker",
   component: TagFilterPicker,
-  parameters: {
-    layout: "padded",
-  },
   tags: ["autodocs"],
 } satisfies Meta<typeof TagFilterPicker>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-// mock tag data
-const mockTags: TagOption[] = [
-  { value: "rock", label: "rock", count: 342 },
-  { value: "electronic", label: "electronic", count: 287 },
-  { value: "jazz", label: "jazz", count: 156 },
-  { value: "classical", label: "classical", count: 203 },
-  { value: "hip-hop", label: "hip-hop", count: 178 },
-  { value: "indie", label: "indie", count: 234 },
-  { value: "metal", label: "metal", count: 143 },
-  { value: "pop", label: "pop", count: 267 },
-  { value: "folk", label: "folk", count: 98 },
-  { value: "ambient", label: "ambient", count: 87 },
-  { value: "experimental", label: "experimental", count: 112 },
-  { value: "punk", label: "punk", count: 89 },
-  { value: "soul", label: "soul", count: 76 },
-  { value: "funk", label: "funk", count: 54 },
-  { value: "blues", label: "blues", count: 67 },
-  { value: "reggae", label: "reggae", count: 43 },
-  { value: "country", label: "country", count: 52 },
-  { value: "r&b", label: "r&b", count: 94 },
-];
 
 /**
  * interactive tag filter picker with include/exclude functionality

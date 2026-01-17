@@ -4,6 +4,7 @@ import {
   PlayerBar,
   type PlayerBarSong,
 } from "../src/components/player/PlayerBar";
+import { mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Player/PlayerBar",
@@ -31,23 +32,22 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+// use mock songs from shared data
 const mockSong: PlayerBarSong = {
-  id: "1",
-  title:
-    "paranoid android - remastered 2009 - extended edition with bonus tracks and live recordings",
-  artist: "radiohead",
-  album: "ok computer",
-  thumbnailUrl:
-    "https://lastfm.freetls.fastly.net/i/u/300x300/c6f59c1e5e7240a4c0d427abd71f3dbb.jpg",
-  isFavorite: false,
+  id: mockSongs[8].id,
+  title: mockSongs[8].title,
+  artist: mockSongs[8].artist,
+  album: mockSongs[8].album,
+  thumbnailUrl: mockSongs[8].thumbnailUrl,
+  isFavorite: mockSongs[8].isFavorite,
 };
 
 const mockSongNoThumbnail: PlayerBarSong = {
-  id: "2",
-  title: "comfortably numb - live at earls court 1994 - extended version",
-  artist: "pink floyd",
-  album: "the wall",
-  isFavorite: true,
+  id: mockSongs[0].id,
+  title: mockSongs[0].title,
+  artist: mockSongs[0].artist,
+  album: mockSongs[0].album,
+  isFavorite: mockSongs[0].isFavorite,
 };
 
 // interactive example

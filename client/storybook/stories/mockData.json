@@ -1,0 +1,1125 @@
+{
+  "artists": [
+    {
+      "id": "1",
+      "name": "Pink Floyd",
+      "songCount": 165,
+      "albumCount": 15,
+      "totalDuration": 39600,
+      "avgRating": 4.7,
+      "genres": ["progressive rock", "psychedelic rock"]
+    },
+    {
+      "id": "2",
+      "name": "Radiohead",
+      "songCount": 158,
+      "albumCount": 9,
+      "totalDuration": 31200,
+      "avgRating": 4.6,
+      "genres": ["alternative rock", "electronic"]
+    },
+    {
+      "id": "3",
+      "name": "Led Zeppelin",
+      "songCount": 94,
+      "albumCount": 8,
+      "totalDuration": 24480,
+      "avgRating": 4.8,
+      "genres": ["hard rock", "blues rock"]
+    },
+    {
+      "id": "4",
+      "name": "The Beatles",
+      "songCount": 213,
+      "albumCount": 13,
+      "totalDuration": 28800,
+      "avgRating": 4.9,
+      "genres": ["rock", "pop"]
+    },
+    {
+      "id": "5",
+      "name": "Queen",
+      "songCount": 184,
+      "albumCount": 15,
+      "totalDuration": 46080,
+      "avgRating": 4.7,
+      "genres": ["rock", "glam rock"]
+    },
+    {
+      "id": "6",
+      "name": "David Bowie",
+      "songCount": 342,
+      "albumCount": 27,
+      "totalDuration": 72000,
+      "avgRating": 4.5,
+      "genres": ["art rock", "glam rock"]
+    },
+    {
+      "id": "7",
+      "name": "Nirvana",
+      "songCount": 87,
+      "albumCount": 3,
+      "totalDuration": 15600,
+      "avgRating": 4.6,
+      "genres": ["grunge", "alternative rock"]
+    },
+    {
+      "id": "8",
+      "name": "Daft Punk",
+      "songCount": 48,
+      "albumCount": 4,
+      "totalDuration": 12000,
+      "avgRating": 4.4,
+      "genres": ["electronic", "house"]
+    },
+    {
+      "id": "9",
+      "name": "Aphex Twin",
+      "songCount": 156,
+      "albumCount": 12,
+      "totalDuration": 28800,
+      "avgRating": 4.3,
+      "genres": ["electronic", "idm"]
+    },
+    {
+      "id": "10",
+      "name": "Arctic Monkeys",
+      "songCount": 67,
+      "albumCount": 6,
+      "totalDuration": 14400,
+      "avgRating": 4.2,
+      "genres": ["indie rock", "alternative rock"]
+    },
+    {
+      "id": "11",
+      "name": "Björk",
+      "songCount": 89,
+      "albumCount": 9,
+      "totalDuration": 21600,
+      "avgRating": 4.4,
+      "genres": ["electronic", "art pop"]
+    },
+    {
+      "id": "12",
+      "name": "Massive Attack",
+      "songCount": 67,
+      "albumCount": 5,
+      "totalDuration": 16200,
+      "avgRating": 4.5,
+      "genres": ["trip hop", "electronic"]
+    },
+    {
+      "id": "13",
+      "name": "Portishead",
+      "songCount": 37,
+      "albumCount": 3,
+      "totalDuration": 8100,
+      "avgRating": 4.6,
+      "genres": ["trip hop", "electronic"]
+    },
+    {
+      "id": "14",
+      "name": "The Smiths",
+      "songCount": 73,
+      "albumCount": 4,
+      "totalDuration": 15480,
+      "avgRating": 4.5,
+      "genres": ["indie rock", "alternative rock"]
+    },
+    {
+      "id": "15",
+      "name": "Joy Division",
+      "songCount": 42,
+      "albumCount": 2,
+      "totalDuration": 9000,
+      "avgRating": 4.7,
+      "genres": ["post-punk", "new wave"]
+    },
+    {
+      "id": "16",
+      "name": "New Order",
+      "songCount": 98,
+      "albumCount": 10,
+      "totalDuration": 21600,
+      "avgRating": 4.3,
+      "genres": ["new wave", "electronic"]
+    },
+    {
+      "id": "17",
+      "name": "Tame Impala",
+      "songCount": 54,
+      "albumCount": 4,
+      "totalDuration": 12600,
+      "avgRating": 4.4,
+      "genres": ["psychedelic rock", "indie rock"]
+    },
+    {
+      "id": "18",
+      "name": "Gorillaz",
+      "songCount": 94,
+      "albumCount": 7,
+      "totalDuration": 19800,
+      "avgRating": 4.2,
+      "genres": ["alternative rock", "hip hop"]
+    },
+    {
+      "id": "19",
+      "name": "Kraftwerk",
+      "songCount": 78,
+      "albumCount": 11,
+      "totalDuration": 18000,
+      "avgRating": 4.6,
+      "genres": ["electronic", "synth-pop"]
+    },
+    {
+      "id": "20",
+      "name": "Talking Heads",
+      "songCount": 96,
+      "albumCount": 8,
+      "totalDuration": 19200,
+      "avgRating": 4.5,
+      "genres": ["new wave", "art rock"]
+    }
+  ],
+  "albums": [
+    {
+      "id": "1",
+      "title": "The Dark Side of the Moon",
+      "artist": "Pink Floyd",
+      "year": 1973,
+      "trackCount": 10,
+      "duration": 2580,
+      "rating": 4.9,
+      "thumbnailUrl": "https://picsum.photos/seed/album1/300/300"
+    },
+    {
+      "id": "2",
+      "title": "The Wall",
+      "artist": "Pink Floyd",
+      "year": 1979,
+      "trackCount": 26,
+      "duration": 4860,
+      "rating": 4.8,
+      "thumbnailUrl": "https://picsum.photos/seed/album2/300/300"
+    },
+    {
+      "id": "3",
+      "title": "OK Computer",
+      "artist": "Radiohead",
+      "year": 1997,
+      "trackCount": 12,
+      "duration": 3210,
+      "rating": 4.9,
+      "thumbnailUrl": "https://picsum.photos/seed/album3/300/300"
+    },
+    {
+      "id": "4",
+      "title": "Led Zeppelin IV",
+      "artist": "Led Zeppelin",
+      "year": 1971,
+      "trackCount": 8,
+      "duration": 2550,
+      "rating": 4.9,
+      "thumbnailUrl": "https://picsum.photos/seed/album4/300/300"
+    },
+    {
+      "id": "5",
+      "title": "Abbey Road",
+      "artist": "The Beatles",
+      "year": 1969,
+      "trackCount": 17,
+      "duration": 2850,
+      "rating": 4.9,
+      "thumbnailUrl": "https://picsum.photos/seed/album5/300/300"
+    },
+    {
+      "id": "6",
+      "title": "A Night at the Opera",
+      "artist": "Queen",
+      "year": 1975,
+      "trackCount": 12,
+      "duration": 2570,
+      "rating": 4.8,
+      "thumbnailUrl": "https://picsum.photos/seed/album6/300/300"
+    },
+    {
+      "id": "7",
+      "title": "The Rise and Fall of Ziggy Stardust",
+      "artist": "David Bowie",
+      "year": 1972,
+      "trackCount": 11,
+      "duration": 2310,
+      "rating": 4.7,
+      "thumbnailUrl": "https://picsum.photos/seed/album7/300/300"
+    },
+    {
+      "id": "8",
+      "title": "Nevermind",
+      "artist": "Nirvana",
+      "year": 1991,
+      "trackCount": 12,
+      "duration": 2490,
+      "rating": 4.8,
+      "thumbnailUrl": "https://picsum.photos/seed/album8/300/300"
+    },
+    {
+      "id": "9",
+      "title": "Discovery",
+      "artist": "Daft Punk",
+      "year": 2001,
+      "trackCount": 14,
+      "duration": 3660,
+      "rating": 4.6,
+      "thumbnailUrl": "https://picsum.photos/seed/album9/300/300"
+    },
+    {
+      "id": "10",
+      "title": "Selected Ambient Works 85-92",
+      "artist": "Aphex Twin",
+      "year": 1992,
+      "trackCount": 13,
+      "duration": 4500,
+      "rating": 4.5,
+      "thumbnailUrl": "https://picsum.photos/seed/album10/300/300"
+    },
+    {
+      "id": "11",
+      "title": "AM",
+      "artist": "Arctic Monkeys",
+      "year": 2013,
+      "trackCount": 12,
+      "duration": 2520,
+      "rating": 4.3,
+      "thumbnailUrl": "https://picsum.photos/seed/album11/300/300"
+    },
+    {
+      "id": "12",
+      "title": "Wish You Were Here",
+      "artist": "Pink Floyd",
+      "year": 1975,
+      "trackCount": 5,
+      "duration": 2640,
+      "rating": 4.8,
+      "thumbnailUrl": "https://picsum.photos/seed/album12/300/300"
+    },
+    {
+      "id": "13",
+      "title": "Blue Lines",
+      "artist": "Massive Attack",
+      "year": 1991,
+      "trackCount": 9,
+      "duration": 2760,
+      "rating": 4.7,
+      "thumbnailUrl": "https://picsum.photos/seed/album13/300/300"
+    },
+    {
+      "id": "14",
+      "title": "Dummy",
+      "artist": "Portishead",
+      "year": 1994,
+      "trackCount": 11,
+      "duration": 2940,
+      "rating": 4.8,
+      "thumbnailUrl": "https://picsum.photos/seed/album14/300/300"
+    },
+    {
+      "id": "15",
+      "title": "The Queen Is Dead",
+      "artist": "The Smiths",
+      "year": 1986,
+      "trackCount": 10,
+      "duration": 2370,
+      "rating": 4.7,
+      "thumbnailUrl": "https://picsum.photos/seed/album15/300/300"
+    },
+    {
+      "id": "16",
+      "title": "Unknown Pleasures",
+      "artist": "Joy Division",
+      "year": 1979,
+      "trackCount": 10,
+      "duration": 2340,
+      "rating": 4.8,
+      "thumbnailUrl": "https://picsum.photos/seed/album16/300/300"
+    },
+    {
+      "id": "17",
+      "title": "Technique",
+      "artist": "New Order",
+      "year": 1989,
+      "trackCount": 9,
+      "duration": 2610,
+      "rating": 4.4,
+      "thumbnailUrl": "https://picsum.photos/seed/album17/300/300"
+    },
+    {
+      "id": "18",
+      "title": "Currents",
+      "artist": "Tame Impala",
+      "year": 2015,
+      "trackCount": 13,
+      "duration": 3090,
+      "rating": 4.5,
+      "thumbnailUrl": "https://picsum.photos/seed/album18/300/300"
+    },
+    {
+      "id": "19",
+      "title": "Demon Days",
+      "artist": "Gorillaz",
+      "year": 2005,
+      "trackCount": 15,
+      "duration": 3180,
+      "rating": 4.4,
+      "thumbnailUrl": "https://picsum.photos/seed/album19/300/300"
+    },
+    {
+      "id": "20",
+      "title": "Trans-Europe Express",
+      "artist": "Kraftwerk",
+      "year": 1977,
+      "trackCount": 7,
+      "duration": 2550,
+      "rating": 4.7,
+      "thumbnailUrl": "https://picsum.photos/seed/album20/300/300"
+    },
+    {
+      "id": "21",
+      "title": "Remain in Light",
+      "artist": "Talking Heads",
+      "year": 1980,
+      "trackCount": 8,
+      "duration": 2460,
+      "rating": 4.6,
+      "thumbnailUrl": "https://picsum.photos/seed/album21/300/300"
+    },
+    {
+      "id": "22",
+      "title": "Homogenic",
+      "artist": "Björk",
+      "year": 1997,
+      "trackCount": 10,
+      "duration": 2820,
+      "rating": 4.5,
+      "thumbnailUrl": "https://picsum.photos/seed/album22/300/300"
+    }
+  ],
+  "songs": [
+    {
+      "id": "1",
+      "title": "Comfortably Numb",
+      "artist": "Pink Floyd",
+      "album": "The Wall",
+      "durationSeconds": 382,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song1/300/300"
+    },
+    {
+      "id": "2",
+      "title": "Wish You Were Here",
+      "artist": "Pink Floyd",
+      "album": "Wish You Were Here",
+      "durationSeconds": 334,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song2/300/300"
+    },
+    {
+      "id": "3",
+      "title": "Time",
+      "artist": "Pink Floyd",
+      "album": "The Dark Side of the Moon",
+      "durationSeconds": 413,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song3/300/300"
+    },
+    {
+      "id": "4",
+      "title": "Money",
+      "artist": "Pink Floyd",
+      "album": "The Dark Side of the Moon",
+      "durationSeconds": 382,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song4/300/300"
+    },
+    {
+      "id": "5",
+      "title": "Shine On You Crazy Diamond",
+      "artist": "Pink Floyd",
+      "album": "Wish You Were Here",
+      "durationSeconds": 810,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song5/300/300"
+    },
+    {
+      "id": "6",
+      "title": "Another Brick in the Wall",
+      "artist": "Pink Floyd",
+      "album": "The Wall",
+      "durationSeconds": 238,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song6/300/300"
+    },
+    {
+      "id": "7",
+      "title": "Us and Them",
+      "artist": "Pink Floyd",
+      "album": "The Dark Side of the Moon",
+      "durationSeconds": 461,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song7/300/300"
+    },
+    {
+      "id": "8",
+      "title": "Hey You",
+      "artist": "Pink Floyd",
+      "album": "The Wall",
+      "durationSeconds": 284,
+      "rating": 3,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song8/300/300"
+    },
+    {
+      "id": "9",
+      "title": "Paranoid Android",
+      "artist": "Radiohead",
+      "album": "OK Computer",
+      "durationSeconds": 383,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song9/300/300"
+    },
+    {
+      "id": "10",
+      "title": "Karma Police",
+      "artist": "Radiohead",
+      "album": "OK Computer",
+      "durationSeconds": 261,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song10/300/300"
+    },
+    {
+      "id": "11",
+      "title": "No Surprises",
+      "artist": "Radiohead",
+      "album": "OK Computer",
+      "durationSeconds": 228,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song11/300/300"
+    },
+    {
+      "id": "12",
+      "title": "Stairway to Heaven",
+      "artist": "Led Zeppelin",
+      "album": "Led Zeppelin IV",
+      "durationSeconds": 482,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song12/300/300"
+    },
+    {
+      "id": "13",
+      "title": "Black Dog",
+      "artist": "Led Zeppelin",
+      "album": "Led Zeppelin IV",
+      "durationSeconds": 296,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song13/300/300"
+    },
+    {
+      "id": "14",
+      "title": "Rock and Roll",
+      "artist": "Led Zeppelin",
+      "album": "Led Zeppelin IV",
+      "durationSeconds": 220,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song14/300/300"
+    },
+    {
+      "id": "15",
+      "title": "Come Together",
+      "artist": "The Beatles",
+      "album": "Abbey Road",
+      "durationSeconds": 259,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song15/300/300"
+    },
+    {
+      "id": "16",
+      "title": "Here Comes the Sun",
+      "artist": "The Beatles",
+      "album": "Abbey Road",
+      "durationSeconds": 185,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song16/300/300"
+    },
+    {
+      "id": "17",
+      "title": "Something",
+      "artist": "The Beatles",
+      "album": "Abbey Road",
+      "durationSeconds": 182,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song17/300/300"
+    },
+    {
+      "id": "18",
+      "title": "Bohemian Rhapsody",
+      "artist": "Queen",
+      "album": "A Night at the Opera",
+      "durationSeconds": 354,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song18/300/300"
+    },
+    {
+      "id": "19",
+      "title": "You're My Best Friend",
+      "artist": "Queen",
+      "album": "A Night at the Opera",
+      "durationSeconds": 172,
+      "rating": 3,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song19/300/300"
+    },
+    {
+      "id": "20",
+      "title": "Love of My Life",
+      "artist": "Queen",
+      "album": "A Night at the Opera",
+      "durationSeconds": 218,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song20/300/300"
+    },
+    {
+      "id": "21",
+      "title": "Starman",
+      "artist": "David Bowie",
+      "album": "The Rise and Fall of Ziggy Stardust",
+      "durationSeconds": 256,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song21/300/300"
+    },
+    {
+      "id": "22",
+      "title": "Ziggy Stardust",
+      "artist": "David Bowie",
+      "album": "The Rise and Fall of Ziggy Stardust",
+      "durationSeconds": 193,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song22/300/300"
+    },
+    {
+      "id": "23",
+      "title": "Smells Like Teen Spirit",
+      "artist": "Nirvana",
+      "album": "Nevermind",
+      "durationSeconds": 301,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song23/300/300"
+    },
+    {
+      "id": "24",
+      "title": "Come As You Are",
+      "artist": "Nirvana",
+      "album": "Nevermind",
+      "durationSeconds": 219,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song24/300/300"
+    },
+    {
+      "id": "25",
+      "title": "Lithium",
+      "artist": "Nirvana",
+      "album": "Nevermind",
+      "durationSeconds": 257,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song25/300/300"
+    },
+    {
+      "id": "26",
+      "title": "One More Time",
+      "artist": "Daft Punk",
+      "album": "Discovery",
+      "durationSeconds": 320,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song26/300/300"
+    },
+    {
+      "id": "27",
+      "title": "Digital Love",
+      "artist": "Daft Punk",
+      "album": "Discovery",
+      "durationSeconds": 301,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song27/300/300"
+    },
+    {
+      "id": "28",
+      "title": "Harder Better Faster Stronger",
+      "artist": "Daft Punk",
+      "album": "Discovery",
+      "durationSeconds": 224,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song28/300/300"
+    },
+    {
+      "id": "29",
+      "title": "Xtal",
+      "artist": "Aphex Twin",
+      "album": "Selected Ambient Works 85-92",
+      "durationSeconds": 280,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song29/300/300"
+    },
+    {
+      "id": "30",
+      "title": "Tha",
+      "artist": "Aphex Twin",
+      "album": "Selected Ambient Works 85-92",
+      "durationSeconds": 548,
+      "rating": 3,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song30/300/300"
+    },
+    {
+      "id": "31",
+      "title": "Teardrop",
+      "artist": "Massive Attack",
+      "album": "Mezzanine",
+      "durationSeconds": 330,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song31/300/300"
+    },
+    {
+      "id": "32",
+      "title": "Unfinished Sympathy",
+      "artist": "Massive Attack",
+      "album": "Blue Lines",
+      "durationSeconds": 309,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song32/300/300"
+    },
+    {
+      "id": "33",
+      "title": "Glory Box",
+      "artist": "Portishead",
+      "album": "Dummy",
+      "durationSeconds": 305,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song33/300/300"
+    },
+    {
+      "id": "34",
+      "title": "Roads",
+      "artist": "Portishead",
+      "album": "Dummy",
+      "durationSeconds": 305,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song34/300/300"
+    },
+    {
+      "id": "35",
+      "title": "There Is a Light That Never Goes Out",
+      "artist": "The Smiths",
+      "album": "The Queen Is Dead",
+      "durationSeconds": 244,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song35/300/300"
+    },
+    {
+      "id": "36",
+      "title": "How Soon Is Now?",
+      "artist": "The Smiths",
+      "album": "Meat Is Murder",
+      "durationSeconds": 413,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song36/300/300"
+    },
+    {
+      "id": "37",
+      "title": "Love Will Tear Us Apart",
+      "artist": "Joy Division",
+      "album": "Unknown Pleasures",
+      "durationSeconds": 206,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song37/300/300"
+    },
+    {
+      "id": "38",
+      "title": "Transmission",
+      "artist": "Joy Division",
+      "album": "Unknown Pleasures",
+      "durationSeconds": 215,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song38/300/300"
+    },
+    {
+      "id": "39",
+      "title": "Blue Monday",
+      "artist": "New Order",
+      "album": "Power, Corruption & Lies",
+      "durationSeconds": 448,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song39/300/300"
+    },
+    {
+      "id": "40",
+      "title": "Bizarre Love Triangle",
+      "artist": "New Order",
+      "album": "Brotherhood",
+      "durationSeconds": 263,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song40/300/300"
+    },
+    {
+      "id": "41",
+      "title": "Let It Happen",
+      "artist": "Tame Impala",
+      "album": "Currents",
+      "durationSeconds": 467,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song41/300/300"
+    },
+    {
+      "id": "42",
+      "title": "The Less I Know the Better",
+      "artist": "Tame Impala",
+      "album": "Currents",
+      "durationSeconds": 216,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song42/300/300"
+    },
+    {
+      "id": "43",
+      "title": "Feel Good Inc.",
+      "artist": "Gorillaz",
+      "album": "Demon Days",
+      "durationSeconds": 222,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song43/300/300"
+    },
+    {
+      "id": "44",
+      "title": "Clint Eastwood",
+      "artist": "Gorillaz",
+      "album": "Gorillaz",
+      "durationSeconds": 341,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song44/300/300"
+    },
+    {
+      "id": "45",
+      "title": "The Model",
+      "artist": "Kraftwerk",
+      "album": "The Man-Machine",
+      "durationSeconds": 221,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song45/300/300"
+    },
+    {
+      "id": "46",
+      "title": "Trans-Europe Express",
+      "artist": "Kraftwerk",
+      "album": "Trans-Europe Express",
+      "durationSeconds": 402,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song46/300/300"
+    },
+    {
+      "id": "47",
+      "title": "Once in a Lifetime",
+      "artist": "Talking Heads",
+      "album": "Remain in Light",
+      "durationSeconds": 260,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song47/300/300"
+    },
+    {
+      "id": "48",
+      "title": "Psycho Killer",
+      "artist": "Talking Heads",
+      "album": "Talking Heads: 77",
+      "durationSeconds": 261,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song48/300/300"
+    },
+    {
+      "id": "49",
+      "title": "Jóga",
+      "artist": "Björk",
+      "album": "Homogenic",
+      "durationSeconds": 300,
+      "rating": 5,
+      "isFavorite": true,
+      "thumbnailUrl": "https://picsum.photos/seed/song49/300/300"
+    },
+    {
+      "id": "50",
+      "title": "Army of Me",
+      "artist": "Björk",
+      "album": "Post",
+      "durationSeconds": 234,
+      "rating": 4,
+      "isFavorite": false,
+      "thumbnailUrl": "https://picsum.photos/seed/song50/300/300"
+    }
+  ],
+  "tags": [
+    { "value": "rock", "label": "rock", "count": 342 },
+    { "value": "electronic", "label": "electronic", "count": 287 },
+    { "value": "jazz", "label": "jazz", "count": 156 },
+    { "value": "classical", "label": "classical", "count": 203 },
+    { "value": "hip-hop", "label": "hip-hop", "count": 178 },
+    { "value": "indie", "label": "indie", "count": 234 },
+    { "value": "metal", "label": "metal", "count": 143 },
+    { "value": "pop", "label": "pop", "count": 267 },
+    { "value": "folk", "label": "folk", "count": 98 },
+    { "value": "ambient", "label": "ambient", "count": 87 },
+    { "value": "experimental", "label": "experimental", "count": 112 },
+    { "value": "punk", "label": "punk", "count": 89 },
+    { "value": "soul", "label": "soul", "count": 76 },
+    { "value": "funk", "label": "funk", "count": 54 },
+    { "value": "blues", "label": "blues", "count": 67 },
+    { "value": "reggae", "label": "reggae", "count": 43 },
+    { "value": "country", "label": "country", "count": 52 },
+    { "value": "r&b", "label": "r&b", "count": 94 }
+  ],
+  "genres": [
+    {
+      "id": "1",
+      "name": "progressive rock",
+      "songCount": 248,
+      "artistCount": 12,
+      "albumCount": 28,
+      "totalDuration": 54000
+    },
+    {
+      "id": "2",
+      "name": "alternative rock",
+      "songCount": 342,
+      "artistCount": 18,
+      "albumCount": 42,
+      "totalDuration": 68400
+    },
+    {
+      "id": "3",
+      "name": "hard rock",
+      "songCount": 287,
+      "artistCount": 15,
+      "albumCount": 35,
+      "totalDuration": 57600
+    },
+    {
+      "id": "4",
+      "name": "rock",
+      "songCount": 512,
+      "artistCount": 24,
+      "albumCount": 67,
+      "totalDuration": 102400
+    },
+    {
+      "id": "5",
+      "name": "electronic",
+      "songCount": 428,
+      "artistCount": 22,
+      "albumCount": 54,
+      "totalDuration": 85600
+    },
+    {
+      "id": "6",
+      "name": "grunge",
+      "songCount": 156,
+      "artistCount": 8,
+      "albumCount": 18,
+      "totalDuration": 31200
+    },
+    {
+      "id": "7",
+      "name": "psychedelic rock",
+      "songCount": 198,
+      "artistCount": 10,
+      "albumCount": 24,
+      "totalDuration": 39600
+    },
+    {
+      "id": "8",
+      "name": "glam rock",
+      "songCount": 224,
+      "artistCount": 11,
+      "albumCount": 29,
+      "totalDuration": 44800
+    },
+    {
+      "id": "9",
+      "name": "trip hop",
+      "songCount": 176,
+      "artistCount": 9,
+      "albumCount": 22,
+      "totalDuration": 35200
+    },
+    {
+      "id": "10",
+      "name": "post-punk",
+      "songCount": 198,
+      "artistCount": 11,
+      "albumCount": 26,
+      "totalDuration": 39600
+    },
+    {
+      "id": "11",
+      "name": "new wave",
+      "songCount": 284,
+      "artistCount": 14,
+      "albumCount": 38,
+      "totalDuration": 56800
+    },
+    {
+      "id": "12",
+      "name": "indie rock",
+      "songCount": 396,
+      "artistCount": 21,
+      "albumCount": 52,
+      "totalDuration": 79200
+    }
+  ],
+  "playlists": [
+    {
+      "id": "1",
+      "name": "Best of Progressive Rock",
+      "songCount": 42,
+      "duration": 8640,
+      "isPublic": true,
+      "createdAt": "2024-01-15"
+    },
+    {
+      "id": "2",
+      "name": "Workout Mix",
+      "songCount": 28,
+      "duration": 5040,
+      "isPublic": false,
+      "createdAt": "2024-02-20"
+    },
+    {
+      "id": "3",
+      "name": "Chill Evening",
+      "songCount": 18,
+      "duration": 3960,
+      "isPublic": false,
+      "createdAt": "2024-03-10"
+    },
+    {
+      "id": "4",
+      "name": "Favorites 2024",
+      "songCount": 67,
+      "duration": 12480,
+      "isPublic": true,
+      "createdAt": "2024-01-01"
+    },
+    {
+      "id": "5",
+      "name": "Road Trip",
+      "songCount": 52,
+      "duration": 10560,
+      "isPublic": false,
+      "createdAt": "2024-02-05"
+    }
+  ],
+  "playlistSongs": {
+    "1": [
+      "1",
+      "2",
+      "3",
+      "5",
+      "9",
+      "12",
+      "18"
+    ],
+    "2": [
+      "6",
+      "13",
+      "14",
+      "23",
+      "24",
+      "28"
+    ],
+    "3": [
+      "2",
+      "7",
+      "11",
+      "27",
+      "29",
+      "30"
+    ],
+    "4": [
+      "1",
+      "2",
+      "9",
+      "12",
+      "16",
+      "18",
+      "23",
+      "27"
+    ],
+    "5": [
+      "4",
+      "6",
+      "10",
+      "13",
+      "15",
+      "19",
+      "21",
+      "24",
+      "26",
+      "28"
+    ]
+  },
+  "library": {
+    "totalSongs": 50,
+    "totalArtists": 20,
+    "totalAlbums": 22,
+    "totalGenres": 12,
+    "totalDuration": 892800,
+    "totalPlaylists": 5
+  }
+}
