@@ -37,6 +37,8 @@ export interface QueueSidebarProps {
   onClearAll: () => void;
   /** callback to get context menu actions for a song */
   getContextMenuActions?: (index: number, song: QueueSong) => MenuAction[];
+  /** layout variant: overlay (fixed position) or inline (in layout flow) */
+  variant?: "overlay" | "inline";
   /** additional classes */
   class?: string;
 }
@@ -83,11 +85,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
     props.onRemoveSong(index);
   };
 
+  const isOverlay = () => props.variant !== "inline";
+
   return (
     <div
-      class={`fixed top-0 right-0 bottom-0 w-96 bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border-l border-[var(--color-accent-500)]/30 z-40 flex flex-col transition-transform duration-300 ${props.class || ""} ${
-        props.isOpen ? "translate-x-0" : "translate-x-full"
-      }`}
+      class={`w-96 bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border-l border-[var(--color-accent-500)]/30 flex flex-col ${
+        isOverlay()
+          ? `fixed top-0 right-0 bottom-0 z-40 transition-transform duration-300 ${
+              props.isOpen ? "translate-x-0" : "translate-x-full"
+            }`
+          : props.isOpen
+            ? "flex-shrink-0"
+            : "hidden"
+      } ${props.class || ""}`}
     >
       {/* header */}
       <div class="flex items-center justify-between p-4 border-b border-[var(--color-accent-500)]/30">

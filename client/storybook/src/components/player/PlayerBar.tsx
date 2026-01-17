@@ -82,11 +82,6 @@ export function PlayerBar(props: PlayerBarProps) {
     props.onSeek(percentage);
   };
 
-  const handleProgressClick = (e: MouseEvent) => {
-    const target = e.currentTarget as HTMLElement;
-    updateProgress(e, target);
-  };
-
   const handleMouseDown = (e: MouseEvent) => {
     isDragging = true;
     const target = e.currentTarget as HTMLElement;
@@ -204,7 +199,6 @@ export function PlayerBar(props: PlayerBarProps) {
 
             <div
               class="flex-1 h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden cursor-pointer transition-all duration-200 hover:h-2 min-w-24"
-              onClick={handleProgressClick}
               onMouseDown={handleMouseDown}
             >
               <div

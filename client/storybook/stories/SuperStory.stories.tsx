@@ -25,6 +25,7 @@ import {
   Song as VirtualSong,
   VirtualSongList,
 } from "../src/components/virtualized/VirtualSongList";
+import { createIsMobile } from "../src/utils/isMobile";
 import {
   generateBulkAlbums,
   generateBulkSongs,
@@ -81,8 +82,10 @@ const genreSortFields = [
  */
 export const FullAppDemo: Story = {
   render: () => {
-    // route state
-    const [currentRoute, setCurrentRoute] = createSignal<Route>("artists");
+    const isMobile = createIsMobile();
+
+    // navigation state
+    const [currentRoute, setCurrentRoute] = createSignal<Route>("songs");
     const [topNavOpen, setTopNavOpen] = createSignal(false);
 
     // player state
@@ -94,7 +97,7 @@ export const FullAppDemo: Story = {
     const [currentTime, setCurrentTime] = createSignal(45);
     const [queueOpen, setQueueOpen] = createSignal(false);
     const [queueSongs, setQueueSongs] = createSignal<Song[]>(
-      mockSongs.slice(0, 8),
+      mockSongs.slice(0, 20),
     );
     const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
 
@@ -856,8 +859,14 @@ export const FullAppDemo: Story = {
       }
     };
 
+    const playerBarHeight = () => "80px";
+    // () => (currentSong() ? "80px" : "0px");
+
     return (
-      <div class="h-screen flex flex-col bg-[var(--color-bg-primary)]">
+      <div
+        class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
+        style={{ "--player-bar-height": playerBarHeight() }}
+      >
         {/* top navigation */}
         <TopNav
           brandName="freqhole"
@@ -902,13 +911,18 @@ export const FullAppDemo: Story = {
           onViewAllPlaylists={() => navigateTo("playlists")}
         />
 
-        {/* main content area */}
-        <div class="flex-1 overflow-hidden relative">
-          {mainContent()}
+        {/* main content area + queue */}
+        <div
+          class="flex-1 overflow-hidden flex"
+          style={{ "padding-bottom": "var(--player-bar-height)" }}
+        >
+          {/* main content */}
+          <div class="flex-1 overflow-hidden">{mainContent()}</div>
 
-          {/* queue sidebar */}
+          {/* queue sidebar - inline on desktop, overlay on mobile */}
           <QueueSidebar
             isOpen={queueOpen()}
+            variant={isMobile() ? "overlay" : "inline"}
             songs={queueSongs().map((song) => ({
               id: song.id,
               title: song.title,
@@ -944,7 +958,11 @@ export const FullAppDemo: Story = {
               onPlayPause={handlePlayPause}
               onPrevious={() => handleSkip("prev")}
               onNext={() => handleSkip("next")}
-              onSeek={(time) => setCurrentTime(time)}
+              onSeek={(percentage) => {
+                const duration = song().durationSeconds;
+                const timeInSeconds = (percentage / 100) * duration;
+                setCurrentTime(timeInSeconds);
+              }}
               onVolumeChange={(vol) => setVolume(vol)}
               onQueueToggle={() => setQueueOpen(!queueOpen())}
               queueLength={queueSongs().length}
