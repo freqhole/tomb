@@ -65,8 +65,8 @@ const mockArtists: MockArtist[] = [
   { name: "Iron Maiden", songCount: 203, albumCount: 16 },
   { name: "The Jimi Hendrix Experience", songCount: 78, albumCount: 3 },
   { name: "Joy Division", songCount: 54, albumCount: 2 },
-  { name: "Kanye West", songCount: 178, albumCount: 10 },
   { name: "Kendrick Lamar", songCount: 98, albumCount: 5 },
+  { name: "Killer Mike", songCount: 178, albumCount: 10 },
   { name: "The Killers", songCount: 89, albumCount: 6 },
   { name: "Kings of Leon", songCount: 112, albumCount: 8 },
   { name: "The Kinks", songCount: 234, albumCount: 24 },
@@ -483,50 +483,6 @@ export const DescendingOrder: Story = {
 };
 
 /**
- * ascending sort order (default: #, then A to Z)
- */
-export const AscendingOrder: Story = {
-  render: () => {
-    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>(
-      "#",
-    );
-
-    return (
-      <div
-        style={{
-          height: "500px",
-          display: "flex",
-          "background-color": "var(--color-bg-primary)",
-        }}
-      >
-        <AlphabetNav
-          currentLetter={currentLetter()}
-          onLetterClick={(letter) => {
-            setCurrentLetter(letter);
-            console.log("clicked letter:", letter);
-          }}
-          sortDirection="asc"
-        />
-        <div style={{ padding: "20px", color: "var(--color-text-primary)" }}>
-          <p>
-            current letter: <strong>{currentLetter() || "none"}</strong>
-          </p>
-          <p
-            style={{
-              "margin-top": "10px",
-              color: "var(--color-text-secondary)",
-              "font-size": "14px",
-            }}
-          >
-            sort direction: ascending (#, A-Z)
-          </p>
-        </div>
-      </div>
-    );
-  },
-};
-
-/**
  * no current letter selected
  */
 export const NoSelection: Story = {
@@ -563,50 +519,6 @@ export const NoSelection: Story = {
             }}
           >
             no letter is currently selected
-          </p>
-        </div>
-      </div>
-    );
-  },
-};
-
-/**
- * simple interactive example with all letters enabled
- */
-export const AllLettersEnabled: Story = {
-  render: () => {
-    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>(
-      "A",
-    );
-
-    return (
-      <div
-        style={{
-          height: "500px",
-          display: "flex",
-          "background-color": "var(--color-bg-primary)",
-        }}
-      >
-        <AlphabetNav
-          currentLetter={currentLetter()}
-          onLetterClick={(letter) => {
-            setCurrentLetter(letter);
-            console.log("clicked letter:", letter);
-          }}
-          sortDirection="asc"
-        />
-        <div style={{ padding: "20px", color: "var(--color-text-primary)" }}>
-          <p>
-            current letter: <strong>{currentLetter() || "none"}</strong>
-          </p>
-          <p
-            style={{
-              "margin-top": "10px",
-              color: "var(--color-text-secondary)",
-              "font-size": "14px",
-            }}
-          >
-            click any letter on the left to jump to that section
           </p>
         </div>
       </div>
