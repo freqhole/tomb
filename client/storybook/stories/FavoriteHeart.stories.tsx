@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { FavoriteHeart } from "../src/components/ratings/FavoriteHeart";
+import { formatDuration, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Forms/Favorite Heart",
@@ -139,10 +140,11 @@ export const States: Story = {
 // in context - song list row
 export const InSongList: Story = {
   render: () => {
-    const [favorites, setFavorites] = createSignal<Record<string, boolean>>({
-      song1: false,
-      song2: true,
-      song3: false,
+    const songs = mockSongs.slice(0, 3);
+    const [favorites, setFavorites] = createSignal({
+      [songs[0].id]: false,
+      [songs[1].id]: true,
+      [songs[2].id]: false,
     });
 
     const toggleFavorite = (songId: string) => {
@@ -157,56 +159,24 @@ export const InSongList: Story = {
         <div class="max-w-2xl">
           <div class="caption mb-4">song list with favorite hearts</div>
           <div class="space-y-2">
-            <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
-              <FavoriteHeart
-                size="sm"
-                isFavorite={favorites().song1}
-                onToggle={() => toggleFavorite("song1")}
-              />
-              <div class="flex-1 body-small text-[var(--color-text-primary)]">
-                speak to me
+            {songs.map((song) => (
+              <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
+                <FavoriteHeart
+                  size="sm"
+                  isFavorite={favorites()[song.id]}
+                  onToggle={() => toggleFavorite(song.id)}
+                />
+                <div class="flex-1 body-small text-[var(--color-text-primary)]">
+                  {song.title}
+                </div>
+                <div class="body-xs text-[var(--color-text-tertiary)]">
+                  {song.artist}
+                </div>
+                <div class="monospace body-xs text-[var(--color-text-muted)]">
+                  {formatDuration(song.durationSeconds)}
+                </div>
               </div>
-              <div class="body-xs text-[var(--color-text-tertiary)]">
-                pink floyd
-              </div>
-              <div class="monospace body-xs text-[var(--color-text-muted)]">
-                1:13
-              </div>
-            </div>
-
-            <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
-              <FavoriteHeart
-                size="sm"
-                isFavorite={favorites().song2}
-                onToggle={() => toggleFavorite("song2")}
-              />
-              <div class="flex-1 body-small text-[var(--color-text-primary)]">
-                breathe (in the air)
-              </div>
-              <div class="body-xs text-[var(--color-text-tertiary)]">
-                pink floyd
-              </div>
-              <div class="monospace body-xs text-[var(--color-text-muted)]">
-                2:43
-              </div>
-            </div>
-
-            <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
-              <FavoriteHeart
-                size="sm"
-                isFavorite={favorites().song3}
-                onToggle={() => toggleFavorite("song3")}
-              />
-              <div class="flex-1 body-small text-[var(--color-text-primary)]">
-                on the run
-              </div>
-              <div class="body-xs text-[var(--color-text-tertiary)]">
-                pink floyd
-              </div>
-              <div class="monospace body-xs text-[var(--color-text-muted)]">
-                3:30
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>

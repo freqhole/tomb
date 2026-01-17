@@ -1,6 +1,7 @@
 import { createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Badge } from "../src/components/badges/Badge";
+import { mockAlbums, mockArtists } from "./mockData";
 
 const meta = {
   title: "Components/Badges/Badge",
@@ -314,7 +315,8 @@ export const SongMetadata: Story = {
               comfortably numb
             </h3>
             <div class="body-small text-[var(--color-text-secondary)] mb-3">
-              pink floyd • the wall • 1979
+              {mockArtists[0].name} • {mockAlbums[0].title} •{" "}
+              {mockAlbums[0].year}
             </div>
             <div class="flex gap-2 flex-wrap">
               <Badge variant="accent" icon="favorite">
@@ -347,9 +349,11 @@ export const AlbumCard: Story = {
         <div class="p-4 space-y-3">
           <div>
             <h4 class="body-base text-[var(--color-text-primary)] mb-1">
-              the dark side of the moon
+              {mockAlbums[0].title}
             </h4>
-            <div class="caption">pink floyd • 1973</div>
+            <div class="caption">
+              {mockArtists[0].name} • {mockAlbums[0].year}
+            </div>
           </div>
           <div class="flex gap-2 flex-wrap">
             <Badge size="sm" variant="accent">

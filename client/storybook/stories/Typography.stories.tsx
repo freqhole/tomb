@@ -1,3 +1,4 @@
+import { For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
   BodyText,
@@ -6,6 +7,7 @@ import {
   Label,
   Monospace,
 } from "../design-system/typography";
+import { mockAlbums, mockArtists } from "./mockData";
 
 const meta = {
   title: "Design System/Typography",
@@ -307,10 +309,10 @@ export const RealWorldExample: Story = {
   render: () => (
     <div class="p-8 max-w-3xl bg-[var(--color-bg-primary)]">
       <h2 class="heading-2 text-[var(--color-text-primary)] mb-2">
-        dark side of the moon
+        {mockAlbums[0].title}
       </h2>
       <p class="body-small text-[var(--color-text-tertiary)] mb-6">
-        pink floyd • 1973 • progressive rock
+        {mockArtists[0].name} • {mockAlbums[0].year} • progressive rock
       </p>
 
       <div class="space-y-4">
@@ -319,10 +321,10 @@ export const RealWorldExample: Story = {
             about this album
           </h3>
           <p class="body-base text-[var(--color-text-secondary)] leading-relaxed">
-            the dark side of the moon is the eighth studio album by the english
-            rock band pink floyd, released on 1 march 1973. the album is known
-            for its philosophical and introspective lyrics, complex musical
-            arrangements, and innovative use of studio effects.
+            {mockAlbums[0].title} is a landmark studio album by{" "}
+            {mockArtists[0].name}, released in {mockAlbums[0].year}. the album
+            is known for its philosophical and introspective lyrics, complex
+            musical arrangements, and innovative use of studio effects.
           </p>
         </div>
 
@@ -424,7 +426,7 @@ export const TypographyComponents: Story = {
             speak to me
           </Heading>
           <Caption class="mb-4">
-            pink floyd • dark side of the moon • 1973
+            {mockArtists[0].name} • {mockAlbums[0].title} • {mockAlbums[0].year}
           </Caption>
           <BodyText size="base" class="text-[var(--color-text-secondary)] mb-4">
             the opening track sets the stage with a collage of sounds, including

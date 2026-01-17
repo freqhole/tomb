@@ -4,6 +4,7 @@ import { solidColors } from "../design-system/colors";
 import { Badge } from "../src/components/badges/Badge";
 import { Button } from "../src/components/buttons/Button";
 import { Alert } from "../src/components/feedback/Alert";
+import { mockArtists, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Feedback/Alert",
@@ -171,7 +172,7 @@ export const CustomIcons: Story = {
         </Alert>
 
         <Alert variant="info" icon="search" title="search tip">
-          use quotes for exact phrase matching, e.g. "pink floyd"
+          use quotes for exact phrase matching, e.g. "{mockArtists[0].name}"
         </Alert>
 
         <Alert variant="warning" icon="upload" title="upload in progress">
@@ -366,13 +367,13 @@ export const StackedAlerts: Story = {
         id: 1,
         variant: "success" as const,
         title: "song added",
-        message: "added 'wish you were here' to playlist",
+        message: `added '${mockSongs[0].title}' to playlist`,
       },
       {
         id: 2,
         variant: "info" as const,
         title: "now playing",
-        message: "comfortably numb - pink floyd",
+        message: `${mockSongs[1].title} - ${mockSongs[1].artist}`,
       },
       {
         id: 3,

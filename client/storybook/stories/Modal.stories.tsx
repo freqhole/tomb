@@ -4,6 +4,7 @@ import { BodyText, Heading } from "../design-system/typography";
 import { IconButton } from "../src/components/buttons/IconButton";
 import { Alert } from "../src/components/feedback/Alert";
 import { Modal, useModal } from "../src/components/overlays/Modal";
+import { mockAlbums, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Overlays/Modal",
@@ -537,7 +538,7 @@ export const SongEditModal: Story = {
                 </label>
                 <input
                   type="text"
-                  value="speak to me"
+                  value={mockSongs[0].title}
                   class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] focus:border-transparent"
                 />
               </div>
@@ -547,7 +548,7 @@ export const SongEditModal: Story = {
                 </label>
                 <input
                   type="text"
-                  value="pink floyd"
+                  value={mockSongs[0].artist}
                   class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] focus:border-transparent"
                 />
               </div>

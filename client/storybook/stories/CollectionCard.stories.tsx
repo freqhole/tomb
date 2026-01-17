@@ -1,6 +1,15 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { CollectionCard, CollectionCardData } from "../src/components/cards/CollectionCard";
+import {
+  CollectionCard,
+  CollectionCardData,
+} from "../src/components/cards/CollectionCard";
+import {
+  formatDuration,
+  mockAlbums,
+  mockArtists,
+  mockGenres,
+} from "./mockData";
 
 const meta = {
   title: "Components/Cards/CollectionCard",
@@ -34,51 +43,55 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// sample collection data
+// sample collection data from shared mock data
+const album1 = mockAlbums[0];
 const sampleAlbum: CollectionCardData = {
-  id: "1",
-  title: "Dark Side of the Moon",
+  id: album1.id,
+  title: album1.title,
   subtitle: null,
   domainType: "album",
-  imageUrl: "https://picsum.photos/400/400",
-  artist: "Pink Floyd",
-  album: "Dark Side of the Moon",
-  year: 1973,
-  trackCount: 10,
-  totalDuration: "42:49",
+  imageUrl: album1.thumbnailUrl,
+  artist: album1.artist,
+  album: album1.title,
+  year: album1.year,
+  trackCount: album1.trackCount,
+  totalDuration: formatDuration(album1.duration),
   genres: "progressive rock, psychedelic rock, art rock",
   playCount: 1247,
 };
 
 const samplePlaylist: CollectionCardData = {
-  id: "2",
+  id: "playlist-1",
   title: "Chill Vibes",
   subtitle: "smooth tunes for late night coding",
   domainType: "playlist",
-  imageUrl: "https://picsum.photos/400/401",
+  imageUrl: "https://picsum.photos/seed/playlist1/300/300",
   trackCount: 47,
   totalDuration: "3:12:45",
   playCount: 89,
 };
 
+const artist1 =
+  mockArtists.find((a) => a.name === "Radiohead") || mockArtists[1];
 const sampleArtist: CollectionCardData = {
-  id: "3",
-  title: "Radiohead",
+  id: artist1.id,
+  title: artist1.name,
   subtitle: null,
   domainType: "artist",
-  imageUrl: "https://picsum.photos/400/402",
-  artist: "Radiohead",
-  trackCount: 203,
-  genres: "alternative rock, art rock, electronic",
+  imageUrl: `https://picsum.photos/seed/artist${artist1.id}/300/300`,
+  artist: artist1.name,
+  trackCount: artist1.songCount,
+  genres: artist1.genres.join(", "),
 };
 
+const genre1 = mockGenres[0];
 const sampleGenre: CollectionCardData = {
-  id: "4",
-  title: "Math Rock",
+  id: genre1.id,
+  title: genre1.name,
   subtitle: null,
   domainType: "genre",
   imageUrl: null,
-  trackCount: 156,
+  trackCount: genre1.songCount,
 };
 
 // basic album card
@@ -174,7 +187,8 @@ export const Interactive: Story = {
       <div class="p-4 space-y-4">
         <div class="text-gray-300 text-sm space-y-1">
           <p>
-            last action: <span class="text-magenta-400">{lastAction() || "none"}</span>
+            last action:{" "}
+            <span class="text-magenta-400">{lastAction() || "none"}</span>
           </p>
         </div>
         <div class="w-48">
@@ -185,11 +199,14 @@ export const Interactive: Story = {
             showYear={true}
             onClick={(col) => setLastAction(`clicked: ${col.title}`)}
             onPlay={(col) => setLastAction(`play: ${col.title}`)}
-            onContextMenu={(e, col) => setLastAction(`context menu: ${col.title}`)}
+            onContextMenu={(e, col) =>
+              setLastAction(`context menu: ${col.title}`)
+            }
           />
         </div>
         <div class="text-gray-500 text-xs">
-          click the card, hover and click play button, or right-click for context menu
+          click the card, hover and click play button, or right-click for
+          context menu
         </div>
       </div>
     );
@@ -203,11 +220,44 @@ export const Grid: Story = {
       sampleAlbum,
       { ...samplePlaylist, imageUrl: "https://picsum.photos/400/403" },
       { ...sampleArtist, imageUrl: "https://picsum.photos/400/404" },
-      { ...sampleAlbum, id: "5", title: "OK Computer", year: 1997, imageUrl: "https://picsum.photos/400/405" },
-      { ...sampleAlbum, id: "6", title: "Kid A", year: 2000, imageUrl: "https://picsum.photos/400/406" },
-      { ...sampleAlbum, id: "7", title: "Remain in Light", artist: "Talking Heads", year: 1980, imageUrl: null },
-      { ...sampleAlbum, id: "8", title: "Selected Ambient Works 85-92", artist: "Aphex Twin", year: 1992, imageUrl: "https://picsum.photos/400/407" },
-      { ...sampleAlbum, id: "9", title: "Lift Your Skinny Fists", artist: "Godspeed You! Black Emperor", year: 2000, imageUrl: null },
+      {
+        ...sampleAlbum,
+        id: "5",
+        title: "OK Computer",
+        year: 1997,
+        imageUrl: "https://picsum.photos/400/405",
+      },
+      {
+        ...sampleAlbum,
+        id: "6",
+        title: "Kid A",
+        year: 2000,
+        imageUrl: "https://picsum.photos/400/406",
+      },
+      {
+        ...sampleAlbum,
+        id: "7",
+        title: "Remain in Light",
+        artist: "Talking Heads",
+        year: 1980,
+        imageUrl: null,
+      },
+      {
+        ...sampleAlbum,
+        id: "8",
+        title: "Selected Ambient Works 85-92",
+        artist: "Aphex Twin",
+        year: 1992,
+        imageUrl: "https://picsum.photos/400/407",
+      },
+      {
+        ...sampleAlbum,
+        id: "9",
+        title: "Lift Your Skinny Fists",
+        artist: "Godspeed You! Black Emperor",
+        year: 2000,
+        imageUrl: null,
+      },
     ];
 
     return (
@@ -265,19 +315,31 @@ export const SizeComparison: Story = {
       <div class="space-y-2">
         <div class="text-gray-300 text-xs uppercase tracking-wide">small</div>
         <div class="w-32">
-          <CollectionCard collection={sampleAlbum} size="small" showYear={true} />
+          <CollectionCard
+            collection={sampleAlbum}
+            size="small"
+            showYear={true}
+          />
         </div>
       </div>
       <div class="space-y-2">
         <div class="text-gray-300 text-xs uppercase tracking-wide">medium</div>
         <div class="w-48">
-          <CollectionCard collection={sampleAlbum} size="medium" showYear={true} />
+          <CollectionCard
+            collection={sampleAlbum}
+            size="medium"
+            showYear={true}
+          />
         </div>
       </div>
       <div class="space-y-2">
         <div class="text-gray-300 text-xs uppercase tracking-wide">large</div>
         <div class="w-64">
-          <CollectionCard collection={sampleAlbum} size="large" showYear={true} />
+          <CollectionCard
+            collection={sampleAlbum}
+            size="large"
+            showYear={true}
+          />
         </div>
       </div>
     </div>
@@ -297,18 +359,9 @@ export const DomainTypes: Story = {
           size="medium"
           showYear={true}
         />
-        <CollectionCard
-          collection={samplePlaylist}
-          size="medium"
-        />
-        <CollectionCard
-          collection={sampleArtist}
-          size="medium"
-        />
-        <CollectionCard
-          collection={sampleGenre}
-          size="medium"
-        />
+        <CollectionCard collection={samplePlaylist} size="medium" />
+        <CollectionCard collection={sampleArtist} size="medium" />
+        <CollectionCard collection={sampleGenre} size="medium" />
       </div>
     </div>
   ),

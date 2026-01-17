@@ -12,6 +12,7 @@ import {
   TabPanel,
   Tabs,
 } from "../src/components/navigation/Tabs";
+import { mockArtists } from "./mockData";
 
 const meta = {
   title: "Components/Navigation/Tabs",
@@ -485,7 +486,7 @@ export const SearchResults: Story = {
       <div class="p-8 bg-[var(--color-bg-primary)]">
         <div class="max-w-4xl">
           <h2 class="heading-4 text-[var(--color-text-primary)] mb-6">
-            search results for "pink floyd"
+            search results for "{mockArtists[0].name}"
           </h2>
 
           <Tabs activeTab={activeTab()} onTabChange={setActiveTab}>
@@ -538,25 +539,28 @@ export const SearchResults: Story = {
 
               <TabPanel id="songs">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.songs} songs matching "pink floyd"
+                  showing {results.songs} songs matching "{mockArtists[0].name}"
                 </div>
               </TabPanel>
 
               <TabPanel id="albums">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.albums} albums matching "pink floyd"
+                  showing {results.albums} albums matching "
+                  {mockArtists[0].name}"
                 </div>
               </TabPanel>
 
               <TabPanel id="artists">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.artists} artists matching "pink floyd"
+                  showing {results.artists} artists matching "
+                  {mockArtists[0].name}"
                 </div>
               </TabPanel>
 
               <TabPanel id="playlists">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.playlists} playlists matching "pink floyd"
+                  showing {results.playlists} playlists matching "
+                  {mockArtists[0].name}"
                 </div>
               </TabPanel>
             </div>

@@ -4,6 +4,7 @@ import { Button } from "../../src/components/buttons/Button";
 import { IconButton } from "../../src/components/buttons/IconButton";
 import { SearchSortControls } from "../../src/components/controls/SearchSortControls";
 import { HeadingSection } from "../../src/components/layout/HeadingSection";
+import { formatDuration, mockAlbums, mockArtists } from "../mockData";
 
 const meta = {
   title: "Layout/HeadingSection",
@@ -269,8 +270,8 @@ export const AlbumDetailExample: Story = {
         }}
       >
         <HeadingSection
-          title="dark side of the moon"
-          subtitle="pink floyd · 1973 · 42:49"
+          title={mockAlbums[0].title}
+          subtitle={`${mockArtists[0].name} · ${mockAlbums[0].year} · ${formatDuration(mockAlbums[0].duration)}`}
           actions={
             <>
               <Button

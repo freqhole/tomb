@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { StarRatingCompact } from "../src/components/ratings/StarRatingCompact";
+import { formatDuration, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Forms/Star Rating Compact",
@@ -169,13 +170,14 @@ export const States: Story = {
   },
 };
 
-// in context - song list row
+// in context - song list
 export const InSongList: Story = {
   render: () => {
-    const [ratings, setRatings] = createSignal<Record<string, number>>({
-      song1: 0,
-      song2: 4,
-      song3: 5,
+    const songs = mockSongs.slice(0, 3);
+    const [ratings, setRatings] = createSignal({
+      [songs[0].id]: 0,
+      [songs[1].id]: 4,
+      [songs[2].id]: 5,
     });
 
     const updateRating = (songId: string, newRating: number) => {
@@ -190,56 +192,24 @@ export const InSongList: Story = {
         <div class="max-w-2xl">
           <div class="caption mb-4">song list with star ratings</div>
           <div class="space-y-2">
-            <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
-              <div class="flex-1 body-small text-[var(--color-text-primary)]">
-                speak to me
+            {songs.map((song) => (
+              <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
+                <div class="flex-1 body-small text-[var(--color-text-primary)]">
+                  {song.title}
+                </div>
+                <div class="body-xs text-[var(--color-text-tertiary)]">
+                  {song.artist}
+                </div>
+                <StarRatingCompact
+                  size="sm"
+                  rating={ratings()[song.id]}
+                  onRatingChange={(v) => updateRating(song.id, v)}
+                />
+                <div class="monospace body-xs text-[var(--color-text-muted)]">
+                  {formatDuration(song.durationSeconds)}
+                </div>
               </div>
-              <div class="body-xs text-[var(--color-text-tertiary)]">
-                pink floyd
-              </div>
-              <StarRatingCompact
-                size="sm"
-                rating={ratings().song1}
-                onRatingChange={(v) => updateRating("song1", v)}
-              />
-              <div class="monospace body-xs text-[var(--color-text-muted)]">
-                1:13
-              </div>
-            </div>
-
-            <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
-              <div class="flex-1 body-small text-[var(--color-text-primary)]">
-                breathe (in the air)
-              </div>
-              <div class="body-xs text-[var(--color-text-tertiary)]">
-                pink floyd
-              </div>
-              <StarRatingCompact
-                size="sm"
-                rating={ratings().song2}
-                onRatingChange={(v) => updateRating("song2", v)}
-              />
-              <div class="monospace body-xs text-[var(--color-text-muted)]">
-                2:43
-              </div>
-            </div>
-
-            <div class="flex items-center gap-4 p-2 bg-[var(--color-bg-secondary)] rounded">
-              <div class="flex-1 body-small text-[var(--color-text-primary)]">
-                on the run
-              </div>
-              <div class="body-xs text-[var(--color-text-tertiary)]">
-                pink floyd
-              </div>
-              <StarRatingCompact
-                size="sm"
-                rating={ratings().song3}
-                onRatingChange={(v) => updateRating("song3", v)}
-              />
-              <div class="monospace body-xs text-[var(--color-text-muted)]">
-                3:30
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
@@ -389,12 +359,14 @@ export const AllCombinations: Story = {
 // combined with favorite heart
 export const WithFavoriteHeart: Story = {
   render: () => {
-    const [songs, setSongs] = createSignal([
-      { id: "1", title: "speak to me", rating: 0, favorite: false },
-      { id: "2", title: "breathe", rating: 4, favorite: true },
-      { id: "3", title: "on the run", rating: 5, favorite: false },
-      { id: "4", title: "time", rating: 5, favorite: true },
-    ]);
+    const [songs, setSongs] = createSignal(
+      mockSongs.slice(0, 4).map((s, i) => ({
+        id: s.id,
+        title: s.title,
+        rating: [0, 4, 5, 5][i],
+        favorite: [false, true, false, true][i],
+      })),
+    );
 
     const updateRating = (id: string, rating: number) => {
       setSongs(songs().map((s) => (s.id === id ? { ...s, rating } : s)));

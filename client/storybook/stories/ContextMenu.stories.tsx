@@ -7,6 +7,7 @@ import {
   ContextMenu,
   DropdownMenu,
 } from "../src/components/overlays/ContextMenu";
+import { formatDuration, mockAlbums, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Overlays/Context Menu",
@@ -142,16 +143,12 @@ export const MobileLongPress: Story = {
 // song row menu (realistic use case)
 export const SongRowMenu: Story = {
   render: () => {
-    const songs = [
-      { id: "1", title: "speak to me", artist: "pink floyd", duration: "1:13" },
-      {
-        id: "2",
-        title: "breathe (in the air)",
-        artist: "pink floyd",
-        duration: "2:43",
-      },
-      { id: "3", title: "on the run", artist: "pink floyd", duration: "3:30" },
-    ];
+    const songs = mockSongs.slice(0, 3).map((s) => ({
+      id: s.id,
+      title: s.title,
+      artist: s.artist,
+      duration: formatDuration(s.durationSeconds),
+    }));
 
     const getActions = (songId: string): MenuAction[] => [
       {
@@ -314,12 +311,11 @@ export const WithCustomContent: Story = {
 // album grid menu (realistic use case)
 export const AlbumGridMenu: Story = {
   render: () => {
-    const albums = [
-      { id: "1", title: "the dark side of the moon", artist: "pink floyd" },
-      { id: "2", title: "the wall", artist: "pink floyd" },
-      { id: "3", title: "wish you were here", artist: "pink floyd" },
-      { id: "4", title: "animals", artist: "pink floyd" },
-    ];
+    const albums = mockAlbums.slice(0, 4).map((a) => ({
+      id: a.id,
+      title: a.title,
+      artist: a.artist,
+    }));
 
     const getActions = (albumId: string): MenuAction[] => [
       {

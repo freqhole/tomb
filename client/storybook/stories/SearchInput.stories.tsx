@@ -2,8 +2,9 @@ import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
   SearchInput,
-  type SearchSuggestion,
+  SearchSuggestion,
 } from "../src/components/forms/SearchInput";
+import { mockAlbums, mockArtists, mockGenres, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Forms/SearchInput",
@@ -33,43 +34,91 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// mock suggestions for demos
-const artistSuggestions: SearchSuggestion[] = [
-  { id: "1", text: "Radiohead", category: "artist" },
-  { id: "2", text: "Red Hot Chili Peppers", category: "artist" },
-  { id: "3", text: "The Raconteurs", category: "artist" },
-];
+// mock suggestions for demos using shared data
+const artistSuggestions: SearchSuggestion[] = mockArtists
+  .filter((a) => a.name.toLowerCase().startsWith("r"))
+  .slice(0, 3)
+  .map((a) => ({
+    id: a.id,
+    text: a.name,
+    category: "artist" as const,
+  }));
+
+const radioheadArtist = mockArtists.find((a) => a.name === "Radiohead");
+const radioheadAlbum = mockAlbums.find((a) => a.artist === "Radiohead");
+const radioheadSongs = mockSongs
+  .filter((s) => s.artist === "Radiohead")
+  .slice(0, 2);
+const altRockGenre = mockGenres.find((g) => g.name === "alternative rock");
 
 const mixedSuggestions: SearchSuggestion[] = [
   { id: "1", text: "radio", category: "word" },
-  { id: "2", text: "Radiohead", category: "artist", count: 127 },
-  { id: "3", text: "OK Computer", category: "album", count: 12 },
-  { id: "4", text: "Paranoid Android", category: "song" },
-  { id: "5", text: "Karma Police", category: "song" },
-  { id: "6", text: "alternative rock", category: "genre", count: 234 },
+  ...(radioheadArtist
+    ? [
+        {
+          id: radioheadArtist.id,
+          text: radioheadArtist.name,
+          category: "artist" as const,
+          count: radioheadArtist.songCount,
+        },
+      ]
+    : []),
+  ...(radioheadAlbum
+    ? [
+        {
+          id: radioheadAlbum.id,
+          text: radioheadAlbum.title,
+          category: "album" as const,
+          count: radioheadAlbum.trackCount,
+        },
+      ]
+    : []),
+  ...radioheadSongs.map((s) => ({
+    id: s.id,
+    text: s.title,
+    category: "song" as const,
+  })),
+  ...(altRockGenre
+    ? [
+        {
+          id: altRockGenre.id,
+          text: altRockGenre.name,
+          category: "genre" as const,
+          count: altRockGenre.songCount,
+        },
+      ]
+    : []),
 ];
 
 const highlightedSuggestions: SearchSuggestion[] = [
-  {
-    id: "1",
-    text: "Radiohead",
-    highlight: "<mark>Radio</mark>head",
-    category: "artist",
-    count: 127,
-  },
-  {
-    id: "2",
-    text: "OK Computer",
-    highlight: "OK <mark>Comp</mark>uter",
-    category: "album",
-    count: 12,
-  },
-  {
-    id: "3",
-    text: "Paranoid Android",
-    highlight: "Paranoid <mark>Andr</mark>oid",
-    category: "song",
-  },
+  ...(radioheadArtist
+    ? [
+        {
+          id: radioheadArtist.id,
+          text: radioheadArtist.name,
+          highlight: "<mark>Radio</mark>head",
+          category: "artist" as const,
+          count: radioheadArtist.songCount,
+        },
+      ]
+    : []),
+  ...(radioheadAlbum
+    ? [
+        {
+          id: radioheadAlbum.id,
+          text: radioheadAlbum.title,
+          highlight: radioheadAlbum.title.replace(/comp/i, "<mark>Comp</mark>"),
+          category: "album" as const,
+          count: radioheadAlbum.trackCount,
+        },
+      ]
+    : []),
+  ...radioheadSongs.slice(0, 1).map((s) => ({
+    id: s.id,
+    text: s.title,
+    highlight: s.title.replace(/andr/i, "<mark>Andr</mark>"),
+    category: "song" as const,
+  })),
 ];
 
 // real-world example with API simulation
@@ -94,20 +143,32 @@ export const RealWorldExample: Story = {
       // simulate network delay
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // simulate API response based on query
+      // simulate API response based on query using shared mock data
       const allResults: SearchSuggestion[] = [
         { id: "w1", text: searchQuery, category: "word" },
-        { id: "a1", text: "Radiohead", category: "artist", count: 127 },
-        {
-          id: "a2",
-          text: "Red Hot Chili Peppers",
-          category: "artist",
-          count: 89,
-        },
-        { id: "al1", text: "OK Computer", category: "album", count: 12 },
-        { id: "s1", text: "Paranoid Android", category: "song" },
-        { id: "s2", text: "Karma Police", category: "song" },
-        { id: "g1", text: "alternative rock", category: "genre", count: 234 },
+        ...mockArtists.slice(0, 5).map((a) => ({
+          id: a.id,
+          text: a.name,
+          category: "artist" as const,
+          count: a.songCount,
+        })),
+        ...mockAlbums.slice(0, 3).map((a) => ({
+          id: a.id,
+          text: a.title,
+          category: "album" as const,
+          count: a.trackCount,
+        })),
+        ...mockSongs.slice(0, 4).map((s) => ({
+          id: s.id,
+          text: s.title,
+          category: "song" as const,
+        })),
+        ...mockGenres.slice(0, 2).map((g) => ({
+          id: g.id,
+          text: g.name,
+          category: "genre" as const,
+          count: g.songCount,
+        })),
       ];
 
       return allResults.filter((r) =>

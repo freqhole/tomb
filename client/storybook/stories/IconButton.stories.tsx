@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { IconButton } from "../src/components/buttons/IconButton";
+import { formatDuration, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Buttons/Icon Button",
@@ -269,60 +270,46 @@ export const ModalHeader: Story = {
 
 // in context - song row actions
 export const SongRowActions: Story = {
-  render: () => (
-    <div class="p-8 bg-[var(--color-bg-primary)]">
-      <div class="max-w-2xl">
-        <div class="caption mb-4">hover over rows to see actions</div>
-        <div class="space-y-2">
-          <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] group transition-colors">
-            <IconButton
-              icon="play"
-              size="sm"
-              variant="ghost"
-              aria-label="play song"
-            />
-            <div class="flex-1">
-              <div class="body-small text-[var(--color-text-primary)]">
-                speak to me
+  render: () => {
+    const songs = mockSongs.slice(0, 2);
+    return (
+      <div class="p-8 bg-[var(--color-bg-primary)]">
+        <div class="max-w-2xl">
+          <div class="caption mb-4">hover over rows to see actions</div>
+          <div class="space-y-2">
+            {songs.map((song) => (
+              <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] group transition-colors">
+                <IconButton
+                  icon="play"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="play song"
+                />
+                <div class="flex-1">
+                  <div class="body-small text-[var(--color-text-primary)]">
+                    {song.title}
+                  </div>
+                  <div class="caption">{song.artist}</div>
+                </div>
+                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <IconButton
+                    icon="add"
+                    size="sm"
+                    aria-label="add to playlist"
+                  />
+                  <IconButton icon="favorite" size="sm" aria-label="favorite" />
+                  <IconButton icon="more" size="sm" aria-label="more options" />
+                </div>
+                <span class="monospace caption text-[var(--color-text-muted)]">
+                  {formatDuration(song.durationSeconds)}
+                </span>
               </div>
-              <div class="caption">pink floyd</div>
-            </div>
-            <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <IconButton icon="add" size="sm" aria-label="add to playlist" />
-              <IconButton icon="favorite" size="sm" aria-label="favorite" />
-              <IconButton icon="more" size="sm" aria-label="more options" />
-            </div>
-            <span class="monospace caption text-[var(--color-text-muted)]">
-              1:13
-            </span>
-          </div>
-
-          <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] group transition-colors">
-            <IconButton
-              icon="play"
-              size="sm"
-              variant="ghost"
-              aria-label="play song"
-            />
-            <div class="flex-1">
-              <div class="body-small text-[var(--color-text-primary)]">
-                breathe (in the air)
-              </div>
-              <div class="caption">pink floyd</div>
-            </div>
-            <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <IconButton icon="add" size="sm" aria-label="add to playlist" />
-              <IconButton icon="favorite" size="sm" aria-label="favorite" />
-              <IconButton icon="more" size="sm" aria-label="more options" />
-            </div>
-            <span class="monospace caption text-[var(--color-text-muted)]">
-              2:43
-            </span>
+            ))}
           </div>
         </div>
       </div>
-    </div>
-  ),
+    );
+  },
 };
 
 // all icons showcase

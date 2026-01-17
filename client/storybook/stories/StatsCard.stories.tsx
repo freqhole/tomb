@@ -1,11 +1,12 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
-    StatsCard,
-    StatsGrid,
-    formatDuration,
-    formatNumber,
+  StatsCard,
+  StatsGrid,
+  formatDuration,
+  formatNumber,
 } from "../src/components/cards/StatsCard";
+import { mockArtists } from "./mockData";
 
 const meta = {
   title: "Components/Cards/StatsCard",
@@ -47,7 +48,7 @@ export const Interactive: Story = {
       <div class="p-6 bg-[var(--color-bg-primary)] rounded-lg">
         <div class="mb-6">
           <h3 class="text-[var(--color-text-primary)] text-xl font-semibold mb-2">
-            pink floyd
+            {mockArtists[0].name}
           </h3>
           <p class="text-[var(--color-text-secondary)] text-sm">
             artist statistics
@@ -100,7 +101,8 @@ export const ArtistDetail: Story = {
   render: () => (
     <div class="p-6 bg-[var(--color-bg-primary)] rounded-lg">
       <h3 class="text-[var(--color-text-primary)] text-2xl font-bold mb-4">
-        led zeppelin
+        {mockArtists.find((a) => a.name === "Led Zeppelin")?.name ||
+          mockArtists[2].name}
       </h3>
 
       <StatsGrid columns={5} gap="md">
@@ -171,12 +173,7 @@ export const Compact: Story = {
           icon="recent"
           variant="compact"
         />
-        <StatsCard
-          label="rating"
-          value="4.2"
-          icon="star"
-          variant="compact"
-        />
+        <StatsCard label="rating" value="4.2" icon="star" variant="compact" />
       </StatsGrid>
     </div>
   ),
@@ -306,26 +303,10 @@ export const LargeNumbers: Story = {
   render: () => (
     <div class="p-6 bg-[var(--color-bg-primary)]">
       <StatsGrid columns={4} gap="md">
-        <StatsCard
-          label="songs"
-          value={formatNumber(15234)}
-          icon="music"
-        />
-        <StatsCard
-          label="artists"
-          value={formatNumber(2847)}
-          icon="artist"
-        />
-        <StatsCard
-          label="albums"
-          value={formatNumber(4192)}
-          icon="album"
-        />
-        <StatsCard
-          label="duration"
-          value="1,024h"
-          icon="recent"
-        />
+        <StatsCard label="songs" value={formatNumber(15234)} icon="music" />
+        <StatsCard label="artists" value={formatNumber(2847)} icon="artist" />
+        <StatsCard label="albums" value={formatNumber(4192)} icon="album" />
+        <StatsCard label="duration" value="1,024h" icon="recent" />
       </StatsGrid>
     </div>
   ),
@@ -420,7 +401,12 @@ export const MixedVariants: Story = {
         <StatsGrid columns={3} gap="sm">
           <StatsCard label="songs" value="248" icon="music" variant="compact" />
           <StatsCard label="albums" value="18" icon="album" variant="compact" />
-          <StatsCard label="duration" value="14h 36m" icon="recent" variant="compact" />
+          <StatsCard
+            label="duration"
+            value="14h 36m"
+            icon="recent"
+            variant="compact"
+          />
         </StatsGrid>
       </div>
 

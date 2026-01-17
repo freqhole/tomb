@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { MarqueeText } from "../src/components/text/MarqueeText";
+import { mockAlbums, mockArtists, mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Text/MarqueeText",
@@ -41,7 +42,7 @@ export const ShortText: Story = {
 // medium length text in narrow container
 export const NarrowContainer: Story = {
   args: {
-    text: "pink floyd - the dark side of the moon",
+    text: `${mockArtists[0].name} - ${mockAlbums[0].title}`,
     class: "w-32 text-[var(--color-text-primary)]",
   },
 };
@@ -49,7 +50,7 @@ export const NarrowContainer: Story = {
 // with custom styling
 export const CustomStyling: Story = {
   args: {
-    text: "led zeppelin - stairway to heaven (live at madison square garden)",
+    text: `${mockArtists.find((a) => a.name === "Led Zeppelin")?.name || mockArtists[2].name} - ${mockSongs[0].title} (live)`,
     class: "w-48 text-magenta-400 font-bold text-sm",
   },
 };
@@ -83,7 +84,7 @@ export const HoverOnlyComparison: Story = {
           always marquee (default)
         </div>
         <MarqueeText
-          text="pink floyd - shine on you crazy diamond (parts i-ix)"
+          text={`${mockArtists[0].name} - ${mockSongs[0].title} (extended version)`}
           class="text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded"
           hoverOnly={false}
         />
@@ -93,7 +94,7 @@ export const HoverOnlyComparison: Story = {
           hover only - hover to see animation
         </div>
         <MarqueeText
-          text="pink floyd - shine on you crazy diamond (parts i-ix)"
+          text={`${mockArtists[0].name} - ${mockSongs[0].title} (extended version)`}
           class="text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded"
           hoverOnly={true}
         />
@@ -114,8 +115,9 @@ export const GenreList: Story = {
 export const InteractiveWidth: Story = {
   render: () => {
     const [width, setWidth] = createSignal(200);
-    const longText =
-      "the beatles - sgt. pepper's lonely hearts club band (remastered 2009)";
+    const artist =
+      mockArtists.find((a) => a.name === "The Beatles") || mockArtists[3];
+    const longText = `${artist.name} - ${mockAlbums.find((a) => a.artist === artist.name)?.title || mockAlbums[3].title} (remastered)`;
 
     return (
       <div class="p-4 space-y-4">
@@ -161,7 +163,7 @@ export const MultipleMarquees: Story = {
         class="text-[var(--color-text-primary)] text-sm"
       />
       <MarqueeText
-        text="radiohead - paranoid android (live)"
+        text={`${mockArtists.find((a) => a.name === "Radiohead")?.name || mockArtists[1].name} - ${mockSongs[1].title} (live)`}
         class="text-gray-400 text-sm"
       />
       <MarqueeText

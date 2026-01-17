@@ -1,166 +1,440 @@
 {
   "artists": [
     {
-      "id": "1",
-      "name": "Pink Floyd",
-      "songCount": 165,
-      "albumCount": 15,
-      "totalDuration": 39600,
-      "avgRating": 4.7,
-      "genres": ["progressive rock", "psychedelic rock"]
-    },
-    {
-      "id": "2",
-      "name": "Radiohead",
-      "songCount": 158,
-      "albumCount": 9,
-      "totalDuration": 31200,
-      "avgRating": 4.6,
-      "genres": ["alternative rock", "electronic"]
-    },
-    {
-      "id": "3",
-      "name": "Led Zeppelin",
-      "songCount": 94,
-      "albumCount": 8,
-      "totalDuration": 24480,
-      "avgRating": 4.8,
-      "genres": ["hard rock", "blues rock"]
-    },
-    {
-      "id": "4",
-      "name": "The Beatles",
-      "songCount": 213,
-      "albumCount": 13,
-      "totalDuration": 28800,
-      "avgRating": 4.9,
-      "genres": ["rock", "pop"]
-    },
-    {
-      "id": "5",
-      "name": "Queen",
-      "songCount": 184,
-      "albumCount": 15,
-      "totalDuration": 46080,
-      "avgRating": 4.7,
-      "genres": ["rock", "glam rock"]
-    },
-    {
-      "id": "6",
-      "name": "David Bowie",
-      "songCount": 342,
-      "albumCount": 27,
-      "totalDuration": 72000,
-      "avgRating": 4.5,
-      "genres": ["art rock", "glam rock"]
-    },
-    {
-      "id": "7",
-      "name": "Nirvana",
+      "id": "21",
+      "name": "2Pac",
       "songCount": 87,
-      "albumCount": 3,
-      "totalDuration": 15600,
-      "avgRating": 4.6,
-      "genres": ["grunge", "alternative rock"]
+      "albumCount": 5,
+      "totalDuration": 20880,
+      "avgRating": 4.46175079349228,
+      "genres": [
+        "rock"
+      ]
     },
     {
-      "id": "8",
-      "name": "Daft Punk",
-      "songCount": 48,
+      "id": "22",
+      "name": "50 Cent",
+      "songCount": 54,
       "albumCount": 4,
-      "totalDuration": 12000,
-      "avgRating": 4.4,
-      "genres": ["electronic", "house"]
+      "totalDuration": 12960,
+      "avgRating": 4.835729375164692,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "23",
+      "name": "A Tribe Called Quest",
+      "songCount": 112,
+      "albumCount": 6,
+      "totalDuration": 26880,
+      "avgRating": 4.010690151025895,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "24",
+      "name": "AC/DC",
+      "songCount": 203,
+      "albumCount": 17,
+      "totalDuration": 48720,
+      "avgRating": 4.842621863333978,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "25",
+      "name": "Adele",
+      "songCount": 41,
+      "albumCount": 3,
+      "totalDuration": 9840,
+      "avgRating": 4.413077633484115,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "26",
+      "name": "Aerosmith",
+      "songCount": 178,
+      "albumCount": 15,
+      "totalDuration": 42720,
+      "avgRating": 4.016683728331845,
+      "genres": [
+        "rock"
+      ]
     },
     {
       "id": "9",
       "name": "Aphex Twin",
-      "songCount": 156,
-      "albumCount": 12,
+      "songCount": 267,
+      "albumCount": 23,
       "totalDuration": 28800,
       "avgRating": 4.3,
-      "genres": ["electronic", "idm"]
+      "genres": [
+        "electronic",
+        "idm"
+      ]
     },
     {
       "id": "10",
       "name": "Arctic Monkeys",
-      "songCount": 67,
+      "songCount": 89,
       "albumCount": 6,
       "totalDuration": 14400,
       "avgRating": 4.2,
-      "genres": ["indie rock", "alternative rock"]
+      "genres": [
+        "indie rock",
+        "alternative rock"
+      ]
+    },
+    {
+      "id": "34",
+      "name": "Beastie Boys",
+      "songCount": 134,
+      "albumCount": 8,
+      "totalDuration": 32160,
+      "avgRating": 4.092957567602476,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "27",
+      "name": "Beck",
+      "songCount": 178,
+      "albumCount": 14,
+      "totalDuration": 42720,
+      "avgRating": 4.309885281000243,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "28",
+      "name": "Beyoncé",
+      "songCount": 103,
+      "albumCount": 7,
+      "totalDuration": 24720,
+      "avgRating": 4.222671777113862,
+      "genres": [
+        "rock"
+      ]
     },
     {
       "id": "11",
       "name": "Björk",
-      "songCount": 89,
+      "songCount": 134,
       "albumCount": 9,
       "totalDuration": 21600,
       "avgRating": 4.4,
-      "genres": ["electronic", "art pop"]
+      "genres": [
+        "electronic",
+        "art pop"
+      ]
     },
     {
-      "id": "12",
-      "name": "Massive Attack",
+      "id": "29",
+      "name": "Black Sabbath",
+      "songCount": 156,
+      "albumCount": 12,
+      "totalDuration": 37440,
+      "avgRating": 4.432891273445304,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "30",
+      "name": "Blur",
+      "songCount": 124,
+      "albumCount": 7,
+      "totalDuration": 29760,
+      "avgRating": 4.700950319868001,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "31",
+      "name": "Bob Dylan",
+      "songCount": 523,
+      "albumCount": 39,
+      "totalDuration": 125520,
+      "avgRating": 4.730350006554137,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "32",
+      "name": "Bob Marley",
+      "songCount": 187,
+      "albumCount": 11,
+      "totalDuration": 44880,
+      "avgRating": 4.030085909499402,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "33",
+      "name": "Bon Iver",
+      "songCount": 57,
+      "albumCount": 4,
+      "totalDuration": 13680,
+      "avgRating": 4.2285898175038685,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "35",
+      "name": "Coldplay",
+      "songCount": 156,
+      "albumCount": 9,
+      "totalDuration": 37440,
+      "avgRating": 4.249391377423761,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "8",
+      "name": "Daft Punk",
+      "songCount": 62,
+      "albumCount": 4,
+      "totalDuration": 12000,
+      "avgRating": 4.4,
+      "genres": [
+        "electronic",
+        "house"
+      ]
+    },
+    {
+      "id": "6",
+      "name": "David Bowie",
+      "songCount": 402,
+      "albumCount": 27,
+      "totalDuration": 72000,
+      "avgRating": 4.5,
+      "genres": [
+        "art rock",
+        "glam rock"
+      ]
+    },
+    {
+      "id": "37",
+      "name": "Death Cab for Cutie",
+      "songCount": 143,
+      "albumCount": 9,
+      "totalDuration": 34320,
+      "avgRating": 4.324390347041168,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "38",
+      "name": "Depeche Mode",
+      "songCount": 234,
+      "albumCount": 14,
+      "totalDuration": 56160,
+      "avgRating": 4.037495928252444,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "39",
+      "name": "Drake",
+      "songCount": 312,
+      "albumCount": 11,
+      "totalDuration": 74880,
+      "avgRating": 4.122467781140741,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "40",
+      "name": "Eagles",
+      "songCount": 89,
+      "albumCount": 7,
+      "totalDuration": 21360,
+      "avgRating": 4.496939370703051,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "41",
+      "name": "Elton John",
+      "songCount": 378,
+      "albumCount": 31,
+      "totalDuration": 90720,
+      "avgRating": 4.128503082836883,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "42",
+      "name": "Eminem",
+      "songCount": 289,
+      "albumCount": 11,
+      "totalDuration": 69360,
+      "avgRating": 4.7616518138459405,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "43",
+      "name": "Fleet Foxes",
+      "songCount": 48,
+      "albumCount": 3,
+      "totalDuration": 11520,
+      "avgRating": 4.8212886543640945,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "44",
+      "name": "Fleetwood Mac",
+      "songCount": 156,
+      "albumCount": 17,
+      "totalDuration": 37440,
+      "avgRating": 4.513465532514132,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "45",
+      "name": "Foo Fighters",
+      "songCount": 143,
+      "albumCount": 10,
+      "totalDuration": 34320,
+      "avgRating": 4.698008819200333,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "46",
+      "name": "Franz Ferdinand",
       "songCount": 67,
       "albumCount": 5,
-      "totalDuration": 16200,
-      "avgRating": 4.5,
-      "genres": ["trip hop", "electronic"]
-    },
-    {
-      "id": "13",
-      "name": "Portishead",
-      "songCount": 37,
-      "albumCount": 3,
-      "totalDuration": 8100,
-      "avgRating": 4.6,
-      "genres": ["trip hop", "electronic"]
-    },
-    {
-      "id": "14",
-      "name": "The Smiths",
-      "songCount": 73,
-      "albumCount": 4,
-      "totalDuration": 15480,
-      "avgRating": 4.5,
-      "genres": ["indie rock", "alternative rock"]
-    },
-    {
-      "id": "15",
-      "name": "Joy Division",
-      "songCount": 42,
-      "albumCount": 2,
-      "totalDuration": 9000,
-      "avgRating": 4.7,
-      "genres": ["post-punk", "new wave"]
-    },
-    {
-      "id": "16",
-      "name": "New Order",
-      "songCount": 98,
-      "albumCount": 10,
-      "totalDuration": 21600,
-      "avgRating": 4.3,
-      "genres": ["new wave", "electronic"]
-    },
-    {
-      "id": "17",
-      "name": "Tame Impala",
-      "songCount": 54,
-      "albumCount": 4,
-      "totalDuration": 12600,
-      "avgRating": 4.4,
-      "genres": ["psychedelic rock", "indie rock"]
+      "totalDuration": 16080,
+      "avgRating": 4.849762616251775,
+      "genres": [
+        "rock"
+      ]
     },
     {
       "id": "18",
       "name": "Gorillaz",
-      "songCount": 94,
+      "songCount": 98,
       "albumCount": 7,
       "totalDuration": 19800,
       "avgRating": 4.2,
-      "genres": ["alternative rock", "hip hop"]
+      "genres": [
+        "alternative rock",
+        "hip hop"
+      ]
+    },
+    {
+      "id": "47",
+      "name": "Green Day",
+      "songCount": 178,
+      "albumCount": 13,
+      "totalDuration": 42720,
+      "avgRating": 4.764662806910419,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "48",
+      "name": "Guns N' Roses",
+      "songCount": 134,
+      "albumCount": 6,
+      "totalDuration": 32160,
+      "avgRating": 4.052584294826527,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "50",
+      "name": "Imagine Dragons",
+      "songCount": 87,
+      "albumCount": 5,
+      "totalDuration": 20880,
+      "avgRating": 4.653544917603446,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "51",
+      "name": "Iron Maiden",
+      "songCount": 203,
+      "albumCount": 16,
+      "totalDuration": 48720,
+      "avgRating": 4.007549150825895,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "15",
+      "name": "Joy Division",
+      "songCount": 54,
+      "albumCount": 2,
+      "totalDuration": 9000,
+      "avgRating": 4.7,
+      "genres": [
+        "post-punk",
+        "new wave"
+      ]
+    },
+    {
+      "id": "53",
+      "name": "Kendrick Lamar",
+      "songCount": 98,
+      "albumCount": 5,
+      "totalDuration": 23520,
+      "avgRating": 4.200747567471145,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "54",
+      "name": "Killer Mike",
+      "songCount": 178,
+      "albumCount": 10,
+      "totalDuration": 42720,
+      "avgRating": 4.365066733442881,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "56",
+      "name": "Kings of Leon",
+      "songCount": 112,
+      "albumCount": 8,
+      "totalDuration": 26880,
+      "avgRating": 4.67125821766534,
+      "genres": [
+        "rock"
+      ]
     },
     {
       "id": "19",
@@ -169,16 +443,627 @@
       "albumCount": 11,
       "totalDuration": 18000,
       "avgRating": 4.6,
-      "genres": ["electronic", "synth-pop"]
+      "genres": [
+        "electronic",
+        "synth-pop"
+      ]
+    },
+    {
+      "id": "58",
+      "name": "LCD Soundsystem",
+      "songCount": 76,
+      "albumCount": 4,
+      "totalDuration": 18240,
+      "avgRating": 4.50397027121957,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "3",
+      "name": "Led Zeppelin",
+      "songCount": 108,
+      "albumCount": 8,
+      "totalDuration": 24480,
+      "avgRating": 4.8,
+      "genres": [
+        "hard rock",
+        "blues rock"
+      ]
+    },
+    {
+      "id": "59",
+      "name": "Linkin Park",
+      "songCount": 134,
+      "albumCount": 7,
+      "totalDuration": 32160,
+      "avgRating": 4.898836257604662,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "12",
+      "name": "Massive Attack",
+      "songCount": 87,
+      "albumCount": 5,
+      "totalDuration": 16200,
+      "avgRating": 4.5,
+      "genres": [
+        "trip hop",
+        "electronic"
+      ]
+    },
+    {
+      "id": "61",
+      "name": "Metallica",
+      "songCount": 203,
+      "albumCount": 10,
+      "totalDuration": 48720,
+      "avgRating": 4.028870881616835,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "62",
+      "name": "MGMT",
+      "songCount": 54,
+      "albumCount": 4,
+      "totalDuration": 12960,
+      "avgRating": 4.114894113720546,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "63",
+      "name": "Modest Mouse",
+      "songCount": 156,
+      "albumCount": 8,
+      "totalDuration": 37440,
+      "avgRating": 4.732448729839615,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "64",
+      "name": "Muse",
+      "songCount": 143,
+      "albumCount": 8,
+      "totalDuration": 34320,
+      "avgRating": 4.212535753145712,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "16",
+      "name": "New Order",
+      "songCount": 98,
+      "albumCount": 10,
+      "totalDuration": 21600,
+      "avgRating": 4.3,
+      "genres": [
+        "new wave",
+        "electronic"
+      ]
+    },
+    {
+      "id": "65",
+      "name": "Nine Inch Nails",
+      "songCount": 187,
+      "albumCount": 9,
+      "totalDuration": 44880,
+      "avgRating": 4.774883874626981,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "7",
+      "name": "Nirvana",
+      "songCount": 102,
+      "albumCount": 3,
+      "totalDuration": 15600,
+      "avgRating": 4.6,
+      "genres": [
+        "grunge",
+        "alternative rock"
+      ]
+    },
+    {
+      "id": "66",
+      "name": "Oasis",
+      "songCount": 156,
+      "albumCount": 7,
+      "totalDuration": 37440,
+      "avgRating": 4.879387771160864,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "67",
+      "name": "OutKast",
+      "songCount": 134,
+      "albumCount": 6,
+      "totalDuration": 32160,
+      "avgRating": 4.5441493705375935,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "68",
+      "name": "Pearl Jam",
+      "songCount": 178,
+      "albumCount": 11,
+      "totalDuration": 42720,
+      "avgRating": 4.708722197499343,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "1",
+      "name": "Pink Floyd",
+      "songCount": 187,
+      "albumCount": 15,
+      "totalDuration": 39600,
+      "avgRating": 4.7,
+      "genres": [
+        "progressive rock",
+        "psychedelic rock"
+      ]
+    },
+    {
+      "id": "69",
+      "name": "Pixies",
+      "songCount": 98,
+      "albumCount": 7,
+      "totalDuration": 23520,
+      "avgRating": 4.630975388059619,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "13",
+      "name": "Portishead",
+      "songCount": 37,
+      "albumCount": 3,
+      "totalDuration": 8100,
+      "avgRating": 4.6,
+      "genres": [
+        "trip hop",
+        "electronic"
+      ]
+    },
+    {
+      "id": "71",
+      "name": "Primus",
+      "songCount": 134,
+      "albumCount": 9,
+      "totalDuration": 32160,
+      "avgRating": 4.0832636735672665,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "5",
+      "name": "Queen",
+      "songCount": 234,
+      "albumCount": 15,
+      "totalDuration": 46080,
+      "avgRating": 4.7,
+      "genres": [
+        "rock",
+        "glam rock"
+      ]
+    },
+    {
+      "id": "74",
+      "name": "R.E.M.",
+      "songCount": 267,
+      "albumCount": 15,
+      "totalDuration": 64080,
+      "avgRating": 4.729302330801261,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "2",
+      "name": "Radiohead",
+      "songCount": 187,
+      "albumCount": 9,
+      "totalDuration": 31200,
+      "avgRating": 4.6,
+      "genres": [
+        "alternative rock",
+        "electronic"
+      ]
+    },
+    {
+      "id": "72",
+      "name": "Rage Against the Machine",
+      "songCount": 72,
+      "albumCount": 4,
+      "totalDuration": 17280,
+      "avgRating": 4.470056443005069,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "73",
+      "name": "Red Hot Chili Peppers",
+      "songCount": 234,
+      "albumCount": 11,
+      "totalDuration": 56160,
+      "avgRating": 4.12133623610031,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "76",
+      "name": "Run-DMC",
+      "songCount": 87,
+      "albumCount": 7,
+      "totalDuration": 20880,
+      "avgRating": 4.371445070309193,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "77",
+      "name": "Sonic Youth",
+      "songCount": 203,
+      "albumCount": 16,
+      "totalDuration": 48720,
+      "avgRating": 4.548442830789303,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "78",
+      "name": "Soundgarden",
+      "songCount": 98,
+      "albumCount": 6,
+      "totalDuration": 23520,
+      "avgRating": 4.773575704875819,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "80",
+      "name": "Sublime",
+      "songCount": 76,
+      "albumCount": 5,
+      "totalDuration": 18240,
+      "avgRating": 4.2281044431435735,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "81",
+      "name": "System of a Down",
+      "songCount": 78,
+      "albumCount": 5,
+      "totalDuration": 18720,
+      "avgRating": 4.05720758112478,
+      "genres": [
+        "rock"
+      ]
     },
     {
       "id": "20",
       "name": "Talking Heads",
-      "songCount": 96,
+      "songCount": 134,
       "albumCount": 8,
       "totalDuration": 19200,
       "avgRating": 4.5,
-      "genres": ["new wave", "art rock"]
+      "genres": [
+        "new wave",
+        "art rock"
+      ]
+    },
+    {
+      "id": "17",
+      "name": "Tame Impala",
+      "songCount": 67,
+      "albumCount": 4,
+      "totalDuration": 12600,
+      "avgRating": 4.4,
+      "genres": [
+        "psychedelic rock",
+        "indie rock"
+      ]
+    },
+    {
+      "id": "4",
+      "name": "The Beatles",
+      "songCount": 302,
+      "albumCount": 13,
+      "totalDuration": 28800,
+      "avgRating": 4.9,
+      "genres": [
+        "rock",
+        "pop"
+      ]
+    },
+    {
+      "id": "36",
+      "name": "The Cure",
+      "songCount": 267,
+      "albumCount": 13,
+      "totalDuration": 64080,
+      "avgRating": 4.193976328198315,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "49",
+      "name": "The Head and the Heart",
+      "songCount": 52,
+      "albumCount": 4,
+      "totalDuration": 12480,
+      "avgRating": 4.5212113900512545,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "52",
+      "name": "The Jimi Hendrix Experience",
+      "songCount": 78,
+      "albumCount": 3,
+      "totalDuration": 18720,
+      "avgRating": 4.713087200827237,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "55",
+      "name": "The Killers",
+      "songCount": 89,
+      "albumCount": 6,
+      "totalDuration": 21360,
+      "avgRating": 4.754719493326793,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "57",
+      "name": "The Kinks",
+      "songCount": 234,
+      "albumCount": 24,
+      "totalDuration": 56160,
+      "avgRating": 4.29016525825101,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "60",
+      "name": "The Lumineers",
+      "songCount": 43,
+      "albumCount": 3,
+      "totalDuration": 10320,
+      "avgRating": 4.820040946048433,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "70",
+      "name": "The Postal Service",
+      "songCount": 32,
+      "albumCount": 2,
+      "totalDuration": 7680,
+      "avgRating": 4.038710653847635,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "75",
+      "name": "The Rolling Stones",
+      "songCount": 412,
+      "albumCount": 30,
+      "totalDuration": 98880,
+      "avgRating": 4.317800753760581,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "14",
+      "name": "The Smiths",
+      "songCount": 89,
+      "albumCount": 4,
+      "totalDuration": 15480,
+      "avgRating": 4.5,
+      "genres": [
+        "indie rock",
+        "alternative rock"
+      ]
+    },
+    {
+      "id": "79",
+      "name": "The Strokes",
+      "songCount": 87,
+      "albumCount": 6,
+      "totalDuration": 20880,
+      "avgRating": 4.102717379069806,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "86",
+      "name": "The Velvet Underground",
+      "songCount": 87,
+      "albumCount": 4,
+      "totalDuration": 20880,
+      "avgRating": 4.315197665025486,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "90",
+      "name": "The White Stripes",
+      "songCount": 109,
+      "albumCount": 6,
+      "totalDuration": 26160,
+      "avgRating": 4.635869884726237,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "94",
+      "name": "The xx",
+      "songCount": 43,
+      "albumCount": 3,
+      "totalDuration": 10320,
+      "avgRating": 4.506868784832369,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "82",
+      "name": "Tool",
+      "songCount": 62,
+      "albumCount": 5,
+      "totalDuration": 14880,
+      "avgRating": 4.573688776037694,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "83",
+      "name": "Travis Scott",
+      "songCount": 98,
+      "albumCount": 4,
+      "totalDuration": 23520,
+      "avgRating": 4.728766755626568,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "84",
+      "name": "TV on the Radio",
+      "songCount": 72,
+      "albumCount": 5,
+      "totalDuration": 17280,
+      "avgRating": 4.893275548800638,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "85",
+      "name": "U2",
+      "songCount": 312,
+      "albumCount": 14,
+      "totalDuration": 74880,
+      "avgRating": 4.460239795047481,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "87",
+      "name": "Vampire Weekend",
+      "songCount": 76,
+      "albumCount": 4,
+      "totalDuration": 18240,
+      "avgRating": 4.266178728302218,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "89",
+      "name": "Ween",
+      "songCount": 312,
+      "albumCount": 14,
+      "totalDuration": 74880,
+      "avgRating": 4.14929026324055,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "88",
+      "name": "Weezer",
+      "songCount": 178,
+      "albumCount": 14,
+      "totalDuration": 42720,
+      "avgRating": 4.431400211797902,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "91",
+      "name": "Wilco",
+      "songCount": 187,
+      "albumCount": 11,
+      "totalDuration": 44880,
+      "avgRating": 4.17902207441574,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "92",
+      "name": "Wu-Tang Clan",
+      "songCount": 134,
+      "albumCount": 8,
+      "totalDuration": 32160,
+      "avgRating": 4.0430012327854135,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "93",
+      "name": "Yeah Yeah Yeahs",
+      "songCount": 67,
+      "albumCount": 5,
+      "totalDuration": 16080,
+      "avgRating": 4.79465762095753,
+      "genres": [
+        "rock"
+      ]
+    },
+    {
+      "id": "95",
+      "name": "ZZ Top",
+      "songCount": 178,
+      "albumCount": 15,
+      "totalDuration": 42720,
+      "avgRating": 4.125235699098014,
+      "genres": [
+        "rock"
+      ]
     }
   ],
   "albums": [
@@ -906,24 +1791,96 @@
     }
   ],
   "tags": [
-    { "value": "rock", "label": "rock", "count": 342 },
-    { "value": "electronic", "label": "electronic", "count": 287 },
-    { "value": "jazz", "label": "jazz", "count": 156 },
-    { "value": "classical", "label": "classical", "count": 203 },
-    { "value": "hip-hop", "label": "hip-hop", "count": 178 },
-    { "value": "indie", "label": "indie", "count": 234 },
-    { "value": "metal", "label": "metal", "count": 143 },
-    { "value": "pop", "label": "pop", "count": 267 },
-    { "value": "folk", "label": "folk", "count": 98 },
-    { "value": "ambient", "label": "ambient", "count": 87 },
-    { "value": "experimental", "label": "experimental", "count": 112 },
-    { "value": "punk", "label": "punk", "count": 89 },
-    { "value": "soul", "label": "soul", "count": 76 },
-    { "value": "funk", "label": "funk", "count": 54 },
-    { "value": "blues", "label": "blues", "count": 67 },
-    { "value": "reggae", "label": "reggae", "count": 43 },
-    { "value": "country", "label": "country", "count": 52 },
-    { "value": "r&b", "label": "r&b", "count": 94 }
+    {
+      "value": "rock",
+      "label": "rock",
+      "count": 342
+    },
+    {
+      "value": "electronic",
+      "label": "electronic",
+      "count": 287
+    },
+    {
+      "value": "jazz",
+      "label": "jazz",
+      "count": 156
+    },
+    {
+      "value": "classical",
+      "label": "classical",
+      "count": 203
+    },
+    {
+      "value": "hip-hop",
+      "label": "hip-hop",
+      "count": 178
+    },
+    {
+      "value": "indie",
+      "label": "indie",
+      "count": 234
+    },
+    {
+      "value": "metal",
+      "label": "metal",
+      "count": 143
+    },
+    {
+      "value": "pop",
+      "label": "pop",
+      "count": 267
+    },
+    {
+      "value": "folk",
+      "label": "folk",
+      "count": 98
+    },
+    {
+      "value": "ambient",
+      "label": "ambient",
+      "count": 87
+    },
+    {
+      "value": "experimental",
+      "label": "experimental",
+      "count": 112
+    },
+    {
+      "value": "punk",
+      "label": "punk",
+      "count": 89
+    },
+    {
+      "value": "soul",
+      "label": "soul",
+      "count": 76
+    },
+    {
+      "value": "funk",
+      "label": "funk",
+      "count": 54
+    },
+    {
+      "value": "blues",
+      "label": "blues",
+      "count": 67
+    },
+    {
+      "value": "reggae",
+      "label": "reggae",
+      "count": 43
+    },
+    {
+      "value": "country",
+      "label": "country",
+      "count": 52
+    },
+    {
+      "value": "r&b",
+      "label": "r&b",
+      "count": 94
+    }
   ],
   "genres": [
     {
@@ -1116,7 +2073,7 @@
   },
   "library": {
     "totalSongs": 50,
-    "totalArtists": 20,
+    "totalArtists": 95,
     "totalAlbums": 22,
     "totalGenres": 12,
     "totalDuration": 892800,
