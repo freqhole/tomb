@@ -1,6 +1,6 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
-  createEffect,
+  createMemo,
   createSignal,
   For,
   JSX,
@@ -92,20 +92,15 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     return Math.ceil(props.albums.length / columns());
   };
 
-  // create virtualizer for rows
-  const rowVirtualizer = createVirtualizer({
-    get count() {
-      return getRowCount();
-    },
-    getScrollElement: () => parentRef,
-    estimateSize: () => getCardHeight() + gap,
-    overscan: 2,
-  });
-
-  // remeasure virtualizer when columns change
-  createEffect(() => {
-    columns(); // track columns signal
-    rowVirtualizer.measure();
+  // recreate virtualizer when columns change for clean layout updates
+  const rowVirtualizer = createMemo(() => {
+    columns(); // track columns for reactivity
+    return createVirtualizer({
+      count: getRowCount(),
+      getScrollElement: () => parentRef,
+      estimateSize: () => getCardHeight() + gap,
+      overscan: 2,
+    });
   });
 
   // get albums for a specific row
@@ -124,13 +119,13 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
       {/* virtual grid container */}
       <div
         style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
+          height: `${rowVirtualizer().getTotalSize()}px`,
           width: "100%",
           position: "relative",
           padding: `${gap}px`,
         }}
       >
-        <For each={rowVirtualizer.getVirtualItems()}>
+        <For each={rowVirtualizer().getVirtualItems()}>
           {(virtualRow) => {
             const rowAlbums = getAlbumsForRow(virtualRow.index);
 
