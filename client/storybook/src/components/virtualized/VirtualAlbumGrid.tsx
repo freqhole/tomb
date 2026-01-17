@@ -29,14 +29,15 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   const cardSize = () => props.cardSize || "medium";
 
   // calculate card height based on size
+  // cards are square images + text below, so need image height + text space
   const getCardHeight = () => {
     switch (cardSize()) {
       case "small":
-        return 200;
+        return 240; // ~160px image + 80px text
       case "large":
-        return 320;
+        return 420; // ~300px image + 120px text
       default: // medium
-        return 260;
+        return 340; // ~220px image + 120px text
     }
   };
 

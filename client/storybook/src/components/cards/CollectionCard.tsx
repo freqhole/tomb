@@ -79,7 +79,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
     switch (props.size) {
       case "small":
         return {
-          container: "aspect-square w-full",
+          container: "w-full aspect-square flex-shrink-0",
           image: "w-full h-full",
           playButton: "w-8 h-8 rounded-full",
           playIcon: "w-4 h-4",
@@ -89,7 +89,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         };
       case "large":
         return {
-          container: "aspect-square w-full",
+          container: "w-full aspect-square flex-shrink-0",
           image: "w-full h-full",
           playButton: "w-16 h-16 rounded-full",
           playIcon: "w-8 h-8",
@@ -99,7 +99,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         };
       default: // medium
         return {
-          container: "aspect-square w-full",
+          container: "w-full aspect-square flex-shrink-0",
           image: "w-full h-full",
           playButton: "w-12 h-12 rounded-full",
           playIcon: "w-6 h-6",
@@ -114,13 +114,13 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
   return (
     <div
-      class={`group cursor-pointer ${props.class || ""}`}
+      class={`group cursor-pointer flex flex-col ${props.class || ""}`}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
       {/* image/artwork area */}
       <div
-        class={`${classes.container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg overflow-visible mb-1 relative`}
+        class={`${classes.container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg overflow-hidden mb-2 relative`}
       >
         <Show
           when={props.collection.imageUrl}
@@ -139,7 +139,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           <img
             src={props.collection.imageUrl!}
             alt={props.collection.title}
-            class={`${classes.image} object-cover transition-all duration-200 group-hover:scale-110 group-hover:rounded-none group-hover:z-20 group-hover:shadow-2xl group-hover:-translate-y-2 rounded-lg`}
+            class={`${classes.image} object-cover rounded-lg`}
             loading="lazy"
           />
         </Show>

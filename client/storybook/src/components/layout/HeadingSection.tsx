@@ -40,10 +40,7 @@ export function HeadingSection(props: HeadingSectionProps) {
   ]);
 
   return (
-    <div
-      class={`flex-shrink-0 p-6 ${local.class || ""}`}
-      {...others}
-    >
+    <div class={`flex-shrink-0 p-3 ${local.class || ""}`} {...others}>
       {/* header row with title and controls */}
       <div class="flex items-start justify-between mb-4 gap-4">
         {/* left side: title and count */}
@@ -52,9 +49,7 @@ export function HeadingSection(props: HeadingSectionProps) {
             {local.title}
           </h1>
           <Show when={local.loading}>
-            <p class="text-[var(--color-text-secondary)] text-sm">
-              loading...
-            </p>
+            <p class="text-[var(--color-text-secondary)] text-sm">loading...</p>
           </Show>
           <Show when={!local.loading && local.count !== undefined}>
             <p class="text-[var(--color-text-secondary)] text-sm">
@@ -71,17 +66,13 @@ export function HeadingSection(props: HeadingSectionProps) {
 
         {/* right side: sort controls */}
         <Show when={local.controls}>
-          <div class="flex-shrink-0">
-            {local.controls}
-          </div>
+          <div class="flex-shrink-0">{local.controls}</div>
         </Show>
       </div>
 
       {/* action buttons row */}
       <Show when={local.actions}>
-        <div class="flex items-center gap-2">
-          {local.actions}
-        </div>
+        <div class="flex items-center gap-2">{local.actions}</div>
       </Show>
     </div>
   );
