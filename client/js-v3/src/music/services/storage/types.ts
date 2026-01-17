@@ -17,13 +17,14 @@ export interface MusicSong {
   source_type: MusicSourceType;
 
   // local file source (if source_type === "local")
-  // store the actual audio blob for local files
-  audio_blob: Blob | null;
+  // all local files stored in opfs
+  opfs_path: string | null;
+  file_name: string | null; // original filename
+  file_size: number | null; // file size in bytes
+  last_modified: number | null; // file last modified timestamp
 
   // downloaded source (if source_type === "downloaded")
-  source_url: string | null;
-  opfs_path: string | null;
-  file_size: number | null;
+  source_url: string | null; // original download url
 
   // remote source (if source_type === "remote", future)
   server_id: string | null;

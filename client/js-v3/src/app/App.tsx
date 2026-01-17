@@ -64,19 +64,45 @@ export function App() {
   const handleFilesSelected = async (files: FileList) => {
     setIsProcessing(true);
     try {
-      // process files one at a time to avoid race conditions
       const fileArray = Array.from(files);
-      for (const file of fileArray) {
-        const metadata = await processMusicFiles([file]);
-        if (metadata.length > 0) {
+      let addedCount = 0;
+      let skippedCount = 0;
+
+      // generate song ids upfront (needed for opfs storage)
+      const songIds = fileArray.map(() => generateUUID());
+
+      // process files with their ids
+      const metadata = await processMusicFiles(fileArray, songIds);
+
+      for (let i = 0; i < metadata.length; i++) {
+        const songData = metadata[i];
+
+        // check for duplicates - match on filename, file size, and last modified
+        const isDuplicate = songs().some(
+          (existing) =>
+            existing.source_type === "local" &&
+            existing.file_name === songData.file_name &&
+            existing.file_size === songData.file_size &&
+            existing.last_modified === songData.last_modified,
+        );
+
+        if (isDuplicate) {
+          console.log(
+            `skipping duplicate: ${songData.file_name} (${songData.file_size} bytes)`,
+          );
+          skippedCount++;
+        } else {
           await addSong({
-            ...metadata[0],
-            id: generateUUID(),
+            ...songData,
+            id: songIds[i],
           });
+          addedCount++;
         }
       }
 
-      console.log(`added ${fileArray.length} songs to library`);
+      console.log(
+        `added ${addedCount} songs, skipped ${skippedCount} duplicates`,
+      );
       setIsAddMusicOpen(false);
     } catch (error) {
       console.error("failed to process files:", error);

@@ -5,8 +5,8 @@ import {
   setCurrentSong,
   setQueue,
 } from "../../../app/services/storage/db";
+import { cleanupAudioURL, getAudioURL } from "../storage/audioAccess";
 import { getSongById } from "../storage/db";
-import type { MusicSong } from "../storage/types";
 
 // player state signals
 const [isPlaying, setIsPlaying] = createSignal(false);
@@ -35,8 +35,8 @@ const canGoPrevious = () => {
 // audio element (singleton)
 let audioElement: HTMLAudioElement | null = null;
 
-// current audio url (for cleanup)
-let currentAudioURL: string | null = null;
+// current song id (for cleanup)
+let currentSongId: string | null = null;
 
 // initialize audio element
 function initAudio(): HTMLAudioElement {
@@ -143,37 +143,6 @@ async function updateMediaSession() {
   }
 }
 
-// create audio url from song
-async function createAudioURL(song: MusicSong): Promise<string> {
-  console.log("createAudioURL called with song:", {
-    id: song.id,
-    title: song.title,
-    source_type: song.source_type,
-    has_audio_blob: !!song.audio_blob,
-    audio_blob_type: song.audio_blob?.constructor?.name,
-    has_opfs_path: !!song.opfs_path,
-    has_source_url: !!song.source_url,
-  });
-
-  if (song.source_type === "local" && song.audio_blob) {
-    // create url from stored blob
-    console.log("creating url from audio_blob");
-    return URL.createObjectURL(song.audio_blob);
-  }
-
-  if (song.source_type === "downloaded" && song.opfs_path) {
-    // TODO: read from OPFS when implemented
-    throw new Error("opfs playback not yet implemented");
-  }
-
-  if (song.source_type === "remote" && song.source_url) {
-    // stream from remote url
-    return song.source_url;
-  }
-
-  throw new Error("unable to create audio url for song");
-}
-
 // play a specific song
 export async function playSong(songId: string): Promise<void> {
   const audio = initAudio();
@@ -187,14 +156,13 @@ export async function playSong(songId: string): Promise<void> {
     }
 
     // cleanup previous audio url
-    if (currentAudioURL) {
-      URL.revokeObjectURL(currentAudioURL);
-      currentAudioURL = null;
+    if (currentSongId) {
+      cleanupAudioURL(currentSongId);
     }
 
-    // create new audio url
-    const audioURL = await createAudioURL(song);
-    currentAudioURL = audioURL;
+    // get audio url using abstraction
+    const audioURL = await getAudioURL(song);
+    currentSongId = songId;
 
     // load and play
     audio.src = audioURL;
@@ -327,9 +295,9 @@ export function cleanup(): void {
     audioElement.src = "";
   }
 
-  if (currentAudioURL) {
-    URL.revokeObjectURL(currentAudioURL);
-    currentAudioURL = null;
+  if (currentSongId) {
+    cleanupAudioURL(currentSongId);
+    currentSongId = null;
   }
 }
 

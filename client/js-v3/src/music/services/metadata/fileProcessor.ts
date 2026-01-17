@@ -1,5 +1,10 @@
 // file processing service - extract metadata from audio files
 import { parseBlob } from "music-metadata";
+import {
+  getFileExtension,
+  isOPFSSupported,
+  writeAudioToOPFS,
+} from "../opfs/helpers";
 import type { MusicSong } from "../storage/types";
 
 export interface AudioMetadata {
@@ -68,8 +73,19 @@ async function getAudioDuration(file: File): Promise<number> {
 // create song object from file
 export async function processMusicFile(
   file: File,
+  songId: string,
 ): Promise<Omit<MusicSong, "id">> {
   const metadata = await extractMetadata(file);
+
+  // check opfs support
+  if (!isOPFSSupported()) {
+    throw new Error("opfs not supported in this browser");
+  }
+
+  // write file to opfs
+  console.log(`writing to opfs: ${file.name}`);
+  const extension = getFileExtension(metadata.mime_type, file.name);
+  const opfsPath = await writeAudioToOPFS(file, songId, extension);
 
   return {
     title: metadata.title,
@@ -79,10 +95,11 @@ export async function processMusicFile(
     mime_type: metadata.mime_type,
     added_at: Date.now(),
     source_type: "local",
-    audio_blob: file,
-    source_url: null,
-    opfs_path: null,
+    opfs_path: opfsPath,
+    file_name: file.name,
     file_size: file.size,
+    last_modified: file.lastModified,
+    source_url: null,
     server_id: null,
     remote_song_id: null,
   };
@@ -91,10 +108,16 @@ export async function processMusicFile(
 // batch process multiple files
 export async function processMusicFiles(
   files: FileList | File[],
+  songIds: string[],
 ): Promise<Array<Omit<MusicSong, "id">>> {
   const fileArray = Array.from(files);
+
+  if (fileArray.length !== songIds.length) {
+    throw new Error("files and songIds arrays must have same length");
+  }
+
   const results = await Promise.all(
-    fileArray.map((file) => processMusicFile(file)),
+    fileArray.map((file, index) => processMusicFile(file, songIds[index])),
   );
   return results;
 }
