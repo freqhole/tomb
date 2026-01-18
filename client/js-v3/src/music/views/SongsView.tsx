@@ -70,19 +70,10 @@ export function SongsView(props: SongsViewProps) {
     }));
   });
 
-  // track if we're already loading to prevent duplicate requests
-  const [isLoadingMore, setIsLoadingMore] = createSignal(false);
-
-  // trigger loading next page with debouncing
+  // trigger loading next page - tanstack query handles deduplication
   const loadMore = () => {
-    if (isLoadingMore()) return;
     if (!songsQuery.hasNextPage || songsQuery.isFetchingNextPage) return;
-
-    setIsLoadingMore(true);
-    songsQuery.fetchNextPage().finally(() => {
-      // add small delay before allowing next trigger
-      setTimeout(() => setIsLoadingMore(false), 500);
-    });
+    songsQuery.fetchNextPage();
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {

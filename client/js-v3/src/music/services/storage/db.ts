@@ -310,6 +310,47 @@ async function backfillAlbumFields(): Promise<void> {
   console.log("backfill complete");
 }
 
+// sync album_added_at and album_primary_genre_id for all songs in an album
+async function syncAlbumFields(albumId: string): Promise<void> {
+  if (!dbInstance) return;
+
+  const allSongsInAlbum = await getSongsByAlbumId(albumId);
+  if (allSongsInAlbum.length === 0) return;
+
+  // compute album_added_at: earliest added_at
+  const albumAddedAt = Math.min(...allSongsInAlbum.map((s) => s.added_at));
+
+  // compute album_primary_genre_id: most common genre (or null)
+  const genreCounts = new Map<string | null, number>();
+  for (const song of allSongsInAlbum) {
+    const genreId = (song as any).genre_id || null;
+    genreCounts.set(genreId, (genreCounts.get(genreId) || 0) + 1);
+  }
+  let albumPrimaryGenreId: string | null = null;
+  let maxCount = 0;
+  for (const [genreId, count] of genreCounts) {
+    if (count > maxCount) {
+      maxCount = count;
+      albumPrimaryGenreId = genreId;
+    }
+  }
+
+  // update all songs in album with synced values
+  const tx = dbInstance.transaction(STORE_SONGS, "readwrite");
+  const store = tx.objectStore(STORE_SONGS);
+
+  for (const song of allSongsInAlbum) {
+    const updated = {
+      ...song,
+      album_added_at: albumAddedAt,
+      album_primary_genre_id: albumPrimaryGenreId,
+    };
+    await store.put(updated);
+  }
+
+  await tx.done;
+}
+
 // ===== ARTISTS =====
 
 async function createArtist(artist: Artist): Promise<void> {
@@ -395,6 +436,9 @@ async function getOrCreateAlbum(
 async function createSong(song: Song): Promise<void> {
   const db = await initMusicDB();
   await db.put(STORE_SONGS, song);
+
+  // sync album_added_at for all songs in this album
+  await syncAlbumFields(song.album_id);
 
   // update reactive signal for backwards compatibility
   const allSongs = await db.getAll(STORE_SONGS);
@@ -749,24 +793,49 @@ async function querySongsWithDetails(options?: {
     // use compound index for sorted, album-grouped results
     const indexName = indexMap[sortField];
     const index = db.transaction(STORE_SONGS).store.index(indexName);
-    const direction = sortDirection === "desc" ? "prev" : "next";
 
-    // use cursor to iterate with offset/limit
-    const cursor = await index.openCursor(null, direction);
-    songsToQuery = [];
-    let skipped = 0;
-    let collected = 0;
+    // for desc sort: load all, group by album, reverse albums, then paginate
+    // this ensures newest albums are at top with correct disc/track order
+    if (sortDirection === "desc") {
+      // load all songs from index (in asc order to maintain disc/track)
+      const allSongs = await index.getAll();
 
-    if (cursor) {
-      let currentCursor = cursor;
-      while (currentCursor && collected < limit) {
-        if (skipped < offset) {
-          skipped++;
-          currentCursor = await currentCursor.continue();
-        } else {
-          songsToQuery.push(currentCursor.value);
-          collected++;
-          currentCursor = await currentCursor.continue();
+      // group by album_id preserving order
+      const albumGroups: Song[][] = [];
+      const seenAlbums = new Set<string>();
+
+      for (const song of allSongs) {
+        if (!seenAlbums.has(song.album_id)) {
+          seenAlbums.add(song.album_id);
+          albumGroups.push([]);
+        }
+        albumGroups[albumGroups.length - 1].push(song);
+      }
+
+      // reverse album groups to get newest first
+      albumGroups.reverse();
+
+      // flatten and paginate
+      const flattened = albumGroups.flat();
+      songsToQuery = flattened.slice(offset, offset + limit);
+    } else {
+      // asc: use cursor pagination normally
+      const cursor = await index.openCursor(null, "next");
+      songsToQuery = [];
+      let skipped = 0;
+      let collected = 0;
+
+      if (cursor) {
+        let currentCursor = cursor;
+        while (currentCursor && collected < limit) {
+          if (skipped < offset) {
+            skipped++;
+            currentCursor = await currentCursor.continue();
+          } else {
+            songsToQuery.push(currentCursor.value);
+            collected++;
+            currentCursor = await currentCursor.continue();
+          }
         }
       }
     }

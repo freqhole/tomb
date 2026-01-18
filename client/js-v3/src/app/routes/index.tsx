@@ -1,5 +1,7 @@
 import { Route } from "@solidjs/router";
+import { AlbumDetailView } from "../../music/views/AlbumDetailView";
 import { AlbumsView } from "../../music/views/AlbumsView";
+import { ArtistDetailView } from "../../music/views/ArtistDetailView";
 import { ArtistsView } from "../../music/views/ArtistsView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
@@ -16,30 +18,39 @@ export function routes(props: RoutesProps) {
     <Route path="/" component={AppLayout}>
       <Route
         path="/"
-        component={() => <SongsView onAddMusic={props.onAddMusic} onSongDoubleClick={props.onSongDoubleClick} />}
-      />
-      <Route
-        path="/songs"
-        component={() => <SongsView onAddMusic={props.onAddMusic} onSongDoubleClick={props.onSongDoubleClick} />}
-      />
-      <Route
-        path="/albums"
         component={() => (
-          <AlbumsView
+          <SongsView
             onAddMusic={props.onAddMusic}
-            onAlbumClick={(albumId) => console.log("album clicked:", albumId)}
+            onSongDoubleClick={props.onSongDoubleClick}
           />
         )}
       />
+      <Route
+        path="/songs"
+        component={() => (
+          <SongsView
+            onAddMusic={props.onAddMusic}
+            onSongDoubleClick={props.onSongDoubleClick}
+          />
+        )}
+      />
+      <Route
+        path="/albums"
+        component={() => <AlbumsView onAddMusic={props.onAddMusic} />}
+      />
+      <Route path="/albums/:id" component={AlbumDetailView} />
       <Route
         path="/artists"
         component={() => (
           <ArtistsView
             onAddMusic={props.onAddMusic}
-            onArtistClick={(artistId) => console.log("artist clicked:", artistId)}
+            onArtistClick={(artistId) =>
+              console.log("artist clicked:", artistId)
+            }
           />
         )}
       />
+      <Route path="/artists/:id" component={ArtistDetailView} />
       <Route
         path="/genres"
         component={() => (
@@ -54,7 +65,9 @@ export function routes(props: RoutesProps) {
         component={() => (
           <PlaylistsView
             onAddMusic={props.onAddMusic}
-            onPlaylistClick={(playlistId) => console.log("playlist clicked:", playlistId)}
+            onPlaylistClick={(playlistId) =>
+              console.log("playlist clicked:", playlistId)
+            }
           />
         )}
       />

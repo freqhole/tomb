@@ -1,5 +1,6 @@
 // main app entry point with routing
 import { Router } from "@solidjs/router";
+import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
@@ -12,6 +13,7 @@ import { importMusicFiles } from "./services/fileImport";
 import { appState, initAppDB, setQueue } from "./services/storage/db";
 
 export function App() {
+  const queryClient = useQueryClient();
   const [isAddMusicOpen, setIsAddMusicOpen] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [hasSongs, setHasSongs] = createSignal(false);
@@ -46,6 +48,8 @@ export function App() {
       const result = await importMusicFiles(files);
       if (result.addedCount > 0) {
         setHasSongs(true);
+        // invalidate songs query to show new songs
+        queryClient.invalidateQueries({ queryKey: ["songs"] });
       }
       setIsAddMusicOpen(false);
     } catch (error) {

@@ -81,7 +81,9 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 
 // update queue
 async function setQueue(songs: Song[]): Promise<void> {
-  await updateAppState({ queue: songs });
+  // serialize to plain objects to avoid DataCloneError with proxies
+  const plainSongs = songs.map((song) => ({ ...song }));
+  await updateAppState({ queue: plainSongs });
 }
 
 // set queue open state

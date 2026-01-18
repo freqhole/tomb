@@ -6,6 +6,7 @@ import {
   For,
   JSX,
   Show,
+  untrack,
 } from "solid-js";
 
 export interface Song {
@@ -142,8 +143,6 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
   // detect when virtualizer is rendering items near end (for infinite scroll)
   createEffect(() => {
-    if (!props.onNearEnd) return;
-
     const virtualizer = rowVirtualizer();
     const items = virtualizer.getVirtualItems();
     if (items.length === 0) return;
@@ -157,7 +156,8 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
     if (lastItem.index >= threshold && totalCount > lastTriggeredAtCount()) {
       setLastTriggeredAtCount(totalCount);
-      props.onNearEnd();
+      // untrack to prevent this call from causing re-runs
+      untrack(() => props.onNearEnd?.());
     }
   });
 

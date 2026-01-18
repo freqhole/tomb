@@ -1,21 +1,16 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
+import { useNavigate } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
   createResource,
   createSignal,
-  For,
   Show,
 } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
+import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
-import { IconButton } from "../../components/buttons/IconButton";
-import {
-  formatDuration,
-  formatNumber,
-  StatsCard,
-  StatsGrid,
-} from "../../components/cards/StatsCard";
+import { formatNumber } from "../../components/cards/StatsCard";
 import { SearchSortControls } from "../../components/controls/SearchSortControls";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
@@ -26,9 +21,9 @@ import {
 } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
 import { playSong } from "../services/audio/player";
-import { songsVersion } from "../services/storage/db";
+import { querySongsWithDetails, songsVersion } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
-import { sortSongsByArtist } from "../utils/songSort";
+import { sortSongsCanonical } from "../utils/songSort";
 
 export interface ArtistsViewProps {
   onAddMusic: () => void;
@@ -42,6 +37,7 @@ const artistSortFields = [
 ];
 
 export function ArtistsView(props: ArtistsViewProps) {
+  const navigate = useNavigate();
   const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(
     null,
   );
@@ -61,11 +57,18 @@ export function ArtistsView(props: ArtistsViewProps) {
   // fetch songs for selected artist
   const [artistSongs] = createResource(selectedArtistId, async (artistId) => {
     if (!artistId) return [];
-    const source = getDataSource();
-    if (!source.getArtistSongs) return [];
-    const result = await source.getArtistSongs(artistId, { limit: 100 });
-    // sort canonically: by album, then disc+track
-    return sortSongsByArtist(result.items);
+    const songResults = await querySongsWithDetails({ artistId });
+    const songs = songResults.map((r) => ({
+      song_id: r.song.song_id,
+      title: r.song.title,
+      album_id: r.song.album_id,
+      album_title: r.song.album_title,
+      track_number: r.song.track_number,
+      disc_number: r.song.disc_number,
+      duration: r.song.duration,
+      year: r.song.year,
+    }));
+    return songs;
   });
 
   // sort artists
@@ -158,10 +161,21 @@ export function ArtistsView(props: ArtistsViewProps) {
     return shuffled;
   };
 
+  // convert artist songs to full Song objects for queue
+  const getFullSongs = async (): Promise<Song[]> => {
+    const songs = artistSongs();
+    if (!songs || songs.length === 0) return [];
+
+    const songResults = await querySongsWithDetails({
+      artistId: selectedArtistId()!,
+    });
+    return songResults.map((r) => r.song);
+  };
+
   // play all songs for selected artist
   const handlePlayAll = async () => {
-    const songs = artistSongs();
-    if (!songs || songs.length === 0) return;
+    const songs = await getFullSongs();
+    if (songs.length === 0) return;
 
     await setQueue(songs);
     await playSong(songs[0].song_id);
@@ -169,8 +183,8 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // shuffle all songs for selected artist
   const handleShuffle = async () => {
-    const songs = artistSongs();
-    if (!songs || songs.length === 0) return;
+    const songs = await getFullSongs();
+    if (songs.length === 0) return;
 
     const shuffled = shuffleArray(songs);
     await setQueue(shuffled);
@@ -179,13 +193,50 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // add all songs to end of queue
   const handleAddToQueue = async () => {
-    const songs = artistSongs();
-    if (!songs || songs.length === 0) return;
+    const songs = await getFullSongs();
+    if (songs.length === 0) return;
 
     const state = appState();
     const currentQueue = state?.queue || [];
     const newQueue = [...currentQueue, ...songs];
     await setQueue(newQueue);
+  };
+
+  // navigate to album detail
+  const handleAlbumClick = (albumId: string) => {
+    navigate(`/albums/${albumId}`);
+  };
+
+  // play specific album
+  const handlePlayAlbum = async (albumId: string) => {
+    const songResults = await querySongsWithDetails({ albumId });
+    const songs = songResults.map((r) => r.song);
+    const sortedSongs = sortSongsCanonical(songs);
+
+    if (sortedSongs.length === 0) return;
+    await setQueue(sortedSongs);
+    await playSong(sortedSongs[0].song_id);
+  };
+
+  // add album to queue
+  const handleAddAlbumToQueue = async (albumId: string) => {
+    const songResults = await querySongsWithDetails({ albumId });
+    const songs = songResults.map((r) => r.song);
+    const sortedSongs = sortSongsCanonical(songs);
+
+    const state = appState();
+    const currentQueue = state?.queue || [];
+    await setQueue([...currentQueue, ...sortedSongs]);
+  };
+
+  // play specific song
+  const handleSongDoubleClick = async (songId: string, albumId: string) => {
+    const songResults = await querySongsWithDetails({ albumId });
+    const songs = songResults.map((r) => r.song);
+    const sortedSongs = sortSongsCanonical(songs);
+
+    await setQueue(sortedSongs);
+    await playSong(songId);
   };
 
   // left column - artist list
@@ -264,97 +315,17 @@ export function ArtistsView(props: ArtistsViewProps) {
       }
     >
       {(artist) => (
-        <div class="flex flex-col h-full overflow-y-auto">
-          {/* artist header with stats */}
-          <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] p-6">
-            <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-              {artist().name}
-            </h2>
-
-            <StatsGrid columns={3} gap="md" class="mb-6">
-              <StatsCard
-                label="songs"
-                value={formatNumber(artist().song_count)}
-                icon="music"
-              />
-              <StatsCard
-                label="albums"
-                value={formatNumber(artist().album_count)}
-                icon="album"
-              />
-              <StatsCard
-                label="duration"
-                value={formatDuration(artist().total_duration)}
-                icon="recent"
-              />
-            </StatsGrid>
-
-            {/* action buttons */}
-            <div class="flex gap-3">
-              <Button variant="primary" onClick={handlePlayAll}>
-                play all
-              </Button>
-              <Button variant="secondary" onClick={handleShuffle}>
-                shuffle
-              </Button>
-              <Button variant="ghost" onClick={handleAddToQueue}>
-                add to queue
-              </Button>
-            </div>
-          </div>
-
-          {/* top songs list */}
-          <div class="flex-1 px-6 py-4 overflow-y-auto">
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                top songs
-              </h3>
-            </div>
-            <Show
-              when={(artistSongs() || []).length > 0}
-              fallback={
-                <p class="text-[var(--color-text-tertiary)] text-sm">
-                  loading songs...
-                </p>
-              }
-            >
-              <div class="space-y-1">
-                <For each={artistSongs()?.slice(0, 20)}>
-                  {(song) => (
-                    <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                      <IconButton
-                        icon="play"
-                        size="sm"
-                        variant="ghost"
-                        aria-label="play song"
-                        onClick={async () => {
-                          const songs = artistSongs() || [];
-                          await setQueue(songs);
-                          await playSong(song.song_id);
-                        }}
-                      />
-                      <div class="flex-1 min-w-0">
-                        <div class="text-sm text-[var(--color-text-primary)] truncate">
-                          {song.title}
-                        </div>
-                        <div class="text-xs text-[var(--color-text-tertiary)] truncate">
-                          {song.album_title}
-                        </div>
-                      </div>
-                      <div class="text-xs text-[var(--color-text-muted)] tabular-nums">
-                        {Math.floor(song.duration / 60)}:
-                        {String(Math.floor(song.duration % 60)).padStart(
-                          2,
-                          "0",
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-        </div>
+        <ArtistDetailPanel
+          artist={artist()}
+          songs={artistSongs() || []}
+          onPlayAll={handlePlayAll}
+          onShuffle={handleShuffle}
+          onAddToQueue={handleAddToQueue}
+          onAlbumClick={handleAlbumClick}
+          onPlayAlbum={handlePlayAlbum}
+          onAddAlbumToQueue={handleAddAlbumToQueue}
+          onSongDoubleClick={handleSongDoubleClick}
+        />
       )}
     </Show>
   );

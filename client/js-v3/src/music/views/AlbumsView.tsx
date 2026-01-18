@@ -1,10 +1,14 @@
 // albums view - displays all albums in a grid
+import { useNavigate } from "@solidjs/router";
 import { createResource, Show } from "solid-js";
+import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
-import { songsVersion } from "../services/storage/db";
+import { playSong } from "../services/audio/player";
+import { querySongsWithDetails, songsVersion } from "../services/storage/db";
+import { sortSongsCanonical } from "../utils/songSort";
 
 export interface AlbumsViewProps {
   onAddMusic: () => void;
@@ -12,6 +16,8 @@ export interface AlbumsViewProps {
 }
 
 export function AlbumsView(props: AlbumsViewProps) {
+  const navigate = useNavigate();
+
   // fetch albums from data source - refetch when songsVersion changes
   const [albumsData] = createResource(songsVersion, async () => {
     const source = getDataSource();
@@ -49,6 +55,32 @@ export function AlbumsView(props: AlbumsViewProps) {
       totalDuration: formatDuration(album.total_duration),
       imageUrl: null, // TODO: implement album artwork
     }));
+  };
+
+  // play album: load all songs and start playing
+  const handleAlbumPlay = async (album: CollectionCardData) => {
+    try {
+      // load all songs for this album in canonical order
+      const songResults = await querySongsWithDetails({
+        albumId: album.id,
+      });
+
+      if (songResults.length === 0) return;
+
+      // sort canonically (disc -> track)
+      const songs = songResults.map((r) => r.song);
+      const sortedSongs = sortSongsCanonical(songs);
+
+      // set queue and play first song
+      await setQueue(sortedSongs);
+      await playSong(sortedSongs[0].song_id);
+    } catch (error) {
+      console.error("failed to play album:", error);
+    }
+  };
+
+  const handleAlbumClick = (album: CollectionCardData) => {
+    navigate(`/albums/${album.id}`);
   };
 
   return (
@@ -92,7 +124,8 @@ export function AlbumsView(props: AlbumsViewProps) {
         >
           <VirtualAlbumGrid
             albums={albums()}
-            onAlbumClick={(album) => props.onAlbumClick?.(album.id)}
+            onAlbumClick={handleAlbumClick}
+            onAlbumPlay={handleAlbumPlay}
             showYear={true}
             cardSize="medium"
             height={undefined}
