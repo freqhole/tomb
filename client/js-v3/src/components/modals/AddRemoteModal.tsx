@@ -3,12 +3,6 @@
 import * as apiClient from "freqhole-api-client";
 import { createSignal, Match, Show, Switch } from "solid-js";
 import { createRemote } from "../../music/services/remotes/remoteManager";
-import {
-  prepareAuthenticationOptions,
-  prepareRegistrationOptions,
-  serializeAuthenticationCredential,
-  serializeRegistrationCredential,
-} from "../../music/services/remotes/webauthnHelpers";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 
@@ -22,7 +16,6 @@ type Step = "url" | "testing" | "auth" | "complete";
 
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const [step, setStep] = createSignal<Step>("url");
-  const [name, setName] = createSignal("");
   const [url, setUrl] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
@@ -33,18 +26,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   } | null>(null);
 
   // step 1: collect url and test connection
-  const handleTestConnection = async (e: Event) => {
-    e.preventDefault();
+  const handleTestConnection = async () => {
     setError(null);
 
-    const remoteName = name().trim();
     let remoteUrl = url().trim();
-
-    // validation
-    if (!remoteName) {
-      setError("please enter a name for this remote");
-      return;
-    }
 
     if (!remoteUrl) {
       setError("please enter a server url");
@@ -63,6 +48,20 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       new URL(remoteUrl);
     } catch {
       setError("please enter a valid url (e.g. https://music.example.com)");
+      return;
+    }
+
+    // check for duplicate url
+    const { getAllRemotes } = await import(
+      "../../music/services/remotes/remoteManager"
+    );
+    const existingRemotes = await getAllRemotes();
+    const normalizedUrl = remoteUrl.replace(/\/$/, "");
+    const duplicate = existingRemotes.find((r) => r.base_url === normalizedUrl);
+    if (duplicate) {
+      setError(
+        `this server is already added as "${duplicate.name}". each server can only be added once.`,
+      );
       return;
     }
 
@@ -141,14 +140,16 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         });
 
         if (!startResult.success) {
-          console.error("register start failed:", startResult.error);
+          console.error("register start failed:", startResult);
           throw new Error("failed to start registration");
         }
         console.log("register start response:", startResult.data);
 
         // step 2: create webauthn credential
         console.log("requesting credential creation from browser...");
-        const credentialOptions = prepareRegistrationOptions(startResult.data);
+        const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(
+          startResult.data,
+        );
         const credential = (await navigator.credentials.create(
           credentialOptions,
         )) as PublicKeyCredential;
@@ -168,7 +169,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         // step 3: finish registration
         console.log("finishing registration...");
         const serializedCredential =
-          serializeRegistrationCredential(credential);
+          apiClient.webauthn.serializeRegistrationCredential(credential);
         console.log("serialized credential:", serializedCredential);
         const finishResult = await apiClient.auth.registerFinish(
           baseUrl,
@@ -176,7 +177,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         );
 
         if (!finishResult.success) {
-          console.error("register finish failed:", finishResult.error);
+          console.error("register finish failed:", finishResult);
           throw new Error("failed to complete registration");
         }
         console.log("registration complete!");
@@ -191,18 +192,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         });
 
         if (!startResult.success) {
-          console.error("login start failed:", startResult.error);
-          throw new Error(
-            `failed to start login: ${startResult.error?.message || "unknown error"}`,
-          );
+          console.error("login start failed:", startResult);
+          throw new Error("failed to start login");
         }
         console.log("login start response:", startResult.data);
 
         // step 2: get webauthn credential
         console.log("requesting credential from browser...");
-        const credentialOptions = prepareAuthenticationOptions(
-          startResult.data,
-        );
+        const credentialOptions =
+          apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
         const credential = (await navigator.credentials.get(
           credentialOptions,
         )) as PublicKeyCredential;
@@ -226,7 +224,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         // step 3: finish login
         console.log("finishing login...");
         const serializedCredential =
-          serializeAuthenticationCredential(credential);
+          apiClient.webauthn.serializeAuthenticationCredential(credential);
         console.log("serialized credential:", serializedCredential);
         const finishResult = await apiClient.auth.loginFinish(
           baseUrl,
@@ -234,7 +232,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         );
 
         if (!finishResult.success) {
-          console.error("login finish failed:", finishResult.error);
+          console.error("login finish failed:", finishResult);
           throw new Error("failed to complete login");
         }
         console.log("login complete!");
@@ -253,9 +251,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // final step: save remote config
   const completeSetup = async () => {
     try {
+      // use url as the name
+      const remoteUrl = url();
       await createRemote({
-        name: name(),
-        base_url: url(),
+        name: remoteUrl,
+        base_url: remoteUrl,
       });
 
       setStep("complete");
@@ -275,7 +275,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   const handleClose = () => {
     if (isLoading()) return;
     setStep("url");
-    setName("");
     setUrl("");
     setError(null);
     setServerInfo(null);
@@ -360,29 +359,13 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             <Switch>
               {/* step 1: enter url */}
               <Match when={step() === "url"}>
-                <form onSubmit={handleTestConnection} class="space-y-4">
-                  <div>
-                    <label
-                      for="remote-name"
-                      class="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-                    >
-                      name
-                    </label>
-                    <input
-                      id="remote-name"
-                      type="text"
-                      value={name()}
-                      onInput={(e) => setName(e.currentTarget.value)}
-                      placeholder="e.g. home server, work laptop"
-                      class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:border-transparent"
-                      disabled={isLoading()}
-                      autofocus
-                    />
-                    <p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                      a friendly name to identify this server
-                    </p>
-                  </div>
-
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleTestConnection();
+                  }}
+                  class="space-y-4"
+                >
                   <div>
                     <label
                       for="remote-url"
@@ -478,7 +461,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       remote added!
                     </h3>
                     <p class="text-sm text-[var(--color-text-secondary)]">
-                      {name()} is ready to use
+                      {url()} is ready to use
                     </p>
                   </div>
                 </div>
