@@ -71,11 +71,11 @@ export function GenresView(props: GenresViewProps) {
     if (!data || !data.items.length) return [];
 
     const sorted = [...data.items];
+    const dir = sortDirection() === "asc" ? 1 : -1;
+    const currentSortBy = sortBy();
 
-    sorted.sort((a, b) => {
-      const dir = sortDirection() === "asc" ? 1 : -1;
-
-      switch (sortBy()) {
+    const compareGenres = (a: (typeof sorted)[0], b: (typeof sorted)[0]) => {
+      switch (currentSortBy) {
         case "name":
           return a.name.localeCompare(b.name) * dir;
         case "songCount":
@@ -83,9 +83,11 @@ export function GenresView(props: GenresViewProps) {
         case "albumCount":
           return (a.album_count - b.album_count) * dir;
         default:
-          return 0;
+          return a.name.localeCompare(b.name) * dir;
       }
-    });
+    };
+
+    sorted.sort(compareGenres);
 
     return sorted;
   });
@@ -288,10 +290,10 @@ export function GenresView(props: GenresViewProps) {
                         size="sm"
                         variant="ghost"
                         aria-label="play song"
-                        onClick={async () => {
+                        onClick={() => {
                           const songs = genreSongs() || [];
-                          await setQueue(songs);
-                          await playSong(song.song_id);
+                          void setQueue(songs);
+                          void playSong(song.song_id);
                         }}
                       />
                       <div class="flex-1 min-w-0">

@@ -13,7 +13,7 @@ export interface StarRatingCompactProps {
 // click cycles through 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 0
 export function StarRatingCompact(props: StarRatingCompactProps) {
   const [isUpdating, setIsUpdating] = createSignal(false);
-  const [localRating, setLocalRating] = createSignal(props.rating ?? 0);
+  const [localRating, setLocalRating] = createSignal(() => props.rating ?? 0);
   const [hasInitialized, setHasInitialized] = createSignal(false);
 
   // only sync props to local state on first load, not during user interactions
@@ -66,12 +66,12 @@ export function StarRatingCompact(props: StarRatingCompactProps) {
     }
   };
 
-  const fillColor = props.selected
-    ? "var(--color-text-secondary)"
-    : "var(--color-accent-500)";
-  const emptyColor = props.selected
-    ? "var(--color-bg-elevated)"
-    : "var(--color-text-muted)";
+  const fillColor = createMemo(() =>
+    props.selected ? "var(--color-text-secondary)" : "var(--color-accent-500)",
+  );
+  const emptyColor = createMemo(() =>
+    props.selected ? "var(--color-bg-elevated)" : "var(--color-text-muted)",
+  );
 
   return (
     <div class={`inline-flex items-center ${props.class || ""}`}>
@@ -91,17 +91,18 @@ export function StarRatingCompact(props: StarRatingCompactProps) {
         }
       >
         <div class="flex items-end justify-center gap-0.5 w-full h-full">
-          {[1, 2, 3, 4, 5].map((barIndex) => (
-            <div
-              class="flex-1 rounded-sm transition-all duration-200"
-              style={{
-                height: `${(barIndex / 5) * 100}%`,
-                "background-color":
-                  rating() >= barIndex ? fillColor : emptyColor,
-                opacity: rating() >= barIndex ? "0.9" : "0.3",
-              }}
-            />
-          ))}
+          <For each={[1, 2, 3, 4, 5]}>
+            {(barIndex) => (
+              <div
+                class="flex-1 rounded-sm transition-all duration-200"
+                style={{
+                  height: `${(barIndex / 5) * 100}%`,
+                  "background-color":
+                    rating() >= barIndex ? fillColor() : emptyColor(),
+                }}
+              />
+            )}
+          </For>
         </div>
       </button>
     </div>

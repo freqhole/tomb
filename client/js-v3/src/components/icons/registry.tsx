@@ -375,15 +375,17 @@ export const IconButton = (
     outline: "border border-gray-300 hover:bg-gray-50 focus:ring-gray-500",
   };
 
-  const variant = props.variant ?? "ghost";
-  const size = props.size ?? IconSizes.md;
-  const padding = typeof size === "number" && size <= 16 ? "p-1" : "p-2";
+  const variant = createMemo(() => props.variant ?? "ghost");
+  const size = createMemo(() => props.size ?? IconSizes.md);
+  const padding = createMemo(() =>
+    typeof size() === "number" && size() <= 16 ? "p-1" : "p-2",
+  );
 
   return (
     <button
       type="button"
-      class={`${baseClasses} ${variantClasses[variant]} ${padding} ${props.className ?? ""}`}
-      onClick={props.onClick}
+      class={`${baseClasses} ${variantClasses[variant()]} ${padding()} ${props.className ?? ""}`}
+      onClick={() => props.onClick?.()}
       disabled={props.disabled}
       aria-label={props["aria-label"]}
     >

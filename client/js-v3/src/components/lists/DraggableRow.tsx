@@ -87,13 +87,13 @@ export function DraggableRow(props: DraggableRowProps) {
     <div
       class={rowClasses()}
       draggable={!local.disabled}
-      onDragStart={local.onDragStart}
-      onDragOver={local.onDragOver}
-      onDragLeave={local.onDragLeave}
-      onDrop={local.onDrop}
-      onClick={local.onClick}
-      onDblClick={local.onDoubleClick}
-      onContextMenu={local.onContextMenu}
+      onDragStart={(e) => local.onDragStart?.(e)}
+      onDragOver={(e) => local.onDragOver?.(e)}
+      onDragLeave={(e) => local.onDragLeave?.(e)}
+      onDrop={(e) => local.onDrop?.(e)}
+      onClick={(e) => local.onClick?.(e)}
+      onDblClick={(e) => local.onDoubleClick?.(e)}
+      onContextMenu={(e) => local.onContextMenu?.(e)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       data-row-id={local.id}

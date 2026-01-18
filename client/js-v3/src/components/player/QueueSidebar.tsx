@@ -115,7 +115,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
           <Show when={props.songs.length > 0}>
             <button
               class="px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
-              onClick={props.onClearAll}
+              onClick={() => props.onClearAll()}
               title="clear all"
             >
               clear all
@@ -124,7 +124,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
           <button
             class="p-2 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
             title="close queue"
             aria-label="close queue"
           >

@@ -62,11 +62,13 @@ export function SearchSortControls(props: SearchSortControlsProps) {
         disabled={props.disabled}
         class="px-3 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)]"
       >
-        {props.sortFields.map((field) => (
-          <option value={field.value} title={field.description}>
-            {field.label}
-          </option>
-        ))}
+        <For each={props.sortFields}>
+          {(field) => (
+            <option value={field.value} title={field.description}>
+              {field.label}
+            </option>
+          )}
+        </For>
       </select>
 
       {/* sort direction toggle */}

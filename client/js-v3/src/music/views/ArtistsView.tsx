@@ -77,11 +77,11 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (!data || !data.items.length) return [];
 
     const sorted = [...data.items];
+    const dir = sortDirection() === "asc" ? 1 : -1;
+    const currentSortBy = sortBy();
 
-    sorted.sort((a, b) => {
-      const dir = sortDirection() === "asc" ? 1 : -1;
-
-      switch (sortBy()) {
+    const compareArtists = (a: (typeof sorted)[0], b: (typeof sorted)[0]) => {
+      switch (currentSortBy) {
         case "name":
           return a.name.localeCompare(b.name) * dir;
         case "songCount":
@@ -89,9 +89,11 @@ export function ArtistsView(props: ArtistsViewProps) {
         case "albumCount":
           return (a.album_count - b.album_count) * dir;
         default:
-          return 0;
+          return a.name.localeCompare(b.name) * dir;
       }
-    });
+    };
+
+    sorted.sort(compareArtists);
 
     return sorted;
   });
@@ -331,7 +333,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   );
 
   // alphabet navigation (only shown when sorted by name)
-  const alphabetNav =
+  const alphabetNav = () =>
     sortBy() === "name" ? (
       <AlphabetNav
         currentLetter={currentLetter()}
@@ -343,7 +345,7 @@ export function ArtistsView(props: ArtistsViewProps) {
         }}
         sortDirection={sortDirection()}
       />
-    ) : undefined;
+    ) : null;
 
   return (
     <div class="flex flex-col h-full">
@@ -368,7 +370,7 @@ export function ArtistsView(props: ArtistsViewProps) {
         <TwoColumnLayout
           leftColumn={leftColumn}
           rightColumn={rightColumn}
-          alphabetNav={alphabetNav}
+          alphabetNav={alphabetNav()}
           leftColumnWidth={320}
         />
       </div>

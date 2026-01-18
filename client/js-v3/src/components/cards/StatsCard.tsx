@@ -73,7 +73,7 @@ export function StatsCard(props: StatsCardProps) {
   return (
     <div
       class={containerClasses()}
-      onClick={local.onClick}
+      onClick={() => local.onClick?.()}
       role={isClickable() ? "button" : undefined}
       tabindex={isClickable() ? 0 : undefined}
       {...others}

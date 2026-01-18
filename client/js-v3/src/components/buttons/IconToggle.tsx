@@ -28,7 +28,7 @@ export function IconToggle(props: IconToggleProps) {
         ${props.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
         ${props.class || ""}
       `}
-      onClick={props.onToggle}
+      onClick={() => props.onToggle?.()}
       disabled={props.disabled}
       title={props.active ? props.activeTitle : props.inactiveTitle}
     >

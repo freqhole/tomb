@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "lint:full": "ESLINT_FULL=true eslint src --ext .ts,.tsx",
+    "lint:full:fix": "ESLINT_FULL=true eslint src --ext .ts,.tsx --fix"
   },
   "imports": {
     "#*": [
@@ -35,10 +39,14 @@
     "@tanstack/solid-query": "^5.90.22",
     "@tanstack/solid-virtual": "^3.13.18",
     "@types/node": "^25.0.9",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
     "@vitest/browser": "^4.0.17",
     "@vitest/browser-playwright": "^4.0.17",
     "@vitest/coverage-v8": "^4.0.17",
     "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.2",
+    "eslint-plugin-solid": "^0.14.5",
     "idb": "^8.0.3",
     "music-metadata": "^11.10.6",
     "playwright": "^1.57.0",

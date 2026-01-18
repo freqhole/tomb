@@ -55,7 +55,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
       {/* overlay */}
       <div
         class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8"
-        onClick={props.onClose}
+        onClick={() => props.onClose()}
       >
         {/* modal content */}
         <div

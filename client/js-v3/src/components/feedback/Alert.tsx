@@ -83,7 +83,7 @@ export const Alert: ParentComponent<AlertProps> = (props) => {
         <Show when={local.onClose}>
           <button
             type="button"
-            onClick={local.onClose}
+            onClick={() => local.onClose?.()}
             class="flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
             aria-label="close alert"
           >

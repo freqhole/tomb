@@ -25,8 +25,8 @@ export interface SongRowProps {
 export function SongRow(props: SongRowProps): JSX.Element {
   return (
     <div
-      onClick={props.onClick}
-      onDblClick={props.onDoubleClick}
+      onClick={() => props.onClick?.()}
+      onDblClick={() => props.onDoubleClick?.()}
       class={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer group ${
         props.isSelected
           ? "bg-[var(--color-bg-elevated)]"

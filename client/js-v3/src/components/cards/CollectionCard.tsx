@@ -110,8 +110,6 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
     }
   };
 
-  const classes = sizeClasses();
-
   return (
     <div
       class={`group cursor-pointer flex flex-col ${props.class || ""}`}
@@ -120,7 +118,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
     >
       {/* image/artwork area */}
       <div
-        class={`${classes.container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg mb-2 relative transition-all duration-300 group-hover:rounded-none`}
+        class={`${sizeClasses().container} bg-[var(--color-accent-500)] bg-opacity-10 rounded-lg mb-2 relative transition-all duration-300 group-hover:rounded-none`}
       >
         <Show
           when={props.collection.imageUrl}
@@ -139,7 +137,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           <img
             src={props.collection.imageUrl!}
             alt={props.collection.title}
-            class={`${classes.image} object-cover transition-transform duration-300 group-hover:scale-105`}
+            class={`${sizeClasses().image} object-cover transition-transform duration-300 group-hover:scale-105`}
             loading="lazy"
           />
         </Show>
@@ -147,12 +145,12 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         {/* hover overlay with play button */}
         <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <button
-            class={`${classes.playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors`}
+            class={`${sizeClasses().playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors`}
             onClick={handlePlay}
             title={`play ${props.collection.domainType}`}
           >
             <svg
-              class={`${classes.playIcon} ml-1`}
+              class={`${sizeClasses().playIcon} ml-1`}
               fill="currentColor"
               viewBox="0 0 24 24"
             >
@@ -166,7 +164,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
       <div class="space-y-0.5 min-w-0">
         {/* title */}
         <div
-          class={`text-[var(--color-text-primary)] font-medium ${classes.title} truncate group-hover:text-[var(--color-accent-500)] transition-colors`}
+          class={`text-[var(--color-text-primary)] font-medium ${sizeClasses().title} truncate group-hover:text-[var(--color-accent-500)] transition-colors`}
           title={props.collection.title}
         >
           {props.collection.title}
@@ -175,7 +173,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         {/* subtitle */}
         <Show when={props.collection.subtitle}>
           <div
-            class={`text-[var(--color-text-muted)] ${classes.subtitle} truncate group-hover:text-[var(--color-text-primary)] transition-colors`}
+            class={`text-[var(--color-text-muted)] ${sizeClasses().subtitle} truncate group-hover:text-[var(--color-text-primary)] transition-colors`}
             title={props.collection.subtitle || ""}
           >
             {props.collection.subtitle}
@@ -191,7 +189,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           }
         >
           <div
-            class={`text-[var(--color-text-tertiary)] ${classes.subtitle} truncate group-hover:text-[var(--color-text-secondary)] transition-colors`}
+            class={`text-[var(--color-text-tertiary)] ${sizeClasses().subtitle} truncate group-hover:text-[var(--color-text-secondary)] transition-colors`}
             title={`by ${props.collection.artist}`}
           >
             by {props.collection.artist}
@@ -200,7 +198,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
         {/* metadata row */}
         <div
-          class={`text-[var(--color-text-tertiary)] ${classes.meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+          class={`text-[var(--color-text-tertiary)] ${sizeClasses().meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
         >
           <div class="flex items-center gap-2 flex-wrap">
             {/* year */}
@@ -236,7 +234,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show when={props.showGenres && props.collection.genres}>
           <MarqueeText
             text={props.collection.genres!}
-            class={`${classes.meta} text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 inline-block rounded`}
+            class={`${sizeClasses().meta} text-[var(--color-text-tertiary)} group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 inline-block rounded`}
           />
         </Show>
       </div>

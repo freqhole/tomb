@@ -101,17 +101,12 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     }
   };
 
-  const imageUrl = props.imageUrl;
-  const sizeClasses = getSizeClasses();
-  const hoverClasses = props.enableHover
-    ? "transition-transform hover:scale-105"
-    : "";
-  const baseClasses = `${sizeClasses} bg-[var(--color-bg-elevated)] rounded overflow-hidden ${hoverClasses} ${props.class || ""}`;
-
   return (
-    <div class={baseClasses}>
+    <div
+      class={`${getSizeClasses()} bg-[var(--color-bg-elevated)] rounded overflow-hidden ${props.enableHover ? "transition-transform hover:scale-105" : ""} ${props.class || ""}`}
+    >
       <Show
-        when={imageUrl && !imageError()}
+        when={props.imageUrl && !imageError()}
         fallback={
           <Show
             when={props.showFallback !== false}

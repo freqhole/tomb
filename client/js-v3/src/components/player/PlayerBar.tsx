@@ -177,7 +177,7 @@ export function PlayerBar(props: PlayerBarProps) {
         <div class="flex items-center gap-3 flex-shrink-0">
           <button
             class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-            onClick={props.onPrevious}
+            onClick={() => props.onPrevious()}
             disabled={!canGoPrevious()}
             title="previous"
             aria-label="previous"
@@ -187,7 +187,7 @@ export function PlayerBar(props: PlayerBarProps) {
 
           <button
             class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
-            onClick={props.onPlayPause}
+            onClick={() => props.onPlayPause()}
             disabled={props.isLoading}
             title={
               props.isLoading
@@ -216,7 +216,7 @@ export function PlayerBar(props: PlayerBarProps) {
 
           <button
             class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-            onClick={props.onNext}
+            onClick={() => props.onNext()}
             disabled={!canGoNext()}
             title="next"
             aria-label="next"
@@ -269,7 +269,7 @@ export function PlayerBar(props: PlayerBarProps) {
                 ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
                 : "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30"
             }`}
-            onClick={props.onQueueToggle}
+            onClick={() => props.onQueueToggle()}
             title={props.queueOpen ? "hide queue" : "show queue"}
             aria-label={props.queueOpen ? "hide queue" : "show queue"}
           >

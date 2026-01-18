@@ -82,11 +82,13 @@ export function AppLayout(props: AppLayoutProps) {
     currentRemote ? currentRemote.name : "local library";
 
   // watch for current song changes and load song data
-  createEffect(async () => {
+  createEffect(() => {
     const state = appState();
     if (state?.current_song_id) {
-      const song = await getSongById(state.current_song_id);
-      setCurrentSongData(song || null);
+      void (async () => {
+        const song = await getSongById(state.current_song_id);
+        setCurrentSongData(song || null);
+      })();
     } else {
       setCurrentSongData(null);
     }
@@ -182,38 +184,38 @@ export function AppLayout(props: AppLayoutProps) {
                 )
               : -1
           }
-          onClose={async () => await setQueueOpen(false)}
-          onSongClick={async (index) => {
+          onClose={() => void setQueueOpen(false)}
+          onSongClick={(index) => {
             const state = appState();
             if (state?.queue[index]) {
-              await playSong(state.queue[index].song_id);
+              void playSong(state.queue[index].song_id);
             }
           }}
-          onSongDoubleClick={async (index) => {
+          onSongDoubleClick={(index) => {
             const state = appState();
             if (state?.queue[index]) {
-              await playSong(state.queue[index].song_id);
+              void playSong(state.queue[index].song_id);
             }
           }}
-          onRemoveSong={async (index) => {
+          onRemoveSong={(index) => {
             const state = appState();
             if (state?.queue) {
               const removedSong = state.queue[index];
               const newQueue = state.queue.filter((_, i) => i !== index);
-              await setQueue(newQueue);
+              void setQueue(newQueue);
 
               // if we removed the currently playing song, stop playback and clear it
               if (removedSong.song_id === state.current_song_id) {
                 stop();
-                await setCurrentSong(null);
+                void setCurrentSong(null);
               }
             }
           }}
-          onClearAll={async () => {
+          onClearAll={() => {
             // stop playback and clear current song
             stop();
-            await setCurrentSong(null);
-            await setQueue([]);
+            void setCurrentSong(null);
+            void setQueue([]);
           }}
         />
       </div>
@@ -254,11 +256,13 @@ export function AppLayout(props: AppLayoutProps) {
       <AddRemoteModal
         isOpen={isAddRemoteOpen()}
         onClose={() => setIsAddRemoteOpen(false)}
-        onSuccess={async () => {
+        onSuccess={() => {
           console.log("remote added successfully");
           // reload remotes list
-          const allRemotes = await getAllRemotes();
-          setRemotes(allRemotes);
+          void (async () => {
+            const allRemotes = await getAllRemotes();
+            setRemotes(allRemotes);
+          })();
         }}
       />
     </div>
