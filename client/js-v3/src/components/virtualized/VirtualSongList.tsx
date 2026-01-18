@@ -1,5 +1,12 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, JSX, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  JSX,
+  Show,
+} from "solid-js";
 
 export interface Song {
   id: string;
@@ -7,6 +14,7 @@ export interface Song {
   artist: string;
   album: string;
   albumArtist?: string;
+  genre?: string;
   duration: string; // formatted as "3:45"
   year?: number;
   discNumber?: number;
@@ -21,6 +29,7 @@ export type SortField =
   | "title"
   | "artist"
   | "album"
+  | "genre"
   | "year"
   | "duration"
   | "favorite"
@@ -48,6 +57,8 @@ export interface VirtualSongListProps {
   onFavoriteToggle?: (song: Song, isFavorite: boolean) => void;
   /** callback when rating changes */
   onRatingChange?: (song: Song, rating: number) => void;
+  /** callback when virtualizer is rendering items near end (for infinite scroll) */
+  onNearEnd?: () => void;
   /** currently playing song id */
   playingSongId?: string;
   /** selected song ids */
@@ -116,14 +127,38 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     return song.trackNumber ? String(song.trackNumber) : String(index + 1);
   };
 
-  // create virtualizer instance - wrap in memo to recreate when songs change
+  // track last triggered count to prevent infinite loops
+  const [lastTriggeredAtCount, setLastTriggeredAtCount] = createSignal(0);
+
+  // create virtualizer instance - only recreate when songs.length changes
   const rowVirtualizer = createMemo(() => {
     return createVirtualizer({
       count: props.songs.length,
       getScrollElement: () => parentRef,
       estimateSize: () => 48,
-      overscan: 5,
+      overscan: 20,
     });
+  });
+
+  // detect when virtualizer is rendering items near end (for infinite scroll)
+  createEffect(() => {
+    if (!props.onNearEnd) return;
+
+    const virtualizer = rowVirtualizer();
+    const items = virtualizer.getVirtualItems();
+    if (items.length === 0) return;
+
+    const lastItem = items[items.length - 1];
+    const totalCount = props.songs.length;
+
+    // only trigger once per data length milestone
+    // trigger when within last 30 items OR last 25% (whichever is larger)
+    const threshold = Math.max(totalCount - 30, Math.floor(totalCount * 0.75));
+
+    if (lastItem.index >= threshold && totalCount > lastTriggeredAtCount()) {
+      setLastTriggeredAtCount(totalCount);
+      props.onNearEnd();
+    }
   });
 
   // handle sort cycling: null -> asc -> desc -> null
@@ -181,6 +216,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     cols.push("minmax(200px, 2fr)"); // title
     if (showArtist()) cols.push("minmax(150px, 1.5fr)"); // artist
     if (showAlbum()) cols.push("minmax(150px, 1.5fr)"); // album
+    cols.push("minmax(100px, 1fr)"); // genre
     cols.push("80px"); // year
     cols.push("80px"); // duration
     if (showFavorites()) cols.push("50px"); // favorite
@@ -238,6 +274,13 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
             album {getSortIcon("album")}
           </button>
         </Show>
+
+        <button
+          class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+          onClick={() => handleSort("genre")}
+        >
+          genre {getSortIcon("genre")}
+        </button>
 
         <button
           class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
@@ -356,6 +399,13 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                       </div>
                     </div>
                   </Show>
+
+                  {/* genre */}
+                  <div class="px-4 min-w-0">
+                    <div class="truncate text-[var(--color-text-tertiary)] text-sm">
+                      {song.genre || "—"}
+                    </div>
+                  </div>
 
                   {/* year */}
                   <div class="px-4 text-left text-[var(--color-text-tertiary)] text-sm tabular-nums">

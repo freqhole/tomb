@@ -9,6 +9,7 @@ import {
   getOrCreateAlbum,
   getOrCreateArtist,
   getOrCreateGenre,
+  getSongsByAlbumId,
 } from "../storage/db";
 import type { Song } from "../storage/types";
 
@@ -136,6 +137,17 @@ export async function processMusicFile(
 
   const now = Date.now();
 
+  // compute album_added_at: if this is first song in album, use now; otherwise use album's earliest added_at
+  const existingSongsInAlbum = await getSongsByAlbumId(album.album_id);
+  const albumAddedAt =
+    existingSongsInAlbum.length > 0
+      ? Math.min(...existingSongsInAlbum.map((s) => s.added_at), now)
+      : now;
+
+  // compute album_primary_genre_id: will be set to genre_id if we had one, or null
+  // for now, just use null (genre detection not implemented yet)
+  const albumPrimaryGenreId: string | null = null;
+
   const song: Song = {
     song_id: songId,
     title: metadata.title,
@@ -155,6 +167,10 @@ export async function processMusicFile(
     // denormalized for quick access
     artist_name: artist.name,
     album_title: album.title,
+
+    // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
+    album_added_at: albumAddedAt,
+    album_primary_genre_id: albumPrimaryGenreId,
 
     // source information
     source_type: "local",

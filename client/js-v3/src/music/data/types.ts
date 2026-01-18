@@ -52,6 +52,14 @@ export interface ArtistSummary {
   total_duration: number;
 }
 
+// genre summary data for lists
+export interface GenreSummary {
+  genre_id: string;
+  name: string;
+  album_count: number;
+  song_count: number;
+}
+
 // main data source interface
 // both local and remote sources implement this
 export interface MusicDataSource {
@@ -70,6 +78,13 @@ export interface MusicDataSource {
   getArtists?(params?: QueryParams): Promise<PaginatedResponse<ArtistSummary>>;
   getArtistSongs?(
     artistId: string,
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<Song>>;
+
+  // genres (optional - may aggregate from albums/songs)
+  getGenres?(params?: QueryParams): Promise<PaginatedResponse<GenreSummary>>;
+  getGenreSongs?(
+    genreId: string,
     params?: QueryParams,
   ): Promise<PaginatedResponse<Song>>;
 

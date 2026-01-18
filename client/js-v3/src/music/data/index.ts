@@ -30,6 +30,7 @@ export function useRemoteSource(baseUrl: string, apiKey?: string): void {
 export type {
   AlbumSummary,
   ArtistSummary,
+  GenreSummary,
   MusicDataSource,
   PaginatedResponse,
   QueryParams,

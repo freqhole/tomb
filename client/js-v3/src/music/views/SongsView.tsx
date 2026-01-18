@@ -1,12 +1,13 @@
-// songs view - displays all songs in a virtual list
-import { createResource, Show } from "solid-js";
+// songs view - displays all songs with infinite scroll using tanstack query
+import { createMemo, createSignal } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import {
   VirtualSongList,
+  type SortDirection,
+  type SortField,
   type Song as VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
-import { getDataSource } from "../data";
-import { songsVersion } from "../services/storage/db";
+import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
 import type { Song } from "../services/storage/types";
 
 export interface SongsViewProps {
@@ -24,47 +25,92 @@ function formatDuration(seconds: number): string {
 }
 
 export function SongsView(props: SongsViewProps) {
-  // fetch songs from data source - refetch when songsVersion changes
-  const [songsData] = createResource(songsVersion, async () => {
-    const source = getDataSource();
-    return source.getSongs({
-      limit: 10000,
-      sort_by: "added_at",
-      sort_direction: "desc",
-    });
+  // sorting state - maps to query key so changes trigger refetch
+  const [sortField, setSortField] = createSignal<SongSortField>("added_at");
+  const [sortDirection, setSortDirection] = createSignal<SortDirection>("desc");
+
+  // infinite query hook
+  const songsQuery = useSongsInfiniteQuery({
+    sortField: () => sortField(),
+    sortDirection: () => sortDirection(),
+    pageSize: 100,
   });
 
-  // convert storage songs to virtual song list format
-  const virtualSongs = () => {
-    const data = songsData();
-    if (!data) return [];
+  // map query sort field to UI sort field for display
+  const uiSortField = (): SortField => {
+    const field = sortField();
+    const reverseMap: Record<SongSortField, SortField> = {
+      added_at: "track",
+      title: "title",
+      artist: "artist",
+      album: "album",
+      genre: "genre",
+      year: "year",
+    };
+    return reverseMap[field] || "track";
+  };
 
-    return data.items.map((song) => ({
-      id: song.song_id,
-      title: song.title,
-      artist: song.artist_name,
-      album: song.album_title,
-      duration: formatDuration(song.duration),
-      year: song.year ?? undefined,
-      trackNumber: song.track_number,
-      discNumber: song.disc_number,
-      userIsFavorite: false,
-      userRating: 0,
+  // all songs accumulated across pages
+  const allSongs = () => songsQuery.data?.pages.flat() ?? [];
+
+  // convert to virtual song list format - memoized to prevent unnecessary recreations
+  const virtualSongs = createMemo((): VirtualSong[] => {
+    return allSongs().map((result) => ({
+      id: result.song.song_id,
+      title: result.song.title,
+      artist: result.song.artist_name,
+      album: result.song.album_title,
+      genre: result.genre?.name,
+      duration: formatDuration(result.song.duration),
+      year: result.song.year ?? undefined,
+      trackNumber: result.song.track_number,
+      discNumber: result.song.disc_number,
+      userIsFavorite: result.is_favorite,
+      userRating: result.rating ?? 0,
     }));
+  });
+
+  // track if we're already loading to prevent duplicate requests
+  const [isLoadingMore, setIsLoadingMore] = createSignal(false);
+
+  // trigger loading next page with debouncing
+  const loadMore = () => {
+    if (isLoadingMore()) return;
+    if (!songsQuery.hasNextPage || songsQuery.isFetchingNextPage) return;
+
+    setIsLoadingMore(true);
+    songsQuery.fetchNextPage().finally(() => {
+      // add small delay before allowing next trigger
+      setTimeout(() => setIsLoadingMore(false), 500);
+    });
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {
-    // find the actual song by id
-    const song = songsData()?.items.find((s) => s.song_id === virtualSong.id);
-    if (song) props.onSongClick?.(song);
+    const result = allSongs().find((r) => r.song.song_id === virtualSong.id);
+    if (result) props.onSongClick?.(result.song);
   };
 
   const handleSongDoubleClick = (virtualSong: VirtualSong) => {
-    // find the actual song by id
-    const song = songsData()?.items.find((s) => s.song_id === virtualSong.id);
-    if (song) {
-      props.onSongDoubleClick?.(song);
-    }
+    const result = allSongs().find((r) => r.song.song_id === virtualSong.id);
+    if (result) props.onSongDoubleClick?.(result.song);
+  };
+
+  // handle sort changes - this triggers query refetch via key change
+  const handleSortChange = (field: SortField, direction: SortDirection) => {
+    // map UI sort field to query sort field
+    const fieldMap: Record<SortField, SongSortField> = {
+      track: "added_at", // track sort not applicable to global view
+      title: "title",
+      artist: "artist",
+      album: "album",
+      genre: "genre",
+      year: "year",
+      duration: "added_at", // duration sort not supported yet
+      favorite: "added_at", // favorite sort not supported yet
+      rating: "added_at", // rating sort not supported yet
+    };
+    setSortField(fieldMap[field]);
+    setSortDirection(direction);
   };
 
   return (
@@ -76,8 +122,9 @@ export function SongsView(props: SongsViewProps) {
             songs
           </h1>
           <p class="text-sm text-[var(--color-text-secondary)]">
-            {songsData()?.total ?? 0}{" "}
-            {songsData()?.total === 1 ? "song" : "songs"}
+            {songsQuery.isLoading
+              ? "loading..."
+              : `${virtualSongs().length} ${virtualSongs().length === 1 ? "song" : "songs"}`}
           </p>
         </div>
         <Button variant="primary" onClick={props.onAddMusic}>
@@ -87,32 +134,47 @@ export function SongsView(props: SongsViewProps) {
 
       {/* song list */}
       <div class="flex-1 overflow-hidden">
-        <Show
-          when={virtualSongs().length > 0}
-          fallback={
-            <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-              <div class="text-center max-w-md">
-                <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                  no songs in your library yet
-                </p>
-                <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                  click "add music" above to import local audio files or
-                  download from urls
-                </p>
-                <Button variant="primary" onClick={props.onAddMusic}>
-                  add music
-                </Button>
-              </div>
+        {virtualSongs().length === 0 && !songsQuery.isLoading ? (
+          <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+            <div class="text-center max-w-md">
+              <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                no songs in your library yet
+              </p>
+              <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                click "add music" above to import local audio files or download
+                from urls
+              </p>
+              <Button variant="primary" onClick={props.onAddMusic}>
+                add music
+              </Button>
             </div>
-          }
-        >
-          <VirtualSongList
-            songs={virtualSongs()}
-            height={window.innerHeight - 120}
-            onSongClick={handleSongClick}
-            onSongDoubleClick={handleSongDoubleClick}
-          />
-        </Show>
+          </div>
+        ) : (
+          <>
+            <VirtualSongList
+              songs={virtualSongs()}
+              height={window.innerHeight - 120}
+              sortState={{
+                field: uiSortField(),
+                direction: sortDirection(),
+              }}
+              onSortChange={handleSortChange}
+              onSongClick={handleSongClick}
+              onSongDoubleClick={handleSongDoubleClick}
+              onNearEnd={loadMore}
+            />
+            {songsQuery.isFetchingNextPage && (
+              <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">
+                loading more songs...
+              </div>
+            )}
+            {!songsQuery.hasNextPage && virtualSongs().length > 0 && (
+              <div class="p-4 text-center text-[var(--color-text-tertiary)] text-sm">
+                end of list
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -47,6 +47,10 @@ export interface Song {
   artist_name: string;
   album_title: string;
 
+  // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
+  album_added_at: number; // earliest added_at of any song in this album
+  album_primary_genre_id: string | null; // most common genre for this album
+
   // source information
   source_type: MusicSourceType;
 
@@ -148,7 +152,7 @@ export interface ArtistQueryResult {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 2; // bumped for schema change
+export const MUSIC_DB_VERSION = 3; // bumped for compound indexes + denormalized album fields
 
 // store names
 export const STORE_ARTISTS = "artists";

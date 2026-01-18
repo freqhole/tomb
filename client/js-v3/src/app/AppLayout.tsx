@@ -29,7 +29,7 @@ import {
 } from "./services/storage/db";
 
 interface AppLayoutProps {
-  children: JSX.Element;
+  children?: JSX.Element;
 }
 
 export function AppLayout(props: AppLayoutProps) {
