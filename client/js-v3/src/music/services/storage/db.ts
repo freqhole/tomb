@@ -24,6 +24,7 @@ import {
   STORE_PLAYLIST_SONGS,
   STORE_PLAYLISTS,
   STORE_RATINGS,
+  STORE_REMOTES,
   STORE_SONGS,
 } from "./types";
 
@@ -227,6 +228,16 @@ async function initMusicDB(): Promise<IDBPDatabase> {
         });
         ratingsStore.createIndex("by_target_type", "target_type");
         ratingsStore.createIndex("by_rating", "rating");
+      }
+
+      // create remotes table (v4)
+      if (!db.objectStoreNames.contains(STORE_REMOTES)) {
+        const remotesStore = db.createObjectStore(STORE_REMOTES, {
+          keyPath: "remote_id",
+        });
+        remotesStore.createIndex("by_name", "name");
+        remotesStore.createIndex("by_is_active", "is_active");
+        remotesStore.createIndex("by_created_at", "created_at");
       }
     },
   });

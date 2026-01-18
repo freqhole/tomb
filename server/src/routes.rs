@@ -286,6 +286,7 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["upload_music"].path,
             post(upload::upload_music_handler),
         )
+        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)
@@ -320,6 +321,7 @@ pub fn build_router() -> Router<AppState> {
             routes["auth"]["redeem_invite"].path,
             post(auth::handlers::redeem_invite),
         )
+        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         // webauthn routes (require origin validation)
         .merge(webauthn_routes)
         // protected routes
@@ -336,6 +338,7 @@ pub fn build_router() -> Router<AppState> {
             routes["auth"]["redeem_invite"].path,
             post(auth::handlers::redeem_invite),
         )
+        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         // protected routes
         .merge(protected_routes);
 

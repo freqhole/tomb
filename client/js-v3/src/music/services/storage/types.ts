@@ -152,7 +152,7 @@ export interface ArtistQueryResult {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 3; // bumped for compound indexes + denormalized album fields
+export const MUSIC_DB_VERSION = 4; // bumped for remotes store
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -163,3 +163,16 @@ export const STORE_PLAYLISTS = "playlists";
 export const STORE_PLAYLIST_SONGS = "playlist_songs";
 export const STORE_FAVORITES = "favorites";
 export const STORE_RATINGS = "ratings";
+export const STORE_REMOTES = "remotes";
+
+// ===== REMOTES TABLE =====
+// remote server configurations (no credentials - uses cookies)
+export interface Remote {
+  remote_id: string; // uuid
+  name: string; // user-friendly name (e.g. "home server", "work laptop")
+  base_url: string; // server url (e.g. "https://music.example.com")
+  is_active: boolean; // currently selected remote
+  last_connected_at: number | null; // timestamp of last successful connection
+  created_at: number;
+  updated_at: number;
+}

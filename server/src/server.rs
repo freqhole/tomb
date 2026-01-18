@@ -4,6 +4,8 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use axum::extract::Extension;
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use http::Method;
 use tokio::net::TcpListener;
 use tower_http::{
     compression::CompressionLayer,
@@ -68,6 +70,32 @@ pub async fn start_server(
     // extract session store before building router (needs to be moved)
     let session_store = state.session_store.clone();
 
+    // configure CORS with allowed origins from config
+    let cors = if let Some(server_config) = &state.config.server {
+        let origins: Vec<_> = server_config
+            .auth
+            .webauthn_origins
+            .iter()
+            .filter_map(|o| o.rp_origin.parse().ok())
+            .collect();
+
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::PATCH,
+                Method::OPTIONS,
+            ])
+            .allow_headers([AUTHORIZATION, CONTENT_TYPE, ACCEPT])
+            .allow_credentials(true)
+    } else {
+        // fallback to permissive if no config (shouldn't happen)
+        CorsLayer::permissive()
+    };
+
     // build router with state
     let app = routes::build_router()
         .layer(Extension(state.clone())) // Add state as extension for middleware
@@ -78,7 +106,7 @@ pub async fn start_server(
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
         .layer(CompressionLayer::new())
-        .layer(CorsLayer::permissive()) // TODO: configure from config
+        .layer(cors)
         .with_state(state);
 
     // bind to address

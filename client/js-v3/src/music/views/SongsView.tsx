@@ -7,8 +7,8 @@ import {
   type SortField,
   type Song as VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
+import type { Song } from "../data/types";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
-import type { Song } from "../services/storage/types";
 
 export interface SongsViewProps {
   onAddMusic: () => void;
@@ -51,22 +51,25 @@ export function SongsView(props: SongsViewProps) {
   };
 
   // all songs accumulated across pages
-  const allSongs = () => songsQuery.data?.pages.flat() ?? [];
+  const allSongs = () => {
+    const pages = songsQuery.data?.pages ?? [];
+    return pages.flatMap((page) => page.items);
+  };
 
   // convert to virtual song list format - memoized to prevent unnecessary recreations
   const virtualSongs = createMemo((): VirtualSong[] => {
-    return allSongs().map((result) => ({
-      id: result.song.song_id,
-      title: result.song.title,
-      artist: result.song.artist_name,
-      album: result.song.album_title,
-      genre: result.genre?.name,
-      duration: formatDuration(result.song.duration),
-      year: result.song.year ?? undefined,
-      trackNumber: result.song.track_number,
-      discNumber: result.song.disc_number,
-      userIsFavorite: result.is_favorite,
-      userRating: result.rating ?? 0,
+    return allSongs().map((song) => ({
+      id: song.song_id,
+      title: song.title,
+      artist: song.artist_name,
+      album: song.album_title,
+      genre: undefined, // TODO: add genre_name to Song type or fetch from genre_id
+      duration: formatDuration(song.duration),
+      year: song.year ?? undefined,
+      trackNumber: song.track_number,
+      discNumber: song.disc_number,
+      userIsFavorite: false, // TODO: implement favorites in data source
+      userRating: 0, // TODO: implement ratings in data source
     }));
   });
 
@@ -77,13 +80,13 @@ export function SongsView(props: SongsViewProps) {
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {
-    const result = allSongs().find((r) => r.song.song_id === virtualSong.id);
-    if (result) props.onSongClick?.(result.song);
+    const song = allSongs().find((s) => s.song_id === virtualSong.id);
+    if (song) props.onSongClick?.(song);
   };
 
   const handleSongDoubleClick = (virtualSong: VirtualSong) => {
-    const result = allSongs().find((r) => r.song.song_id === virtualSong.id);
-    if (result) props.onSongDoubleClick?.(result.song);
+    const song = allSongs().find((s) => s.song_id === virtualSong.id);
+    if (song) props.onSongDoubleClick?.(song);
   };
 
   // handle sort changes - this triggers query refetch via key change

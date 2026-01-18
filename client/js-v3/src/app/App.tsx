@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
-import { getDataSource } from "../music/data";
+import { getDataSource, initializeDataSource } from "../music/data";
 import { playSong } from "../music/services/audio/player";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
@@ -30,6 +30,9 @@ export function App() {
     try {
       await initAppDB();
       await initMusicDB();
+
+      // initialize data source (switches to active remote if configured)
+      await initializeDataSource();
 
       // check if we have any songs
       const source = getDataSource();

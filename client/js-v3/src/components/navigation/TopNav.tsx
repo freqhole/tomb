@@ -1,5 +1,5 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, type JSX } from "solid-js";
 import { IconButton } from "../buttons/IconButton";
 import { SearchInput } from "../forms/SearchInput";
 import { Icon, type IconName } from "../icons/registry";
@@ -52,6 +52,18 @@ export interface TopNavProps {
   onViewAllPlaylists?: () => void;
   /** callback for create playlist */
   onCreatePlaylist?: () => void;
+  /** current source name (e.g. "local library" or remote name) */
+  currentSourceName?: string;
+  /** available remote sources */
+  remotes?: Array<{ id: string; name: string; url: string }>;
+  /** callback to switch to local source */
+  onSwitchToLocal?: () => void;
+  /** callback to switch to a remote source */
+  onSwitchToRemote?: (remoteId: string) => void;
+  /** callback to add a new remote */
+  onAddRemote?: () => void;
+  /** additional content to render on the right side of the nav bar */
+  rightContent?: JSX.Element;
   /** additional classes */
   class?: string;
 }
@@ -100,7 +112,7 @@ export function TopNav(props: TopNavProps) {
           <KobalteNav.Portal>
             <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-50 data-[expanded]:animate-in data-[closed]:animate-out">
               <div class="grid grid-cols-3 gap-6 min-w-[800px] max-h-[70vh]">
-                {/* column 1: brand info + management */}
+                {/* column 1: brand info + source management */}
                 <div class="flex flex-col p-6">
                   <div class="space-y-3 mb-6">
                     <div>
@@ -120,7 +132,66 @@ export function TopNav(props: TopNavProps) {
                     </Show>
                   </div>
 
-                  <div class="mt-auto space-y-1">
+                  {/* source selector */}
+                  <div class="mb-4">
+                    <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">
+                      music source
+                    </h4>
+                    <div class="space-y-1">
+                      {/* local library option */}
+                      <button
+                        class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent cursor-pointer hover:bg-[var(--color-accent-500)]/10"
+                        classList={{
+                          "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10":
+                            props.currentSourceName === "local library" ||
+                            !props.currentSourceName,
+                          "text-[var(--color-text-secondary)]":
+                            props.currentSourceName &&
+                            props.currentSourceName !== "local library",
+                        }}
+                        onClick={() => props.onSwitchToLocal?.()}
+                      >
+                        <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                        <span>local library</span>
+                      </button>
+
+                      {/* remote sources */}
+                      <Show when={props.remotes && props.remotes.length > 0}>
+                        <div class="pt-1 border-t border-[var(--color-border-subtle)] mt-2">
+                          <For each={props.remotes}>
+                            {(remote) => (
+                              <button
+                                class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent cursor-pointer hover:bg-[var(--color-accent-500)]/10"
+                                classList={{
+                                  "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10":
+                                    props.currentSourceName === remote.name,
+                                  "text-[var(--color-text-secondary)]":
+                                    props.currentSourceName !== remote.name,
+                                }}
+                                onClick={() =>
+                                  props.onSwitchToRemote?.(remote.id)
+                                }
+                              >
+                                <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
+                                <span class="truncate">{remote.name}</span>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+
+                      {/* add remote button */}
+                      <button
+                        class="w-full px-3 py-2 text-left text-sm text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer flex items-center gap-2 mt-2"
+                        onClick={() => props.onAddRemote?.()}
+                      >
+                        <span>+</span>
+                        <span>add remote server</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-auto space-y-1 pt-4 border-t border-[var(--color-border-subtle)]">
                     <For each={props.mainNavSections.slice(1)}>
                       {(section) => (
                         <For each={section.items}>
