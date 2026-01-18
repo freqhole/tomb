@@ -44,6 +44,7 @@ async function loadAppState(): Promise<AppState> {
       id: "app_state",
       current_song_id: null,
       queue: [],
+      queue_open: false,
       last_updated: Date.now(),
     };
     await db.put(STORE_APP_STATE, state);
@@ -83,6 +84,11 @@ async function setQueue(songs: Song[]): Promise<void> {
   await updateAppState({ queue: songs });
 }
 
+// set queue open state
+async function setQueueOpen(isOpen: boolean): Promise<void> {
+  await updateAppState({ queue_open: isOpen });
+}
+
 // clear all app data
 async function clearAppData(): Promise<void> {
   const db = await initAppDB();
@@ -97,5 +103,6 @@ export {
   loadAppState,
   setCurrentSong,
   setQueue,
+  setQueueOpen,
   updateAppState,
 };

@@ -5,6 +5,7 @@ import {
   type Song as VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
 import { getDataSource } from "../data";
+import { songsVersion } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 
 export interface LibraryViewProps {
@@ -22,14 +23,18 @@ function formatDuration(seconds: number): string {
 }
 
 export function LibraryView(props: LibraryViewProps) {
-  // fetch songs from data source
-  const [songsData] = createResource(async () => {
+  // fetch songs from data source - refetch when songsVersion changes
+  const [songsData] = createResource(songsVersion, async () => {
+    console.log("LibraryView: fetching songs, version =", songsVersion());
     const source = getDataSource();
-    return source.getSongs({
+    const result = await source.getSongs({
       limit: 1000,
       sort_by: "added_at",
       sort_direction: "desc",
     });
+    console.log("LibraryView: fetched", result.items.length, "songs");
+    console.log("LibraryView: first song =", result.items[0]?.title);
+    return result;
   });
 
   // convert storage songs to virtual song list format
@@ -37,7 +42,7 @@ export function LibraryView(props: LibraryViewProps) {
     const data = songsData();
     if (!data) return [];
 
-    return data.items.map((song) => ({
+    const mapped = data.items.map((song) => ({
       id: song.song_id,
       title: song.title,
       artist: song.artist_name,
@@ -46,6 +51,15 @@ export function LibraryView(props: LibraryViewProps) {
       userIsFavorite: false,
       userRating: 0,
     }));
+
+    console.log(
+      "virtualSongs: mapped",
+      mapped.length,
+      "songs, first 3:",
+      mapped.slice(0, 3).map((s) => ({ id: s.id, title: s.title })),
+    );
+
+    return mapped;
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {

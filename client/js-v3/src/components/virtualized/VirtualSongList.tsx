@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createSignal, For, JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, JSX, Show } from "solid-js";
 
 export interface Song {
   id: string;
@@ -116,14 +116,14 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     return song.trackNumber ? String(song.trackNumber) : String(index + 1);
   };
 
-  // create virtualizer instance
-  const rowVirtualizer = createVirtualizer({
-    get count() {
-      return props.songs.length;
-    },
-    getScrollElement: () => parentRef,
-    estimateSize: () => 48,
-    overscan: 5,
+  // create virtualizer instance - wrap in memo to recreate when songs change
+  const rowVirtualizer = createMemo(() => {
+    return createVirtualizer({
+      count: props.songs.length,
+      getScrollElement: () => parentRef,
+      estimateSize: () => 48,
+      overscan: 5,
+    });
   });
 
   // handle sort cycling: null -> asc -> desc -> null
@@ -285,13 +285,13 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
       {/* virtual list container */}
       <div
         style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
+          height: `${rowVirtualizer().getTotalSize()}px`,
           width: "100%",
           position: "relative",
           "min-width": "fit-content",
         }}
       >
-        <For each={rowVirtualizer.getVirtualItems()}>
+        <For each={rowVirtualizer().getVirtualItems()}>
           {(virtualRow) => {
             const song = props.songs[virtualRow.index];
             const isPlaying = props.playingSongId === song.id;

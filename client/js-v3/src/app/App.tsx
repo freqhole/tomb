@@ -30,16 +30,19 @@ import {
   initAppDB,
   setCurrentSong,
   setQueue,
+  setQueueOpen,
 } from "./services/storage/db";
 
 export function App() {
   const [isAddMusicOpen, setIsAddMusicOpen] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
-  const [queueOpen, setQueueOpen] = createSignal(false);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
+
+  // queue open state (synced with persisted state)
+  const queueOpen = () => appState()?.queue_open ?? false;
 
   // initialize databases on mount
   onMount(async () => {
@@ -80,6 +83,9 @@ export function App() {
       const result = await importMusicFiles(files);
       if (result.addedCount > 0) {
         setHasSongs(true);
+        // refresh the library view by re-checking songs
+        const source = getDataSource();
+        await source.getSongs({ limit: 1 });
       }
       setIsAddMusicOpen(false);
     } catch (error) {
