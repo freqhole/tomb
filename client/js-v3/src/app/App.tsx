@@ -3,6 +3,7 @@ import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
+import { getDataSource } from "../music/data";
 import {
   canGoNext,
   canGoPrevious,
@@ -19,16 +20,11 @@ import {
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
-import { processMusicFiles } from "../music/services/metadata/fileProcessor";
-import {
-  addSong,
-  getSongById,
-  initMusicDB,
-  songs,
-} from "../music/services/storage/db";
-import type { MusicSong } from "../music/services/storage/types";
+import { getSongById, initMusicDB } from "../music/services/storage/db";
+import type { Song } from "../music/services/storage/types";
 import { LibraryView } from "../music/views/LibraryView";
-import { generateUUID } from "../utils/uuid";
+import { importMusicFiles } from "./services/fileImport";
+
 import {
   appState,
   initAppDB,
@@ -39,15 +35,32 @@ import {
 export function App() {
   const [isAddMusicOpen, setIsAddMusicOpen] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
-  const [currentSongData, setCurrentSongData] = createSignal<MusicSong | null>(
-    null,
-  );
+  const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const [queueOpen, setQueueOpen] = createSignal(false);
+  const [hasSongs, setHasSongs] = createSignal(false);
+  const [isInitializing, setIsInitializing] = createSignal(true);
+  const [showLoading, setShowLoading] = createSignal(false);
 
   // initialize databases on mount
   onMount(async () => {
-    await initAppDB();
-    await initMusicDB();
+    // show loading indicator after 1 second if still initializing
+    const loadingTimer = setTimeout(() => {
+      setShowLoading(true);
+    }, 1000);
+
+    try {
+      await initAppDB();
+      await initMusicDB();
+
+      // check if we have any songs
+      const source = getDataSource();
+      const result = await source.getSongs({ limit: 1 });
+      setHasSongs(result.total > 0);
+    } finally {
+      clearTimeout(loadingTimer);
+      setIsInitializing(false);
+      setShowLoading(false);
+    }
   });
 
   // watch for current song changes and load song data
@@ -64,45 +77,10 @@ export function App() {
   const handleFilesSelected = async (files: FileList) => {
     setIsProcessing(true);
     try {
-      const fileArray = Array.from(files);
-      let addedCount = 0;
-      let skippedCount = 0;
-
-      // generate song ids upfront (needed for opfs storage)
-      const songIds = fileArray.map(() => generateUUID());
-
-      // process files with their ids
-      const metadata = await processMusicFiles(fileArray, songIds);
-
-      for (let i = 0; i < metadata.length; i++) {
-        const songData = metadata[i];
-
-        // check for duplicates - match on filename, file size, and last modified
-        const isDuplicate = songs().some(
-          (existing) =>
-            existing.source_type === "local" &&
-            existing.file_name === songData.file_name &&
-            existing.file_size === songData.file_size &&
-            existing.last_modified === songData.last_modified,
-        );
-
-        if (isDuplicate) {
-          console.log(
-            `skipping duplicate: ${songData.file_name} (${songData.file_size} bytes)`,
-          );
-          skippedCount++;
-        } else {
-          await addSong({
-            ...songData,
-            id: songIds[i],
-          });
-          addedCount++;
-        }
+      const result = await importMusicFiles(files);
+      if (result.addedCount > 0) {
+        setHasSongs(true);
       }
-
-      console.log(
-        `added ${addedCount} songs, skipped ${skippedCount} duplicates`,
-      );
       setIsAddMusicOpen(false);
     } catch (error) {
       console.error("failed to process files:", error);
@@ -117,19 +95,19 @@ export function App() {
     setIsAddMusicOpen(false);
   };
 
-  const handleSongDoubleClick = async (songId: string) => {
+  const handleSongDoubleClick = async (song: Song) => {
     // add song to end of queue and play it
     const state = appState();
     const currentQueue = state?.queue || [];
 
     // add to end of queue if not already there
-    if (!currentQueue.includes(songId)) {
-      const newQueue = [...currentQueue, songId];
+    if (!currentQueue.some((s) => s.song_id === song.song_id)) {
+      const newQueue = [...currentQueue, song];
       await setQueue(newQueue);
     }
 
     // play the clicked song
-    await playSong(songId);
+    await playSong(song.song_id);
   };
 
   const handleSeek = (percentage: number) => {
@@ -152,15 +130,26 @@ export function App() {
       >
         <div class="flex-1 overflow-hidden">
           <Show
-            when={songs().length === 0}
+            when={isInitializing()}
             fallback={
-              <LibraryView
-                onAddMusic={() => setIsAddMusicOpen(true)}
-                onSongDoubleClick={(song) => handleSongDoubleClick(song.id)}
-              />
+              <Show
+                when={!hasSongs()}
+                fallback={
+                  <LibraryView
+                    onAddMusic={() => setIsAddMusicOpen(true)}
+                    onSongDoubleClick={handleSongDoubleClick}
+                  />
+                }
+              >
+                <EmptyState onAddMusic={() => setIsAddMusicOpen(true)} />
+              </Show>
             }
           >
-            <EmptyState onAddMusic={() => setIsAddMusicOpen(true)} />
+            <Show when={showLoading()}>
+              <div class="flex items-center justify-center h-full">
+                <p class="text-[var(--color-text-secondary)]">loading...</p>
+              </div>
+            </Show>
           </Show>
         </div>
 
@@ -169,47 +158,42 @@ export function App() {
           isOpen={queueOpen()}
           variant="inline"
           songs={
-            (appState()
-              ?.queue.map((songId) => {
-                const song = songs().find((s) => s.id === songId);
-                return song
-                  ? {
-                      id: song.id,
-                      title: song.title,
-                      artist: song.artist,
-                      duration: song.duration,
-                    }
-                  : null;
-              })
-              .filter(Boolean) as any[]) || []
+            (appState()?.queue.map((song) => ({
+              id: song.song_id,
+              title: song.title,
+              artist: song.artist_name,
+              duration: song.duration,
+            })) || []) as any[]
           }
           currentIndex={
             appState()?.current_song_id
-              ? appState()!.queue.indexOf(appState()!.current_song_id)
+              ? appState()!.queue.findIndex(
+                  (s) => s.song_id === appState()!.current_song_id,
+                )
               : -1
           }
           onClose={() => setQueueOpen(false)}
           onSongClick={async (index) => {
             const state = appState();
             if (state?.queue[index]) {
-              await playSong(state.queue[index]);
+              await playSong(state.queue[index].song_id);
             }
           }}
           onSongDoubleClick={async (index) => {
             const state = appState();
             if (state?.queue[index]) {
-              await playSong(state.queue[index]);
+              await playSong(state.queue[index].song_id);
             }
           }}
           onRemoveSong={async (index) => {
             const state = appState();
             if (state?.queue) {
-              const removedSongId = state.queue[index];
+              const removedSong = state.queue[index];
               const newQueue = state.queue.filter((_, i) => i !== index);
               await setQueue(newQueue);
 
               // if we removed the currently playing song, stop playback and clear it
-              if (removedSongId === state.current_song_id) {
+              if (removedSong.song_id === state.current_song_id) {
                 stop();
                 await setCurrentSong(null);
               }
@@ -237,10 +221,10 @@ export function App() {
           song={
             currentSongData()
               ? {
-                  id: currentSongData()!.id,
+                  id: currentSongData()!.song_id,
                   title: currentSongData()!.title,
-                  artist: currentSongData()!.artist,
-                  album: currentSongData()!.album,
+                  artist: currentSongData()!.artist_name,
+                  album: currentSongData()!.album_title,
                   isFavorite: false,
                 }
               : undefined

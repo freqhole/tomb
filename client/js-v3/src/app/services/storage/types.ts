@@ -1,9 +1,10 @@
 // application-level storage types (domain-agnostic)
+import type { Song } from "../../../music/services/storage/types";
 
 export interface AppState {
   id: "app_state";
   current_song_id: string | null; // currently playing song
-  queue: string[]; // array of song ids in play order
+  queue: Song[]; // array of songs in play order
   last_updated: number;
 }
 

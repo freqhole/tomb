@@ -1,10 +1,11 @@
-import { Show } from "solid-js";
+import { createResource, Show } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import {
   VirtualSongList,
-  type Song,
+  type Song as VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
-import { songs } from "../services/storage/db";
+import { getDataSource } from "../data";
+import type { Song } from "../services/storage/types";
 
 export interface LibraryViewProps {
   onAddMusic: () => void;
@@ -21,25 +22,45 @@ function formatDuration(seconds: number): string {
 }
 
 export function LibraryView(props: LibraryViewProps) {
-  // convert music songs to virtual song list format
-  const virtualSongs = () =>
-    songs().map((song) => ({
-      id: song.id,
+  // fetch songs from data source
+  const [songsData] = createResource(async () => {
+    const source = getDataSource();
+    return source.getSongs({
+      limit: 1000,
+      sort_by: "added_at",
+      sort_direction: "desc",
+    });
+  });
+
+  // convert storage songs to virtual song list format
+  const virtualSongs = () => {
+    const data = songsData();
+    if (!data) return [];
+
+    return data.items.map((song) => ({
+      id: song.song_id,
       title: song.title,
-      artist: song.artist,
-      album: song.album,
+      artist: song.artist_name,
+      album: song.album_title,
       duration: formatDuration(song.duration),
       userIsFavorite: false,
       userRating: 0,
     }));
-
-  const handleSongClick = (song: Song) => {
-    props.onSongClick?.(song);
   };
 
-  const handleSongDoubleClick = (song: Song) => {
-    props.onSongDoubleClick?.(song);
-    console.log("play song:", song.title);
+  const handleSongClick = (virtualSong: VirtualSong) => {
+    // find the actual song by id
+    const song = songsData()?.items.find((s) => s.song_id === virtualSong.id);
+    if (song) props.onSongClick?.(song);
+  };
+
+  const handleSongDoubleClick = (virtualSong: VirtualSong) => {
+    // find the actual song by id
+    const song = songsData()?.items.find((s) => s.song_id === virtualSong.id);
+    if (song) {
+      props.onSongDoubleClick?.(song);
+      console.log("play song:", song.title);
+    }
   };
 
   return (
@@ -51,7 +72,8 @@ export function LibraryView(props: LibraryViewProps) {
             music library
           </h1>
           <p class="text-sm text-[var(--color-text-secondary)]">
-            {songs().length} {songs().length === 1 ? "song" : "songs"}
+            {songsData()?.total ?? 0}{" "}
+            {songsData()?.total === 1 ? "song" : "songs"}
           </p>
         </div>
         <Button variant="primary" onClick={props.onAddMusic}>

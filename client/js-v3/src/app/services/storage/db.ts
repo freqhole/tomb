@@ -1,11 +1,12 @@
 // application database service (domain-agnostic)
 import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
+import type { Song } from "../../../music/services/storage/types";
 import {
-    APP_DB_NAME,
-    APP_DB_VERSION,
-    STORE_APP_STATE,
-    type AppState,
+  APP_DB_NAME,
+  APP_DB_VERSION,
+  STORE_APP_STATE,
+  type AppState,
 } from "./types";
 
 let dbInstance: IDBPDatabase | null = null;
@@ -78,8 +79,8 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 }
 
 // update queue
-async function setQueue(songIds: string[]): Promise<void> {
-  await updateAppState({ queue: songIds });
+async function setQueue(songs: Song[]): Promise<void> {
+  await updateAppState({ queue: songs });
 }
 
 // clear all app data
@@ -90,7 +91,11 @@ async function clearAppData(): Promise<void> {
 }
 
 export {
-    appState, clearAppData, initAppDB, loadAppState, setCurrentSong,
-    setQueue, updateAppState
+  appState,
+  clearAppData,
+  initAppDB,
+  loadAppState,
+  setCurrentSong,
+  setQueue,
+  updateAppState,
 };
-

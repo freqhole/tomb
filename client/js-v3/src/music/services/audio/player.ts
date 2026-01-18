@@ -7,6 +7,7 @@ import {
 } from "../../../app/services/storage/db";
 import { cleanupAudioURL, getAudioURL } from "../storage/audioAccess";
 import { getSongById } from "../storage/db";
+import type { Song } from "../storage/types";
 
 // player state signals
 const [isPlaying, setIsPlaying] = createSignal(false);
@@ -20,7 +21,9 @@ const canGoNext = () => {
   const state = appState();
   if (!state?.queue.length) return false;
   const currentId = state.current_song_id;
-  const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
+  const currentIdx = currentId
+    ? state.queue.findIndex((s) => s.song_id === currentId)
+    : -1;
   return currentIdx >= 0 && currentIdx < state.queue.length - 1;
 };
 
@@ -28,7 +31,9 @@ const canGoPrevious = () => {
   const state = appState();
   if (!state?.queue.length) return false;
   const currentId = state.current_song_id;
-  const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
+  const currentIdx = currentId
+    ? state.queue.findIndex((s) => s.song_id === currentId)
+    : -1;
   return currentIdx > 0;
 };
 
@@ -125,8 +130,8 @@ async function updateMediaSession() {
 
   navigator.mediaSession.metadata = new MediaMetadata({
     title: song.title,
-    artist: song.artist,
-    album: song.album,
+    artist: song.artist_name,
+    album: song.album_title,
     artwork: [],
   });
 
@@ -191,7 +196,7 @@ export async function togglePlayback(): Promise<void> {
       // if no song is playing, play first in queue
       const state = appState();
       if (!state?.current_song_id && state?.queue.length) {
-        await playSong(state.queue[0]);
+        await playSong(state.queue[0].song_id);
       } else if (state?.current_song_id) {
         // if audio src is empty (page reload), reload the song
         if (!audio.src) {
@@ -250,10 +255,12 @@ export async function playNext(): Promise<void> {
 
   const state = appState();
   const currentId = state.current_song_id;
-  const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
+  const currentIdx = currentId
+    ? state.queue.findIndex((s) => s.song_id === currentId)
+    : -1;
   const nextIdx = currentIdx + 1;
 
-  await playSong(state.queue[nextIdx]);
+  await playSong(state.queue[nextIdx].song_id);
 }
 
 // play previous song in queue
@@ -262,10 +269,12 @@ export async function playPrevious(): Promise<void> {
 
   const state = appState();
   const currentId = state.current_song_id;
-  const currentIdx = currentId ? state.queue.indexOf(currentId) : -1;
+  const currentIdx = currentId
+    ? state.queue.findIndex((s) => s.song_id === currentId)
+    : -1;
   const prevIdx = currentIdx - 1;
 
-  await playSong(state.queue[prevIdx]);
+  await playSong(state.queue[prevIdx].song_id);
 }
 
 // handle song ended
@@ -274,18 +283,18 @@ async function handleSongEnded(): Promise<void> {
 }
 
 // add songs to queue and play first
-export async function playQueue(songIds: string[]): Promise<void> {
-  if (songIds.length === 0) return;
+export async function playQueue(songs: Song[]): Promise<void> {
+  if (songs.length === 0) return;
 
-  await setQueue(songIds);
-  await playSong(songIds[0]);
+  await setQueue(songs);
+  await playSong(songs[0].song_id);
 }
 
 // add song to end of queue
-export async function addToQueue(songId: string): Promise<void> {
+export async function addToQueue(song: Song): Promise<void> {
   const state = appState();
   const currentQueue = state?.queue || [];
-  await setQueue([...currentQueue, songId]);
+  await setQueue([...currentQueue, song]);
 }
 
 // cleanup
