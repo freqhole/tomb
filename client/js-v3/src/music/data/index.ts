@@ -5,7 +5,8 @@ import { RemoteMusicDataSource } from "./remoteSource";
 import type { MusicDataSource } from "./types";
 
 // active data source (default to local)
-const [activeSource, setActiveSource] = createSignal<MusicDataSource>(localDataSource);
+const [activeSource, setActiveSource] =
+  createSignal<MusicDataSource>(localDataSource);
 
 // get the currently active data source
 export function getDataSource(): MusicDataSource {
@@ -27,9 +28,12 @@ export function useRemoteSource(baseUrl: string, apiKey?: string): void {
 
 // export types and classes for direct use
 export type {
-    Album,
-    Artist,
-    Genre, MusicDataSource, PaginatedResponse, Playlist, QueryParams, Song
+  AlbumSummary,
+  ArtistSummary,
+  MusicDataSource,
+  PaginatedResponse,
+  QueryParams,
+  Song,
 } from "./types";
 
 export { LocalMusicDataSource, RemoteMusicDataSource };

@@ -1,5 +1,9 @@
 // local data source implementation - queries indexeddb directly
-import { getSongById, querySongsWithDetails } from "../services/storage/db";
+import {
+  getSongById,
+  queryAlbums,
+  querySongsWithDetails,
+} from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import type {
   AlbumSummary,
@@ -48,8 +52,34 @@ export class LocalMusicDataSource implements MusicDataSource {
   async getAlbums(
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
-    // TODO: implement album aggregation
-    return { items: [], total: 0, offset: 0, limit: 50, has_more: false };
+    const limit = params?.limit ?? 50;
+    const offset = params?.offset ?? 0;
+
+    // query albums with aggregated stats
+    const results = await queryAlbums({ limit, offset });
+
+    // map to AlbumSummary format
+    const albums: AlbumSummary[] = results.map((result) => ({
+      album_id: result.album.album_id,
+      title: result.album.title,
+      artist_id: result.album.artist_id || "",
+      artist_name: result.artist_name,
+      year: result.album.year ?? undefined,
+      song_count: result.song_count,
+      total_duration: result.total_duration,
+    }));
+
+    // TODO: get total count properly from database
+    // for now, assume has_more if we got a full page
+    const hasMore = albums.length === limit;
+
+    return {
+      items: albums,
+      total: albums.length,
+      offset,
+      limit,
+      has_more: hasMore,
+    };
   }
 
   async getAlbumSongs(

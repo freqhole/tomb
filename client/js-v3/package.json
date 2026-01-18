@@ -21,6 +21,7 @@
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.0",
     "@kobalte/core": "^0.13.11",
+    "@solidjs/router": "^0.15.4",
     "@storybook/addon-a11y": "^10.1.11",
     "@storybook/addon-docs": "^10.1.11",
     "@storybook/addon-links": "^10.1.11",

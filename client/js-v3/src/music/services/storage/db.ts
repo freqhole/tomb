@@ -323,6 +323,70 @@ async function getOrCreateGenre(name: string): Promise<Genre> {
 
 // ===== QUERY HELPERS (with joins) =====
 
+// album aggregation with song counts and durations
+export interface AlbumWithStats {
+  album: Album;
+  artist_name: string;
+  song_count: number;
+  total_duration: number;
+}
+
+async function queryAlbums(options?: {
+  limit?: number;
+  offset?: number;
+}): Promise<AlbumWithStats[]> {
+  const db = await initMusicDB();
+
+  // get all albums
+  const allAlbums = await db.getAll(STORE_ALBUMS);
+
+  // get all songs to aggregate by album
+  const allSongs = await db.getAll(STORE_SONGS);
+
+  // group songs by album_id
+  const songsByAlbum = new Map<string, Song[]>();
+  for (const song of allSongs) {
+    if (!songsByAlbum.has(song.album_id)) {
+      songsByAlbum.set(song.album_id, []);
+    }
+    songsByAlbum.get(song.album_id)!.push(song);
+  }
+
+  // build album results with stats
+  const results: AlbumWithStats[] = [];
+  for (const album of allAlbums) {
+    const songs = songsByAlbum.get(album.album_id) || [];
+
+    // skip albums with no songs
+    if (songs.length === 0) continue;
+
+    // get artist name
+    const artist = album.artist_id
+      ? await getArtistById(album.artist_id)
+      : null;
+    const artistName = artist?.name || "various artists";
+
+    // calculate total duration
+    const totalDuration = songs.reduce((sum, song) => sum + song.duration, 0);
+
+    results.push({
+      album,
+      artist_name: artistName,
+      song_count: songs.length,
+      total_duration: totalDuration,
+    });
+  }
+
+  // sort by album title
+  results.sort((a, b) => a.album.title.localeCompare(b.album.title));
+
+  // apply pagination if specified
+  const limit = options?.limit ?? results.length;
+  const offset = options?.offset ?? 0;
+
+  return results.slice(offset, offset + limit);
+}
+
 async function querySongsWithDetails(options?: {
   limit?: number;
   offset?: number;
@@ -481,6 +545,7 @@ export {
   // init
   initMusicDB,
   // queries
+  queryAlbums,
   querySongsWithDetails,
   // favorites
   setFavorite,
