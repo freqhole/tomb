@@ -23,7 +23,7 @@ use webauthn_rs::prelude::*;
 use crate::error::ApiError;
 
 #[cfg(feature = "webauthn")]
-use axum::{body::Bytes, extract::Extension, http::Request, response::IntoResponse, Json};
+use axum::{extract::Extension, response::IntoResponse, Json};
 
 #[cfg(feature = "webauthn")]
 use tower_sessions::Session;
@@ -213,9 +213,6 @@ pub async fn register_start(
     session: Session,
     Json(request): Json<RegisterStartRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::info!("register_start called for username: {}", request.username);
-    tracing::info!("session id: {:?}", session.id());
-
     let server_config = state
         .config
         .server
@@ -268,12 +265,6 @@ pub async fn register_start(
         .await
         .map_err(|e| ApiError::Internal(format!("failed to save session: {}", e)))?;
 
-    tracing::info!(
-        "saved registration state to session for user_id: {}",
-        user_id
-    );
-    tracing::info!("session id after save: {:?}", session.id());
-
     Ok(Json(ccr))
 }
 
@@ -283,49 +274,19 @@ pub async fn register_finish(
     Extension(state): Extension<AppState>,
     Extension(origin): Extension<ValidatedOrigin>,
     session: Session,
-    body: String,
+    Json(reg): Json<RegisterPublicKeyCredential>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Log incoming credential for debugging
-    tracing::info!("register_finish called");
-    tracing::info!("session id: {:?}", session.id());
-    tracing::info!("raw body: {}", body);
-
-    // Try to parse the JSON manually to see what's wrong
-    let reg: RegisterPublicKeyCredential = match serde_json::from_str(&body) {
-        Ok(r) => {
-            tracing::info!("successfully parsed credential");
-            r
-        }
-        Err(e) => {
-            tracing::error!("failed to parse credential: {}", e);
-            tracing::error!("body was: {}", body);
-            return Err(ApiError::BadRequest(format!(
-                "invalid credential format: {}",
-                e
-            )));
-        }
-    };
-
-    tracing::info!("received credential id: {}", reg.id);
-    tracing::info!("credential raw_id length: {}", reg.raw_id.len());
-
     // Get registration state from session
-    tracing::info!("retrieving registration state from session");
-    let reg_state_result: Option<(String, String, PasskeyRegistration, Option<String>)> =
-        session.get("reg_state").await.map_err(|e| {
-            tracing::error!("failed to get session: {}", e);
-            ApiError::Internal(format!("failed to get session: {}", e))
-        })?;
-
-    if reg_state_result.is_none() {
-        tracing::error!("no registration state found in session");
-        return Err(ApiError::BadRequest(
-            "no registration in progress".to_string(),
-        ));
-    }
-
-    let (_temp_user_id, username, reg_state, invite_code) = reg_state_result.unwrap();
-    tracing::info!("found registration state for username: {}", username);
+    let (_temp_user_id, username, reg_state, invite_code): (
+        String,
+        String,
+        PasskeyRegistration,
+        Option<String>,
+    ) = session
+        .get("reg_state")
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
+        .ok_or_else(|| ApiError::BadRequest("no registration in progress".to_string()))?;
 
     // Remove registration state from session
     let _ = session.remove_value("reg_state").await;
@@ -344,18 +305,7 @@ pub async fn register_finish(
     let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
 
     // Finish registration
-    tracing::info!("calling finish_registration with origin: {}", origin.0);
-    let passkey = match freq_webauthn.finish_registration(&origin.0, &reg, &reg_state) {
-        Ok(pk) => {
-            tracing::info!("registration validation successful");
-            pk
-        }
-        Err(e) => {
-            tracing::error!("registration validation failed: {:?}", e);
-            tracing::error!("origin: {}, rp_id: {}", origin.0, rp_id);
-            return Err(e);
-        }
-    };
+    let passkey = freq_webauthn.finish_registration(&origin.0, &reg, &reg_state)?;
 
     // Create user account
     let create_request = grimoire::users::CreateUserRequest {
