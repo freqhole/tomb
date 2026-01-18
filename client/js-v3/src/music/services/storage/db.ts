@@ -235,25 +235,12 @@ async function getOrCreateAlbum(
 
 async function createSong(song: Song): Promise<void> {
   const db = await initMusicDB();
-  console.log(
-    "createSong: writing song to IDB",
-    song.title,
-    "added_at:",
-    song.added_at,
-  );
   await db.put(STORE_SONGS, song);
 
   // update reactive signal for backwards compatibility
   const allSongs = await db.getAll(STORE_SONGS);
-  console.log("createSong: reloaded from IDB, count =", allSongs.length);
-  console.log(
-    "createSong: first 3 songs after reload:",
-    allSongs.slice(0, 3).map((s) => ({ title: s.title, added_at: s.added_at })),
-  );
   setSongs(allSongs);
-  const newVersion = songsVersion() + 1;
-  console.log("createSong: incrementing version to", newVersion);
-  setSongsVersion(newVersion);
+  setSongsVersion((v) => v + 1);
 }
 
 async function getSongById(songId: string): Promise<Song | undefined> {
@@ -346,8 +333,6 @@ async function querySongsWithDetails(options?: {
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
 
-  console.log("querySongsWithDetails: starting query");
-
   // get songs (filtered if needed)
   let songsToQuery: Song[];
   if (options?.artistId) {
@@ -360,27 +345,8 @@ async function querySongsWithDetails(options?: {
     songsToQuery = await db.getAll(STORE_SONGS);
   }
 
-  console.log(
-    "querySongsWithDetails: got",
-    songsToQuery.length,
-    "songs from IDB",
-  );
-  console.log(
-    "querySongsWithDetails: first 3 before sort:",
-    songsToQuery
-      .slice(0, 3)
-      .map((s) => ({ title: s.title, added_at: s.added_at })),
-  );
-
   // sort by added_at descending (newest first)
   songsToQuery.sort((a, b) => b.added_at - a.added_at);
-
-  console.log(
-    "querySongsWithDetails: first 3 after sort:",
-    songsToQuery
-      .slice(0, 3)
-      .map((s) => ({ title: s.title, added_at: s.added_at })),
-  );
 
   // apply pagination
   const paginatedSongs = songsToQuery.slice(offset, offset + limit);

@@ -25,16 +25,12 @@ function formatDuration(seconds: number): string {
 export function LibraryView(props: LibraryViewProps) {
   // fetch songs from data source - refetch when songsVersion changes
   const [songsData] = createResource(songsVersion, async () => {
-    console.log("LibraryView: fetching songs, version =", songsVersion());
     const source = getDataSource();
-    const result = await source.getSongs({
+    return source.getSongs({
       limit: 1000,
       sort_by: "added_at",
       sort_direction: "desc",
     });
-    console.log("LibraryView: fetched", result.items.length, "songs");
-    console.log("LibraryView: first song =", result.items[0]?.title);
-    return result;
   });
 
   // convert storage songs to virtual song list format
@@ -42,7 +38,7 @@ export function LibraryView(props: LibraryViewProps) {
     const data = songsData();
     if (!data) return [];
 
-    const mapped = data.items.map((song) => ({
+    return data.items.map((song) => ({
       id: song.song_id,
       title: song.title,
       artist: song.artist_name,
@@ -51,15 +47,6 @@ export function LibraryView(props: LibraryViewProps) {
       userIsFavorite: false,
       userRating: 0,
     }));
-
-    console.log(
-      "virtualSongs: mapped",
-      mapped.length,
-      "songs, first 3:",
-      mapped.slice(0, 3).map((s) => ({ id: s.id, title: s.title })),
-    );
-
-    return mapped;
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {
