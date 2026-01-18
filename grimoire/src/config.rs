@@ -150,6 +150,9 @@ pub struct ServerConfig {
 pub struct AuthConfig {
     /// Enable WebAuthn passkey authentication (requires binary built with webauthn feature)
     pub webauthn_enabled: bool,
+    /// Session max age in seconds (0 or negative = never expire)
+    #[serde(default)]
+    pub session_max_age_seconds: i64,
     /// WebAuthn origin configurations (each origin needs its own rp_id and rp_origin)
     #[serde(default)]
     pub webauthn_origins: Vec<WebAuthnOriginConfig>,

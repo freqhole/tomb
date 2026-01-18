@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>webauthn test harness</title>
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                line-height: 1.6;
+                padding: 2rem;
+                max-width: 800px;
+                margin: 0 auto;
+                background: #000;
+                color: #fff;
+            }
+
+            h1 {
+                margin-bottom: 0.5rem;
+                color: #ff00ff;
+            }
+
+            .subtitle {
+                color: #ccc;
+                margin-bottom: 2rem;
+                font-size: 0.9rem;
+            }
+
+            .section {
+                background: #111;
+                padding: 1.5rem;
+                margin-bottom: 1.5rem;
+                border-radius: 8px;
+                border: 1px solid #333;
+            }
+
+            h2 {
+                margin-bottom: 1rem;
+                color: #ff00ff;
+                font-size: 1.2rem;
+            }
+
+            .form-group {
+                margin-bottom: 1rem;
+            }
+
+            label {
+                display: block;
+                margin-bottom: 0.25rem;
+                color: #ccc;
+                font-weight: 500;
+                font-size: 0.9rem;
+            }
+
+            input[type="text"],
+            input[type="url"] {
+                width: 100%;
+                padding: 0.5rem;
+                border: 1px solid #333;
+                border-radius: 4px;
+                font-size: 1rem;
+                background: #000;
+                color: #fff;
+            }
+
+            input[type="text"]:focus,
+            input[type="url"]:focus {
+                outline: none;
+                border-color: #ff00ff;
+            }
+
+            button {
+                background: #ff00ff;
+                color: #000;
+                border: none;
+                padding: 0.75rem 1.5rem;
+                border-radius: 4px;
+                font-size: 1rem;
+                cursor: pointer;
+                margin-right: 0.5rem;
+                margin-top: 0.5rem;
+                font-weight: 600;
+            }
+
+            button:hover {
+                background: #cc00cc;
+            }
+
+            button:disabled {
+                background: #333;
+                color: #666;
+                cursor: not-allowed;
+            }
+
+            button.secondary {
+                background: #333;
+                color: #fff;
+            }
+
+            button.secondary:hover {
+                background: #444;
+            }
+
+            .status {
+                margin-top: 1rem;
+                padding: 0.75rem;
+                border-radius: 4px;
+                font-size: 0.9rem;
+            }
+
+            .status.success {
+                background: #001a00;
+                color: #00ff00;
+                border: 1px solid #003300;
+            }
+
+            .status.error {
+                background: #1a0000;
+                color: #ff4444;
+                border: 1px solid #330000;
+            }
+
+            .status.info {
+                background: #0a0a1a;
+                color: #88ccff;
+                border: 1px solid #1a1a33;
+            }
+
+            .current-user {
+                background: #1a001a;
+                padding: 1rem;
+                border-radius: 4px;
+                margin-bottom: 1rem;
+                border: 1px solid #330033;
+            }
+
+            .current-user strong {
+                color: #ff00ff;
+            }
+
+            pre {
+                background: #0a0a0a;
+                padding: 1rem;
+                border-radius: 4px;
+                overflow-x: auto;
+                font-size: 0.85rem;
+                margin-top: 0.5rem;
+                color: #ccc;
+                border: 1px solid #222;
+            }
+
+            .hidden {
+                display: none;
+            }
+
+            .browser-info {
+                background: #1a1a00;
+                padding: 1rem;
+                border-radius: 4px;
+                margin-bottom: 1rem;
+                font-size: 0.9rem;
+                color: #ffff88;
+                border: 1px solid #333300;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>webauthn test harness</h1>
+        <p class="subtitle">
+            test passkey registration and login across browsers
+        </p>
+
+        <div class="browser-info" id="browserInfo">
+            <strong>browser:</strong> <span id="browserName">detecting...</span>
+        </div>
+
+        <div class="section">
+            <h2>configuration</h2>
+            <div class="form-group">
+                <label for="baseUrl">server url</label>
+                <input
+                    type="url"
+                    id="baseUrl"
+                    placeholder="http://localhost:8080"
+                />
+            </div>
+            <button onclick="testConnection()">test connection</button>
+            <div id="connectionStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>registration</h2>
+            <div class="form-group">
+                <label for="registerUsername">username</label>
+                <input type="text" id="registerUsername" placeholder="alice" />
+            </div>
+            <div class="form-group">
+                <label for="inviteCode">invite code</label>
+                <input type="text" id="inviteCode" placeholder="optional" />
+            </div>
+            <button onclick="register()">register with passkey</button>
+            <div id="registerStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>login</h2>
+            <div class="form-group">
+                <label for="loginUsername">username</label>
+                <input type="text" id="loginUsername" placeholder="alice" />
+            </div>
+            <button onclick="login()">login with passkey</button>
+            <div id="loginStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>session status</h2>
+            <div id="currentUser" class="hidden current-user">
+                logged in as <strong id="username"></strong>
+            </div>
+            <button onclick="checkAuth()">check auth status</button>
+            <button class="secondary" onclick="logout()">logout</button>
+            <div id="authStatus"></div>
+        </div>
+
+        <div class="section">
+            <h2>debug info</h2>
+            <p style="color: #ccc; font-size: 0.9rem; margin-bottom: 1rem">
+                last credential data (compare safari vs chrome):
+            </p>
+            <pre id="debugInfo" style="max-height: 400px; overflow-y: auto">
+no credential data yet</pre
+            >
+        </div>
+
+        <script type="module">
+            // import api client modules from the local package
+            // in production this would be: import { webauthn, auth, app } from 'freqhole-api-client'
+            import * as webauthn from "./src/webauthn";
+            import * as auth from "./src/auth";
+            import * as app from "./src/app";
+
+            // set default base url to current origin
+            document.getElementById("baseUrl").value = window.location.origin;
+
+            // make functions globally available for onclick handlers
+            window.webauthnHelpers = webauthn;
+
+            // detect browser
+            function detectBrowser() {
+                const ua = navigator.userAgent;
+                let browser = "unknown";
+
+                if (ua.includes("Safari") && !ua.includes("Chrome")) {
+                    browser = "Safari";
+                } else if (ua.includes("Chrome")) {
+                    browser = "Chrome";
+                } else if (ua.includes("Firefox")) {
+                    browser = "Firefox";
+                } else if (ua.includes("Edg")) {
+                    browser = "Edge";
+                }
+
+                document.getElementById("browserName").textContent =
+                    `${browser} (${navigator.platform})`;
+            }
+
+            detectBrowser();
+
+            // helper to get current base url from input
+            function getBaseUrl() {
+                return document.getElementById("baseUrl").value;
+            }
+
+            // show status message
+            function showStatus(
+                elementId,
+                message,
+                type = "info",
+                details = null,
+            ) {
+                const el = document.getElementById(elementId);
+                el.className = `status ${type}`;
+                el.innerHTML = message;
+
+                if (details) {
+                    const pre = document.createElement("pre");
+                    pre.textContent = JSON.stringify(details, null, 2);
+                    el.appendChild(pre);
+                }
+
+                console.log(`[${type}] ${message}`, details);
+            }
+
+            // test connection to server
+            window.testConnection = async function () {
+                try {
+                    const result = await app.healthCheck(getBaseUrl());
+                    if (result.success) {
+                        showStatus(
+                            "connectionStatus",
+                            "connection successful",
+                            "success",
+                            result.data,
+                        );
+                    } else {
+                        showStatus(
+                            "connectionStatus",
+                            `connection failed: ${result.error.message}`,
+                            "error",
+                        );
+                    }
+                } catch (err) {
+                    showStatus(
+                        "connectionStatus",
+                        `connection failed: ${err.message}`,
+                        "error",
+                    );
+                }
+            };
+
+            // register with passkey
+            window.register = async function () {
+                const username =
+                    document.getElementById("registerUsername").value;
+                const inviteCode = document.getElementById("inviteCode").value;
+
+                if (!username) {
+                    showStatus(
+                        "registerStatus",
+                        "please enter a username",
+                        "error",
+                    );
+                    return;
+                }
+
+                try {
+                    showStatus(
+                        "registerStatus",
+                        "starting registration...",
+                        "info",
+                    );
+
+                    // call register_start
+                    const startParams = inviteCode
+                        ? { username, invite_code: inviteCode }
+                        : { username };
+
+                    const startResult = await auth.registerStart(
+                        getBaseUrl(),
+                        startParams,
+                    );
+
+                    if (!startResult.success) {
+                        throw new Error(
+                            startResult.error.message ||
+                                "register_start failed",
+                        );
+                    }
+
+                    const challengeResponse = startResult.data;
+
+                    showStatus(
+                        "registerStatus",
+                        "got challenge, prompting for passkey...",
+                        "info",
+                        challengeResponse,
+                    );
+
+                    // prepare options for browser
+                    const options =
+                        webauthn.prepareRegistrationOptions(challengeResponse);
+
+                    // prompt user to create credential
+                    const credential =
+                        await navigator.credentials.create(options);
+
+                    if (!credential) {
+                        throw new Error("failed to create credential");
+                    }
+
+                    showStatus(
+                        "registerStatus",
+                        "credential created, finishing registration...",
+                        "info",
+                    );
+
+                    // serialize and send to server
+                    const serialized =
+                        webauthn.serializeRegistrationCredential(credential);
+                    console.log("serialized credential:", serialized);
+                    console.log(
+                        "credential rawId length:",
+                        credential.rawId.byteLength,
+                    );
+                    console.log("credential id:", credential.id);
+
+                    // show debug info
+                    const debugInfo = {
+                        browser:
+                            document.getElementById("browserName").textContent,
+                        timestamp: new Date().toISOString(),
+                        credential: serialized,
+                        rawIdLength: credential.rawId.byteLength,
+                        idLength: credential.id.length,
+                    };
+                    document.getElementById("debugInfo").textContent =
+                        JSON.stringify(debugInfo, null, 2);
+
+                    const finishResult = await auth.registerFinish(
+                        getBaseUrl(),
+                        serialized,
+                    );
+
+                    if (!finishResult.success) {
+                        console.error(
+                            "register_finish failed:",
+                            finishResult.error,
+                        );
+                        console.error(
+                            "sent payload:",
+                            JSON.stringify(serialized, null, 2),
+                        );
+                        throw new Error(
+                            `register_finish failed: ${JSON.stringify(finishResult.error)}`,
+                        );
+                    }
+
+                    showStatus(
+                        "registerStatus",
+                        "registration successful!",
+                        "success",
+                        finishResult.data,
+                    );
+
+                    // check auth after successful registration
+                    setTimeout(checkAuth, 500);
+                } catch (err) {
+                    const errorMsg = err.message || String(err);
+                    showStatus(
+                        "registerStatus",
+                        `registration failed: ${errorMsg}`,
+                        "error",
+                    );
+                    console.error("registration error:", err);
+                    console.error(
+                        "full error details:",
+                        JSON.stringify(err, null, 2),
+                    );
+                }
+            };
+
+            // login with passkey
+            window.login = async function () {
+                const username = document.getElementById("loginUsername").value;
+
+                if (!username) {
+                    showStatus(
+                        "loginStatus",
+                        "please enter a username",
+                        "error",
+                    );
+                    return;
+                }
+
+                try {
+                    showStatus("loginStatus", "starting login...", "info");
+
+                    // call login_start
+                    const startResult = await auth.loginStart(getBaseUrl(), {
+                        username,
+                    });
+
+                    if (!startResult.success) {
+                        throw new Error(
+                            startResult.error.message || "login_start failed",
+                        );
+                    }
+
+                    const challengeResponse = startResult.data;
+
+                    showStatus(
+                        "loginStatus",
+                        "got challenge, prompting for passkey...",
+                        "info",
+                        challengeResponse,
+                    );
+
+                    // prepare options for browser
+                    const options =
+                        webauthn.prepareAuthenticationOptions(
+                            challengeResponse,
+                        );
+
+                    // prompt user to authenticate
+                    const assertion = await navigator.credentials.get(options);
+
+                    if (!assertion) {
+                        throw new Error("failed to get assertion");
+                    }
+
+                    showStatus(
+                        "loginStatus",
+                        "assertion created, finishing login...",
+                        "info",
+                    );
+
+                    // serialize and send to server
+                    const serialized =
+                        webauthn.serializeAuthenticationCredential(assertion);
+                    console.log("serialized assertion:", serialized);
+                    console.log(
+                        "assertion rawId length:",
+                        assertion.rawId.byteLength,
+                    );
+                    console.log("assertion id:", assertion.id);
+
+                    // show debug info
+                    const debugInfo = {
+                        browser:
+                            document.getElementById("browserName").textContent,
+                        timestamp: new Date().toISOString(),
+                        assertion: serialized,
+                        rawIdLength: assertion.rawId.byteLength,
+                        idLength: assertion.id.length,
+                    };
+                    document.getElementById("debugInfo").textContent =
+                        JSON.stringify(debugInfo, null, 2);
+
+                    const finishResult = await auth.loginFinish(
+                        getBaseUrl(),
+                        serialized,
+                    );
+
+                    if (!finishResult.success) {
+                        console.error(
+                            "login_finish failed:",
+                            finishResult.error,
+                        );
+                        console.error(
+                            "sent payload:",
+                            JSON.stringify(serialized, null, 2),
+                        );
+                        throw new Error(
+                            `login_finish failed: ${JSON.stringify(finishResult.error)}`,
+                        );
+                    }
+
+                    showStatus(
+                        "loginStatus",
+                        "login successful!",
+                        "success",
+                        finishResult.data,
+                    );
+
+                    // check auth after successful login
+                    setTimeout(checkAuth, 500);
+                } catch (err) {
+                    showStatus(
+                        "loginStatus",
+                        `login failed: ${err.message}`,
+                        "error",
+                    );
+                    console.error("login error:", err);
+                }
+            };
+
+            // check auth status
+            window.checkAuth = async function () {
+                try {
+                    const result = await auth.whoami(getBaseUrl());
+
+                    if (!result.success) {
+                        throw new Error(
+                            result.error.message || "whoami failed",
+                        );
+                    }
+
+                    const response = result.data;
+
+                    if (response.authenticated) {
+                        document
+                            .getElementById("currentUser")
+                            .classList.remove("hidden");
+                        document.getElementById("username").textContent =
+                            response.username || "unknown";
+                        showStatus(
+                            "authStatus",
+                            "authenticated",
+                            "success",
+                            response,
+                        );
+                    } else {
+                        document
+                            .getElementById("currentUser")
+                            .classList.add("hidden");
+                        showStatus(
+                            "authStatus",
+                            "not authenticated",
+                            "info",
+                            response,
+                        );
+                    }
+                } catch (err) {
+                    document
+                        .getElementById("currentUser")
+                        .classList.add("hidden");
+                    showStatus(
+                        "authStatus",
+                        `error checking auth: ${err.message}`,
+                        "error",
+                    );
+                }
+            };
+
+            // logout
+            window.logout = async function () {
+                try {
+                    const result = await auth.logout(getBaseUrl());
+
+                    if (!result.success) {
+                        throw new Error(
+                            result.error.message || "logout failed",
+                        );
+                    }
+
+                    document
+                        .getElementById("currentUser")
+                        .classList.add("hidden");
+                    showStatus("authStatus", "logged out", "success");
+                } catch (err) {
+                    showStatus(
+                        "authStatus",
+                        `error logging out: ${err.message}`,
+                        "error",
+                    );
+                }
+            };
+
+            // check auth on page load
+            checkAuth();
+        </script>
+    </body>
+</html>

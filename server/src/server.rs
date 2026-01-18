@@ -5,14 +5,14 @@ use std::path::Path;
 
 use axum::extract::Extension;
 use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use http::Method;
+use http::{HeaderName, Method};
 use tokio::net::TcpListener;
 use tower_http::{
     compression::CompressionLayer,
     cors::CorsLayer,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
-use tower_sessions::SessionManagerLayer;
+use tower_sessions::{cookie::SameSite, Expiry, SessionManagerLayer};
 use tracing::Level;
 
 use crate::{routes, state::AppState, ApiError};
@@ -89,17 +89,51 @@ pub async fn start_server(
                 Method::PATCH,
                 Method::OPTIONS,
             ])
-            .allow_headers([AUTHORIZATION, CONTENT_TYPE, ACCEPT])
+            .allow_headers([
+                AUTHORIZATION,
+                CONTENT_TYPE,
+                ACCEPT,
+                HeaderName::from_static("origin"),
+                HeaderName::from_static("x-requested-with"),
+            ])
+            .expose_headers([
+                HeaderName::from_static("content-length"),
+                HeaderName::from_static("content-range"),
+                HeaderName::from_static("accept-ranges"),
+                CONTENT_TYPE,
+                HeaderName::from_static("cache-control"),
+                HeaderName::from_static("content-disposition"),
+            ])
             .allow_credentials(true)
     } else {
         // fallback to permissive if no config (shouldn't happen)
         CorsLayer::permissive()
     };
 
+    // configure session layer with explicit cookie settings
+    let session_expiry = if let Some(server_config) = &state.config.server {
+        let max_age = server_config.auth.session_max_age_seconds;
+        if max_age <= 0 {
+            // never expire
+            Expiry::OnInactivity(tower_sessions::cookie::time::Duration::weeks(520))
+        // ~10 years
+        } else {
+            Expiry::OnInactivity(tower_sessions::cookie::time::Duration::seconds(max_age))
+        }
+    } else {
+        // default: 24 hours
+        Expiry::OnInactivity(tower_sessions::cookie::time::Duration::hours(24))
+    };
+
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_secure(false) // allow http for local development
+        .with_same_site(SameSite::Lax) // safari compatible
+        .with_expiry(session_expiry);
+
     // build router with state
     let app = routes::build_router()
         .layer(Extension(state.clone())) // Add state as extension for middleware
-        .layer(SessionManagerLayer::new(session_store)) // Enable session extraction
+        .layer(session_layer) // Enable session extraction with cookie config
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

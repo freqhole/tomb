@@ -254,6 +254,22 @@
       // Set to false to disable passkey auth (API keys and invite codes still work)
       "webauthn_enabled": true,
 
+      // Session max age in seconds
+      // Controls how long authentication sessions remain valid
+      //
+      // Set to 0 or negative for sessions that never expire (recommended for personal use)
+      // Set to positive number for automatic logout after inactivity
+      //
+      // Examples:
+      //   0 or -1: never expire (sessions last forever)
+      //   3600: 1 hour
+      //   86400: 1 day
+      //   604800: 1 week
+      //
+      // Note: Safari and some browsers may still clear cookies on restart
+      // This setting controls server-side session expiration only
+      "session_max_age_seconds": 0,
+
       // WebAuthn origin configurations
       // Each origin needs its own rp_id (domain) and rp_origin (full URL)
       // Middleware validates incoming requests against this list
