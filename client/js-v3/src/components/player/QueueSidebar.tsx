@@ -4,6 +4,7 @@ import { isMobile } from "../../utils/isMobile";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { MarqueeText } from "../text/MarqueeText";
 
 export interface QueueSong {
   /** song id */
@@ -244,16 +245,22 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     {/* song info */}
                     <div class="flex-1 min-w-0">
                       <h4
-                        class={`text-sm font-medium truncate m-0 ${
+                        class={`text-sm font-medium m-0 ${
                           isCurrentlyPlaying()
                             ? "text-[var(--color-accent-500)]"
                             : "text-[var(--color-text-primary)]"
                         }`}
                       >
-                        {song()?.title}
+                        <MarqueeText
+                          text={song()?.title || ""}
+                          hoverOnly={!isCurrentlyPlaying()}
+                        />
                       </h4>
-                      <p class="text-xs text-[var(--color-text-secondary)] truncate m-0">
-                        {song()?.artist}
+                      <p class="text-xs text-[var(--color-text-secondary)] m-0">
+                        <MarqueeText
+                          text={song()?.artist || ""}
+                          hoverOnly={!isCurrentlyPlaying()}
+                        />
                       </p>
                     </div>
 
