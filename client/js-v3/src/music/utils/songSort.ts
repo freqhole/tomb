@@ -179,8 +179,8 @@ export function sortSongsByUIField(
         bVal = b.year;
         break;
       case "duration":
-        aVal = a.duration;
-        bVal = b.duration;
+        aVal = a.duration_seconds;
+        bVal = b.duration_seconds;
         break;
       case "favorite":
       case "rating":

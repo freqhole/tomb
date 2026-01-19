@@ -305,11 +305,10 @@ export function GenresView(props: GenresViewProps) {
                         </div>
                       </div>
                       <div class="text-xs text-[var(--color-text-muted)] tabular-nums">
-                        {Math.floor(song.duration / 60)}:
-                        {String(Math.floor(song.duration % 60)).padStart(
-                          2,
-                          "0",
-                        )}
+                        {Math.floor(song.duration_seconds / 60)}:
+                        {String(
+                          Math.floor(song.duration_seconds % 60),
+                        ).padStart(2, "0")}
                       </div>
                     </div>
                   )}

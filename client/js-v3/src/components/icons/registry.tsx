@@ -1,4 +1,5 @@
 // Import all icon components
+import { createMemo } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import {
   NextIcon,
@@ -377,9 +378,10 @@ export const IconButton = (
 
   const variant = createMemo(() => props.variant ?? "ghost");
   const size = createMemo(() => props.size ?? IconSizes.md);
-  const padding = createMemo(() =>
-    typeof size() === "number" && size() <= 16 ? "p-1" : "p-2",
-  );
+  const padding = createMemo(() => {
+    const s = size();
+    return typeof s === "number" && s <= 16 ? "p-1" : "p-2";
+  });
 
   return (
     <button

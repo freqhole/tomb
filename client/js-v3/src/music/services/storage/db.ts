@@ -587,7 +587,10 @@ async function queryAlbums(options?: {
     const artistName = artist?.name || "various artists";
 
     // calculate total duration
-    const totalDuration = songs.reduce((sum, song) => sum + song.duration, 0);
+    const totalDuration = songs.reduce(
+      (sum, song) => sum + song.duration_seconds,
+      0,
+    );
 
     results.push({
       album,
@@ -660,7 +663,10 @@ async function queryArtists(options?: {
     const albums = albumsByArtist.get(artist.artist_id) || new Set();
 
     // calculate total duration
-    const totalDuration = songs.reduce((sum, song) => sum + song.duration, 0);
+    const totalDuration = songs.reduce(
+      (sum, song) => sum + song.duration_seconds,
+      0,
+    );
 
     results.push({
       artist,

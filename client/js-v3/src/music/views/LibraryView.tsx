@@ -43,7 +43,7 @@ export function LibraryView(props: LibraryViewProps) {
       title: song.title,
       artist: song.artist_name,
       album: song.album_title,
-      duration: formatDuration(song.duration),
+      duration: formatDuration(song.duration_seconds),
       userIsFavorite: false,
       userRating: 0,
     }));

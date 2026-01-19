@@ -128,7 +128,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
           {/* actual image */}
           <img
-            src={imageUrl!}
+            src={props.imageUrl!}
             alt={props.alt}
             class={`w-full h-full object-cover transition-opacity duration-200 ${
               imageLoaded() ? "opacity-100" : "opacity-0"

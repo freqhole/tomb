@@ -1,15 +1,12 @@
 // reusable artist detail panel component for displaying artist info and albums
 import { createMemo, For, Show, type JSX } from "solid-js";
-import {
-    AlbumSection,
-    type AlbumSectionSong,
-} from "../albums/AlbumSection";
+import { AlbumSection, type AlbumSectionSong } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
 import {
-    formatDuration,
-    formatNumber,
-    StatsCard,
-    StatsGrid,
+  formatDuration,
+  formatNumber,
+  StatsCard,
+  StatsGrid,
 } from "../cards/StatsCard";
 
 export interface ArtistDetailPanelArtist {
@@ -27,7 +24,7 @@ export interface ArtistDetailPanelSong {
   album_title: string;
   track_number: number;
   disc_number: number;
-  duration: number;
+  duration_seconds: number;
   year: number | null;
 }
 
@@ -86,9 +83,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         title: song.title,
         trackNumber: song.track_number,
         discNumber: song.disc_number,
-        duration: song.duration,
+        duration: song.duration_seconds,
       });
-      group.totalDuration += song.duration;
+      group.totalDuration += song.duration_seconds;
     });
 
     // sort albums by title

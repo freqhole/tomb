@@ -79,9 +79,9 @@ export function ArtistDetailView() {
         title: song.title,
         trackNumber: song.track_number,
         discNumber: song.disc_number,
-        duration: song.duration,
+        duration: song.duration_seconds,
       });
-      group.totalDuration += song.duration;
+      group.totalDuration += song.duration_seconds;
     });
 
     // sort albums by title
@@ -104,7 +104,7 @@ export function ArtistDetailView() {
 
   const totalSongs = () => data()?.songs.length ?? 0;
   const totalDuration = () =>
-    data()?.songs.reduce((sum, song) => sum + song.duration, 0) ?? 0;
+    data()?.songs.reduce((sum, song) => sum + song.duration_seconds, 0) ?? 0;
 
   // play all artist songs
   const handlePlayArtist = async () => {

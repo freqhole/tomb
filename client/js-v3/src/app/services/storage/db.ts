@@ -1,6 +1,7 @@
 // application database service (domain-agnostic)
 import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
+import { clearInProgressTracking } from "../../../music/services/cache/blobCache";
 import type { Song } from "../../../music/services/storage/types";
 import {
   APP_DB_NAME,
@@ -84,6 +85,10 @@ async function setQueue(songs: Song[]): Promise<void> {
   // serialize to plain objects to avoid DataCloneError with proxies
   const plainSongs = songs.map((song) => ({ ...song }));
   await updateAppState({ queue: plainSongs });
+
+  // clear in-progress cache tracking when queue changes
+  // this prevents caching songs that are no longer in the queue
+  clearInProgressTracking();
 }
 
 // set queue open state

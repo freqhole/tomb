@@ -6,6 +6,7 @@ import {
   setQueue,
 } from "../../../app/services/storage/db";
 import { getDataSource } from "../../data";
+import { preCacheNextSongs } from "../cache/blobCache";
 import { cleanupAudioURL, getAudioURL } from "../storage/audioAccess";
 import type { Song } from "../storage/types";
 
@@ -15,6 +16,9 @@ const [currentTime, setCurrentTime] = createSignal(0);
 const [duration, setDuration] = createSignal(0);
 const [volume, setVolume] = createSignal(1.0);
 const [isLoading, setIsLoading] = createSignal(false);
+
+// track if we've pre-cached the next song
+let hasPreCachedNext = false;
 
 // computed signals for next/prev availability
 const canGoNext = () => {
@@ -53,6 +57,7 @@ function initAudio(): HTMLAudioElement {
   // time update
   audioElement.addEventListener("timeupdate", () => {
     setCurrentTime(audioElement!.currentTime);
+    handlePreCacheNext();
   });
 
   // duration loaded
@@ -75,6 +80,19 @@ function initAudio(): HTMLAudioElement {
 
   // song ended
   audioElement.addEventListener("ended", async () => {
+    await handleSongEnded();
+  });
+
+  // error during playback - skip to next song
+  audioElement.addEventListener("error", async (e) => {
+    console.error("audio playback error:", e);
+    const error = audioElement.error;
+    if (error) {
+      console.error(
+        `media error code: ${error.code}, message: ${error.message}`,
+      );
+    }
+    // skip to next song on error
     await handleSongEnded();
   });
 
@@ -125,8 +143,15 @@ async function updateMediaSession() {
     return;
   }
 
-  const dataSource = getDataSource();
-  const song = await dataSource.getSongById(state.current_song_id);
+  // check queue first to avoid fetching from wrong remote
+  let song = state.queue.find((s) => s.song_id === state.current_song_id);
+
+  // fallback: fetch from current data source
+  if (!song) {
+    const dataSource = getDataSource();
+    song = await dataSource.getSongById(state.current_song_id);
+  }
+
   if (!song) return;
 
   navigator.mediaSession.metadata = new MediaMetadata({
@@ -149,6 +174,23 @@ async function updateMediaSession() {
   }
 }
 
+// pre-cache next songs when current song is >50% played (rolling 30-min cache)
+function handlePreCacheNext() {
+  if (hasPreCachedNext) return;
+  if (!audioElement) return;
+
+  const progress = audioElement.currentTime / audioElement.duration;
+  if (progress < 0.5) return;
+
+  const state = appState();
+  if (!state?.current_song_id || !state.queue.length) return;
+
+  // pre-cache next ~30 minutes of songs
+  console.log("pre-caching next songs (~30 min)");
+  hasPreCachedNext = true;
+  void preCacheNextSongs(state.current_song_id, state.queue, 30);
+}
+
 // play a specific song
 export async function playSong(songOrId: string | Song): Promise<void> {
   const audio = initAudio();
@@ -168,6 +210,10 @@ export async function playSong(songOrId: string | Song): Promise<void> {
       song = songOrId;
     }
 
+    // update app state first (before loading audio)
+    // this ensures media session gets correct song when events fire
+    await setCurrentSong(song.song_id);
+
     // cleanup previous audio url
     if (currentSongId) {
       cleanupAudioURL(currentSongId);
@@ -181,13 +227,14 @@ export async function playSong(songOrId: string | Song): Promise<void> {
     audio.src = audioURL;
     await audio.play();
 
-    // update app state
-    await setCurrentSong(song.song_id);
+    // reset pre-cache flag for new song
+    hasPreCachedNext = false;
 
     setIsLoading(false);
   } catch (error) {
     console.error("failed to play song:", error);
     setIsLoading(false);
+    // don't throw - let caller decide whether to skip to next
     throw error;
   }
 }
@@ -257,18 +304,42 @@ export function setPlayerVolume(vol: number): void {
   audio.volume = clampedVolume;
 }
 
-// play next song in queue
+// play next song in queue (with retry logic for unplayable songs)
 export async function playNext(): Promise<void> {
   if (!canGoNext()) return;
 
   const state = appState();
   const currentId = state.current_song_id;
-  const currentIdx = currentId
+  let currentIdx = currentId
     ? state.queue.findIndex((s) => s.song_id === currentId)
     : -1;
-  const nextIdx = currentIdx + 1;
 
-  await playSong(state.queue[nextIdx]);
+  // try to play next songs until one works or we run out
+  const maxAttempts = 5; // prevent infinite loop
+  let attempts = 0;
+
+  while (currentIdx < state.queue.length - 1 && attempts < maxAttempts) {
+    const nextIdx = currentIdx + 1;
+    attempts++;
+
+    try {
+      await playSong(state.queue[nextIdx]);
+      return; // success!
+    } catch (error) {
+      console.warn(
+        `failed to play song at index ${nextIdx}, trying next...`,
+        error,
+      );
+      currentIdx = nextIdx; // move to next song
+      // if this was the last song, stop trying
+      if (nextIdx >= state.queue.length - 1) {
+        console.error("reached end of queue, no playable songs found");
+        return;
+      }
+    }
+  }
+
+  console.error("exceeded max attempts to find playable song");
 }
 
 // play previous song in queue
@@ -285,8 +356,9 @@ export async function playPrevious(): Promise<void> {
   await playSong(state.queue[prevIdx]);
 }
 
-// handle song ended
+// handle song ended (auto-advance to next)
 async function handleSongEnded(): Promise<void> {
+  // playNext has built-in retry logic
   await playNext();
 }
 

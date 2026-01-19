@@ -207,7 +207,7 @@ export function AppLayout(props: AppLayoutProps) {
               id: song.song_id,
               title: song.title,
               artist: song.artist_name,
-              duration: song.duration,
+              duration: song.duration_seconds,
             })) || []) as any[]
           }
           currentIndex={

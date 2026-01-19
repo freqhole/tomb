@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
 
 export interface StarRatingCompactProps {
   rating?: number | null;
@@ -13,7 +13,7 @@ export interface StarRatingCompactProps {
 // click cycles through 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 0
 export function StarRatingCompact(props: StarRatingCompactProps) {
   const [isUpdating, setIsUpdating] = createSignal(false);
-  const [localRating, setLocalRating] = createSignal(() => props.rating ?? 0);
+  const [localRating, setLocalRating] = createSignal(props.rating ?? 0);
   const [hasInitialized, setHasInitialized] = createSignal(false);
 
   // only sync props to local state on first load, not during user interactions
@@ -46,7 +46,7 @@ export function StarRatingCompact(props: StarRatingCompactProps) {
 
     if (disabled() || isUpdating()) return;
 
-    const currentRating = rating();
+    const currentRating = localRating();
     const nextRating = currentRating >= 5 ? 0 : currentRating + 1;
 
     // update local state immediately for responsiveness

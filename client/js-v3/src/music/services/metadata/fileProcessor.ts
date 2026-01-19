@@ -21,7 +21,7 @@ export interface AudioMetadata {
   year?: number;
   track_number?: number;
   disc_number?: number;
-  duration: number;
+  duration_seconds: number;
   mime_type: string;
   bpm?: number;
   key_signature?: string;
@@ -42,7 +42,7 @@ export async function extractMetadata(file: File): Promise<AudioMetadata> {
     year: tags.year,
     track_number: tags.track_number,
     disc_number: tags.disc_number,
-    duration,
+    duration_seconds: duration,
     mime_type: file.type || "audio/mpeg",
     bpm: tags.bpm,
     key_signature: tags.key_signature,
@@ -155,7 +155,7 @@ export async function processMusicFile(
     album_id: album.album_id,
     track_number: metadata.track_number ?? 0,
     disc_number: metadata.disc_number ?? 1,
-    duration: metadata.duration,
+    duration_seconds: metadata.duration_seconds,
     year: metadata.year ?? null,
     bpm: metadata.bpm ?? null,
     key_signature: metadata.key_signature ?? null,

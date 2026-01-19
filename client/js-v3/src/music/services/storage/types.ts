@@ -34,7 +34,7 @@ export interface Song {
   album_id: string; // FK to albums
   track_number: number;
   disc_number: number;
-  duration: number; // seconds
+  duration_seconds: number;
   year: number | null;
   bpm: number | null;
   key_signature: string | null;

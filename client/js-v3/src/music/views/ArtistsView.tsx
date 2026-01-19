@@ -64,7 +64,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       album_title: song.album_title,
       track_number: song.track_number,
       disc_number: song.disc_number,
-      duration: song.duration,
+      duration_seconds: song.duration_seconds,
       year: song.year,
     }));
   });

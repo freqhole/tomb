@@ -1,4 +1,5 @@
 // audio access abstraction - handles getting audio urls from various sources
+import { cacheBlob, getCachedBlob } from "../cache/blobCache";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 
@@ -37,14 +38,40 @@ export async function getAudioURL(song: Song): Promise<string> {
     }
   }
 
-  // remote files: return url directly (no blob url needed)
+  // remote files: check cache first, then fetch and cache
   if (song.source_type === "remote") {
     if (!song.source_url) {
       throw new Error(`remote song has no source url: ${song.song_id}`);
     }
 
-    console.log(`streaming from remote url: ${song.source_url}`);
-    return song.source_url;
+    console.log(`checking cache for remote url: ${song.source_url}`);
+
+    // try to get from cache
+    const cachedResponse = await getCachedBlob(song.source_url);
+    if (cachedResponse) {
+      console.log(`using cached audio: ${song.source_url}`);
+      const blob = await cachedResponse.blob();
+      const url = URL.createObjectURL(blob);
+      activeBlobURLs.set(song.song_id, url);
+      return url;
+    }
+
+    // fetch and cache
+    console.log(`fetching and caching remote url: ${song.source_url}`);
+    const response = await fetch(song.source_url, { credentials: "include" });
+    if (!response.ok) {
+      throw new Error(`failed to fetch remote audio: ${response.status}`);
+    }
+
+    // cache the response (clone it first since we need to use it twice)
+    const responseClone = response.clone();
+    void cacheBlob(song.source_url, responseClone, "audio");
+
+    // create blob url from response
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    activeBlobURLs.set(song.song_id, url);
+    return url;
   }
 
   throw new Error(`unsupported song source type: ${song.source_type}`);

@@ -39,11 +39,6 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
       document.head.appendChild(style);
     }
 
-    if (!props.enableMarquee) {
-      setShouldMarquee(false);
-      return;
-    }
-
     // check if text overflows and calculate timing
     const checkOverflow = () => {
       if (containerRef && textRef) {

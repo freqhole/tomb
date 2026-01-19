@@ -64,7 +64,7 @@ export function SongsView(props: SongsViewProps) {
       artist: song.artist_name,
       album: song.album_title,
       genre: undefined, // TODO: add genre_name to Song type or fetch from genre_id
-      duration: formatDuration(song.duration),
+      duration: formatDuration(song.duration_seconds),
       year: song.year ?? undefined,
       trackNumber: song.track_number,
       discNumber: song.disc_number,

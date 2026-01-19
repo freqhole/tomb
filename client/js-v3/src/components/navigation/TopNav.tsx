@@ -71,9 +71,7 @@ export interface TopNavProps {
 // compact top nav with brand icon + search, 3-column flyout menu
 export function TopNav(props: TopNavProps) {
   const [isSearchExpanded, setIsSearchExpanded] = createSignal(false);
-  const [searchValue, setSearchValue] = createSignal(
-    () => props.searchQuery || "",
-  );
+  const [searchValue, setSearchValue] = createSignal(props.searchQuery || "");
 
   const handleSearchToggle = () => {
     setIsSearchExpanded(!isSearchExpanded());
@@ -94,7 +92,7 @@ export function TopNav(props: TopNavProps) {
   };
 
   const handleSearchSubmit = () => {
-    props.onSearchSubmit?.(searchValue());
+    props.onSearchSubmit?.(searchValue() as string);
   };
 
   return (

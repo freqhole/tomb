@@ -24,7 +24,7 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     album_id: album?.id || "",
     track_number: song.track_number || 0,
     disc_number: song.disc_number || 1,
-    duration: song.duration ? Math.floor(song.duration / 1000) : 0, // convert ms to seconds
+    duration_seconds: song.duration ? Math.floor(song.duration / 1000) : 0, // convert ms to seconds
     year:
       song.year ||
       (album?.release_date

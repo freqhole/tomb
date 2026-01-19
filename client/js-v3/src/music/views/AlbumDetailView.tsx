@@ -38,7 +38,7 @@ export function AlbumDetailView() {
 
       // calculate total duration
       const totalDuration = sortedSongs.reduce(
-        (sum, song) => sum + song.duration,
+        (sum, song) => sum + song.duration_seconds,
         0,
       );
 
@@ -146,7 +146,7 @@ export function AlbumDetailView() {
                       <SongRow
                         title={song.title}
                         trackNumber={trackDisplay}
-                        duration={formatDuration(song.duration)}
+                        duration={formatDuration(song.duration_seconds)}
                         onDoubleClick={() => handleSongDoubleClick(song)}
                         showPlayOnHover={true}
                       />

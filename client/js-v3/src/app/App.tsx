@@ -1,11 +1,15 @@
 // main app entry point with routing
 import { Router } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { getDataSource, initializeDataSource } from "../music/data";
 import { playSong } from "../music/services/audio/player";
+import {
+  cleanupCacheNetworkHandlers,
+  initCacheNetworkHandlers,
+} from "../music/services/cache/blobCache";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
@@ -34,6 +38,9 @@ export function App() {
       // initialize data source (switches to active remote if configured)
       await initializeDataSource();
 
+      // initialize cache network handlers (online/offline events)
+      initCacheNetworkHandlers();
+
       // check if we have any songs
       const source = getDataSource();
       const result = await source.getSongs({ limit: 1 });
@@ -43,6 +50,11 @@ export function App() {
       setIsInitializing(false);
       setShowLoading(false);
     }
+  });
+
+  // cleanup cache network handlers on unmount
+  onCleanup(() => {
+    cleanupCacheNetworkHandlers();
   });
 
   const handleFilesSelected = async (files: FileList) => {
