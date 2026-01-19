@@ -318,6 +318,30 @@ pub struct QueryPlaylistSongsRequest {
     pub offset: Option<i64>,
 }
 
+/// concrete wrapper for QueryResult<PlaylistQueryResult> for zod codegen
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PlaylistsQueryResult {
+    pub items: Vec<PlaylistQueryResult>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+impl From<QueryResult<PlaylistQueryResult>> for PlaylistsQueryResult {
+    fn from(qr: QueryResult<PlaylistQueryResult>) -> Self {
+        Self {
+            items: qr.items,
+            total_count: qr.total_count,
+            has_more: qr.has_more,
+            offset: qr.offset,
+            limit: qr.limit,
+            query_time_ms: qr.query_time_ms,
+        }
+    }
+}
+
 /// concrete wrapper for QueryResult<PlaylistSongResult> for zod codegen
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct PlaylistSongsQueryResult {

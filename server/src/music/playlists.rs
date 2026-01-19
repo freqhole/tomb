@@ -6,8 +6,8 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{
-    query_playlist_songs, query_playlists, PlaylistSongsQueryResult, QueryParams,
-    QueryPlaylistSongsRequest,
+    query_playlist_songs, query_playlists, PlaylistSongsQueryResult, PlaylistsQueryResult,
+    QueryParams, QueryPlaylistSongsRequest,
 };
 use grimoire::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, delete_playlist, get_playlist,
@@ -24,13 +24,13 @@ use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
 pub async fn list_playlists(
     Extension(_user): Extension<AuthenticatedUser>,
     Json(params): Json<QueryParams>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<PlaylistsQueryResult>, ApiError> {
     let response = query_playlists(params).await;
 
     response
         .data
         .ok_or_else(|| ApiError::Internal(response.message))
-        .map(|data| Json(serde_json::to_value(data).unwrap()))
+        .map(|data| Json(data.into()))
 }
 
 inventory::submit! {
@@ -40,7 +40,7 @@ inventory::submit! {
         method: Method::POST,
         domain: Domain::Music,
         request_type: "QueryParams",
-        response_type: "Vec<PlaylistQueryResult>",
+        response_type: "PlaylistsQueryResult",
     }
 }
 

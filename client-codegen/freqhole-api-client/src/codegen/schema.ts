@@ -950,6 +950,35 @@ export const PlaylistSongsQueryResultSchema = z.object({
 });
 export type PlaylistSongsQueryResult = z.infer<typeof PlaylistSongsQueryResultSchema>;
 
+export const PlaylistsQueryResultSchema = z.object({
+  items: z.array(z.object({
+  playlist: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  is_public: z.number(),
+  thumbnail_blob_id: z.string().nullable(),
+  created_by_id: z.string().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullable(),
+  deleted_by: z.string().nullable(),
+  created_by: z.string().nullable(),
+  updated_by: z.string().nullable(),
+  song_count: z.number()
+}),
+  song_count: z.number(),
+  total_duration: z.number().nullable(),
+  is_favorite: z.boolean().nullable()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number(),
+  query_time_ms: z.number().nullable()
+});
+export type PlaylistsQueryResult = z.infer<typeof PlaylistsQueryResultSchema>;
+
 export const QueryContextSchema = z.object({
   tags: z.object({
   include: z.array(z.string()),

@@ -7,6 +7,7 @@ import type {
   GenreSummary,
   MusicDataSource,
   PaginatedResponse,
+  PlaylistSummary,
   QueryParams,
   Song,
 } from "./types";
@@ -297,6 +298,166 @@ export class RemoteMusicDataSource implements MusicDataSource {
       limit: result.data.limit,
       has_more: result.data.has_more,
     };
+  }
+
+  // playlists
+  async getPlaylists(
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<PlaylistSummary>> {
+    const apiParams = this.buildApiParams(params);
+    const result = await apiClient.music.listPlaylists(this.baseUrl, apiParams);
+
+    if (!result.success) {
+      throw new Error("failed to query playlists");
+    }
+
+    // adapt API response to our interface
+    return {
+      items: result.data.items.map((item) => ({
+        playlist_id: item.playlist.id,
+        title: item.playlist.title,
+        description: item.playlist.description,
+        is_public: item.playlist.is_public === 1,
+        thumbnail_blob_id: item.playlist.thumbnail_blob_id,
+        song_count: item.song_count,
+        created_at: item.playlist.created_at,
+        updated_at: item.playlist.updated_at,
+      })),
+      total: result.data.total_count,
+      offset: result.data.offset,
+      limit: result.data.limit,
+      has_more: result.data.has_more,
+    };
+  }
+
+  async getPlaylistSongs(
+    playlistId: string,
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<Song>> {
+    const result = await apiClient.music.queryPlaylistSongs(this.baseUrl, {
+      playlist_id: playlistId,
+      q: params?.search || null,
+      sort_by: params?.sort_by || null,
+      sort_direction: params?.sort_direction || null,
+      limit: params?.limit || null,
+      offset: params?.offset || null,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to query playlist songs");
+    }
+
+    // adapt API response to our interface
+    // playlist songs have same structure as regular song queries
+    return {
+      items: result.data.items.map((item) =>
+        adaptSongFromAPI(item.details, this.baseUrl),
+      ),
+      total: result.data.total_count,
+      offset: result.data.offset,
+      limit: result.data.limit,
+      has_more: result.data.has_more,
+    };
+  }
+
+  async createPlaylist(params: {
+    title: string;
+    description?: string | null;
+    is_public?: boolean;
+  }): Promise<PlaylistSummary> {
+    const result = await apiClient.music.createPlaylist(this.baseUrl, {
+      title: params.title,
+      description: params.description || null,
+      is_public: params.is_public ?? false,
+      created_by_id: null, // server will use authenticated user
+    });
+
+    if (!result.success) {
+      throw new Error("failed to create playlist");
+    }
+
+    return {
+      playlist_id: result.data.id,
+      title: result.data.title,
+      description: result.data.description,
+      is_public: result.data.is_public === 1,
+      thumbnail_blob_id: result.data.thumbnail_blob_id,
+      song_count: result.data.song_count,
+      created_at: result.data.created_at,
+      updated_at: result.data.updated_at,
+    };
+  }
+
+  async updatePlaylist(
+    playlistId: string,
+    params: {
+      title?: string | null;
+      description?: string | null;
+      is_public?: boolean | null;
+    },
+  ): Promise<PlaylistSummary> {
+    const result = await apiClient.music.updatePlaylist(this.baseUrl, {
+      playlist_id: playlistId,
+      title: params.title || null,
+      description: params.description || null,
+      is_public: params.is_public ?? null,
+      thumbnail_blob_id: null,
+      updated_by: null, // server will use authenticated user
+    });
+
+    if (!result.success) {
+      throw new Error("failed to update playlist");
+    }
+
+    return {
+      playlist_id: result.data.id,
+      title: result.data.title,
+      description: result.data.description,
+      is_public: result.data.is_public === 1,
+      thumbnail_blob_id: result.data.thumbnail_blob_id,
+      song_count: result.data.song_count,
+      created_at: result.data.created_at,
+      updated_at: result.data.updated_at,
+    };
+  }
+
+  async deletePlaylist(playlistId: string): Promise<void> {
+    const result = await apiClient.music.deletePlaylist(this.baseUrl, {
+      playlist_id: playlistId,
+      deleted_by: null, // server will use authenticated user
+    });
+
+    if (!result.success) {
+      throw new Error("failed to delete playlist");
+    }
+  }
+
+  async addSongsToPlaylist(
+    playlistId: string,
+    songIds: string[],
+  ): Promise<void> {
+    const result = await apiClient.music.addSongsToPlaylist(this.baseUrl, {
+      playlist_id: playlistId,
+      song_ids: songIds,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to add songs to playlist");
+    }
+  }
+
+  async removeSongsFromPlaylist(
+    playlistId: string,
+    songIds: string[],
+  ): Promise<void> {
+    const result = await apiClient.music.removeSongsFromPlaylist(this.baseUrl, {
+      playlist_id: playlistId,
+      song_ids: songIds,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to remove songs from playlist");
+    }
   }
 
   // source metadata

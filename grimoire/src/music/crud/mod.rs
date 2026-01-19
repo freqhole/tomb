@@ -15,8 +15,8 @@ pub use models::{
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
     BulkImportResult, CreateSongWithMetadataRequest, GenreQueryResult, GenresQueryResult,
     ImportSongRequest, ImportSongResult, PlaylistQueryResult, PlaylistSongResult,
-    PlaylistSongsQueryResult, QueryParams, QueryPlaylistSongsRequest, QueryResult, SongImportError,
-    SongQueryResult, SongUpdateError, SongsQueryResult,
+    PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
+    QueryResult, SongImportError, SongQueryResult, SongUpdateError, SongsQueryResult,
 };
 
 // re-export update types from models

@@ -110,10 +110,10 @@ pub mod type_registry {
         DeleteSongRequest, DeleteSongResponse, GenreQueryResult, GenresQueryResult,
         GetAlbumRequest, GetArtistRequest, GetGenreRequest, GetRatingStatsRequest,
         ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult,
-        PlaylistSongsQueryResult, QueryParams, QueryPlaylistSongsRequest, RatingStats,
-        RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
-        SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
-        UpdateSongsResult,
+        PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
+        RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
+        SetFavoriteResponse, SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult,
+        UpdateSongsRequest, UpdateSongsResult,
     };
 
     // upload types
@@ -213,6 +213,9 @@ pub mod type_registry {
 
         gen.add_schema::<PlaylistSongsQueryResult>("PlaylistSongsQueryResult");
         registered.insert("PlaylistSongsQueryResult".to_string());
+
+        gen.add_schema::<PlaylistsQueryResult>("PlaylistsQueryResult");
+        registered.insert("PlaylistsQueryResult".to_string());
 
         gen.add_schema::<QueryPlaylistSongsRequest>("QueryPlaylistSongsRequest");
         registered.insert("QueryPlaylistSongsRequest".to_string());

@@ -16,7 +16,9 @@ export interface VirtualItemListProps {
   selectedId?: string | null;
   /** callback when an item is clicked */
   onItemClick?: (item: ListItem) => void;
-  /** height of the container in pixels */
+  /** callback when user scrolls near end (for infinite scroll) */
+  onEndReached?: () => void;
+  /** height of the container in pixels (defaults to 100% of parent) */
   height?: number;
   /** additional CSS classes */
   class?: string;
@@ -33,7 +35,7 @@ export interface VirtualItemListProps {
 export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   let parentRef: HTMLDivElement | undefined;
 
-  const height = () => props.height || 600;
+  const heightStyle = () => (props.height ? `${props.height}px` : "100%");
 
   // create virtualizer instance - wrap in memo to recreate when items change
   const rowVirtualizer = createMemo(() => {
@@ -42,7 +44,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     return createVirtualizer({
       count: props.items.length,
       getScrollElement: () => parentRef,
-      estimateSize: () => 64,
+      estimateSize: () => 80,
       overscan: 5,
     });
   });
@@ -51,11 +53,26 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     props.onItemClick?.(item);
   };
 
+  const handleScroll = (e: Event) => {
+    if (!props.onEndReached || !parentRef) return;
+
+    const target = e.target as HTMLDivElement;
+    const scrollTop = target.scrollTop;
+    const scrollHeight = target.scrollHeight;
+    const clientHeight = target.clientHeight;
+
+    // trigger when scrolled to within 200px of bottom
+    if (scrollHeight - scrollTop - clientHeight < 200) {
+      props.onEndReached();
+    }
+  };
+
   return (
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
-      style={{ height: `${height()}px` }}
+      style={{ height: heightStyle() }}
+      onScroll={handleScroll}
     >
       {/* virtual list container */}
       <div

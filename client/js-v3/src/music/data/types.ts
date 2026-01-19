@@ -60,6 +60,18 @@ export interface GenreSummary {
   song_count: number;
 }
 
+// playlist summary data for lists
+export interface PlaylistSummary {
+  playlist_id: string;
+  title: string;
+  description: string | null;
+  is_public: boolean;
+  thumbnail_blob_id: string | null;
+  song_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
 // main data source interface
 // both local and remote sources implement this
 export interface MusicDataSource {
@@ -87,6 +99,34 @@ export interface MusicDataSource {
     genreId: string,
     params?: QueryParams,
   ): Promise<PaginatedResponse<Song>>;
+
+  // playlists (optional)
+  getPlaylists?(
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<PlaylistSummary>>;
+  getPlaylistSongs?(
+    playlistId: string,
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<Song>>;
+  createPlaylist?(params: {
+    title: string;
+    description?: string | null;
+    is_public?: boolean;
+  }): Promise<PlaylistSummary>;
+  updatePlaylist?(
+    playlistId: string,
+    params: {
+      title?: string | null;
+      description?: string | null;
+      is_public?: boolean | null;
+    },
+  ): Promise<PlaylistSummary>;
+  deletePlaylist?(playlistId: string): Promise<void>;
+  addSongsToPlaylist?(playlistId: string, songIds: string[]): Promise<void>;
+  removeSongsFromPlaylist?(
+    playlistId: string,
+    songIds: string[],
+  ): Promise<void>;
 
   // source metadata
   getSourceInfo(): Promise<{
