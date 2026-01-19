@@ -251,11 +251,19 @@ export async function togglePlayback(): Promise<void> {
       // if no song is playing, play first in queue
       const state = appState();
       if (!state?.current_song_id && state?.queue.length) {
-        await playSong(state.queue[0].song_id);
+        await playSong(state.queue[0]);
       } else if (state?.current_song_id) {
         // if audio src is empty (page reload), reload the song
         if (!audio.src) {
-          await playSong(state.current_song_id);
+          // check if song is in queue first (avoid remote fetch)
+          const songInQueue = state.queue.find(
+            (s) => s.song_id === state.current_song_id,
+          );
+          if (songInQueue) {
+            await playSong(songInQueue);
+          } else {
+            await playSong(state.current_song_id);
+          }
         } else {
           await audio.play();
         }
