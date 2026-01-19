@@ -14,23 +14,23 @@ export async function getAudioURL(song: Song): Promise<string> {
   );
 
   // cleanup previous url if exists
-  if (activeBlobURLs.has(song.song_id)) {
-    const oldURL = activeBlobURLs.get(song.song_id)!;
+  if (activeBlobURLs.has(song.sha256)) {
+    const oldURL = activeBlobURLs.get(song.sha256)!;
     URL.revokeObjectURL(oldURL);
-    activeBlobURLs.delete(song.song_id);
+    activeBlobURLs.delete(song.sha256);
   }
 
   // local and downloaded files: read from opfs
   if (song.source_type === "local" || song.source_type === "downloaded") {
     if (!song.opfs_path) {
-      throw new Error(`song has no opfs path: ${song.song_id}`);
+      throw new Error(`song has no opfs path: ${song.sha256}`);
     }
 
     try {
       console.log(`reading from opfs: ${song.opfs_path}`);
       const file = await readAudioFromOPFS(song.opfs_path);
       const url = URL.createObjectURL(file);
-      activeBlobURLs.set(song.song_id, url);
+      activeBlobURLs.set(song.sha256, url);
       return url;
     } catch (error) {
       console.error(`failed to read from opfs:`, error);
@@ -41,7 +41,7 @@ export async function getAudioURL(song: Song): Promise<string> {
   // remote files: check cache first, then fetch and cache
   if (song.source_type === "remote") {
     if (!song.source_url) {
-      throw new Error(`remote song has no source url: ${song.song_id}`);
+      throw new Error(`remote song has no source url: ${song.sha256}`);
     }
 
     console.log(`checking cache for remote url: ${song.source_url}`);
@@ -52,7 +52,7 @@ export async function getAudioURL(song: Song): Promise<string> {
       console.log(`using cached audio: ${song.source_url}`);
       const blob = await cachedResponse.blob();
       const url = URL.createObjectURL(blob);
-      activeBlobURLs.set(song.song_id, url);
+      activeBlobURLs.set(song.sha256, url);
       return url;
     }
 
@@ -70,7 +70,7 @@ export async function getAudioURL(song: Song): Promise<string> {
     // create blob url from response
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
-    activeBlobURLs.set(song.song_id, url);
+    activeBlobURLs.set(song.sha256, url);
     return url;
   }
 

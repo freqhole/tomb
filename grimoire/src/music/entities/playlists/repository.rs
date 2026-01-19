@@ -681,3 +681,74 @@ pub async fn update_songs_position(
 
     GrimoireResponse::success("Song positions updated successfully", ())
 }
+
+/// compute ETag for a playlist based on playlist and song metadata
+/// combines playlist updated_at with max song updated_at for cache invalidation
+pub async fn compute_playlist_etag(playlist_id: &str) -> GrimoireResponse<String> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // get playlist updated_at
+    let playlist_updated = match sqlx::query!(
+        r#"SELECT updated_at as "updated_at!" FROM playlistz WHERE id = ? AND deleted_at IS NULL"#,
+        playlist_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(row)) => row.updated_at,
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "Playlist not found",
+                vec![ErrorDetail::new(
+                    "not_found",
+                    "Playlist not found",
+                    "Playlist does not exist",
+                )],
+            )
+        }
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch playlist",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // get max song updated_at from songs in this playlist
+    let max_song_updated = match sqlx::query!(
+        r#"SELECT COALESCE(MAX(s.updated_at), 0) as "max_updated!"
+           FROM playlist_songz ps
+           JOIN songz s ON ps.song_id = s.id
+           WHERE ps.playlist_id = ? AND s.deleted_at IS NULL"#,
+        playlist_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(row) => row.max_updated,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch playlist songs",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // combine both timestamps to create etag
+    // use max of playlist updated_at and song updated_at
+    let etag_timestamp = playlist_updated.max(max_song_updated);
+
+    // format as simple string: "W/<timestamp>"
+    // W/ prefix indicates weak ETag (content-based, not byte-for-byte)
+    let etag = format!("W/\"{}\"", etag_timestamp);
+
+    GrimoireResponse::success("ETag computed", etag)
+}

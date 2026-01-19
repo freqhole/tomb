@@ -1,6 +1,6 @@
 //! route composition
 
-use axum::{middleware as axum_middleware, routing::get, routing::post, Router};
+use axum::{middleware as axum_middleware, routing::get, routing::head, routing::post, Router};
 use grimoire::api_registry;
 
 use crate::{auth, blobs, health, jobs, music, state::AppState, static_files, upload};
@@ -43,6 +43,10 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["get_playlist_by_id"].path,
             get(music::playlists::get_playlist_by_id),
+        )
+        .route(
+            routes["music"]["get_playlist_etag"].path,
+            head(music::playlists::get_playlist_etag_handler),
         )
         .route(
             routes["music"]["update_playlist"].path,

@@ -69,7 +69,7 @@ export function PlaylistDetailView() {
         : "0:00";
 
       return {
-        id: song.song_id,
+        id: song.sha256,
         title: song.title,
         subtitle: `${song.artist_name} • ${song.album_title}`,
         metadata: duration,
@@ -110,7 +110,7 @@ export function PlaylistDetailView() {
 
   const handleItemClick = async (item: ListItem) => {
     // find the actual song by id
-    const song = songs().find((s) => s.song_id === item.id);
+    const song = songs().find((s) => s.sha256 === item.id);
     if (song) {
       await setQueue(songs());
       await playSong(song);

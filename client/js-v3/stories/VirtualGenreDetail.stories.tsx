@@ -29,7 +29,7 @@ type Story = StoryObj<typeof meta>;
 // helper to convert mock songs to VirtualGenreDetailSong format
 function convertMockSongs(songs: typeof mockSongs): VirtualGenreDetailSong[] {
   return songs.map((song, index) => ({
-    song_id: song.id,
+    sha256: song.id,
     title: song.title,
     artist_id: `artist-${song.artist}`,
     artist_name: song.artist,
@@ -49,7 +49,7 @@ function generateGenreSongs(albumCount: number = 20): VirtualGenreDetailSong[] {
     const albumSongs = getSongsByAlbum(album.title);
     albumSongs.forEach((song, index) => {
       songs.push({
-        song_id: song.id,
+        sha256: song.id,
         title: song.title,
         artist_id: `artist-${album.artist}`,
         artist_name: album.artist,

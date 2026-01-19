@@ -3,6 +3,7 @@ import { Icon } from "./icons/registry";
 
 export interface EmptyStateProps {
   onAddMusic: () => void;
+  onAddRemote: () => void;
 }
 
 export function EmptyState(props: EmptyStateProps) {
@@ -25,9 +26,14 @@ export function EmptyState(props: EmptyStateProps) {
           your music library is empty
         </p>
 
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
-        </Button>
+        <div class="flex gap-3 justify-center">
+          <Button variant="primary" onClick={props.onAddMusic}>
+            add music
+          </Button>
+          <Button variant="secondary" onClick={props.onAddRemote}>
+            add remote
+          </Button>
+        </div>
       </div>
     </div>
   );

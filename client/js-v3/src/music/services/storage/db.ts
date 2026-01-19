@@ -1,6 +1,7 @@
 // normalized music database with separate artists, albums, songs tables
 import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
+import * as playlistHelpers from "./playlists";
 import type {
   Album,
   AlbumQueryResult,
@@ -75,7 +76,7 @@ async function initMusicDB(): Promise<IDBPDatabase> {
       // create songs table
       if (!db.objectStoreNames.contains(STORE_SONGS)) {
         const songsStore = db.createObjectStore(STORE_SONGS, {
-          keyPath: "song_id",
+          keyPath: "sha256",
         });
         songsStore.createIndex("by_title", "title");
         songsStore.createIndex("by_artist_id", "artist_id");
@@ -199,13 +200,27 @@ async function initMusicDB(): Promise<IDBPDatabase> {
         playlistsStore.createIndex("by_created_at", "created_at");
       }
 
+      // add playlist sync indexes (v5)
+      if (db.objectStoreNames.contains(STORE_PLAYLISTS) && oldVersion < 5) {
+        const playlistsStore = transaction.objectStore(STORE_PLAYLISTS);
+        if (!playlistsStore.indexNames.contains("by_source_type")) {
+          playlistsStore.createIndex("by_source_type", "source_type");
+        }
+        if (!playlistsStore.indexNames.contains("by_source_remote_id")) {
+          playlistsStore.createIndex("by_source_remote_id", "source_remote_id");
+        }
+        if (!playlistsStore.indexNames.contains("by_last_synced_at")) {
+          playlistsStore.createIndex("by_last_synced_at", "last_synced_at");
+        }
+      }
+
       // create playlist_songs junction table
       if (!db.objectStoreNames.contains(STORE_PLAYLIST_SONGS)) {
         const playlistSongsStore = db.createObjectStore(STORE_PLAYLIST_SONGS, {
-          keyPath: ["playlist_id", "song_id"],
+          keyPath: ["playlist_id", "sha256"],
         });
         playlistSongsStore.createIndex("by_playlist_id", "playlist_id");
-        playlistSongsStore.createIndex("by_song_id", "song_id");
+        playlistSongsStore.createIndex("by_sha256", "sha256");
         playlistSongsStore.createIndex("by_position", [
           "playlist_id",
           "position",
@@ -491,7 +506,7 @@ async function updateSong(
   const updated: Song = {
     ...existing,
     ...updates,
-    song_id: songId,
+    sha256: songId,
     updated_at: Date.now(),
   };
 
@@ -725,7 +740,7 @@ async function queryGenres(options?: {
       if (!songsByGenre.has(album.genre_id)) {
         songsByGenre.set(album.genre_id, new Set());
       }
-      songsByGenre.get(album.genre_id)!.add(song.song_id);
+      songsByGenre.get(album.genre_id)!.add(song.sha256);
     }
   }
 
@@ -871,12 +886,12 @@ async function querySongsWithDetails(options?: {
     const genre = album?.genre_id ? await getGenreById(album.genre_id) : null;
 
     if (!artist || !album) {
-      console.warn(`missing artist or album for song ${song.song_id}`);
+      console.warn(`missing artist or album for song ${song.sha256}`);
       continue;
     }
 
-    const isFavorite = await checkFavorite("song", song.song_id);
-    const rating = await getRating("song", song.song_id);
+    const isFavorite = await checkFavorite("song", song.sha256);
+    const rating = await getRating("song", song.sha256);
 
     results.push({
       song,
@@ -1007,3 +1022,16 @@ export {
   songsVersion,
   updateSong,
 };
+
+// re-export playlist sync helpers
+export {
+  convertToLocalPlaylist,
+  createSyncedPlaylist,
+  deletePlaylist,
+  getPlaylistByRemoteId,
+  getSyncedPlaylists,
+  isEditablePlaylist,
+  isSyncedPlaylist,
+  updatePlaylistSongs,
+  updateSyncedPlaylistETag,
+} from "./playlists";

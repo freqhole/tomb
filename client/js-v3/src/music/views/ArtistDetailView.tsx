@@ -78,7 +78,7 @@ export function ArtistDetailView() {
 
       const group = groups.get(song.album_id)!;
       group.songs.push({
-        id: song.song_id,
+        id: song.sha256,
         title: song.title,
         trackNumber: song.track_number,
         discNumber: song.disc_number,
@@ -115,7 +115,7 @@ export function ArtistDetailView() {
     if (songList.length === 0) return;
 
     await setQueue(songList);
-    await playSong(songList[0].song_id);
+    await playSong(songList[0].sha256);
   };
 
   // play specific album
@@ -128,7 +128,7 @@ export function ArtistDetailView() {
     const sortedSongs = sortSongsCanonical(albumSongs);
 
     await setQueue(sortedSongs);
-    await playSong(sortedSongs[0].song_id);
+    await playSong(sortedSongs[0].sha256);
   };
 
   // add album to queue

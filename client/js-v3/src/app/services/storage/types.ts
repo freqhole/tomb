@@ -3,7 +3,7 @@ import type { Song } from "../../../music/services/storage/types";
 
 export interface AppState {
   id: "app_state";
-  current_song_id: string | null; // currently playing song
+  current_sha256: string | null; // currently playing song
   queue: Song[]; // array of songs in play order
   queue_open: boolean; // whether queue sidebar is open
   active_remote_id: string | null; // currently active remote source id

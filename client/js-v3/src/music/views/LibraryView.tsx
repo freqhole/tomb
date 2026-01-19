@@ -2,7 +2,7 @@ import { createResource, Show } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import {
   VirtualSongList,
-  type Song as VirtualSong,
+  type VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
 import { getDataSource } from "../data";
 import { songsVersion } from "../services/storage/db";
@@ -39,7 +39,7 @@ export function LibraryView(props: LibraryViewProps) {
     if (!data) return [];
 
     return data.items.map((song) => ({
-      id: song.song_id,
+      id: song.sha256,
       title: song.title,
       artist: song.artist_name,
       album: song.album_title,
@@ -51,13 +51,13 @@ export function LibraryView(props: LibraryViewProps) {
 
   const handleSongClick = (virtualSong: VirtualSong) => {
     // find the actual song by id
-    const song = songsData()?.items.find((s) => s.song_id === virtualSong.id);
+    const song = songsData()?.items.find((s) => s.sha256 === virtualSong.id);
     if (song) props.onSongClick?.(song);
   };
 
   const handleSongDoubleClick = (virtualSong: VirtualSong) => {
     // find the actual song by id
-    const song = songsData()?.items.find((s) => s.song_id === virtualSong.id);
+    const song = songsData()?.items.find((s) => s.sha256 === virtualSong.id);
     if (song) {
       props.onSongDoubleClick?.(song);
       console.log("play song:", song.title);

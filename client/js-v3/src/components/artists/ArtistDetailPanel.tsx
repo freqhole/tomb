@@ -19,7 +19,7 @@ export interface ArtistDetailPanelArtist {
 }
 
 export interface ArtistDetailPanelSong {
-  song_id: string;
+  sha256: string;
   title: string;
   album_id: string;
   album_title: string;
@@ -80,7 +80,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
       const group = groups.get(song.album_id)!;
       group.songs.push({
-        id: song.song_id,
+        id: song.sha256,
         title: song.title,
         trackNumber: song.track_number,
         discNumber: song.disc_number,

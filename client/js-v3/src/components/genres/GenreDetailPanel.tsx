@@ -18,7 +18,7 @@ export interface GenreDetailPanelGenre {
 }
 
 export interface GenreDetailPanelSong {
-  song_id: string;
+  sha256: string;
   title: string;
   artist_id: string;
   artist_name: string;

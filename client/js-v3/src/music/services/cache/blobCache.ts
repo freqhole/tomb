@@ -616,24 +616,24 @@ export function getPendingQueueStatus(): {
 export function getNextSongsToCache(
   currentSongId: string | null,
   queue: Array<{
-    song_id: string;
+    sha256: string;
     duration_seconds: number;
     source_type: string;
     source_url?: string;
   }>,
   targetMinutes: number = 30,
-): Array<{ song_id: string; source_url: string }> {
+): Array<{ sha256: string; source_url: string }> {
   if (!currentSongId || queue.length === 0) {
     return [];
   }
 
   // find current song index
-  const currentIdx = queue.findIndex((s) => s.song_id === currentSongId);
+  const currentIdx = queue.findIndex((s) => s.sha256 === currentSongId);
   if (currentIdx < 0 || currentIdx >= queue.length - 1) {
     return [];
   }
 
-  const songsToCache: Array<{ song_id: string; source_url: string }> = [];
+  const songsToCache: Array<{ sha256: string; source_url: string }> = [];
   let totalSeconds = 0;
   const targetSeconds = targetMinutes * 60;
 
@@ -647,7 +647,7 @@ export function getNextSongsToCache(
     }
 
     songsToCache.push({
-      song_id: song.song_id,
+      sha256: song.sha256,
       source_url: song.source_url,
     });
 
@@ -666,7 +666,7 @@ export function getNextSongsToCache(
 export async function preCacheNextSongs(
   currentSongId: string | null,
   queue: Array<{
-    song_id: string;
+    sha256: string;
     duration_seconds: number;
     source_type: string;
     source_url?: string;

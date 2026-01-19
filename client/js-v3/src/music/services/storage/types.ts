@@ -28,7 +28,7 @@ export interface Album {
 
 // ===== SONGS TABLE =====
 export interface Song {
-  song_id: string; // uuid
+  sha256: string; // primary key - content hash of audio file
   title: string;
   artist_id: string; // FK to artists (always required)
   album_id: string; // FK to albums
@@ -65,9 +65,9 @@ export interface Song {
   source_url: string | null;
   downloaded_at: number | null;
 
-  // remote files: server info (not yet implemented)
+  // remote files: server info
   remote_server_id: string | null;
-  remote_song_id: string | null;
+  remote_sha256: string | null; // server's song.id
 
   // local tracking
   added_at: number;
@@ -90,12 +90,19 @@ export interface Playlist {
   thumbnail_blob_id: string | null;
   created_at: number;
   updated_at: number;
+  // sync fields for remote playlists
+  source_type?: "local" | "remote"; // undefined for legacy, defaults to "local"
+  source_remote_id?: string | null; // remote playlist id
+  source_remote_url?: string | null; // base url of remote server
+  source_etag?: string | null; // last known etag for sync
+  last_synced_at?: number | null; // timestamp of last sync
+  is_editable?: boolean; // false for synced playlists, defaults to true
 }
 
 // ===== PLAYLIST_SONGS TABLE (junction) =====
 export interface PlaylistSong {
   playlist_id: string; // FK
-  song_id: string; // FK
+  sha256: string; // FK to songs
   position: number; // order in playlist
   added_at: number;
 }
@@ -152,7 +159,7 @@ export interface ArtistQueryResult {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 4; // bumped for remotes store
+export const MUSIC_DB_VERSION = 5; // bumped for playlist sync fields
 
 // store names
 export const STORE_ARTISTS = "artists";

@@ -6,7 +6,7 @@ import { formatDuration } from "../cards/StatsCard";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface VirtualGenreDetailSong {
-  song_id: string;
+  sha256: string;
   title: string;
   artist_id: string;
   artist_name: string;

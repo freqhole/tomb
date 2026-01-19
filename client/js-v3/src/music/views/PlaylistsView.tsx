@@ -25,6 +25,7 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
+import { downloadPlaylist } from "../services/playlists/downloadSync";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -441,7 +442,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!playlist) return;
 
     const songs = playlistSongs();
-    const draggedIndex = songs.findIndex((s) => s.song_id === draggedId);
+    const draggedIndex = songs.findIndex((s) => s.sha256 === draggedId);
     if (draggedIndex === -1) return;
 
     // don't do anything if dropped on same position
@@ -497,6 +498,38 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       queryClient.invalidateQueries({ queryKey: ["playlists"] });
     } catch (error) {
       console.error("failed to remove image:", error);
+    }
+  };
+
+  // handle download playlist (save remote playlist locally)
+  const handleDownloadPlaylist = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    const remote = getCurrentRemote();
+    if (!remote) {
+      console.error(
+        "no remote source - download only works with remote playlists",
+      );
+      return;
+    }
+
+    try {
+      await downloadPlaylist(remote.url, playlist.playlist_id, (progress) => {
+        console.log(
+          `download progress: ${progress.stage} - ${progress.downloadedSongs}/${progress.totalSongs}`,
+        );
+        if (progress.currentSong) {
+          console.log(`downloading: ${progress.currentSong}`);
+        }
+      });
+
+      console.log("playlist downloaded successfully");
+      // TODO: show success notification
+      // TODO: refresh local playlists view
+    } catch (error) {
+      console.error("failed to download playlist:", error);
+      // TODO: show error notification
     }
   };
 
@@ -684,6 +717,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                             >
                               + add to queue
                             </Button>
+                            <Button
+                              variant="secondary"
+                              onClick={handleDownloadPlaylist}
+                            >
+                              ⬇ download playlist
+                            </Button>
                           </div>
                         </Show>
 
@@ -747,13 +786,13 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <For each={playlistSongs()}>
                                 {(song, index) => (
                                   <DraggableRow
-                                    id={song.song_id}
+                                    id={song.sha256}
                                     index={index()}
                                     isDragging={
-                                      draggedSongId() === song.song_id
+                                      draggedSongId() === song.sha256
                                     }
                                     isDropTarget={dropTargetIndex() === index()}
-                                    onDragStart={handleDragStart(song.song_id)}
+                                    onDragStart={handleDragStart(song.sha256)}
                                     onDragOver={handleDragOver(index())}
                                     onDragLeave={handleDragLeave}
                                     onDrop={() => handleDrop(index())}

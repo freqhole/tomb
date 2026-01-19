@@ -59,7 +59,7 @@ export function AlbumDetailView() {
     if (songList.length === 0) return;
 
     await setQueue(songList);
-    await playSong(songList[0].song_id);
+    await playSong(songList[0].sha256);
   };
 
   const handleSongDoubleClick = async (song: Song) => {
@@ -68,7 +68,7 @@ export function AlbumDetailView() {
 
     // set queue to all album songs and play the clicked one
     await setQueue(songList);
-    await playSong(song.song_id);
+    await playSong(song.sha256);
   };
 
   const handleArtistClick = () => {

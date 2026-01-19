@@ -24,9 +24,9 @@ let hasPreCachedNext = false;
 const canGoNext = () => {
   const state = appState();
   if (!state?.queue.length) return false;
-  const currentId = state.current_song_id;
+  const currentId = state.current_sha256;
   const currentIdx = currentId
-    ? state.queue.findIndex((s) => s.song_id === currentId)
+    ? state.queue.findIndex((s) => s.sha256 === currentId)
     : -1;
   return currentIdx >= 0 && currentIdx < state.queue.length - 1;
 };
@@ -34,9 +34,9 @@ const canGoNext = () => {
 const canGoPrevious = () => {
   const state = appState();
   if (!state?.queue.length) return false;
-  const currentId = state.current_song_id;
+  const currentId = state.current_sha256;
   const currentIdx = currentId
-    ? state.queue.findIndex((s) => s.song_id === currentId)
+    ? state.queue.findIndex((s) => s.sha256 === currentId)
     : -1;
   return currentIdx > 0;
 };
@@ -138,18 +138,18 @@ async function updateMediaSession() {
   if (!("mediaSession" in navigator)) return;
 
   const state = appState();
-  if (!state?.current_song_id) {
+  if (!state?.current_sha256) {
     navigator.mediaSession.metadata = null;
     return;
   }
 
   // check queue first to avoid fetching from wrong remote
-  let song = state.queue.find((s) => s.song_id === state.current_song_id);
+  let song = state.queue.find((s) => s.sha256 === state.current_sha256);
 
   // fallback: fetch from current data source
   if (!song) {
     const dataSource = getDataSource();
-    song = await dataSource.getSongById(state.current_song_id);
+    song = await dataSource.getSongById(state.current_sha256);
   }
 
   if (!song) return;
@@ -183,12 +183,12 @@ function handlePreCacheNext() {
   if (progress < 0.5) return;
 
   const state = appState();
-  if (!state?.current_song_id || !state.queue.length) return;
+  if (!state?.current_sha256 || !state.queue.length) return;
 
   // pre-cache next ~30 minutes of songs
   console.log("pre-caching next songs (~30 min)");
   hasPreCachedNext = true;
-  void preCacheNextSongs(state.current_song_id, state.queue, 30);
+  void preCacheNextSongs(state.current_sha256, state.queue, 30);
 }
 
 // play a specific song
@@ -212,7 +212,7 @@ export async function playSong(songOrId: string | Song): Promise<void> {
 
     // update app state first (before loading audio)
     // this ensures media session gets correct song when events fire
-    await setCurrentSong(song.song_id);
+    await setCurrentSong(song.sha256);
 
     // cleanup previous audio url
     if (currentSongId) {
@@ -221,7 +221,7 @@ export async function playSong(songOrId: string | Song): Promise<void> {
 
     // get audio url using abstraction
     const audioURL = await getAudioURL(song);
-    currentSongId = song.song_id;
+    currentSongId = song.sha256;
 
     // load and play
     audio.src = audioURL;
@@ -250,19 +250,19 @@ export async function togglePlayback(): Promise<void> {
       setIsLoading(true);
       // if no song is playing, play first in queue
       const state = appState();
-      if (!state?.current_song_id && state?.queue.length) {
+      if (!state?.current_sha256 && state?.queue.length) {
         await playSong(state.queue[0]);
-      } else if (state?.current_song_id) {
+      } else if (state?.current_sha256) {
         // if audio src is empty (page reload), reload the song
         if (!audio.src) {
           // check if song is in queue first (avoid remote fetch)
           const songInQueue = state.queue.find(
-            (s) => s.song_id === state.current_song_id,
+            (s) => s.sha256 === state.current_sha256,
           );
           if (songInQueue) {
             await playSong(songInQueue);
           } else {
-            await playSong(state.current_song_id);
+            await playSong(state.current_sha256);
           }
         } else {
           await audio.play();
@@ -317,9 +317,9 @@ export async function playNext(): Promise<void> {
   if (!canGoNext()) return;
 
   const state = appState();
-  const currentId = state.current_song_id;
+  const currentId = state.current_sha256;
   let currentIdx = currentId
-    ? state.queue.findIndex((s) => s.song_id === currentId)
+    ? state.queue.findIndex((s) => s.sha256 === currentId)
     : -1;
 
   // try to play next songs until one works or we run out
@@ -355,9 +355,9 @@ export async function playPrevious(): Promise<void> {
   if (!canGoPrevious()) return;
 
   const state = appState();
-  const currentId = state.current_song_id;
+  const currentId = state.current_sha256;
   const currentIdx = currentId
-    ? state.queue.findIndex((s) => s.song_id === currentId)
+    ? state.queue.findIndex((s) => s.sha256 === currentId)
     : -1;
   const prevIdx = currentIdx - 1;
 
@@ -375,7 +375,7 @@ export async function playQueue(songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
 
   await setQueue(songs);
-  await playSong(songs[0].song_id);
+  await playSong(songs[0].sha256);
 }
 
 // add song to end of queue

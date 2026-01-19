@@ -287,7 +287,7 @@ cargo run -- wordlist generate-code --word-count 2 --count 1 --wordlist-file ass
 ### Create Public Playlist
 
 ```bash
-cargo run -- music create-playlist --title "Test All Features" --description "Testing all playlist CRUD operations" --public
+cargo run music create-playlist --title "1-800-jam4you" --description "new playlist. who dis?" --is-public true
 ```
 
 ### Create Private Playlist

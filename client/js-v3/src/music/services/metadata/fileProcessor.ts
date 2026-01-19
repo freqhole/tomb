@@ -149,7 +149,7 @@ export async function processMusicFile(
   const albumPrimaryGenreId: string | null = null;
 
   const song: Song = {
-    song_id: songId,
+    sha256: songId,
     title: metadata.title,
     artist_id: artist.artist_id,
     album_id: album.album_id,
@@ -184,7 +184,7 @@ export async function processMusicFile(
     source_url: null,
     downloaded_at: null,
     remote_server_id: null,
-    remote_song_id: null,
+    remote_sha256: null,
 
     added_at: now,
   };

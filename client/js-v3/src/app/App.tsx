@@ -4,12 +4,14 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
+import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { getDataSource, initializeDataSource } from "../music/data";
 import { playSong } from "../music/services/audio/player";
 import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
 } from "../music/services/cache/blobCache";
+import { getAllRemotes } from "../music/services/remotes/remoteManager";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
@@ -19,6 +21,7 @@ import { appState, initAppDB, setQueue } from "./services/storage/db";
 export function App() {
   const queryClient = useQueryClient();
   const [isAddMusicOpen, setIsAddMusicOpen] = createSignal(false);
+  const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
@@ -86,13 +89,13 @@ export function App() {
     const currentQueue = state?.queue || [];
 
     // add to end of queue if not already there
-    if (!currentQueue.some((s) => s.song_id === song.song_id)) {
+    if (!currentQueue.some((s) => s.sha256 === song.sha256)) {
       const newQueue = [...currentQueue, song];
       await setQueue(newQueue);
     }
 
     // play the clicked song
-    await playSong(song.song_id);
+    await playSong(song.sha256);
   };
 
   return (
@@ -111,7 +114,10 @@ export function App() {
           when={hasSongs()}
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
-              <EmptyState onAddMusic={() => setIsAddMusicOpen(true)} />
+              <EmptyState
+                onAddMusic={() => setIsAddMusicOpen(true)}
+                onAddRemote={() => setIsAddRemoteOpen(true)}
+              />
             </div>
           }
         >
@@ -129,6 +135,20 @@ export function App() {
         onClose={() => setIsAddMusicOpen(false)}
         onFilesSelected={handleFilesSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
+      />
+
+      <AddRemoteModal
+        isOpen={isAddRemoteOpen()}
+        onClose={() => setIsAddRemoteOpen(false)}
+        onSuccess={() => {
+          console.log("remote added successfully");
+          // check if we now have songs from the remote
+          void (async () => {
+            const source = getDataSource();
+            const result = await source.getSongs({ limit: 1 });
+            setHasSongs(result.total > 0);
+          })();
+        }}
       />
     </>
   );

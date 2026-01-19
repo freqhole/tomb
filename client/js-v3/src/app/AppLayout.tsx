@@ -107,10 +107,10 @@ export function AppLayout(props: AppLayoutProps) {
   // watch for current song changes and load song data
   createEffect(() => {
     const state = appState();
-    if (state?.current_song_id) {
+    if (state?.current_sha256) {
       // first check if song is in queue (avoids fetching from wrong remote)
       const songInQueue = state.queue.find(
-        (s) => s.song_id === state.current_song_id,
+        (s) => s.sha256 === state.current_sha256,
       );
       if (songInQueue) {
         setCurrentSongData(songInQueue);
@@ -118,7 +118,7 @@ export function AppLayout(props: AppLayoutProps) {
         // fallback: fetch from current data source
         void (async () => {
           const dataSource = getDataSource();
-          const song = await dataSource.getSongById(state.current_song_id);
+          const song = await dataSource.getSongById(state.current_sha256);
           setCurrentSongData(song || null);
         })();
       }
@@ -204,16 +204,16 @@ export function AppLayout(props: AppLayoutProps) {
           variant="inline"
           songs={
             (appState()?.queue.map((song) => ({
-              id: song.song_id,
+              id: song.sha256,
               title: song.title,
               artist: song.artist_name,
               duration: song.duration_seconds,
             })) || []) as any[]
           }
           currentIndex={
-            appState()?.current_song_id
+            appState()?.current_sha256
               ? appState()!.queue.findIndex(
-                  (s) => s.song_id === appState()!.current_song_id,
+                  (s) => s.sha256 === appState()!.current_sha256,
                 )
               : -1
           }
@@ -238,7 +238,7 @@ export function AppLayout(props: AppLayoutProps) {
               void setQueue(newQueue);
 
               // if we removed the currently playing song, stop playback and clear it
-              if (removedSong.song_id === state.current_song_id) {
+              if (removedSong.sha256 === state.current_sha256) {
                 stop();
                 void setCurrentSong(null);
               }
@@ -268,7 +268,7 @@ export function AppLayout(props: AppLayoutProps) {
           song={
             currentSongData()
               ? {
-                  id: currentSongData()!.song_id,
+                  id: currentSongData()!.sha256,
                   title: currentSongData()!.title,
                   artist: currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,

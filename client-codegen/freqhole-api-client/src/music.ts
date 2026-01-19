@@ -241,6 +241,41 @@ export function getPlaylistById(
   );
 }
 
+/**
+ * get playlist etag for sync checking
+ * returns etag header value or null if not supported
+ */
+export async function getPlaylistETag(
+  baseUrl: string,
+  playlistId: string,
+  apiKey?: string,
+): Promise<string | null> {
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/music/playlists/${playlistId}/etag`,
+      {
+        method: "HEAD",
+        headers: headers,
+        credentials: apiKey ? "omit" : "include",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const etag = response.headers.get("etag");
+    return etag;
+  } catch (err) {
+    return null;
+  }
+}
+
 export function createPlaylist(
   baseUrl: string,
   params: s.CreatePlaylistRequest,

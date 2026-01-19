@@ -2,6 +2,8 @@
 
 use axum::{
     extract::{Extension, Path},
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
@@ -10,7 +12,7 @@ use grimoire::music::crud::{
     QueryParams, QueryPlaylistSongsRequest,
 };
 use grimoire::music::entities::playlists::{
-    add_songs_to_playlist, create_playlist, delete_playlist, get_playlist,
+    add_songs_to_playlist, compute_playlist_etag, create_playlist, delete_playlist, get_playlist,
     remove_playlist_thumbnail, remove_songs_from_playlist, update_playlist, update_songs_position,
     AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
     RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest,
@@ -71,17 +73,37 @@ inventory::submit! {
     }
 }
 
-/// get a playlist by id
+/// get a playlist by id with etag support
 pub async fn get_playlist_by_id(
     Extension(_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
-) -> Result<Json<Playlist>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    // compute etag for this playlist
+    let etag_response = compute_playlist_etag(&id).await;
+    let etag = etag_response
+        .data
+        .ok_or_else(|| ApiError::Internal(etag_response.message))?;
+
+    // check if client sent If-None-Match header
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+        if let Ok(client_etag) = if_none_match.to_str() {
+            if client_etag == etag {
+                // etag matches, return 304 not modified
+                return Ok((StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response());
+            }
+        }
+    }
+
+    // fetch full playlist data
     let response = get_playlist(&id).await;
 
-    response
+    let playlist = response
         .data
-        .ok_or_else(|| ApiError::Internal(response.message))
-        .map(Json)
+        .ok_or_else(|| ApiError::Internal(response.message))?;
+
+    // return playlist with etag header
+    Ok(([(header::ETAG, etag)], Json(playlist)).into_response())
 }
 
 inventory::submit! {
@@ -92,6 +114,33 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetPlaylistRequest",
         response_type: "Playlist",
+    }
+}
+
+/// get playlist etag only (HEAD request)
+/// returns only etag header without body for cheap sync checks
+pub async fn get_playlist_etag_handler(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    // compute etag for this playlist
+    let etag_response = compute_playlist_etag(&id).await;
+    let etag = etag_response
+        .data
+        .ok_or_else(|| ApiError::Internal(etag_response.message))?;
+
+    // return empty response with etag header
+    Ok((StatusCode::OK, [(header::ETAG, etag)]).into_response())
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_playlist_etag",
+        path: "/api/music/playlists/{id}/etag",
+        method: Method::HEAD,
+        domain: Domain::Music,
+        request_type: "GetPlaylistRequest",
+        response_type: "String",
     }
 }
 

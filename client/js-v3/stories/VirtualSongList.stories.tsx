@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
-  Song,
   SortDirection,
   SortField,
+  VirtualSong,
   VirtualSongList,
 } from "../src/components/virtualized/VirtualSongList";
 import { generateBulkSongs } from "./mockData";
@@ -45,7 +45,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 // generate mock song data using shared data
-const generateSongs = (count: number): Song[] => {
+const generateSongs = (count: number): VirtualSong[] => {
   return generateBulkSongs(count);
 };
 
@@ -156,7 +156,7 @@ export const FullyInteractive: Story = {
       setActionLog([...actionLog().slice(-9), message]);
     };
 
-    const handleClick = (song: Song, index: number) => {
+    const handleClick = (song: VirtualSong, index: number) => {
       const newSelected = new Set(selectedSongIds());
       if (newSelected.has(song.id)) {
         newSelected.delete(song.id);
@@ -167,12 +167,12 @@ export const FullyInteractive: Story = {
       addLog(`clicked: ${song.title} (${index + 1})`);
     };
 
-    const handleDoubleClick = (song: Song) => {
+    const handleDoubleClick = (song: VirtualSong) => {
       setPlayingSongId(song.id);
       addLog(`playing: ${song.title}`);
     };
 
-    const handleFavoriteToggle = (song: Song, isFavorite: boolean) => {
+    const handleFavoriteToggle = (song: VirtualSong, isFavorite: boolean) => {
       setSongs(
         songs().map((s) =>
           s.id === song.id ? { ...s, userIsFavorite: isFavorite } : s,
@@ -181,7 +181,7 @@ export const FullyInteractive: Story = {
       addLog(`${isFavorite ? "favorited" : "unfavorited"}: ${song.title}`);
     };
 
-    const handleRatingChange = (song: Song, rating: number) => {
+    const handleRatingChange = (song: VirtualSong, rating: number) => {
       setSongs(
         songs().map((s) =>
           s.id === song.id ? { ...s, userRating: rating } : s,

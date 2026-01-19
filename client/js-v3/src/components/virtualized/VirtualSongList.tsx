@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { MarqueeText } from "../text/MarqueeText";
 
-export interface Song {
+export interface VirtualSong {
   id: string;
   title: string;
   artist: string;
@@ -46,19 +46,19 @@ export interface SortState {
 
 export interface VirtualSongListProps {
   /** array of songs to display */
-  songs: Song[];
+  songs: VirtualSong[];
   /** current sort state */
   sortState?: SortState;
   /** callback when sort changes (for server-side sorting) */
   onSortChange?: (field: SortField, direction: SortDirection) => void;
   /** callback when a song is clicked */
-  onSongClick?: (song: Song, index: number) => void;
+  onSongClick?: (song: VirtualSong, index: number) => void;
   /** callback when a song is double-clicked (for play action) */
-  onSongDoubleClick?: (song: Song, index: number) => void;
+  onSongDoubleClick?: (song: VirtualSong, index: number) => void;
   /** callback when favorite is toggled */
-  onFavoriteToggle?: (song: Song, isFavorite: boolean) => void;
+  onFavoriteToggle?: (song: VirtualSong, isFavorite: boolean) => void;
   /** callback when rating changes */
-  onRatingChange?: (song: Song, rating: number) => void;
+  onRatingChange?: (song: VirtualSong, rating: number) => void;
   /** callback when virtualizer is rendering items near end (for infinite scroll) */
   onNearEnd?: () => void;
   /** currently playing song id */
@@ -99,7 +99,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   const showTags = () => props.showTags !== false;
 
   // compute track number from disc + track
-  const getTrackNumber = (song: Song, index: number): string => {
+  const getTrackNumber = (song: VirtualSong, index: number): string => {
     // for queue or playlist with position field, use position/index
     if (variant() === "queue" || variant() === "playlist") {
       return String(index + 1);
@@ -188,20 +188,20 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     return current.direction === "asc" ? "↑" : "↓";
   };
 
-  const handleRowClick = (song: Song, index: number) => {
+  const handleRowClick = (song: VirtualSong, index: number) => {
     props.onSongClick?.(song, index);
   };
 
-  const handleRowDoubleClick = (song: Song, index: number) => {
+  const handleRowDoubleClick = (song: VirtualSong, index: number) => {
     props.onSongDoubleClick?.(song, index);
   };
 
-  const handleFavoriteClick = (e: MouseEvent, song: Song) => {
+  const handleFavoriteClick = (e: MouseEvent, song: VirtualSong) => {
     e.stopPropagation();
     props.onFavoriteToggle?.(song, !song.userIsFavorite);
   };
 
-  const handleRatingClick = (e: MouseEvent, song: Song) => {
+  const handleRatingClick = (e: MouseEvent, song: VirtualSong) => {
     e.stopPropagation();
     // cycle through 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 0
     const currentRating = song.userRating || 0;

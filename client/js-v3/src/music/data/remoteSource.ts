@@ -17,9 +17,12 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
   const song = item.song;
   const artist = item.artist;
   const album = item.album;
+  const blob = item.blob;
+
+  const sha256 = blob?.sha256 || song.media_blob_id;
 
   return {
-    song_id: song.id,
+    sha256,
     title: song.title,
     artist_id: artist?.id || "",
     album_id: album?.id || "",
@@ -52,13 +55,13 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     file_name: null,
     file_size: null,
     last_modified: null,
-    mime_type: null,
+    mime_type: blob?.mime_type || null,
     source_url: `${baseUrl}/api/blobs/${song.media_blob_id}`,
     downloaded_at: null,
 
     // remote fields
-    remote_server_id: null, // TODO: track which remote this came from
-    remote_song_id: song.id,
+    remote_server_id: null,
+    remote_sha256: song.id,
     added_at: song.created_at,
   };
 }

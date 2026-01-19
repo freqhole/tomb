@@ -43,7 +43,7 @@ async function loadAppState(): Promise<AppState> {
     // create default state
     state = {
       id: "app_state",
-      current_song_id: null,
+      current_sha256: null,
       queue: [],
       queue_open: false,
       active_remote_id: null,
@@ -78,7 +78,7 @@ async function updateAppState(
 
 // set current song
 async function setCurrentSong(songId: string | null): Promise<void> {
-  await updateAppState({ current_song_id: songId });
+  await updateAppState({ current_sha256: songId });
 }
 
 // update queue

@@ -22,7 +22,7 @@ import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import {
-  Song as VirtualSong,
+  VirtualSong,
   VirtualSongList,
 } from "../src/components/virtualized/VirtualSongList";
 import { createIsMobile } from "../src/utils/isMobile";

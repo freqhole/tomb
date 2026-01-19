@@ -5,7 +5,7 @@ import {
   VirtualSongList,
   type SortDirection,
   type SortField,
-  type Song as VirtualSong,
+  type VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
 import type { Song } from "../data/types";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
@@ -59,7 +59,7 @@ export function SongsView(props: SongsViewProps) {
   // convert to virtual song list format - memoized to prevent unnecessary recreations
   const virtualSongs = createMemo((): VirtualSong[] => {
     return allSongs().map((song) => ({
-      id: song.song_id,
+      id: song.sha256,
       title: song.title,
       artist: song.artist_name,
       album: song.album_title,
@@ -80,12 +80,12 @@ export function SongsView(props: SongsViewProps) {
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {
-    const song = allSongs().find((s) => s.song_id === virtualSong.id);
+    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
     if (song) props.onSongClick?.(song);
   };
 
   const handleSongDoubleClick = (virtualSong: VirtualSong) => {
-    const song = allSongs().find((s) => s.song_id === virtualSong.id);
+    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
     if (song) props.onSongDoubleClick?.(song);
   };
 
