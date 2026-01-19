@@ -57,10 +57,10 @@ export function routes(props: RoutesProps) {
         component={() => <GenresView onAddMusic={props.onAddMusic} />}
       />
       <Route
-        path="/playlists"
+        path="/playlists/:id?"
         component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
       />
-      <Route path="/playlists/:id" component={PlaylistDetailView} />
+      <Route path="/playlist/:id" component={PlaylistDetailView} />
     </Route>
   );
 }

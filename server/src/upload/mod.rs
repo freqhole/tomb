@@ -183,6 +183,7 @@ pub async fn upload_image_handler(
         job_payload["associate_with"] = json!({
             "entity_type": assoc.entity_type,
             "entity_id": assoc.entity_id,
+            "is_primary": assoc.is_primary,
         });
     }
 

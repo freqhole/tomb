@@ -119,6 +119,7 @@ export interface MusicDataSource {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      thumbnail_blob_id?: string | null;
     },
   ): Promise<PlaylistSummary>;
   deletePlaylist?(playlistId: string): Promise<void>;

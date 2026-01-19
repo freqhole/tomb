@@ -1,9 +1,9 @@
 // query hooks for playlists
 import {
-    createInfiniteQuery,
-    createMutation,
-    createQuery,
-    useQueryClient,
+  createInfiniteQuery,
+  createMutation,
+  createQuery,
+  useQueryClient,
 } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
@@ -133,6 +133,7 @@ export function useUpdatePlaylistMutation() {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      thumbnail_blob_id?: string | null;
     }) => {
       const dataSource = getDataSource();
 
@@ -185,7 +186,9 @@ export function useAddSongsToPlaylistMutation() {
       const dataSource = getDataSource();
 
       if (!dataSource.addSongsToPlaylist) {
-        throw new Error("data source does not support adding songs to playlists");
+        throw new Error(
+          "data source does not support adding songs to playlists",
+        );
       }
 
       await dataSource.addSongsToPlaylist(params.playlistId, params.songIds);

@@ -99,20 +99,22 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
         let is_primary_hint = assoc["is_primary"].as_bool();
 
         // associate image with entity
-        let update_result =
-            associate_image_with_entity(entity_type, entity_id, blob_id, is_primary_hint).await;
-        if let Err(e) = update_result {
-            error!(
-                "failed to associate blob with entity: type={}, id={}, error={}",
-                entity_type, entity_id, e
-            );
-            // don't fail the job - conversion succeeded, association is bonus
-        } else {
-            info!(
-                "associated blob with entity: type={}, id={}, blob_id={}",
-                entity_type, entity_id, blob_id
-            );
-        }
+        associate_image_with_entity(entity_type, entity_id, blob_id, is_primary_hint)
+            .await
+            .map_err(|e| {
+                error!(
+                    "failed to associate blob with entity: type={}, id={}, error={}",
+                    entity_type, entity_id, e
+                );
+                JobError::ProcessingFailed {
+                    reason: format!("failed to associate image: {}", e),
+                }
+            })?;
+
+        info!(
+            "associated blob with entity: type={}, id={}, blob_id={}",
+            entity_type, entity_id, blob_id
+        );
     }
 
     let result = serde_json::json!({
@@ -130,6 +132,7 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
 /// logic:
 /// - first image for entity is ALWAYS primary (regardless of hint)
 /// - subsequent images use is_primary hint (default false)
+/// - if is_primary is true for subsequent images, unset old primary
 async fn associate_image_with_entity(
     entity_type: &str,
     entity_id: &str,
@@ -147,6 +150,11 @@ async fn associate_image_with_entity(
     } else {
         is_primary_hint.unwrap_or(false) // use hint, default to false
     };
+
+    // if this is being set as primary and there are existing images, unset old primary
+    if is_primary && existing_count > 0 {
+        unset_primary_images(entity_type, entity_id, &pool).await?;
+    }
 
     match entity_type {
         "album" => {
@@ -280,6 +288,51 @@ async fn count_entity_images(
     };
 
     Ok(count)
+}
+
+/// unset primary flag on all existing images for an entity
+async fn unset_primary_images(
+    entity_type: &str,
+    entity_id: &str,
+    pool: &sqlx::SqlitePool,
+) -> Result<(), GrimoireError> {
+    match entity_type {
+        "album" => {
+            sqlx::query!(
+                "UPDATE album_imagez SET is_primary = 0 WHERE album_id = ?",
+                entity_id
+            )
+            .execute(pool)
+            .await?;
+        }
+        "playlist" => {
+            sqlx::query!(
+                "UPDATE playlist_imagez SET is_primary = 0 WHERE playlist_id = ?",
+                entity_id
+            )
+            .execute(pool)
+            .await?;
+        }
+        "song" => {
+            sqlx::query!(
+                "UPDATE song_imagez SET is_primary = 0 WHERE song_id = ?",
+                entity_id
+            )
+            .execute(pool)
+            .await?;
+        }
+        "artist" => {
+            sqlx::query!(
+                "UPDATE artist_imagez SET is_primary = 0 WHERE artist_id = ?",
+                entity_id
+            )
+            .execute(pool)
+            .await?;
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 /// process music import job

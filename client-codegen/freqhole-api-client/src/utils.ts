@@ -1,9 +1,34 @@
 // url helpers and upload utilities
 
-import { routes } from "./codegen/routes.js";
 import { z } from "zod";
 import type { SafeParseResult } from "./client.js";
+import { routes } from "./codegen/routes.js";
 import * as s from "./codegen/schema.js";
+
+// helper to extract error message from failed response
+async function getErrorMessage(response: Response): Promise<string> {
+  let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+  try {
+    const errorBody = await response.text();
+    if (errorBody) {
+      // try to parse as JSON to extract error field
+      try {
+        const errorJson = JSON.parse(errorBody);
+        if (errorJson.error) {
+          errorMessage = `HTTP ${response.status}: ${errorJson.error}`;
+        } else {
+          errorMessage += ` - ${errorBody}`;
+        }
+      } catch {
+        // not JSON, use raw text
+        errorMessage += ` - ${errorBody}`;
+      }
+    }
+  } catch {
+    // ignore if we can't read the body
+  }
+  return errorMessage;
+}
 
 // url helper functions - return urls for resources without making fetch calls
 // these are useful for <audio src={...}>, <img src={...}>, etc.
@@ -41,20 +66,38 @@ export function getFetchJobUrl(baseUrl: string, jobId: string): string {
 // upload utilities - handle FormData for file uploads
 
 /**
+ * options for uploading an image
+ */
+export type UploadImageOptions = {
+  /** optional api key for authentication (if not using cookies) */
+  apiKey?: string;
+  /** optionally associate the image with an entity (album, playlist, song, artist, etc.) */
+  associate?: z.infer<typeof s.AssociationHintSchema>;
+};
+
+/**
  * upload an image file
  * returns the blob id and url for the uploaded image
+ *
+ * optionally associate the image with an entity (album, playlist, song, artist, etc.)
+ * if association is provided, the entity's thumbnail will be updated automatically
  */
 export async function uploadImage(
   baseUrl: string,
   file: File | Blob,
-  apiKey?: string,
+  options?: UploadImageOptions,
 ): Promise<SafeParseResult<z.infer<typeof s.ImageUploadResponseSchema>>> {
   const formData = new FormData();
   formData.append("file", file);
 
+  // add association hint if provided
+  if (options?.associate) {
+    formData.append("associate_with", JSON.stringify(options.associate));
+  }
+
   const headers: Record<string, string> = {};
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
+  if (options?.apiKey) {
+    headers["Authorization"] = `Bearer ${options.apiKey}`;
   }
 
   try {
@@ -62,17 +105,18 @@ export async function uploadImage(
       method: "POST",
       headers: headers,
       body: formData,
-      credentials: apiKey ? "omit" : "include",
+      credentials: options?.apiKey ? "omit" : "include",
     });
 
     if (!response.ok) {
+      const errorMessage = await getErrorMessage(response);
       return {
         success: false,
         error: new z.ZodError([
           {
             code: "custom",
             path: [],
-            message: `HTTP ${response.status}: ${response.statusText}`,
+            message: errorMessage,
           },
         ]),
       };
@@ -127,13 +171,14 @@ export async function uploadMusic(
     });
 
     if (!response.ok) {
+      const errorMessage = await getErrorMessage(response);
       return {
         success: false,
         error: new z.ZodError([
           {
             code: "custom",
             path: [],
-            message: `HTTP ${response.status}: ${response.statusText}`,
+            message: errorMessage,
           },
         ]),
       };
@@ -181,13 +226,14 @@ export async function fetchBlobMetadata(
     });
 
     if (!response.ok) {
+      const errorMessage = await getErrorMessage(response);
       return {
         success: false,
         error: new z.ZodError([
           {
             code: "custom",
             path: [],
-            message: `HTTP ${response.status}: ${response.statusText}`,
+            message: errorMessage,
           },
         ]),
       };
