@@ -244,6 +244,15 @@ export function AppLayout(props: AppLayoutProps) {
               }
             }
           }}
+          onReorder={(fromIndex, toIndex) => {
+            const state = appState();
+            if (state?.queue) {
+              const newQueue = [...state.queue];
+              const [movedSong] = newQueue.splice(fromIndex, 1);
+              newQueue.splice(toIndex, 0, movedSong);
+              void setQueue(newQueue);
+            }
+          }}
           onClearAll={() => {
             // stop playback and clear current song
             stop();

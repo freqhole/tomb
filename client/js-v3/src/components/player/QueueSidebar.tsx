@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { For, Show, type JSX } from "solid-js";
+import { createSignal, For, Show, type JSX } from "solid-js";
 import { isMobile } from "../../utils/isMobile";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
@@ -40,6 +40,8 @@ export interface QueueSidebarProps {
   getContextMenuActions?: (index: number, song: QueueSong) => MenuAction[];
   /** layout variant: overlay (fixed position) or inline (in layout flow) */
   variant?: "overlay" | "inline";
+  /** callback when queue is reordered */
+  onReorder?: (fromIndex: number, toIndex: number) => void;
   /** additional classes */
   class?: string;
 }
@@ -55,6 +57,11 @@ function formatDuration(seconds: number | undefined): string {
 // queue sidebar component
 export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
+
+  const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
+    null,
+  );
 
   const virtualizer = createVirtualizer({
     get count() {
@@ -84,6 +91,41 @@ export function QueueSidebar(props: QueueSidebarProps) {
       props.songs[index]?.title,
     );
     props.onRemoveSong(index);
+  };
+
+  const handleDragStart = (index: number) => (e: DragEvent) => {
+    setDraggedIndex(index);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+    }
+  };
+
+  const handleDragOver = (index: number) => (e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
+    setDropTargetIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDropTargetIndex(null);
+  };
+
+  const handleDrop = (targetIndex: number) => {
+    const fromIndex = draggedIndex();
+    if (fromIndex === null || fromIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDropTargetIndex(null);
+      return;
+    }
+
+    if (props.onReorder) {
+      props.onReorder(fromIndex, targetIndex);
+    }
+
+    setDraggedIndex(null);
+    setDropTargetIndex(null);
   };
 
   const isOverlay = () => props.variant !== "inline";
@@ -169,16 +211,28 @@ export function QueueSidebar(props: QueueSidebarProps) {
                 const isCurrentlyPlaying = () =>
                   itemIndex === props.currentIndex;
 
+                const isDragging = () => draggedIndex() === itemIndex;
+                const isDropTarget = () => dropTargetIndex() === itemIndex;
+
                 const songRow = (
                   <div
-                    class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 rounded-lg group transition-all duration-200 cursor-pointer ${
-                      isCurrentlyPlaying()
-                        ? "bg-[var(--color-accent-500)]/20 border border-[var(--color-accent-500)]/50"
-                        : "hover:bg-[var(--color-accent-500)]/10 border border-transparent"
+                    draggable={true}
+                    class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 rounded-lg group transition-all duration-200 cursor-move ${
+                      isDropTarget()
+                        ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
+                        : isDragging()
+                          ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
+                          : isCurrentlyPlaying()
+                            ? "bg-[var(--color-accent-500)]/20 border border-[var(--color-accent-500)]/50"
+                            : "hover:bg-[var(--color-accent-500)]/10 border border-transparent"
                     }`}
                     style={{
                       transform: `translateY(${virtualItem.start}px)`,
                     }}
+                    onDragStart={handleDragStart(itemIndex)}
+                    onDragOver={handleDragOver(itemIndex)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={() => handleDrop(itemIndex)}
                     onClick={() => {
                       if (isMobile()) {
                         // on mobile, single tap plays
