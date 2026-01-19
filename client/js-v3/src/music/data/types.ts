@@ -128,6 +128,11 @@ export interface MusicDataSource {
     playlistId: string,
     songIds: string[],
   ): Promise<void>;
+  reorderPlaylistSongs?(
+    playlistId: string,
+    songIds: string[],
+    newPosition: number,
+  ): Promise<void>;
 
   // source metadata
   getSourceInfo(): Promise<{

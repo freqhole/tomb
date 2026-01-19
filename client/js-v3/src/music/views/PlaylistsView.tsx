@@ -21,6 +21,7 @@ import type { Song } from "../data/types";
 import {
   usePlaylistSongsQuery,
   usePlaylistsQuery,
+  useReorderPlaylistSongsMutation,
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
@@ -53,9 +54,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [editDescription, setEditDescription] = createSignal("");
   const [uploadingImage, setUploadingImage] = createSignal(false);
   const [uploadProgress, setUploadProgress] = createSignal(0);
+  const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
+    null,
+  );
 
-  // mutation for updating playlist
+  // mutations for updating playlist
   const updatePlaylistMutation = useUpdatePlaylistMutation();
+  const reorderSongsMutation = useReorderPlaylistSongsMutation();
 
   // query client for invalidation
   const queryClient = useQueryClient();
@@ -404,6 +410,68 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     return false;
   };
 
+  // handle drag start
+  const handleDragStart = (songId: string) => (e: DragEvent) => {
+    setDraggedSongId(songId);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+    }
+  };
+
+  // handle drag over
+  const handleDragOver = (index: number) => (e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
+    setDropTargetIndex(index);
+  };
+
+  // handle drag leave
+  const handleDragLeave = () => {
+    setDropTargetIndex(null);
+  };
+
+  // handle drop
+  const handleDrop = async (targetIndex: number) => {
+    const draggedId = draggedSongId();
+    if (!draggedId) return;
+
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    const songs = playlistSongs();
+    const draggedIndex = songs.findIndex((s) => s.song_id === draggedId);
+    if (draggedIndex === -1) return;
+
+    // don't do anything if dropped on same position
+    if (draggedIndex === targetIndex) {
+      setDraggedSongId(null);
+      setDropTargetIndex(null);
+      return;
+    }
+
+    // calculate new position (1-based)
+    const newPosition = targetIndex + 1;
+
+    try {
+      await reorderSongsMutation.mutateAsync({
+        playlistId: playlist.playlist_id,
+        songIds: [draggedId],
+        newPosition,
+      });
+
+      console.log(
+        `moved song from position ${draggedIndex + 1} to ${newPosition}`,
+      );
+    } catch (error) {
+      console.error("failed to reorder songs:", error);
+    } finally {
+      setDraggedSongId(null);
+      setDropTargetIndex(null);
+    }
+  };
+
   // handle image removal
   const handleRemoveImage = async () => {
     const playlist = selectedPlaylist();
@@ -681,10 +749,18 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   <DraggableRow
                                     id={song.song_id}
                                     index={index()}
+                                    isDragging={
+                                      draggedSongId() === song.song_id
+                                    }
+                                    isDropTarget={dropTargetIndex() === index()}
+                                    onDragStart={handleDragStart(song.song_id)}
+                                    onDragOver={handleDragOver(index())}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={() => handleDrop(index())}
                                     onDoubleClick={() =>
                                       handleSongDoubleClick(song)
                                     }
-                                    disabled={true}
+                                    disabled={false}
                                   >
                                     <DraggableRowSongContent
                                       title={song.title}

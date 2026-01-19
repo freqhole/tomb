@@ -233,3 +233,36 @@ export function useRemoveSongsFromPlaylistMutation() {
     },
   }));
 }
+
+// mutation hook for reordering songs in playlist
+export function useReorderPlaylistSongsMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: {
+      playlistId: string;
+      songIds: string[];
+      newPosition: number;
+    }) => {
+      const dataSource = getDataSource();
+
+      if (!dataSource.reorderPlaylistSongs) {
+        throw new Error(
+          "data source does not support reordering playlist songs",
+        );
+      }
+
+      await dataSource.reorderPlaylistSongs(
+        params.playlistId,
+        params.songIds,
+        params.newPosition,
+      );
+    },
+    onSuccess: (_, variables) => {
+      // invalidate playlist songs query to refetch with new order
+      queryClient.invalidateQueries({
+        queryKey: ["playlists", variables.playlistId, "songs"],
+      });
+    },
+  }));
+}

@@ -460,6 +460,22 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
+  async reorderPlaylistSongs(
+    playlistId: string,
+    songIds: string[],
+    newPosition: number,
+  ): Promise<void> {
+    const result = await apiClient.music.reorderPlaylistSongs(this.baseUrl, {
+      playlist_id: playlistId,
+      song_ids: songIds,
+      new_position: newPosition,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to reorder playlist songs");
+    }
+  }
+
   // source metadata
   async getSourceInfo(): Promise<{
     type: "local" | "remote";
