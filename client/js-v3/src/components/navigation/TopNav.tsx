@@ -142,18 +142,36 @@ export function TopNav(props: TopNavProps) {
                     <div class="space-y-1">
                       {/* local library option */}
                       <button
-                        class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent cursor-pointer hover:bg-[var(--color-accent-500)]/10"
+                        class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                         classList={{
-                          "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10":
+                          "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
                             props.currentSourceName === "local library" ||
                             !props.currentSourceName,
-                          "text-[var(--color-text-secondary)]":
+                          "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
                             props.currentSourceName &&
                             props.currentSourceName !== "local library",
                         }}
+                        disabled={
+                          props.currentSourceName === "local library" ||
+                          !props.currentSourceName
+                        }
                         onClick={() => props.onSwitchToLocal?.()}
                       >
-                        <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                        <Show
+                          when={
+                            props.currentSourceName === "local library" ||
+                            !props.currentSourceName
+                          }
+                          fallback={
+                            <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                          }
+                        >
+                          <Icon
+                            name="check"
+                            size={14}
+                            color="var(--color-accent-500)"
+                          />
+                        </Show>
                         <span>local library</span>
                       </button>
 
@@ -163,18 +181,32 @@ export function TopNav(props: TopNavProps) {
                           <For each={props.remotes}>
                             {(remote) => (
                               <button
-                                class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent cursor-pointer hover:bg-[var(--color-accent-500)]/10"
+                                class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                                 classList={{
-                                  "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10":
+                                  "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
                                     props.currentSourceName === remote.name,
-                                  "text-[var(--color-text-secondary)]":
+                                  "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
                                     props.currentSourceName !== remote.name,
                                 }}
+                                disabled={
+                                  props.currentSourceName === remote.name
+                                }
                                 onClick={() =>
                                   props.onSwitchToRemote?.(remote.id)
                                 }
                               >
-                                <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
+                                <Show
+                                  when={props.currentSourceName === remote.name}
+                                  fallback={
+                                    <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
+                                  }
+                                >
+                                  <Icon
+                                    name="check"
+                                    size={14}
+                                    color="var(--color-accent-500)"
+                                  />
+                                </Show>
                                 <span class="truncate">{remote.name}</span>
                               </button>
                             )}

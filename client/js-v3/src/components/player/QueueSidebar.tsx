@@ -45,7 +45,7 @@ export interface QueueSidebarProps {
 
 // format seconds to MM:SS
 function formatDuration(seconds: number | undefined): string {
-  if (!seconds) return "--:--";
+  if (!seconds || !isFinite(seconds) || seconds < 0) return "--:--";
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;

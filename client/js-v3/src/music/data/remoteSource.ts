@@ -11,6 +11,57 @@ import type {
   Song,
 } from "./types";
 
+// adapter to convert API song query result to local Song type
+function adaptSongFromAPI(item: any, baseUrl: string): Song {
+  const song = item.song;
+  const artist = item.artist;
+  const album = item.album;
+
+  return {
+    song_id: song.id,
+    title: song.title,
+    artist_id: artist?.id || "",
+    album_id: album?.id || "",
+    track_number: song.track_number || 0,
+    disc_number: song.disc_number || 1,
+    duration: song.duration ? Math.floor(song.duration / 1000) : 0, // convert ms to seconds
+    year:
+      song.year ||
+      (album?.release_date
+        ? parseInt(album.release_date.substring(0, 4))
+        : null),
+    bpm: song.bpm || null,
+    key_signature: song.key_signature || null,
+    lyrics: song.lyrics || null,
+    metadata: song.metadata || null,
+    created_at: song.created_at,
+    updated_at: song.updated_at,
+
+    // denormalized fields
+    artist_name: artist?.name || "unknown artist",
+    album_title: album?.title || "unknown album",
+    album_added_at: song.created_at, // use song's created_at as proxy
+    album_primary_genre_id: item.genre?.id || null,
+
+    // remote source type
+    source_type: "remote" as const,
+
+    // local/downloaded fields (null for remote)
+    opfs_path: null,
+    file_name: null,
+    file_size: null,
+    last_modified: null,
+    mime_type: null,
+    source_url: `${baseUrl}/api/blobs/${song.media_blob_id}`,
+    downloaded_at: null,
+
+    // remote fields
+    remote_server_id: null, // TODO: track which remote this came from
+    remote_song_id: song.id,
+    added_at: song.created_at,
+  };
+}
+
 // remote data source implementation
 // uses cookie-based auth - no credentials stored client-side
 export class RemoteMusicDataSource implements MusicDataSource {
@@ -53,9 +104,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     // adapt API response to our interface
-    // TODO: proper type mapping from API song schema to our Song type
     return {
-      items: result.data.items as any[], // type mismatch - need proper mapping
+      items: result.data.items.map((item) =>
+        adaptSongFromAPI(item, this.baseUrl),
+      ),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -66,7 +118,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async getSongById(id: string): Promise<Song | null> {
     // note: there's no getSong endpoint in the API yet
     // we'll need to query with filter
-    const filters: Record<string, any> = { id };
+    const filters: Record<string, any> = { song_ids: [id] };
     const result = await apiClient.music.querySongs(this.baseUrl, {
       q: null,
       search_fields: null,
@@ -84,8 +136,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       return null;
     }
 
-    // TODO: proper type mapping
-    return result.data.items[0] as any;
+    return adaptSongFromAPI(result.data.items[0], this.baseUrl);
   }
 
   // albums
@@ -132,9 +183,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("failed to query album songs");
     }
 
-    // TODO: proper type mapping
     return {
-      items: result.data.items as any[],
+      items: result.data.items.map((item) =>
+        adaptSongFromAPI(item, this.baseUrl),
+      ),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -184,9 +236,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("failed to query artist songs");
     }
 
-    // TODO: proper type mapping
     return {
-      items: result.data.items as any[],
+      items: result.data.items.map((item) =>
+        adaptSongFromAPI(item, this.baseUrl),
+      ),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -235,9 +288,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("failed to query genre songs");
     }
 
-    // TODO: proper type mapping
     return {
-      items: result.data.items as any[],
+      items: result.data.items.map((item) =>
+        adaptSongFromAPI(item, this.baseUrl),
+      ),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,

@@ -5,8 +5,8 @@ import {
   setCurrentSong,
   setQueue,
 } from "../../../app/services/storage/db";
+import { getDataSource } from "../../data";
 import { cleanupAudioURL, getAudioURL } from "../storage/audioAccess";
-import { getSongById } from "../storage/db";
 import type { Song } from "../storage/types";
 
 // player state signals
@@ -125,7 +125,8 @@ async function updateMediaSession() {
     return;
   }
 
-  const song = await getSongById(state.current_song_id);
+  const dataSource = getDataSource();
+  const song = await dataSource.getSongById(state.current_song_id);
   if (!song) return;
 
   navigator.mediaSession.metadata = new MediaMetadata({
@@ -154,8 +155,9 @@ export async function playSong(songId: string): Promise<void> {
   setIsLoading(true);
 
   try {
-    // get song from database
-    const song = await getSongById(songId);
+    // get song from data source (local or remote)
+    const dataSource = getDataSource();
+    const song = await dataSource.getSongById(songId);
     if (!song) {
       throw new Error(`song not found: ${songId}`);
     }

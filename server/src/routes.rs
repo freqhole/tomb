@@ -268,15 +268,6 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["get_musicbrainz_release"].path,
             post(music::musicbrainz::get_release_handler),
         )
-        // blob routes
-        .route(
-            routes["music"]["stream_blob"].path,
-            get(blobs::stream_blob_handler),
-        )
-        .route(
-            routes["music"]["blob_metadata"].path,
-            get(blobs::blob_metadata_handler),
-        )
         // upload routes
         .route(
             routes["music"]["upload_image"].path,
@@ -287,6 +278,18 @@ pub fn build_router() -> Router<AppState> {
             post(upload::upload_music_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
+        .layer(axum_middleware::from_fn(auth::middleware::require_auth));
+
+    // blob streaming routes (auth only, no origin validation needed for media requests)
+    let blob_routes = Router::new()
+        .route(
+            routes["music"]["stream_blob"].path,
+            get(blobs::stream_blob_handler),
+        )
+        .route(
+            routes["music"]["blob_metadata"].path,
+            get(blobs::blob_metadata_handler),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)
@@ -324,6 +327,8 @@ pub fn build_router() -> Router<AppState> {
         .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         // webauthn routes (require origin validation)
         .merge(webauthn_routes)
+        // blob routes (auth only, no origin validation)
+        .merge(blob_routes)
         // protected routes
         .merge(protected_routes);
 
@@ -339,6 +344,8 @@ pub fn build_router() -> Router<AppState> {
             post(auth::handlers::redeem_invite),
         )
         .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
+        // blob routes (auth only, no origin validation)
+        .merge(blob_routes)
         // protected routes
         .merge(protected_routes);
 

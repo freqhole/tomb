@@ -1,11 +1,24 @@
 // main app layout with navigation, content area, and player bar
 import { useLocation, useNavigate } from "@solidjs/router";
-import { createEffect, createSignal, onMount, Show, type JSX } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onMount,
+  Show,
+  type JSX,
+} from "solid-js";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { TopNav } from "../components/navigation/TopNav";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import { getCurrentRemote, useLocalSource } from "../music/data";
+import {
+  getCurrentRemote,
+  getDataSource,
+  useLocalSource,
+  useRemoteSource,
+} from "../music/data";
 import {
   canGoNext,
   canGoPrevious,
@@ -24,9 +37,9 @@ import {
 import {
   deactivateAllRemotes,
   getAllRemotes,
+  getRemoteById,
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
-import { getSongById } from "../music/services/storage/db";
 import type { Remote, Song } from "../music/services/storage/types";
 import {
   appState,
@@ -42,7 +55,9 @@ interface AppLayoutProps {
 export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
+  const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
 
@@ -61,7 +76,8 @@ export function AppLayout(props: AppLayoutProps) {
     try {
       await deactivateAllRemotes();
       useLocalSource();
-      window.location.reload();
+      // invalidate all queries to refetch from local source
+      queryClient.invalidateQueries();
     } catch (error) {
       console.error("failed to switch to local:", error);
     }
@@ -71,22 +87,30 @@ export function AppLayout(props: AppLayoutProps) {
   const handleSwitchToRemote = async (remoteId: string) => {
     try {
       await setActiveRemote(remoteId);
-      window.location.reload();
+      // switch data source to remote
+      const remote = await getRemoteById(remoteId);
+      if (remote) {
+        useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+        // invalidate all queries to refetch from remote source
+        queryClient.invalidateQueries();
+      }
     } catch (error) {
       console.error("failed to switch to remote:", error);
     }
   };
 
-  const currentRemote = getCurrentRemote();
-  const currentSourceName = () =>
-    currentRemote ? currentRemote.name : "local library";
+  const currentSourceName = createMemo(() => {
+    const remote = getCurrentRemote();
+    return remote ? remote.name : "local library";
+  });
 
   // watch for current song changes and load song data
   createEffect(() => {
     const state = appState();
     if (state?.current_song_id) {
       void (async () => {
-        const song = await getSongById(state.current_song_id);
+        const dataSource = getDataSource();
+        const song = await dataSource.getSongById(state.current_song_id);
         setCurrentSongData(song || null);
       })();
     } else {

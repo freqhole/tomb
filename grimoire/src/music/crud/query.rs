@@ -529,6 +529,18 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         }
     }
 
+    // Handle song_ids filter (song-specific, not in global filters)
+    // supports array of song IDs (can be single or multiple)
+    if let Some(song_ids) = params.filters.get("song_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = song_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            query.and_where(Expr::col(SongView::SongId).is_in(ids));
+        }
+    }
+
     add_global_filters(
         &mut query,
         &params,

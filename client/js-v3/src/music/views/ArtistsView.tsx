@@ -1,12 +1,6 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate } from "@solidjs/router";
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
@@ -19,9 +13,10 @@ import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
-import { getDataSource } from "../data";
+import { getCurrentRemote } from "../data";
+import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import { querySongsWithDetails, songsVersion } from "../services/storage/db";
+import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -45,38 +40,41 @@ export function ArtistsView(props: ArtistsViewProps) {
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
   const [currentLetter, setCurrentLetter] = createSignal<string | null>(null);
 
-  // fetch artists from data source - refetch when songsVersion changes
-  const [artistsData] = createResource(songsVersion, async () => {
-    const source = getDataSource();
-    if (!source.getArtists) {
-      return { items: [], total: 0, offset: 0, limit: 50, has_more: false };
-    }
-    return source.getArtists({ limit: 1000 });
+  // fetch artists using tanstack query (works with local + remote)
+  const artistsQuery = useArtistsQuery(1000);
+
+  // flatten all pages of artists
+  const artistsData = createMemo(() => {
+    const pages = artistsQuery.data?.pages ?? [];
+    return pages.flatMap((page) => page.items);
   });
 
-  // fetch songs for selected artist
-  const [artistSongs] = createResource(selectedArtistId, async (artistId) => {
-    if (!artistId) return [];
-    const songResults = await querySongsWithDetails({ artistId });
-    const songs = songResults.map((r) => ({
-      song_id: r.song.song_id,
-      title: r.song.title,
-      album_id: r.song.album_id,
-      album_title: r.song.album_title,
-      track_number: r.song.track_number,
-      disc_number: r.song.disc_number,
-      duration: r.song.duration,
-      year: r.song.year,
+  // fetch songs for selected artist using tanstack query
+  const artistSongsQuery = useArtistSongsQuery(() => selectedArtistId());
+
+  // map to expected format for detail panel
+  const artistSongs = createMemo(() => {
+    const result = artistSongsQuery.data;
+    if (!result || result.items.length === 0) return [];
+
+    return result.items.map((song) => ({
+      song_id: song.song_id,
+      title: song.title,
+      album_id: song.album_id,
+      album_title: song.album_title,
+      track_number: song.track_number,
+      disc_number: song.disc_number,
+      duration: song.duration,
+      year: song.year,
     }));
-    return songs;
   });
 
   // sort artists
   const sortedArtists = createMemo(() => {
     const data = artistsData();
-    if (!data || !data.items.length) return [];
+    if (!data || data.length === 0) return [];
 
-    const sorted = [...data.items];
+    const sorted = [...data];
     const dir = sortDirection() === "asc" ? 1 : -1;
     const currentSortBy = sortBy();
 
@@ -168,6 +166,14 @@ export function ArtistsView(props: ArtistsViewProps) {
     const songs = artistSongs();
     if (!songs || songs.length === 0) return [];
 
+    // for remote sources, we already have full song data from the query
+    const remote = getCurrentRemote();
+    if (remote) {
+      const result = artistSongsQuery.data;
+      return result?.items || [];
+    }
+
+    // for local sources, need to query full details
     const songResults = await querySongsWithDetails({
       artistId: selectedArtistId()!,
     });
@@ -211,8 +217,19 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // play specific album
   const handlePlayAlbum = async (albumId: string) => {
-    const songResults = await querySongsWithDetails({ albumId });
-    const songs = songResults.map((r) => r.song);
+    // for remote sources, use artist songs filtered by album
+    const remote = getCurrentRemote();
+    let songs: Song[];
+
+    if (remote) {
+      const result = artistSongsQuery.data;
+      songs = result?.items.filter((s) => s.album_id === albumId) || [];
+    } else {
+      // for local sources, query from db
+      const songResults = await querySongsWithDetails({ albumId });
+      songs = songResults.map((r) => r.song);
+    }
+
     const sortedSongs = sortSongsCanonical(songs);
 
     if (sortedSongs.length === 0) return;
@@ -222,8 +239,19 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // add album to queue
   const handleAddAlbumToQueue = async (albumId: string) => {
-    const songResults = await querySongsWithDetails({ albumId });
-    const songs = songResults.map((r) => r.song);
+    // for remote sources, use artist songs filtered by album
+    const remote = getCurrentRemote();
+    let songs: Song[];
+
+    if (remote) {
+      const result = artistSongsQuery.data;
+      songs = result?.items.filter((s) => s.album_id === albumId) || [];
+    } else {
+      // for local sources, query from db
+      const songResults = await querySongsWithDetails({ albumId });
+      songs = songResults.map((r) => r.song);
+    }
+
     const sortedSongs = sortSongsCanonical(songs);
 
     const state = appState();
@@ -233,8 +261,19 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // play specific song
   const handleSongDoubleClick = async (songId: string, albumId: string) => {
-    const songResults = await querySongsWithDetails({ albumId });
-    const songs = songResults.map((r) => r.song);
+    // for remote sources, use artist songs filtered by album
+    const remote = getCurrentRemote();
+    let songs: Song[];
+
+    if (remote) {
+      const result = artistSongsQuery.data;
+      songs = result?.items.filter((s) => s.album_id === albumId) || [];
+    } else {
+      // for local sources, query from db
+      const songResults = await querySongsWithDetails({ albumId });
+      songs = songResults.map((r) => r.song);
+    }
+
     const sortedSongs = sortSongsCanonical(songs);
 
     await setQueue(sortedSongs);
@@ -356,8 +395,8 @@ export function ArtistsView(props: ArtistsViewProps) {
             artists
           </h1>
           <p class="text-sm text-[var(--color-text-secondary)]">
-            {artistsData()?.total ?? 0}{" "}
-            {artistsData()?.total === 1 ? "artist" : "artists"}
+            {artistsData().length ?? 0}{" "}
+            {artistsData().length === 1 ? "artist" : "artists"}
           </p>
         </div>
         <Button variant="primary" onClick={props.onAddMusic}>
