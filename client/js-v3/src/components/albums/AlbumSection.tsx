@@ -1,6 +1,7 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
 import { SongRow } from "../songs/SongRow";
+import { MarqueeText } from "../text/MarqueeText";
 
 export interface AlbumSectionSong {
   id: string;
@@ -90,9 +91,9 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
         <div class="flex-1 min-w-0">
           <button
             onClick={handleAlbumClick}
-            class="text-xl font-semibold text-[var(--color-text-primary)] truncate hover:underline text-left block"
+            class="text-xl font-semibold text-[var(--color-text-primary)] hover:underline text-left block"
           >
-            {props.albumTitle}
+            <MarqueeText text={props.albumTitle} hoverOnly={true} />
           </button>
           <div class="text-sm text-[var(--color-text-secondary)]">
             {props.songs.length} tracks · {formatAlbumDuration(totalDuration())}

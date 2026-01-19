@@ -1,5 +1,6 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, For, JSX } from "solid-js";
+import { MarqueeText } from "../text/MarqueeText";
 
 export interface ListItem {
   id: string;
@@ -92,7 +93,9 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   `}
                   onClick={() => handleItemClick(item)}
                 >
-                  <div class="font-medium text-base">{item.title}</div>
+                  <div class="font-medium text-base">
+                    <MarqueeText text={item.title} hoverOnly={true} />
+                  </div>
                   {item.subtitle && (
                     <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
                       {item.subtitle}

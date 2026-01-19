@@ -8,6 +8,7 @@ import {
   Show,
   untrack,
 } from "solid-js";
+import { MarqueeText } from "../text/MarqueeText";
 
 export interface Song {
   id: string;
@@ -379,14 +380,16 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
                   {/* title */}
                   <div class="px-4 min-w-0">
-                    <div class="truncate font-medium">{song.title}</div>
+                    <div class="font-medium">
+                      <MarqueeText text={song.title} hoverOnly={true} />
+                    </div>
                   </div>
 
                   {/* artist */}
                   <Show when={showArtist()}>
                     <div class="px-4 min-w-0">
-                      <div class="truncate text-[var(--color-text-secondary)]">
-                        {song.artist}
+                      <div class="text-[var(--color-text-secondary)]">
+                        <MarqueeText text={song.artist} hoverOnly={true} />
                       </div>
                     </div>
                   </Show>
@@ -394,16 +397,16 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   {/* album */}
                   <Show when={showAlbum()}>
                     <div class="px-4 min-w-0">
-                      <div class="truncate text-[var(--color-text-secondary)]">
-                        {song.album}
+                      <div class="text-[var(--color-text-secondary)]">
+                        <MarqueeText text={song.album} hoverOnly={true} />
                       </div>
                     </div>
                   </Show>
 
                   {/* genre */}
                   <div class="px-4 min-w-0">
-                    <div class="truncate text-[var(--color-text-tertiary)] text-sm">
-                      {song.genre || "—"}
+                    <div class="text-[var(--color-text-tertiary)] text-sm">
+                      <MarqueeText text={song.genre || "—"} hoverOnly={true} />
                     </div>
                   </div>
 
@@ -464,8 +467,11 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   {/* tags */}
                   <Show when={showTags()}>
                     <div class="px-4 min-w-0">
-                      <div class="truncate text-xs text-[var(--color-text-muted)]">
-                        {song.tags?.join(", ") || ""}
+                      <div class="text-xs text-[var(--color-text-muted)]">
+                        <MarqueeText
+                          text={song.tags?.join(", ") || ""}
+                          hoverOnly={true}
+                        />
                       </div>
                     </div>
                   </Show>

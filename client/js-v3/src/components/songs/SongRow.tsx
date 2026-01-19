@@ -1,5 +1,6 @@
 // reusable song row component for displaying a single song in a list
 import type { JSX } from "solid-js";
+import { MarqueeText } from "../text/MarqueeText";
 
 export interface SongRowProps {
   /** song title */
@@ -62,13 +63,13 @@ export function SongRow(props: SongRowProps): JSX.Element {
       {/* song title */}
       <div class="flex-1 min-w-0">
         <div
-          class={`truncate ${
+          class={`${
             props.isPlaying
               ? "text-[var(--color-accent)]"
               : "text-[var(--color-text-primary)]"
           }`}
         >
-          {props.title}
+          <MarqueeText text={props.title} hoverOnly={true} />
         </div>
       </div>
 

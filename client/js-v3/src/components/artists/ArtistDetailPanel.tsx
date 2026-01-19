@@ -8,6 +8,7 @@ import {
   StatsCard,
   StatsGrid,
 } from "../cards/StatsCard";
+import { MarqueeText } from "../text/MarqueeText";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -111,7 +112,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       {/* artist header with stats */}
       <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-border-default)] p-6">
         <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-          {props.artist.name}
+          <MarqueeText text={props.artist.name} hoverOnly={true} />
         </h2>
 
         <StatsGrid columns={3} gap="md" class="mb-6">

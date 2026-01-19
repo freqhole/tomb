@@ -46,6 +46,7 @@ async function loadAppState(): Promise<AppState> {
       current_song_id: null,
       queue: [],
       queue_open: false,
+      active_remote_id: null,
       last_updated: Date.now(),
     };
     await db.put(STORE_APP_STATE, state);
@@ -96,6 +97,11 @@ async function setQueueOpen(isOpen: boolean): Promise<void> {
   await updateAppState({ queue_open: isOpen });
 }
 
+// set active remote id
+async function setActiveRemoteId(remoteId: string | null): Promise<void> {
+  await updateAppState({ active_remote_id: remoteId });
+}
+
 // clear all app data
 async function clearAppData(): Promise<void> {
   const db = await initAppDB();
@@ -108,6 +114,7 @@ export {
   clearAppData,
   initAppDB,
   loadAppState,
+  setActiveRemoteId,
   setCurrentSong,
   setQueue,
   setQueueOpen,
