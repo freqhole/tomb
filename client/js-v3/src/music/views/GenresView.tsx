@@ -1,36 +1,26 @@
 // genres view - displays all genres in a two-column layout
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
-import { IconButton } from "../../components/buttons/IconButton";
-import {
-  formatNumber,
-  StatsCard,
-  StatsGrid,
-} from "../../components/cards/StatsCard";
+import { formatNumber } from "../../components/cards/StatsCard";
 import { SearchSortControls } from "../../components/controls/SearchSortControls";
+import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
-import { getDataSource } from "../data";
+import { getCurrentRemote, getDataSource } from "../data";
+import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import { songsVersion } from "../services/storage/db";
+import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { sortSongsCanonical } from "../utils/songSort";
 
 export interface GenresViewProps {
   onAddMusic: () => void;
-  onGenreClick?: (genreId: string) => void;
 }
 
 const genreSortFields = [
@@ -40,37 +30,38 @@ const genreSortFields = [
 ];
 
 export function GenresView(props: GenresViewProps) {
+  const navigate = useNavigate();
   const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(
     null,
   );
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
 
-  // fetch genres from data source - refetch when songsVersion changes
-  const [genresData] = createResource(songsVersion, async () => {
-    const source = getDataSource();
-    if (!source.getGenres) {
-      return { items: [], total: 0, offset: 0, limit: 50, has_more: false };
-    }
-    return source.getGenres({ limit: 1000 });
+  // fetch genres using tanstack query (works with local + remote)
+  const genresQuery = useGenresQuery(1000);
+
+  // flatten all pages of genres
+  const genresData = createMemo(() => {
+    const pages = genresQuery.data?.pages ?? [];
+    return pages.flatMap((page) => page.items);
   });
 
-  // fetch songs for selected genre
-  const [genreSongs] = createResource(selectedGenreId, async (genreId) => {
-    if (!genreId) return [];
-    const source = getDataSource();
-    if (!source.getGenreSongs) return [];
-    const result = await source.getGenreSongs(genreId, { limit: 100 });
-    // sort canonically: by album, then disc+track
+  // fetch songs for selected genre using tanstack query
+  const genreSongsQuery = useGenreSongsQuery(() => selectedGenreId());
+
+  // map to expected format for detail panel
+  const genreSongs = createMemo(() => {
+    const result = genreSongsQuery.data;
+    if (!result || result.items.length === 0) return [];
     return sortSongsCanonical(result.items);
   });
 
   // sort genres
   const sortedGenres = createMemo(() => {
     const data = genresData();
-    if (!data || !data.items.length) return [];
+    if (!data || data.length === 0) return [];
 
-    const sorted = [...data.items];
+    const sorted = [...data];
     const dir = sortDirection() === "asc" ? 1 : -1;
     const currentSortBy = sortBy();
 
@@ -156,6 +147,36 @@ export function GenresView(props: GenresViewProps) {
     await setQueue(newQueue);
   };
 
+  // navigate to album detail
+  const handleAlbumClick = (albumId: string) => {
+    navigate(`/albums/${albumId}`);
+  };
+
+  // play specific album
+  const handlePlayAlbum = async (albumId: string) => {
+    const songs = genreSongs().filter((s) => s.album_id === albumId);
+    const sortedSongs = sortSongsCanonical(songs);
+
+    if (sortedSongs.length === 0) return;
+    await setQueue(sortedSongs);
+    await playSong(sortedSongs[0].song_id);
+  };
+
+  // add album to queue
+  const handleAddAlbumToQueue = async (albumId: string) => {
+    const songs = genreSongs().filter((s) => s.album_id === albumId);
+    const sortedSongs = sortSongsCanonical(songs);
+
+    const state = appState();
+    const currentQueue = state?.queue || [];
+    await setQueue([...currentQueue, ...sortedSongs]);
+  };
+
+  // navigate to artist detail
+  const handleArtistClick = (artistId: string) => {
+    navigate(`/artists/${artistId}`);
+  };
+
   // left column - genre list
   const leftColumn = (
     <div class="flex flex-col h-full">
@@ -200,7 +221,6 @@ export function GenresView(props: GenresViewProps) {
             selectedId={selectedGenreId()}
             onItemClick={(item) => {
               setSelectedGenreId(item.id);
-              props.onGenreClick?.(item.id);
             }}
             height={window.innerHeight - 120}
           />
@@ -232,91 +252,17 @@ export function GenresView(props: GenresViewProps) {
       }
     >
       {(genre) => (
-        <div class="flex flex-col h-full overflow-y-auto">
-          {/* genre header with stats */}
-          <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] p-6">
-            <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-              {genre().name}
-            </h2>
-
-            <StatsGrid columns={2} gap="md" class="mb-6">
-              <StatsCard
-                label="songs"
-                value={formatNumber(genre().song_count)}
-                icon="music"
-              />
-              <StatsCard
-                label="albums"
-                value={formatNumber(genre().album_count)}
-                icon="album"
-              />
-            </StatsGrid>
-
-            {/* action buttons */}
-            <div class="flex gap-3">
-              <Button variant="primary" onClick={handlePlayAll}>
-                play all
-              </Button>
-              <Button variant="secondary" onClick={handleShuffle}>
-                shuffle
-              </Button>
-              <Button variant="ghost" onClick={handleAddToQueue}>
-                add to queue
-              </Button>
-            </div>
-          </div>
-
-          {/* top songs list */}
-          <div class="flex-1 px-6 py-4 overflow-y-auto">
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                top songs
-              </h3>
-            </div>
-            <Show
-              when={(genreSongs() || []).length > 0}
-              fallback={
-                <p class="text-[var(--color-text-tertiary)] text-sm">
-                  loading songs...
-                </p>
-              }
-            >
-              <div class="space-y-1">
-                <For each={genreSongs()?.slice(0, 20)}>
-                  {(song) => (
-                    <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                      <IconButton
-                        icon="play"
-                        size="sm"
-                        variant="ghost"
-                        aria-label="play song"
-                        onClick={() => {
-                          const songs = genreSongs() || [];
-                          void setQueue(songs);
-                          void playSong(song.song_id);
-                        }}
-                      />
-                      <div class="flex-1 min-w-0">
-                        <div class="text-sm text-[var(--color-text-primary)] truncate">
-                          {song.title}
-                        </div>
-                        <div class="text-xs text-[var(--color-text-tertiary)] truncate">
-                          {song.artist_name} · {song.album_title}
-                        </div>
-                      </div>
-                      <div class="text-xs text-[var(--color-text-muted)] tabular-nums">
-                        {Math.floor(song.duration_seconds / 60)}:
-                        {String(
-                          Math.floor(song.duration_seconds % 60),
-                        ).padStart(2, "0")}
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-        </div>
+        <GenreDetailPanel
+          genre={genre()}
+          songs={genreSongs()}
+          onPlayAll={handlePlayAll}
+          onShuffle={handleShuffle}
+          onAddToQueue={handleAddToQueue}
+          onAlbumClick={handleAlbumClick}
+          onPlayAlbum={handlePlayAlbum}
+          onAddAlbumToQueue={handleAddAlbumToQueue}
+          onArtistClick={handleArtistClick}
+        />
       )}
     </Show>
   );
@@ -330,8 +276,8 @@ export function GenresView(props: GenresViewProps) {
             genres
           </h1>
           <p class="text-sm text-[var(--color-text-secondary)]">
-            {genresData()?.total ?? 0}{" "}
-            {genresData()?.total === 1 ? "genre" : "genres"}
+            {genresData().length ?? 0}{" "}
+            {genresData().length === 1 ? "genre" : "genres"}
           </p>
         </div>
         <Button variant="primary" onClick={props.onAddMusic}>

@@ -1,15 +1,13 @@
 // album detail view - shows album info and songs list
 import { useNavigate, useParams } from "@solidjs/router";
-import { createResource, For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { SongRow } from "../../components/songs/SongRow";
+import { getCurrentRemote, getDataSource } from "../data";
+import { useAlbumSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import {
-  getAlbumById,
-  querySongsWithDetails,
-  songsVersion,
-} from "../services/storage/db";
+import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -25,64 +23,64 @@ export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  // fetch album and songs
-  const [data] = createResource(
-    () => [params.id, songsVersion()] as const,
-    async ([albumId]) => {
-      const album = await getAlbumById(albumId);
-      if (!album) return null;
+  // fetch album songs using tanstack query (works with local + remote)
+  const albumSongsQuery = useAlbumSongsQuery(() => params.id);
 
-      const songResults = await querySongsWithDetails({ albumId });
-      const songs = songResults.map((r) => r.song);
-      const sortedSongs = sortSongsCanonical(songs);
+  // map and sort songs
+  const songs = createMemo(() => {
+    const result = albumSongsQuery.data;
+    if (!result || result.items.length === 0) return [];
+    return sortSongsCanonical(result.items);
+  });
 
-      // calculate total duration
-      const totalDuration = sortedSongs.reduce(
-        (sum, song) => sum + song.duration_seconds,
-        0,
-      );
+  // calculate total duration
+  const totalDuration = createMemo(() => {
+    return songs().reduce((sum, song) => sum + song.duration_seconds, 0);
+  });
 
-      return {
-        album,
-        songs: sortedSongs,
-        songResults,
-        totalDuration,
-      };
-    },
-  );
+  // for remote sources, extract album info from first song
+  // for local sources, query album metadata
+  const albumInfo = createMemo(() => {
+    const songList = songs();
+    if (songList.length === 0) return null;
+
+    const firstSong = songList[0];
+    return {
+      album_id: firstSong.album_id,
+      title: firstSong.album_title,
+      artist_id: firstSong.artist_id,
+      year: firstSong.year,
+    };
+  });
 
   // play entire album
   const handlePlayAlbum = async () => {
-    const d = data();
-    if (!d || d.songs.length === 0) return;
+    const songList = songs();
+    if (songList.length === 0) return;
 
-    await setQueue(d.songs);
-    await playSong(d.songs[0].song_id);
-  };
-
-  const handleSongClick = (song: Song) => {
-    // could show song details or other action
+    await setQueue(songList);
+    await playSong(songList[0].song_id);
   };
 
   const handleSongDoubleClick = async (song: Song) => {
-    const d = data();
-    if (!d) return;
+    const songList = songs();
+    if (songList.length === 0) return;
 
     // set queue to all album songs and play the clicked one
-    await setQueue(d.songs);
+    await setQueue(songList);
     await playSong(song.song_id);
   };
 
   const handleArtistClick = () => {
-    const d = data();
-    if (!d || !d.album.artist_id) return;
-    navigate(`/artists/${d.album.artist_id}`);
+    const info = albumInfo();
+    if (!info?.artist_id) return;
+    navigate(`/artists/${info.artist_id}`);
   };
 
   return (
     <div class="flex flex-col h-full">
-      <Show when={data()} fallback={<div class="p-4">loading...</div>}>
-        {(d) => (
+      <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
+        {(info) => (
           <>
             {/* header with album info */}
             <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
@@ -99,28 +97,27 @@ export function AlbumDetailView() {
                   album
                 </div>
                 <h1 class="text-4xl font-bold text-[var(--color-text-primary)] truncate">
-                  {d().album.title}
+                  {info().title}
                 </h1>
                 <div class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
                   <button
                     onClick={handleArtistClick}
                     class="hover:text-[var(--color-text-primary)] hover:underline"
                   >
-                    {d().songs[0]?.artist_name || "unknown artist"}
+                    {songs()[0]?.artist_name || "unknown artist"}
                   </button>
-                  {d().album.year && (
+                  {info().year && (
                     <>
                       <span>•</span>
-                      <span>{d().album.year}</span>
+                      <span>{info().year}</span>
                     </>
                   )}
                   <span>•</span>
                   <span>
-                    {d().songs.length}{" "}
-                    {d().songs.length === 1 ? "song" : "songs"}
+                    {songs().length} {songs().length === 1 ? "song" : "songs"}
                   </span>
                   <span>•</span>
-                  <span>{formatDuration(d().totalDuration)}</span>
+                  <span>{formatDuration(totalDuration())}</span>
                 </div>
 
                 {/* play button */}
@@ -135,7 +132,7 @@ export function AlbumDetailView() {
             {/* songs list */}
             <div class="flex-1 overflow-auto">
               <div class="p-6 space-y-1">
-                <For each={d().songs}>
+                <For each={songs()}>
                   {(song) => {
                     const trackDisplay =
                       song.disc_number > 1

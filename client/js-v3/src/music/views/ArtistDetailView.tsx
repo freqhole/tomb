@@ -1,18 +1,15 @@
 // artist detail view - shows artist info with songs grouped by album
 import { useNavigate, useParams } from "@solidjs/router";
-import { createMemo, createResource, For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import {
   AlbumSection,
   type AlbumSectionSong,
 } from "../../components/albums/AlbumSection";
 import { Button } from "../../components/buttons/Button";
+import { getCurrentRemote, getDataSource } from "../data";
+import { useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import {
-  getArtistById,
-  querySongsWithDetails,
-  songsVersion,
-} from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -38,31 +35,37 @@ export function ArtistDetailView() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  // fetch artist and songs
-  const [data] = createResource(
-    () => [params.id, songsVersion()] as const,
-    async ([artistId]) => {
-      const artist = await getArtistById(artistId);
-      if (!artist) return null;
+  // fetch artist songs using tanstack query (works with local + remote)
+  const artistSongsQuery = useArtistSongsQuery(() => params.id);
 
-      const songResults = await querySongsWithDetails({ artistId });
-      const songs = songResults.map((r) => r.song);
+  // map to song array
+  const songs = createMemo(() => {
+    const result = artistSongsQuery.data;
+    if (!result || result.items.length === 0) return [];
+    return result.items;
+  });
 
-      return {
-        artist,
-        songs,
-      };
-    },
-  );
+  // for remote sources, extract artist info from first song
+  // for local sources, use song metadata
+  const artistInfo = createMemo(() => {
+    const songList = songs();
+    if (songList.length === 0) return null;
+
+    const firstSong = songList[0];
+    return {
+      artist_id: firstSong.artist_id,
+      name: firstSong.artist_name,
+    };
+  });
 
   // group songs by album
   const albumGroups = createMemo((): AlbumGroup[] => {
-    const d = data();
-    if (!d) return [];
+    const songList = songs();
+    if (songList.length === 0) return [];
 
     const groups = new Map<string, AlbumGroup>();
 
-    d.songs.forEach((song) => {
+    songList.forEach((song) => {
       if (!groups.has(song.album_id)) {
         groups.set(song.album_id, {
           albumId: song.album_id,
@@ -102,29 +105,26 @@ export function ArtistDetailView() {
     return sortedGroups;
   });
 
-  const totalSongs = () => data()?.songs.length ?? 0;
+  const totalSongs = () => songs().length ?? 0;
   const totalDuration = () =>
-    data()?.songs.reduce((sum, song) => sum + song.duration_seconds, 0) ?? 0;
+    songs().reduce((sum, song) => sum + song.duration_seconds, 0) ?? 0;
 
   // play all artist songs
   const handlePlayArtist = async () => {
-    const d = data();
-    if (!d || d.songs.length === 0) return;
+    const songList = songs();
+    if (songList.length === 0) return;
 
-    await setQueue(d.songs);
-    await playSong(d.songs[0].song_id);
+    await setQueue(songList);
+    await playSong(songList[0].song_id);
   };
 
   // play specific album
   const handlePlayAlbum = async (albumId: string) => {
-    const d = data();
-    if (!d) return;
-
     const album = albumGroups().find((g) => g.albumId === albumId);
     if (!album || album.songs.length === 0) return;
 
     // get actual Song objects for queue
-    const albumSongs = d.songs.filter((s) => s.album_id === albumId);
+    const albumSongs = songs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(albumSongs);
 
     await setQueue(sortedSongs);
@@ -133,13 +133,10 @@ export function ArtistDetailView() {
 
   // add album to queue
   const handleAddAlbumToQueue = async (albumId: string) => {
-    const d = data();
-    if (!d) return;
-
-    const albumSongs = d.songs.filter((s) => s.album_id === albumId);
+    const albumSongs = songs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(albumSongs);
 
-    const currentQueue = d.songs ?? [];
+    const currentQueue = songs() ?? [];
     await setQueue([...currentQueue, ...sortedSongs]);
   };
 
@@ -147,11 +144,8 @@ export function ArtistDetailView() {
     song: AlbumSectionSong,
     albumId: string,
   ) => {
-    const d = data();
-    if (!d) return;
-
     // set queue to all album songs and play the clicked one
-    const albumSongs = d.songs.filter((s) => s.album_id === albumId);
+    const albumSongs = songs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(albumSongs);
 
     await setQueue(sortedSongs);
@@ -164,15 +158,15 @@ export function ArtistDetailView() {
 
   return (
     <div class="flex flex-col h-full">
-      <Show when={data()} fallback={<div class="p-4">loading...</div>}>
-        {(d) => (
+      <Show when={artistInfo()} fallback={<div class="p-4">loading...</div>}>
+        {(info) => (
           <>
             {/* header with artist info */}
             <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
               {/* artist avatar placeholder */}
               <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0">
                 <span class="text-6xl text-[var(--color-text-tertiary)]">
-                  {d().artist.name[0].toUpperCase()}
+                  {info().name[0].toUpperCase()}
                 </span>
               </div>
 
@@ -182,7 +176,7 @@ export function ArtistDetailView() {
                   artist
                 </div>
                 <h1 class="text-4xl font-bold text-[var(--color-text-primary)] truncate">
-                  {d().artist.name}
+                  {info().name}
                 </h1>
                 <div class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
                   <span>
