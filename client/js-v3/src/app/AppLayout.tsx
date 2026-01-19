@@ -108,11 +108,20 @@ export function AppLayout(props: AppLayoutProps) {
   createEffect(() => {
     const state = appState();
     if (state?.current_song_id) {
-      void (async () => {
-        const dataSource = getDataSource();
-        const song = await dataSource.getSongById(state.current_song_id);
-        setCurrentSongData(song || null);
-      })();
+      // first check if song is in queue (avoids fetching from wrong remote)
+      const songInQueue = state.queue.find(
+        (s) => s.song_id === state.current_song_id,
+      );
+      if (songInQueue) {
+        setCurrentSongData(songInQueue);
+      } else {
+        // fallback: fetch from current data source
+        void (async () => {
+          const dataSource = getDataSource();
+          const song = await dataSource.getSongById(state.current_song_id);
+          setCurrentSongData(song || null);
+        })();
+      }
     } else {
       setCurrentSongData(null);
     }
@@ -212,13 +221,13 @@ export function AppLayout(props: AppLayoutProps) {
           onSongClick={(index) => {
             const state = appState();
             if (state?.queue[index]) {
-              void playSong(state.queue[index].song_id);
+              void playSong(state.queue[index]);
             }
           }}
           onSongDoubleClick={(index) => {
             const state = appState();
             if (state?.queue[index]) {
-              void playSong(state.queue[index].song_id);
+              void playSong(state.queue[index]);
             }
           }}
           onRemoveSong={(index) => {

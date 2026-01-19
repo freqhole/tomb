@@ -150,16 +150,22 @@ async function updateMediaSession() {
 }
 
 // play a specific song
-export async function playSong(songId: string): Promise<void> {
+export async function playSong(songOrId: string | Song): Promise<void> {
   const audio = initAudio();
   setIsLoading(true);
 
   try {
-    // get song from data source (local or remote)
-    const dataSource = getDataSource();
-    const song = await dataSource.getSongById(songId);
-    if (!song) {
-      throw new Error(`song not found: ${songId}`);
+    // get song - either use provided Song object or fetch by id
+    let song: Song;
+    if (typeof songOrId === "string") {
+      const dataSource = getDataSource();
+      const fetchedSong = await dataSource.getSongById(songOrId);
+      if (!fetchedSong) {
+        throw new Error(`song not found: ${songOrId}`);
+      }
+      song = fetchedSong;
+    } else {
+      song = songOrId;
     }
 
     // cleanup previous audio url
@@ -169,14 +175,14 @@ export async function playSong(songId: string): Promise<void> {
 
     // get audio url using abstraction
     const audioURL = await getAudioURL(song);
-    currentSongId = songId;
+    currentSongId = song.song_id;
 
     // load and play
     audio.src = audioURL;
     await audio.play();
 
     // update app state
-    await setCurrentSong(songId);
+    await setCurrentSong(song.song_id);
 
     setIsLoading(false);
   } catch (error) {
@@ -262,7 +268,7 @@ export async function playNext(): Promise<void> {
     : -1;
   const nextIdx = currentIdx + 1;
 
-  await playSong(state.queue[nextIdx].song_id);
+  await playSong(state.queue[nextIdx]);
 }
 
 // play previous song in queue
@@ -276,7 +282,7 @@ export async function playPrevious(): Promise<void> {
     : -1;
   const prevIdx = currentIdx - 1;
 
-  await playSong(state.queue[prevIdx].song_id);
+  await playSong(state.queue[prevIdx]);
 }
 
 // handle song ended
