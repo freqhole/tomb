@@ -27,8 +27,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverInfo, setServerInfo] = createSignal<{
+    server_id: string;
     name: string;
-    version?: string;
+    description?: string | null;
+    version: string;
+    image_url?: string | null;
     requiresAuth: boolean;
   } | null>(null);
 
@@ -73,31 +76,39 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setStep("testing");
 
     try {
-      // test connection using whoami endpoint
+      // fetch server info from /api/hello (public endpoint)
+      const helloResult = await apiClient.app.getServerInfo(remoteUrl);
+
+      if (!helloResult.success || !helloResult.data) {
+        throw new Error("failed to fetch server info");
+      }
+
+      const info = helloResult.data;
+
+      // test connection using whoami endpoint to check auth status
       const whoamiResult = await apiClient.auth.whoami(remoteUrl);
 
       if (whoamiResult.success) {
         // already authenticated, complete setup immediately
         setServerInfo({
-          name: whoamiResult.data.username || "remote server",
-          version: undefined,
+          server_id: info.server_id,
+          name: info.name,
+          description: info.description,
+          version: info.version,
+          image_url: info.image_url,
           requiresAuth: true,
         });
         await completeSetup();
         return;
       }
 
-      // not authenticated yet - need to auth
-      // try health check to verify server is reachable
-      const healthResult = await apiClient.app.healthCheck(remoteUrl);
-
-      if (!healthResult.success) {
-        throw new Error("server is not responding");
-      }
-
+      // not authenticated yet - show server info and move to auth step
       setServerInfo({
-        name: "remote server",
-        version: undefined,
+        server_id: info.server_id,
+        name: info.name,
+        description: info.description,
+        version: info.version,
+        image_url: info.image_url,
         requiresAuth: true,
       });
 
@@ -255,10 +266,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // final step: save remote config
   const completeSetup = async () => {
     try {
-      // use url as the name
+      // createRemote will fetch server name from /api/hello
       const remoteUrl = url();
       const remote = await createRemote({
-        name: remoteUrl,
         base_url: remoteUrl,
       });
 
@@ -423,16 +433,39 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               {/* step 3: authenticate */}
               <Match when={step() === "auth"}>
                 <div class="space-y-4">
-                  {/*<div class="p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
-                    <p class="text-sm text-[var(--color-text-secondary)]">
-                      connected to <strong>{serverInfo()?.name}</strong>
-                    </p>
-                    <Show when={serverInfo()?.version}>
-                      <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                        version {serverInfo()?.version}
-                      </p>
-                    </Show>
-                  </div>*/}
+                  {/* server info display */}
+                  <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
+                    <div class="flex items-start gap-3">
+                      <Show
+                        when={serverInfo()?.image_url}
+                        fallback={
+                          <div class="w-12 h-12 rounded bg-[var(--color-bg-elevated)] flex items-center justify-center text-2xl">
+                            🎵
+                          </div>
+                        }
+                      >
+                        <img
+                          src={`${url()}${serverInfo()?.image_url}`}
+                          alt={serverInfo()?.name}
+                          class="w-12 h-12 rounded object-cover"
+                        />
+                      </Show>
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-[var(--color-text-primary)]">
+                          {serverInfo()?.name}
+                        </p>
+                        <Show when={serverInfo()?.description}>
+                          <p class="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                            {serverInfo()?.description}
+                          </p>
+                        </Show>
+                        <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                          version {serverInfo()?.version} •{" "}
+                          {serverInfo()?.server_id}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
                   <AuthForm
                     initialMode="login"

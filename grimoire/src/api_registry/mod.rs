@@ -102,7 +102,7 @@ pub mod type_registry {
     };
 
     // health types
-    use crate::health::{EmptyResponse, HealthResponse};
+    use crate::health::{EmptyResponse, HealthResponse, ServerInfoResponse};
 
     // music types
     use crate::media_blobz::{BlobMetadataResponse, MediaBlob};
@@ -177,6 +177,9 @@ pub mod type_registry {
 
         gen.add_schema::<EmptyResponse>("EmptyResponse");
         registered.insert("EmptyResponse".to_string());
+
+        gen.add_schema::<ServerInfoResponse>("ServerInfoResponse");
+        registered.insert("ServerInfoResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());

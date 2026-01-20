@@ -19,9 +19,9 @@ const [activeSource, setActiveSource] =
 
 // current remote info (for display)
 const [currentRemote, setCurrentRemote] = createSignal<{
-  id: string;
+  remote_id: string;
   name: string;
-  url: string;
+  base_url: string;
 } | null>(null);
 
 // get the currently active data source
@@ -54,7 +54,7 @@ export async function useRemoteSource(
   console.log(`switching to remote data source: ${name} (${baseUrl})`);
   const remoteSource = new RemoteMusicDataSource(baseUrl);
   setActiveSource(remoteSource);
-  setCurrentRemote({ id: remoteId, name, url: baseUrl });
+  setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
 
   // persist to app state and mark remote as active
   await setActiveRemoteId(remoteId);

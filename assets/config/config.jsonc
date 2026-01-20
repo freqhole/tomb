@@ -5,14 +5,6 @@
 // Server-specific settings (webauthn, sessions, etc.) belong in server's config.
 
 {
-  // Application metadata
-  "app": {
-    "name": "freqhole dev",
-    "version": "0.0.3",
-    "description": "Development music library server",
-    "id": "freqhole-e-dev"
-  },
-
   // Data directory - contains database, temp files, wordlist
   // Use absolute path for dev to work from any directory
   "data_dir": "/Users/edward/src/github/freqhole/tomb/data",
@@ -194,9 +186,20 @@
   // ========================================
 
   "server": {
+    // Server identification
+    "id": "freqhole-e-dev",
+    "name": "freqhole dev",
+    "version": "0.0.3",
+    "description": "Development music library server",
+
     // Server host and port
     "host": "127.0.0.1",
     "port": 8080,
+
+    // Server image (optional)
+    // Used by remote clients to display server icon/logo
+    // Image is served publicly at /api/hello/image (no auth required)
+    "image_path": "/Users/edward/src/github/freqhole/tomb/assets/freqhole.png",
 
     // Start job processor in the server (default: false)
     // When enabled, server spawns a background task to process jobs

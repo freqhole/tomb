@@ -159,7 +159,7 @@ export interface ArtistQueryResult {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 5; // bumped for playlist sync fields
+export const MUSIC_DB_VERSION = 6; // bumped for remote server info fields
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -182,4 +182,10 @@ export interface Remote {
   last_connected_at: number | null; // timestamp of last successful connection
   created_at: number;
   updated_at: number;
+  // server info (fetched from /api/hello)
+  server_id: string | null; // stable unique identifier from server
+  description: string | null; // server description
+  image_url: string | null; // server image/logo url
+  version: string | null; // server version
+  last_info_check: number | null; // timestamp of last server info fetch
 }

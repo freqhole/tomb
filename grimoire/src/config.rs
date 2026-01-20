@@ -14,8 +14,6 @@ static CONFIG: OnceCell<GrimoireConfig> = OnceCell::new();
 /// Main grimoire configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrimoireConfig {
-    /// Application metadata
-    pub app: AppInfo,
     /// Data directory - base directory for all data
     pub data_dir: PathBuf,
     /// Database configuration
@@ -29,19 +27,6 @@ pub struct GrimoireConfig {
     /// Server configuration (optional - only needed for server mode)
     #[serde(default)]
     pub server: Option<ServerConfig>,
-}
-
-/// Application metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppInfo {
-    /// Application name
-    pub name: String,
-    /// Application version
-    pub version: String,
-    /// Optional description
-    pub description: Option<String>,
-    /// Unique identifier for this instance
-    pub id: String,
 }
 
 /// Database configuration
@@ -125,6 +110,14 @@ pub struct LoggingConfig {
 /// Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
+    /// Unique identifier for this server instance (stable across restarts)
+    pub id: String,
+    /// Server display name
+    pub name: String,
+    /// Server version (semantic versioning recommended)
+    pub version: String,
+    /// Optional server description
+    pub description: Option<String>,
     /// Server host to bind to
     pub host: String,
     /// Server port to bind to
@@ -143,6 +136,9 @@ pub struct ServerConfig {
     /// When disabled, jobs must be processed via CLI (freqhole jobs run-processor)
     #[serde(default)]
     pub start_job_runner: bool,
+    /// Optional path to server image (served publicly for remote identification)
+    /// Path is relative to data_dir unless absolute
+    pub image_path: Option<PathBuf>,
 }
 
 /// Authentication configuration
@@ -379,12 +375,6 @@ mod tests {
     #[test]
     fn test_config_helper_methods() {
         let config = GrimoireConfig {
-            app: AppInfo {
-                name: "test".to_string(),
-                version: "1.0.0".to_string(),
-                description: None,
-                id: "test-id".to_string(),
-            },
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
@@ -417,12 +407,6 @@ mod tests {
     #[test]
     fn test_config_validation_invalid_log_level() {
         let config = GrimoireConfig {
-            app: AppInfo {
-                name: "test".to_string(),
-                version: "1.0.0".to_string(),
-                description: None,
-                id: "test-id".to_string(),
-            },
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
@@ -453,12 +437,6 @@ mod tests {
     #[test]
     fn test_config_validation_empty_filename() {
         let config = GrimoireConfig {
-            app: AppInfo {
-                name: "test".to_string(),
-                version: "1.0.0".to_string(),
-                description: None,
-                id: "test-id".to_string(),
-            },
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "".to_string(),
@@ -492,8 +470,8 @@ mod tests {
 pub struct ConfigValidationResponse {
     pub valid: bool,
     pub config_path: String,
-    pub app_name: String,
-    pub app_version: String,
+    pub server_name: String,
+    pub server_version: String,
     pub data_dir: String,
     pub database_path: String,
 }

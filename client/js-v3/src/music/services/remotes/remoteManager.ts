@@ -1,6 +1,7 @@
 // remote server management - CRUD operations for remote configurations
 // auth is handled via cookies, so no credentials stored here
 
+import { app } from "freqhole-api-client";
 import { initMusicDB } from "../storage/db";
 import { STORE_REMOTES, type Remote } from "../storage/types";
 
@@ -32,9 +33,14 @@ export async function getActiveRemote(): Promise<Remote | null> {
   return remotes[0] || null;
 }
 
+// sanitize server id for url safety (alphanumeric, dash, underscore only)
+function sanitizeServerId(serverId: string): string {
+  return serverId.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+}
+
 // create a new remote
 export async function createRemote(data: {
-  name: string;
+  name?: string; // optional - uses server name from /api/hello if not provided
   base_url: string;
 }): Promise<Remote> {
   const db = await initMusicDB();
@@ -42,14 +48,44 @@ export async function createRemote(data: {
   // normalize url - remove trailing slash
   const baseUrl = data.base_url.replace(/\/$/, "");
 
+  // fetch server info from /api/hello
+  let serverInfo = null;
+  try {
+    const result = await app.getServerInfo(baseUrl);
+    if (result.success && result.data) {
+      serverInfo = result.data;
+    }
+  } catch (error) {
+    console.warn(`failed to fetch server info from ${baseUrl}:`, error);
+    throw new Error(
+      "failed to connect to server - could not fetch server info",
+    );
+  }
+
+  if (!serverInfo) {
+    throw new Error("server did not return valid info");
+  }
+
+  // use server_id as the remote_id (sanitized for URL safety)
+  const remoteId = sanitizeServerId(serverInfo.server_id);
+
+  // use server name from /api/hello if no name provided
+  const remoteName = data.name || serverInfo.name || baseUrl;
+
   const remote: Remote = {
-    remote_id: crypto.randomUUID(),
-    name: data.name,
+    remote_id: remoteId,
+    name: remoteName,
     base_url: baseUrl,
     is_active: false,
     last_connected_at: null,
     created_at: Date.now(),
     updated_at: Date.now(),
+    // server info fields
+    server_id: serverInfo.server_id,
+    description: serverInfo.description ?? null,
+    image_url: serverInfo.image_url ?? null,
+    version: serverInfo.version,
+    last_info_check: Date.now(),
   };
 
   await db.put(STORE_REMOTES, remote);
@@ -164,4 +200,34 @@ export async function updateRemoteConnectionTime(
     last_connected_at: Date.now(),
     updated_at: Date.now(),
   });
+}
+
+// refresh server info for a remote (fetch from /api/hello)
+export async function refreshServerInfo(remoteId: string): Promise<void> {
+  const db = await initMusicDB();
+
+  const remote = await db.get(STORE_REMOTES, remoteId);
+  if (!remote) {
+    throw new Error(`remote not found: ${remoteId}`);
+  }
+
+  try {
+    const result = await app.getServerInfo(remote.base_url);
+    if (result.success && result.data) {
+      const serverInfo = result.data;
+      await db.put(STORE_REMOTES, {
+        ...remote,
+        server_id: serverInfo.server_id,
+        description: serverInfo.description,
+        image_url: serverInfo.image_url,
+        version: serverInfo.version,
+        last_info_check: Date.now(),
+        updated_at: Date.now(),
+      });
+      console.log(`refreshed server info for: ${remote.name}`);
+    }
+  } catch (error) {
+    console.warn(`failed to refresh server info for ${remote.name}:`, error);
+    throw error;
+  }
 }

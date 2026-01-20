@@ -77,6 +77,51 @@ pub async fn serve_static(
     })
 }
 
+/// serve server image (public, no auth required)
+pub async fn serve_server_image(
+    Extension(state): Extension<AppState>,
+    req: Request,
+) -> Result<Response, ApiError> {
+    let server_config = state
+        .config
+        .server
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
+
+    // get configured image path
+    let image_path = server_config
+        .image_path
+        .as_ref()
+        .ok_or_else(|| ApiError::NotFound)?;
+
+    // resolve path (relative to data_dir or absolute)
+    let full_path = if image_path.is_absolute() {
+        image_path.clone()
+    } else {
+        state.config.data_dir.join(image_path)
+    };
+
+    // verify file exists
+    if !full_path.exists() {
+        return Err(ApiError::NotFound);
+    }
+
+    // use ServeFile to serve the image with proper headers
+    let serve_file = ServeFile::new(&full_path);
+    match serve_file.oneshot(req).await {
+        Ok(response) => {
+            let (mut parts, body) = response.into_parts();
+            // add cache header for server image (1 day)
+            parts.headers.insert(
+                CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=86400"),
+            );
+            Ok(Response::from_parts(parts, Body::new(body)))
+        }
+        Err(_) => Err(ApiError::NotFound),
+    }
+}
+
 /// range request handler for static files
 struct RangeHandler {
     base_path: PathBuf,

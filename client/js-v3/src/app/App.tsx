@@ -1,8 +1,9 @@
 // main app entry point with routing
-import { Router } from "@solidjs/router";
+import { HashRouter } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
+import { toast } from "../components/feedback/Toast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import {
@@ -130,12 +131,12 @@ export function App() {
             </div>
           }
         >
-          <Router>
+          <HashRouter>
             {routes({
               onAddMusic: () => setIsAddMusicOpen(true),
               onSongDoubleClick: handleSongDoubleClick,
             })}
-          </Router>
+          </HashRouter>
         </Show>
       </Show>
 
@@ -151,6 +152,10 @@ export function App() {
         onClose={() => setIsAddRemoteOpen(false)}
         onSuccess={(remote) => {
           console.log("remote added successfully:", remote.name);
+          // show success toast
+          toast.success(`connected to ${remote.name}`, {
+            title: "remote added",
+          });
           // activate and switch to the newly added remote
           void (async () => {
             await useRemoteSource(
@@ -162,6 +167,8 @@ export function App() {
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });
             setHasSongs(result.total > 0);
+            // navigate to remote songs view
+            window.location.hash = `/${remote.remote_id}/songs`;
           })();
         }}
       />

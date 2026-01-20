@@ -320,16 +320,22 @@ pub fn build_router() -> Router<AppState> {
 
     #[cfg(feature = "webauthn")]
     let router = Router::new()
-        // public routes (no auth required)
+        // truly public routes (no auth, no origin validation required)
         .route(
             routes["app"]["health_check"].path,
             get(health::health_check),
         )
-        .route(
-            routes["auth"]["redeem_invite"].path,
-            post(auth::handlers::redeem_invite),
+        .route(routes["app"]["server_info"].path, get(health::server_info))
+        .route("/api/hello/image", get(static_files::serve_server_image))
+        // public routes that require origin validation
+        .merge(
+            Router::new()
+                .route(
+                    routes["auth"]["redeem_invite"].path,
+                    post(auth::handlers::redeem_invite),
+                )
+                .layer(axum_middleware::from_fn(auth::middleware::validate_origin)),
         )
-        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         // webauthn routes (require origin validation)
         .merge(webauthn_routes)
         // blob routes (auth only, no origin validation)
@@ -339,16 +345,22 @@ pub fn build_router() -> Router<AppState> {
 
     #[cfg(not(feature = "webauthn"))]
     let router = Router::new()
-        // public routes (no auth required)
+        // truly public routes (no auth, no origin validation required)
         .route(
             routes["app"]["health_check"].path,
             get(health::health_check),
         )
-        .route(
-            routes["auth"]["redeem_invite"].path,
-            post(auth::handlers::redeem_invite),
+        .route(routes["app"]["server_info"].path, get(health::server_info))
+        .route("/api/hello/image", get(static_files::serve_server_image))
+        // public routes that require origin validation
+        .merge(
+            Router::new()
+                .route(
+                    routes["auth"]["redeem_invite"].path,
+                    post(auth::handlers::redeem_invite),
+                )
+                .layer(axum_middleware::from_fn(auth::middleware::validate_origin)),
         )
-        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         // blob routes (auth only, no origin validation)
         .merge(blob_routes)
         // protected routes

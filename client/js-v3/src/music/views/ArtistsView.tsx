@@ -13,11 +13,12 @@ import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
-import { getCurrentRemote } from "../data";
+import { getCurrentRemote, getDataSource } from "../data";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
+import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
 export interface ArtistsViewProps {
@@ -212,7 +213,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // navigate to album detail
   const handleAlbumClick = (albumId: string) => {
-    navigate(`/albums/${albumId}`);
+    navigate(buildRoute(`/albums/${albumId}`));
   };
 
   // play specific album

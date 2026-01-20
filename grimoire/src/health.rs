@@ -21,3 +21,18 @@ impl EmptyResponse {
         Self { success: true }
     }
 }
+
+/// server info response for remote identification
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ServerInfoResponse {
+    /// stable unique identifier for this server instance
+    pub server_id: String,
+    /// server display name
+    pub name: String,
+    /// optional server description
+    pub description: Option<String>,
+    /// server version
+    pub version: String,
+    /// optional server image url (publicly accessible)
+    pub image_url: Option<String>,
+}

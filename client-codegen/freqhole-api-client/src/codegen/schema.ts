@@ -1221,6 +1221,15 @@ export const SearchResponseSchema = z.object({
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
+export const ServerInfoResponseSchema = z.object({
+  server_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  version: z.string(),
+  image_url: z.string().nullable()
+});
+export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
+
 export const SessionSongSchema = z.object({
   song_id: z.string(),
   title: z.string(),

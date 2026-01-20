@@ -12,11 +12,11 @@ import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
-import { getCurrentRemote, getDataSource } from "../data";
+import { getCurrentRemote } from "../data";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
+import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
 export interface GenresViewProps {
@@ -149,7 +149,7 @@ export function GenresView(props: GenresViewProps) {
 
   // navigate to album detail
   const handleAlbumClick = (albumId: string) => {
-    navigate(`/albums/${albumId}`);
+    navigate(buildRoute(`/albums/${albumId}`));
   };
 
   // play specific album
@@ -174,7 +174,7 @@ export function GenresView(props: GenresViewProps) {
 
   // navigate to artist detail
   const handleArtistClick = (artistId: string) => {
-    navigate(`/artists/${artistId}`);
+    navigate(buildRoute(`/artists/${artistId}`));
   };
 
   // left column - genre list

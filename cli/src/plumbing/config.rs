@@ -47,11 +47,22 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
                 }
             };
 
+            let server_name = config
+                .server
+                .as_ref()
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| "grimoire".to_string());
+            let server_version = config
+                .server
+                .as_ref()
+                .map(|s| s.version.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+
             let response = ConfigValidationResponse {
                 valid: true,
                 config_path: path.display().to_string(),
-                app_name: config.app.name.clone(),
-                app_version: config.app.version.clone(),
+                server_name,
+                server_version,
                 data_dir: config.data_dir.display().to_string(),
                 database_path: config.database_path().display().to_string(),
             };

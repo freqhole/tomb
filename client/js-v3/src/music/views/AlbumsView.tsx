@@ -8,6 +8,7 @@ import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid"
 import { getDataSource } from "../data";
 import { useAlbumsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
 export interface AlbumsViewProps {
@@ -81,7 +82,7 @@ export function AlbumsView(props: AlbumsViewProps) {
   };
 
   const handleAlbumClick = (album: CollectionCardData) => {
-    navigate(`/albums/${album.id}`);
+    navigate(buildRoute(`/albums/${album.id}`));
   };
 
   return (

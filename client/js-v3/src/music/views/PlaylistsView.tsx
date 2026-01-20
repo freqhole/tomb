@@ -1,5 +1,5 @@
 // playlists view - displays playlists in two-column layout with detail panel
-import { useNavigate, useParams } from "@solidjs/router";
+import { useLocation, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
 import {
@@ -56,6 +56,7 @@ import {
   isEditablePlaylist,
 } from "../services/storage/playlists";
 import { type Playlist } from "../services/storage/types";
+import { getRoutePrefix } from "../utils/routing";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -132,7 +133,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     if (playlist && remote && viewingRemote) {
       // viewing remote playlist - check if there's a local copy
-      checkIfPlaylistNeedsSync(remote.url, playlist.playlist_id).then(
+      checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id).then(
         setSyncStatus,
       );
       setSyncSourceRemoteName(null); // remote context doesn't need remote name
@@ -266,7 +267,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         if (remote) {
           // remote playlist - use blob URL
           thumbnailUrl = apiClient.utils.getBlobUrl(
-            remote.url,
+            remote.base_url,
             playlist.thumbnail_blob_id,
           );
         } else {
@@ -298,10 +299,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // update URL when playlist selection changes
   createEffect(() => {
     const id = selectedPlaylistId();
+    const prefix = getRoutePrefix();
     if (id && id !== params.id) {
-      navigate(`/playlists/${id}`, { replace: true });
+      navigate(`${prefix}/playlists/${id}`, { replace: true });
     } else if (!id && params.id) {
-      navigate("/playlists", { replace: true });
+      navigate(`${prefix}/playlists`, { replace: true });
     }
   });
 
@@ -384,7 +386,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (viewingRemote) {
       const remote = getCurrentRemote();
       if (!remote) return null;
-      return apiClient.utils.getBlobUrl(remote.url, playlist.thumbnail_blob_id);
+      return apiClient.utils.getBlobUrl(
+        remote.base_url,
+        playlist.thumbnail_blob_id,
+      );
     }
 
     // for local playlists, use local thumbnail URL if available for THIS playlist
@@ -555,7 +560,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         } else {
           // for remote playlists, upload to server
           const uploadResult = await apiClient.utils.uploadImage(
-            remote.url,
+            remote.base_url,
             file,
             {
               associate: {
@@ -580,7 +585,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
           // poll for job completion before refreshing
           const jobCompleted = await pollJobUntilComplete(
-            remote.url,
+            remote.base_url,
             uploadData.job_id,
           );
 
@@ -746,7 +751,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       } else {
         // for remote playlists, call API to remove thumbnail
         const result = await apiClient.music.removePlaylistThumbnail(
-          remote.url,
+          remote.base_url,
           {
             playlist_id: playlist.playlist_id,
             cleanup_blob: true,
@@ -785,14 +790,18 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     setDownloadProgress(null);
 
     try {
-      await downloadPlaylist(remote.url, playlist.playlist_id, (progress) => {
-        setDownloadProgress(progress);
-      });
+      await downloadPlaylist(
+        remote.base_url,
+        playlist.playlist_id,
+        (progress) => {
+          setDownloadProgress(progress);
+        },
+      );
 
       console.log("playlist downloaded successfully");
       // refresh sync status
       const newSyncStatus = await checkIfPlaylistNeedsSync(
-        remote.url,
+        remote.base_url,
         playlist.playlist_id,
       );
       setSyncStatus(newSyncStatus);
@@ -834,14 +843,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     setDownloadProgress(null);
 
     try {
-      await syncPlaylist(remote.url, playlist, (progress) => {
+      await syncPlaylist(remote.base_url, playlist, (progress) => {
         setDownloadProgress(progress);
       });
 
       console.log("playlist synced successfully");
       // refresh sync status
       const newSyncStatus = await checkIfPlaylistNeedsSync(
-        remote.url,
+        remote.base_url,
         playlist.playlist_id,
       );
       setSyncStatus(newSyncStatus);
@@ -913,7 +922,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
         // select the new playlist
         setSelectedPlaylistId(result.playlist_id);
-        navigate(`/playlists/${result.playlist_id}`, { replace: true });
+        const prefix = getRoutePrefix();
+        navigate(`${prefix}/playlists/${result.playlist_id}`, {
+          replace: true,
+        });
 
         // enter edit mode
         setEditMode(true);
@@ -956,7 +968,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
       // clear selection and navigate back to list
       setSelectedPlaylistId(null);
-      navigate("/playlists", { replace: true });
+      const prefix = getRoutePrefix();
+      navigate(`${prefix}/playlists`, { replace: true });
 
       toast.success(`deleted "${playlist.title}"`, {
         title: "playlist deleted",

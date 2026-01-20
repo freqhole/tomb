@@ -13,6 +13,7 @@ import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
 import { usePlaylistSongsQuery } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
+import { buildRoute } from "../utils/routing";
 
 export function PlaylistDetailView() {
   const params = useParams();
@@ -58,7 +59,10 @@ export function PlaylistDetailView() {
     const remote = getCurrentRemote();
     if (!remote) return null;
 
-    return apiClient.utils.getBlobUrl(remote.url, playlist.thumbnail_blob_id);
+    return apiClient.utils.getBlobUrl(
+      remote.base_url,
+      playlist.thumbnail_blob_id,
+    );
   });
 
   // convert songs to list items for VirtualItemList
@@ -147,7 +151,10 @@ export function PlaylistDetailView() {
           {/* playlist metadata */}
           <div class="flex-1 flex flex-col justify-end">
             <div class="mb-2">
-              <Button variant="ghost" onClick={() => navigate("/playlists")}>
+              <Button
+                variant="ghost"
+                onClick={() => navigate(buildRoute("/playlists"))}
+              >
                 ← back to playlists
               </Button>
             </div>

@@ -11,6 +11,7 @@ import { getCurrentRemote, getDataSource } from "../data";
 import { useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import type { Song } from "../services/storage/types";
+import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
 // format album duration to human readable
@@ -153,7 +154,7 @@ export function ArtistDetailView() {
   };
 
   const handleAlbumClick = (albumId: string) => {
-    navigate(`/albums/${albumId}`);
+    navigate(buildRoute(`/albums/${albumId}`));
   };
 
   return (

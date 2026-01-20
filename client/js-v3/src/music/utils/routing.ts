@@ -1,0 +1,23 @@
+// routing utilities for context-aware navigation
+
+import { getCurrentRemote } from "../data";
+
+/**
+ * get the current route prefix based on active data source
+ * returns "/local" for local source or "/{remoteId}" for remote source
+ */
+export function getRoutePrefix(): string {
+  const remote = getCurrentRemote();
+  return remote ? `/${remote.remote_id}` : "/local";
+}
+
+/**
+ * build a context-aware route path
+ * automatically prepends the correct prefix based on active data source
+ */
+export function buildRoute(path: string): string {
+  const prefix = getRoutePrefix();
+  // ensure path starts with /
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${prefix}${cleanPath}`;
+}

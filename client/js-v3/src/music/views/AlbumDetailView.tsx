@@ -9,6 +9,7 @@ import { useAlbumSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
+import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
 // format seconds to MM:SS
@@ -74,7 +75,7 @@ export function AlbumDetailView() {
   const handleArtistClick = () => {
     const info = albumInfo();
     if (!info?.artist_id) return;
-    navigate(`/artists/${info.artist_id}`);
+    navigate(buildRoute(`/artists/${info.artist_id}`));
   };
 
   return (

@@ -21,6 +21,7 @@ import {
   useLocalSource,
   useRemoteSource,
 } from "../music/data";
+import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import {
   canGoNext,
   canGoPrevious,
@@ -63,6 +64,9 @@ export function AppLayout(props: AppLayoutProps) {
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
 
+  // automatically switch data source based on route context
+  const routeContext = useRouteDataSource();
+
   // load remotes on mount
   onMount(async () => {
     try {
@@ -77,7 +81,8 @@ export function AppLayout(props: AppLayoutProps) {
   const handleSwitchToLocal = async () => {
     try {
       await deactivateAllRemotes();
-      useLocalSource();
+      // navigate to local route - useRouteDataSource hook will switch data source
+      navigate("/local/songs");
       // invalidate all queries to refetch from local source
       queryClient.invalidateQueries();
     } catch (error) {
@@ -89,13 +94,10 @@ export function AppLayout(props: AppLayoutProps) {
   const handleSwitchToRemote = async (remoteId: string) => {
     try {
       await setActiveRemote(remoteId);
-      // switch data source to remote
-      const remote = await getRemoteById(remoteId);
-      if (remote) {
-        useRemoteSource(remote.remote_id, remote.name, remote.base_url);
-        // invalidate all queries to refetch from remote source
-        queryClient.invalidateQueries();
-      }
+      // navigate to remote route - useRouteDataSource hook will switch data source
+      navigate(`/${remoteId}/songs`);
+      // invalidate all queries to refetch from remote source
+      queryClient.invalidateQueries();
     } catch (error) {
       console.error("failed to switch to remote:", error);
     }
@@ -170,23 +172,48 @@ export function AppLayout(props: AppLayoutProps) {
             items: [
               {
                 label: "songs",
-                onClick: () => navigate("/songs"),
+                onClick: () => {
+                  const prefix = routeContext.isLocal()
+                    ? "/local"
+                    : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/songs`);
+                },
               },
               {
                 label: "albums",
-                onClick: () => navigate("/albums"),
+                onClick: () => {
+                  const prefix = routeContext.isLocal()
+                    ? "/local"
+                    : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/albums`);
+                },
               },
               {
                 label: "artists",
-                onClick: () => navigate("/artists"),
+                onClick: () => {
+                  const prefix = routeContext.isLocal()
+                    ? "/local"
+                    : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/artists`);
+                },
               },
               {
                 label: "genres",
-                onClick: () => navigate("/genres"),
+                onClick: () => {
+                  const prefix = routeContext.isLocal()
+                    ? "/local"
+                    : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/genres`);
+                },
               },
               {
                 label: "playlists",
-                onClick: () => navigate("/playlists"),
+                onClick: () => {
+                  const prefix = routeContext.isLocal()
+                    ? "/local"
+                    : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/playlists`);
+                },
               },
             ],
           },

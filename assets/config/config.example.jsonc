@@ -10,18 +10,6 @@
 // This file is embedded in the grimoire binary and used by `config init`.
 
 {
-  // Application metadata
-  "app": {
-    // Application name (displayed in UI, logs)
-    "name": "freqhole",
-    // Version (semantic versioning recommended)
-    "version": "0.1.0",
-    // Optional description
-    "description": "Music library server",
-    // Unique identifier for this instance
-    "id": "freqhole-main"
-  },
-
   // Data directory - base directory for all grimoire data
   // Can be relative (./data) or absolute (/var/lib/freqhole)
   // Contains: database file, temp directory, wordlist
@@ -228,10 +216,32 @@
   // ========================================
 
   "server": {
+    // Server identification
+    // These fields are exposed via the public /api/hello endpoint (no auth required)
+    // Remote clients fetch this info when adding your server to their remote list
+
+    // Unique identifier for this server instance (stable across restarts)
+    "id": "freqhole-main",
+    // Server display name
+    "name": "freqhole",
+    // Server version (semantic versioning recommended)
+    "version": "0.1.0",
+    // Optional server description
+    "description": "Music library server",
+
     // Server host and port
     // host: "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
     "host": "0.0.0.0",
     "port": 3000,
+
+    // Server image (OPTIONAL)
+    // Path to server image/logo for remote client UI
+    //   - Can be relative to data_dir or an absolute path
+    //   - Served publicly at /api/hello/image (no auth required)
+    //   - Displayed in remote client UI when selecting/viewing this server
+    //   - Recommended: square image, 256x256px or larger, PNG/JPG format
+    //   - Example: "server-icon.png" → accessible at /api/hello/image
+    // "image_path": "server-icon.png",
 
     // Start job processor in the server (OPTIONAL - default: false)
     // When enabled (true):
