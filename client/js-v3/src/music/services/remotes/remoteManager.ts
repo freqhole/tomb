@@ -22,7 +22,7 @@ export async function getRemoteById(
 // get remote by url
 export async function getRemoteByUrl(url: string): Promise<Remote | undefined> {
   const remotes = await getAllRemotes();
-  return remotes.find((r) => r.url === url);
+  return remotes.find((r) => r.base_url === url);
 }
 
 // get currently active remote (if any)

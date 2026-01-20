@@ -7,6 +7,7 @@ export interface ListItem {
   title: string;
   subtitle?: string;
   metadata?: string;
+  thumbnailUrl?: string | null;
 }
 
 export interface VirtualItemListProps {
@@ -101,7 +102,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
               >
                 <button
                   class={`
-                    w-full h-full px-6 py-3 text-left transition-colors border-l-2
+                    w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
                     ${
                       isSelected
                         ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
@@ -110,19 +111,28 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   `}
                   onClick={() => handleItemClick(item)}
                 >
-                  <div class="font-medium text-base">
-                    <MarqueeText text={item.title} hoverOnly={true} />
+                  {item.thumbnailUrl && (
+                    <img
+                      src={item.thumbnailUrl}
+                      alt=""
+                      class="w-12 h-12 object-cover rounded flex-shrink-0"
+                    />
+                  )}
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-base">
+                      <MarqueeText text={item.title} hoverOnly={true} />
+                    </div>
+                    {item.subtitle && (
+                      <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                        {item.subtitle}
+                      </div>
+                    )}
+                    {item.metadata && (
+                      <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
+                        {item.metadata}
+                      </div>
+                    )}
                   </div>
-                  {item.subtitle && (
-                    <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                      {item.subtitle}
-                    </div>
-                  )}
-                  {item.metadata && (
-                    <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
-                      {item.metadata}
-                    </div>
-                  )}
                 </button>
               </div>
             );

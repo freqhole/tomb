@@ -9,6 +9,8 @@ import {
   Show,
   type JSX,
 } from "solid-js";
+import { Portal } from "solid-js/web";
+import { ToastRegion } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { TopNav } from "../components/navigation/TopNav";
 import { PlayerBar } from "../components/player/PlayerBar";
@@ -307,6 +309,11 @@ export function AppLayout(props: AppLayoutProps) {
           })();
         }}
       />
+
+      {/* toast notifications */}
+      <Portal>
+        <ToastRegion />
+      </Portal>
     </div>
   );
 }

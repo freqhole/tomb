@@ -2,10 +2,20 @@
 import { useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+  untrack,
+} from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
+import { ConfirmDialog } from "../../components/dialogs/ConfirmDialog";
+import { toast } from "../../components/feedback/Toast";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import {
@@ -16,9 +26,12 @@ import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
+import { formatRelativeTime } from "../../utils/dateTime";
+import { generateUUID } from "../../utils/uuid";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
 import {
+  useDeletePlaylistMutation,
   usePlaylistSongsQuery,
   usePlaylistsQuery,
   useReorderPlaylistSongsMutation,
@@ -26,13 +39,22 @@ import {
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
 import {
+  readThumbnailFromOPFS,
+  writeThumbnailToOPFS,
+} from "../services/opfs/helpers";
+import {
   checkIfPlaylistNeedsSync,
   downloadPlaylist,
   syncPlaylist,
+  type DownloadProgress,
   type SyncCheckResult,
 } from "../services/playlists/downloadSync";
 import { getRemoteByUrl } from "../services/remotes/remoteManager";
-import { getPlaylistById } from "../services/storage/db";
+import { getPlaylistById, initMusicDB } from "../services/storage/db";
+import {
+  convertToLocalPlaylist,
+  isEditablePlaylist,
+} from "../services/storage/playlists";
 import { type Playlist } from "../services/storage/types";
 
 export interface PlaylistsViewProps {
@@ -73,65 +95,58 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<
     string | null
   >(null);
+  const [localThumbnailUrl, setLocalThumbnailUrl] = createSignal<string | null>(
+    null,
+  );
+  const [downloadProgress, setDownloadProgress] =
+    createSignal<DownloadProgress | null>(null);
+  const [isDownloading, setIsDownloading] = createSignal(false);
+  const [isSyncing, setIsSyncing] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [isDeleting, setIsDeleting] = createSignal(false);
 
   // mutations for updating playlist
   const updatePlaylistMutation = useUpdatePlaylistMutation();
   const reorderSongsMutation = useReorderPlaylistSongsMutation();
+  const deletePlaylistMutation = useDeletePlaylistMutation();
 
   // query client for invalidation
   const queryClient = useQueryClient();
 
+  // cleanup on unmount - revoke any object URLs
+  onCleanup(() => {
+    const url = localThumbnailUrl();
+    if (url) {
+      URL.revokeObjectURL(url);
+    }
+  });
+
   // check if viewing remote playlists
   const isViewingRemote = createMemo(() => getCurrentRemote() !== null);
 
-  // check sync status when viewing a playlist (remote or local synced)
+  // check sync status ONLY for local synced playlists (not remote playlists)
   createEffect(() => {
     const playlist = selectedPlaylist();
-    const remote = getCurrentRemote();
+    const viewingRemote = isViewingRemote();
 
-    console.log(
-      "[PlaylistsView] checking sync status for playlist:",
-      playlist?.playlist_id,
-    );
-    console.log(
-      "[PlaylistsView] playlist.source_remote_url:",
-      playlist?.source_remote_url,
-    );
-    console.log(
-      "[PlaylistsView] playlist.source_remote_id:",
-      playlist?.source_remote_id,
-    );
-    console.log("[PlaylistsView] isViewingRemote:", !!remote);
-
-    if (playlist && remote) {
-      // viewing remote playlist - check if needs sync
-      console.log("[PlaylistsView] viewing remote playlist, checking sync");
-      checkIfPlaylistNeedsSync(remote.url, playlist.playlist_id).then(
-        setSyncStatus,
-      );
-    } else if (
-      playlist &&
-      playlist.source_remote_url &&
-      playlist.source_remote_id
+    // only check sync status when viewing LOCAL playlist that has remote source
+    if (
+      !viewingRemote &&
+      playlist?.source_remote_url &&
+      playlist?.source_remote_id
     ) {
       // viewing local synced playlist - check if needs sync with its remote source
-      console.log(
-        "[PlaylistsView] viewing local synced playlist, checking sync with:",
-        playlist.source_remote_url,
-      );
       checkIfPlaylistNeedsSync(
         playlist.source_remote_url,
         playlist.source_remote_id,
       ).then(setSyncStatus);
+
       // look up remote name from URL
       getRemoteByUrl(playlist.source_remote_url).then((remote) => {
-        console.log("[PlaylistsView] found remote for URL:", remote);
         setSyncSourceRemoteName(remote?.name || null);
       });
     } else {
-      console.log(
-        "[PlaylistsView] not a synced playlist, clearing sync status",
-      );
+      // not a synced local playlist - clear sync status
       setSyncStatus(null);
       setSyncSourceRemoteName(null);
     }
@@ -174,7 +189,19 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // fetch full playlist when viewing local and selection changes
   createEffect(() => {
     const id = selectedPlaylistId();
-    if (!id || isViewingRemote()) {
+    const viewingRemote = isViewingRemote();
+
+    // always revoke old object URL when switching playlists (use untrack to avoid dependency)
+    untrack(() => {
+      const oldUrl = localThumbnailUrl();
+      if (oldUrl) {
+        URL.revokeObjectURL(oldUrl);
+        setLocalThumbnailUrl(null);
+      }
+    });
+
+    // if viewing remote or no selection, clear local state
+    if (!id || viewingRemote) {
       setFullPlaylist(null);
       return;
     }
@@ -182,6 +209,28 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     // fetch full playlist record from db to get sync fields
     getPlaylistById(id).then((playlist) => {
       setFullPlaylist(playlist || null);
+
+      // load local thumbnail if present
+      if (playlist?.thumbnail_blob_id) {
+        const thumbnailPath = playlist.thumbnail_blob_id;
+        // check if it's an OPFS path (starts with "thumbnails/")
+        if (thumbnailPath.startsWith("thumbnails/")) {
+          readThumbnailFromOPFS(thumbnailPath)
+            .then((file) => {
+              const url = URL.createObjectURL(file);
+              setLocalThumbnailUrl(url);
+            })
+            .catch((error) => {
+              console.error("failed to load local thumbnail:", error);
+              setLocalThumbnailUrl(null);
+            });
+        } else {
+          // it's a blob ID, not an OPFS path - clear local thumbnail
+          setLocalThumbnailUrl(null);
+        }
+      } else {
+        setLocalThumbnailUrl(null);
+      }
     });
   });
 
@@ -203,12 +252,33 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // convert playlists to list items for VirtualItemList
   const playlistListItems = createMemo((): ListItem[] => {
-    return playlists().map((playlist) => ({
-      id: playlist.playlist_id,
-      title: playlist.title,
-      subtitle: `${playlist.song_count} ${playlist.song_count === 1 ? "song" : "songs"}`,
-      metadata: playlist.description || undefined,
-    }));
+    const remote = getCurrentRemote();
+    return playlists().map((playlist) => {
+      // construct thumbnail URL
+      let thumbnailUrl: string | null = null;
+      if (playlist.thumbnail_blob_id) {
+        if (remote) {
+          // remote playlist - use blob URL
+          thumbnailUrl = apiClient.utils.getBlobUrl(
+            remote.url,
+            playlist.thumbnail_blob_id,
+          );
+        } else {
+          // local playlist - check if it's an OPFS path
+          // we'll need to handle this differently - for now just skip
+          // (could create object URLs but would need cleanup)
+          thumbnailUrl = null;
+        }
+      }
+
+      return {
+        id: playlist.playlist_id,
+        title: playlist.title,
+        subtitle: `${playlist.song_count} ${playlist.song_count === 1 ? "song" : "songs"}`,
+        metadata: `updated ${formatRelativeTime(playlist.updated_at)}`,
+        thumbnailUrl,
+      };
+    });
   });
 
   // sync URL parameter with selected playlist
@@ -302,10 +372,23 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const playlist = selectedPlaylist();
     if (!playlist?.thumbnail_blob_id) return null;
 
-    const remote = getCurrentRemote();
-    if (!remote) return null;
+    const viewingRemote = isViewingRemote();
 
-    return apiClient.utils.getBlobUrl(remote.url, playlist.thumbnail_blob_id);
+    // for remote playlists, always use remote blob URL
+    if (viewingRemote) {
+      const remote = getCurrentRemote();
+      if (!remote) return null;
+      return apiClient.utils.getBlobUrl(remote.url, playlist.thumbnail_blob_id);
+    }
+
+    // for local playlists, use local thumbnail URL if available for THIS playlist
+    const localUrl = localThumbnailUrl();
+    const localPlaylist = fullPlaylist();
+    if (localUrl && localPlaylist?.playlist_id === playlist.playlist_id) {
+      return localUrl;
+    }
+
+    return null;
   });
 
   // calculate total duration
@@ -347,6 +430,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
+    // prevent editing synced playlists
+    if (playlist.is_editable === false) {
+      return;
+    }
+
     if (!editMode()) {
       // entering edit mode - populate fields
       setEditTitle(playlist.title);
@@ -371,6 +459,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       });
 
       setEditMode(false);
+
+      // refresh local playlist data
+      const remote = getCurrentRemote();
+      if (!remote) {
+        await getPlaylistById(playlist.playlist_id).then((p) => {
+          setFullPlaylist(p || null);
+        });
+      }
     } catch (error) {
       console.error("failed to update playlist:", error);
     }
@@ -387,10 +483,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!playlist) return;
 
     const remote = getCurrentRemote();
-    if (!remote) {
-      console.error("no remote source - image upload only works with remote");
-      return;
-    }
+    const isLocal = !remote;
 
     // create file input
     const input = document.createElement("input");
@@ -410,54 +503,98 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       setUploadProgress(0);
 
       try {
-        // upload image with playlist association
-        // the server will automatically update the playlist's thumbnail_blob_id
-        const uploadResult = await apiClient.utils.uploadImage(
-          remote.url,
-          file,
-          {
-            associate: {
-              entity_type: "playlist",
-              entity_id: playlist.playlist_id,
-              is_primary: true,
-            },
-          },
-        );
+        if (isLocal) {
+          // for local playlists, save thumbnail to OPFS
+          const thumbnailId = generateUUID();
+          const thumbnailPath = await writeThumbnailToOPFS(file, thumbnailId);
 
-        if (!isSuccess(uploadResult)) {
-          const errorMsg = uploadResult.error.issues
-            .map((i) => i.message)
-            .join(", ");
-          console.error("upload failed:", errorMsg);
-          return;
-        }
-
-        // type guard ensures uploadResult.data exists after success check
-        const uploadData = uploadResult.data;
-        console.log("image uploaded successfully:", uploadData);
-
-        // poll for job completion before refreshing
-        const jobCompleted = await pollJobUntilComplete(
-          remote.url,
-          uploadData.job_id,
-        );
-
-        if (jobCompleted) {
-          // invalidate queries to refresh the UI
-          await queryClient.invalidateQueries({
-            queryKey: ["playlists"],
-            refetchType: "all",
+          // update playlist with thumbnail path
+          const dataSource = getDataSource();
+          await dataSource.updatePlaylist?.(playlist.playlist_id, {
+            thumbnail_blob_id: thumbnailPath,
           });
 
-          // small delay to ensure server has written to database
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          // invalidate queries first
+          await queryClient.invalidateQueries({
+            queryKey: ["playlists"],
+          });
 
-          // force a fresh refetch
-          await playlistsQuery.refetch();
+          // revoke old thumbnail URL before creating new one
+          const oldUrl = localThumbnailUrl();
+          if (oldUrl) {
+            URL.revokeObjectURL(oldUrl);
+            setLocalThumbnailUrl(null);
+          }
+
+          // refresh local playlist data and thumbnail
+          await getPlaylistById(playlist.playlist_id).then((p) => {
+            setFullPlaylist(p || null);
+            if (
+              p?.thumbnail_blob_id &&
+              p.thumbnail_blob_id.startsWith("thumbnails/")
+            ) {
+              readThumbnailFromOPFS(p.thumbnail_blob_id)
+                .then((file) => {
+                  const url = URL.createObjectURL(file);
+                  setLocalThumbnailUrl(url);
+                })
+                .catch((error) => {
+                  console.error("failed to load local thumbnail:", error);
+                  setLocalThumbnailUrl(null);
+                });
+            } else {
+              setLocalThumbnailUrl(null);
+            }
+          });
         } else {
-          console.warn(
-            "job did not complete in time, UI may not update immediately",
+          // for remote playlists, upload to server
+          const uploadResult = await apiClient.utils.uploadImage(
+            remote.url,
+            file,
+            {
+              associate: {
+                entity_type: "playlist",
+                entity_id: playlist.playlist_id,
+                is_primary: true,
+              },
+            },
           );
+
+          if (!isSuccess(uploadResult)) {
+            const errorMsg = uploadResult.error.issues
+              .map((i) => i.message)
+              .join(", ");
+            console.error("upload failed:", errorMsg);
+            return;
+          }
+
+          // type guard ensures uploadResult.data exists after success check
+          const uploadData = uploadResult.data;
+          console.log("image uploaded successfully:", uploadData);
+
+          // poll for job completion before refreshing
+          const jobCompleted = await pollJobUntilComplete(
+            remote.url,
+            uploadData.job_id,
+          );
+
+          if (jobCompleted) {
+            // invalidate queries to refresh the UI
+            await queryClient.invalidateQueries({
+              queryKey: ["playlists"],
+              refetchType: "all",
+            });
+
+            // small delay to ensure server has written to database
+            await new Promise((resolve) => setTimeout(resolve, 200));
+
+            // force a fresh refetch
+            await playlistsQuery.refetch();
+          } else {
+            console.warn(
+              "job did not complete in time, UI may not update immediately",
+            );
+          }
         }
       } catch (error) {
         console.error("failed to upload image:", error);
@@ -576,23 +713,50 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!playlist || !playlist.thumbnail_blob_id) return;
 
     const remote = getCurrentRemote();
-    if (!remote) return;
+    const isLocal = !remote;
 
     try {
-      const result = await apiClient.music.removePlaylistThumbnail(remote.url, {
-        playlist_id: playlist.playlist_id,
-        cleanup_blob: true,
-        deleted_by: null,
-      });
+      if (isLocal) {
+        // for local playlists, just clear the thumbnail_blob_id
+        const dataSource = getDataSource();
+        await dataSource.updatePlaylist?.(playlist.playlist_id, {
+          thumbnail_blob_id: null,
+        });
 
-      if (!isSuccess(result)) {
-        throw new Error("failed to remove thumbnail");
+        // invalidate queries first
+        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+
+        // revoke and clear local thumbnail URL
+        const oldUrl = localThumbnailUrl();
+        if (oldUrl) {
+          URL.revokeObjectURL(oldUrl);
+        }
+        setLocalThumbnailUrl(null);
+
+        // refresh local playlist data
+        await getPlaylistById(playlist.playlist_id).then((p) => {
+          setFullPlaylist(p || null);
+        });
+      } else {
+        // for remote playlists, call API to remove thumbnail
+        const result = await apiClient.music.removePlaylistThumbnail(
+          remote.url,
+          {
+            playlist_id: playlist.playlist_id,
+            cleanup_blob: true,
+            deleted_by: null,
+          },
+        );
+
+        if (!isSuccess(result)) {
+          throw new Error("failed to remove thumbnail");
+        }
+
+        console.log("image removed successfully");
+
+        // invalidate queries to refresh the UI
+        queryClient.invalidateQueries({ queryKey: ["playlists"] });
       }
-
-      console.log("image removed successfully");
-
-      // invalidate queries to refresh the UI
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
     } catch (error) {
       console.error("failed to remove image:", error);
     }
@@ -611,14 +775,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       return;
     }
 
+    setIsDownloading(true);
+    setDownloadProgress(null);
+
     try {
       await downloadPlaylist(remote.url, playlist.playlist_id, (progress) => {
-        console.log(
-          `download progress: ${progress.stage} - ${progress.downloadedSongs}/${progress.totalSongs}`,
-        );
-        if (progress.currentSong) {
-          console.log(`downloading: ${progress.currentSong}`);
-        }
+        setDownloadProgress(progress);
       });
 
       console.log("playlist downloaded successfully");
@@ -628,43 +790,180 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         playlist.playlist_id,
       );
       setSyncStatus(newSyncStatus);
-      // TODO: show success notification
-      // TODO: refresh local playlists view
+      setDownloadProgress(null);
+
+      toast.success(`downloaded "${playlist.title}"`, {
+        title: "playlist downloaded",
+      });
     } catch (error) {
       console.error("failed to download playlist:", error);
-      // TODO: show error notification
+      setDownloadProgress({
+        stage: "error",
+        totalSongs: 0,
+        downloadedSongs: 0,
+        error: error instanceof Error ? error.message : "download failed",
+      });
+
+      toast.error(error instanceof Error ? error.message : "download failed", {
+        title: "download failed",
+      });
+    } finally {
+      setIsDownloading(false);
     }
   };
 
   // handle sync playlist (update local copy from remote)
   const handleSyncPlaylist = async () => {
+    // get full playlist object first
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
     const status = syncStatus();
     if (!status || !status.localPlaylistId) return;
 
     const remote = getCurrentRemote();
     if (!remote) return;
 
+    setIsSyncing(true);
+    setDownloadProgress(null);
+
     try {
-      await syncPlaylist(status.localPlaylistId, (progress) => {
-        console.log(
-          `sync progress: ${progress.stage} - ${progress.downloadedSongs}/${progress.totalSongs}`,
-        );
+      await syncPlaylist(remote.url, playlist, (progress) => {
+        setDownloadProgress(progress);
       });
 
       console.log("playlist synced successfully");
       // refresh sync status
-      const playlist = selectedPlaylist();
-      if (playlist) {
-        const newSyncStatus = await checkIfPlaylistNeedsSync(
-          remote.url,
-          playlist.playlist_id,
-        );
-        setSyncStatus(newSyncStatus);
-      }
-      // TODO: show success notification
+      const newSyncStatus = await checkIfPlaylistNeedsSync(
+        remote.url,
+        playlist.playlist_id,
+      );
+      setSyncStatus(newSyncStatus);
+      setDownloadProgress(null);
+
+      toast.success(`synced "${playlist.title}"`, {
+        title: "playlist synced",
+      });
     } catch (error) {
       console.error("failed to sync playlist:", error);
-      // TODO: show error notification
+      setDownloadProgress({
+        stage: "error",
+        totalSongs: 0,
+        downloadedSongs: 0,
+        error: error instanceof Error ? error.message : "sync failed",
+      });
+
+      toast.error(error instanceof Error ? error.message : "sync failed", {
+        title: "sync failed",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // handle make local copy (convert synced playlist to editable local copy)
+  const handleMakeLocalCopy = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist || !playlist.source_remote_id) return;
+
+    try {
+      const db = await initMusicDB();
+      await convertToLocalPlaylist(db, playlist.playlist_id);
+
+      console.log("converted to local playlist");
+      // refresh playlist data
+      setFullPlaylist(null);
+      await getPlaylistById(playlist.playlist_id).then((p) => {
+        setFullPlaylist(p || null);
+      });
+
+      toast.success(`"${playlist.title}" is now editable`, {
+        title: "converted to local playlist",
+      });
+    } catch (error) {
+      console.error("failed to convert to local playlist:", error);
+
+      toast.error(
+        error instanceof Error ? error.message : "conversion failed",
+        { title: "conversion failed" },
+      );
+    }
+  };
+
+  // handle create playlist
+  const handleCreatePlaylist = async () => {
+    const dataSource = getDataSource();
+
+    try {
+      const result = await dataSource.createPlaylist?.({
+        title: "new playlist",
+        description: null,
+        is_public: false,
+      });
+
+      if (result) {
+        // invalidate queries
+        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+
+        // select the new playlist
+        setSelectedPlaylistId(result.playlist_id);
+        navigate(`/playlists/${result.playlist_id}`, { replace: true });
+
+        // enter edit mode
+        setEditMode(true);
+        setEditTitle("new playlist");
+        setEditDescription("");
+
+        toast.success("created new playlist", {
+          title: "playlist created",
+        });
+      }
+    } catch (error) {
+      console.error("failed to create playlist:", error);
+      toast.error(
+        error instanceof Error ? error.message : "failed to create playlist",
+        { title: "creation failed" },
+      );
+    }
+  };
+
+  // handle delete playlist
+  const handleDeletePlaylist = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    const remote = getCurrentRemote();
+    setIsDeleting(true);
+
+    try {
+      if (remote) {
+        // delete remote playlist
+        await deletePlaylistMutation.mutateAsync(playlist.playlist_id);
+      } else {
+        // delete local playlist (severs sync if synced)
+        const dataSource = getDataSource();
+        await dataSource.deletePlaylist?.(playlist.playlist_id);
+
+        // invalidate queries
+        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      }
+
+      // clear selection and navigate back to list
+      setSelectedPlaylistId(null);
+      navigate("/playlists", { replace: true });
+
+      toast.success(`deleted "${playlist.title}"`, {
+        title: "playlist deleted",
+      });
+    } catch (error) {
+      console.error("failed to delete playlist:", error);
+      toast.error(
+        error instanceof Error ? error.message : "failed to delete playlist",
+        { title: "delete failed" },
+      );
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -683,8 +982,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
               : `${playlists().length} ${playlists().length === 1 ? "playlist" : "playlists"}`}
           </p>
         </div>
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
+        <Button variant="primary" onClick={handleCreatePlaylist}>
+          + create playlist
         </Button>
       </div>
 
@@ -717,6 +1016,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
             }
           >
             <TwoColumnLayout
+              leftColumnWidth={400}
               leftColumn={
                 <VirtualItemList
                   items={playlistListItems()}
@@ -760,29 +1060,35 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                           fallback={
                             <>
                               <div class="flex items-center gap-2 mb-2">
+                                <Show
+                                  when={
+                                    selectedPlaylist()?.is_editable !== false
+                                  }
+                                >
+                                  <button
+                                    class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                                    onClick={handleEditToggle}
+                                    aria-label="edit playlist"
+                                  >
+                                    <svg
+                                      class="w-4 h-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                                      />
+                                    </svg>
+                                  </button>
+                                </Show>
                                 <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
                                   {selectedPlaylist()?.title ||
                                     "untitled playlist"}
                                 </h2>
-                                <button
-                                  class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                                  onClick={handleEditToggle}
-                                  aria-label="edit playlist"
-                                >
-                                  <svg
-                                    class="w-4 h-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      stroke-linecap="round"
-                                      stroke-linejoin="round"
-                                      stroke-width="2"
-                                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                                    />
-                                  </svg>
-                                </button>
                               </div>
                               <Show when={selectedPlaylist()?.description}>
                                 <p class="text-sm text-[var(--color-text-secondary)] mb-3">
@@ -824,9 +1130,17 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               >
                                 cancel
                               </Button>
+                              <div class="flex-1" />
+                              <Button
+                                variant="danger"
+                                onClick={() => setShowDeleteConfirm(true)}
+                              >
+                                delete
+                              </Button>
                             </div>
                           </div>
                         </Show>
+
                         <Show when={!playlistSongsQuery.isLoading}>
                           <div class="flex items-center gap-3 text-sm text-[var(--color-text-secondary)] mb-4">
                             <span>
@@ -836,6 +1150,15 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                             <Show when={totalDuration() > 0}>
                               <span>•</span>
                               <span>{formatDuration(totalDuration())}</span>
+                            </Show>
+                            <Show when={selectedPlaylist()?.created_at}>
+                              <span>•</span>
+                              <span>
+                                created{" "}
+                                {formatRelativeTime(
+                                  selectedPlaylist()!.created_at,
+                                )}
+                              </span>
                             </Show>
                             <Show
                               when={syncStatus() && !syncStatus()?.needsSync}
@@ -874,8 +1197,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   <Button
                                     variant="secondary"
                                     onClick={handleDownloadPlaylist}
+                                    disabled={isDownloading()}
                                   >
-                                    download playlist
+                                    {isDownloading()
+                                      ? "downloading..."
+                                      : "download playlist"}
                                   </Button>
                                 }
                               >
@@ -883,11 +1209,79 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   <Button
                                     variant="secondary"
                                     onClick={handleSyncPlaylist}
+                                    disabled={isSyncing()}
                                   >
-                                    sync playlist
+                                    {isSyncing()
+                                      ? "syncing..."
+                                      : "sync playlist"}
                                   </Button>
                                 </Show>
                               </Show>
+                            </Show>
+                            <Show
+                              when={
+                                !isViewingRemote() &&
+                                selectedPlaylist()?.source_remote_id
+                              }
+                            >
+                              <Button
+                                variant="secondary"
+                                onClick={handleMakeLocalCopy}
+                              >
+                                make local copy
+                              </Button>
+                              <IconButton
+                                icon="delete"
+                                variant="ghost"
+                                onClick={() => setShowDeleteConfirm(true)}
+                                title="delete playlist"
+                                aria-label="delete playlist"
+                              />
+                            </Show>
+                          </div>
+                        </Show>
+
+                        {/* download/sync progress indicator */}
+                        <Show when={downloadProgress()}>
+                          <div class="mt-4 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
+                            <Show
+                              when={downloadProgress()?.stage === "error"}
+                              fallback={
+                                <>
+                                  <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm text-[var(--color-text-secondary)]">
+                                      {downloadProgress()?.stage === "fetching"
+                                        ? "fetching playlist metadata..."
+                                        : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
+                                    </span>
+                                  </div>
+                                  <Show
+                                    when={
+                                      downloadProgress()?.stage ===
+                                        "downloading" &&
+                                      downloadProgress()?.totalSongs
+                                    }
+                                  >
+                                    <div class="w-full bg-[var(--color-bg-tertiary)] rounded-full h-2 mb-2">
+                                      <div
+                                        class="bg-[var(--color-accent-500)] h-2 rounded-full transition-all duration-300"
+                                        style={{
+                                          width: `${((downloadProgress()?.downloadedSongs || 0) / (downloadProgress()?.totalSongs || 1)) * 100}%`,
+                                        }}
+                                      />
+                                    </div>
+                                  </Show>
+                                  <Show when={downloadProgress()?.currentSong}>
+                                    <p class="text-xs text-[var(--color-text-tertiary)] truncate">
+                                      {downloadProgress()?.currentSong}
+                                    </p>
+                                  </Show>
+                                </>
+                              }
+                            >
+                              <p class="text-sm text-[var(--color-error)]">
+                                error: {downloadProgress()?.error}
+                              </p>
                             </Show>
                           </div>
                         </Show>
@@ -963,7 +1357,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                     onDoubleClick={() =>
                                       handleSongDoubleClick(song)
                                     }
-                                    disabled={false}
+                                    disabled={
+                                      !isEditablePlaylist(selectedPlaylist()!)
+                                    }
                                   >
                                     <DraggableRowSongContent
                                       title={song.title}
@@ -998,6 +1394,20 @@ export function PlaylistsView(props: PlaylistsViewProps) {
           </Show>
         </Show>
       </div>
+
+      {/* delete confirmation dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm()}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDeletePlaylist}
+        title="delete playlist"
+        message={`are you sure you want to delete "${selectedPlaylist()?.title}"? this action cannot be undone.`}
+        confirmText="delete"
+        cancelText="cancel"
+        variant="danger"
+        loading={isDeleting()}
+        alertVariant="warning"
+      />
     </div>
   );
 }

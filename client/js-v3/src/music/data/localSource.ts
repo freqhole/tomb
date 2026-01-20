@@ -1,4 +1,5 @@
 // local data source implementation - queries indexeddb directly
+import { generateUUID } from "../../utils/uuid";
 import {
   getSongById,
   initMusicDB,
@@ -8,11 +9,16 @@ import {
   querySongsWithDetails,
 } from "../services/storage/db";
 import {
+  deletePlaylist as deletePlaylistFromDB,
+  updatePlaylistSongs,
+} from "../services/storage/playlists";
+import {
   STORE_ALBUMS,
   STORE_PLAYLIST_SONGS,
   STORE_PLAYLISTS,
   STORE_SONGS,
   type Playlist,
+  type PlaylistSong,
   type Song,
 } from "../services/storage/types";
 import { sortSongsByArtist, sortSongsCanonical } from "../utils/songSort";
@@ -340,6 +346,216 @@ export class LocalMusicDataSource implements MusicDataSource {
       limit,
       has_more: offset + limit < songs.length,
     };
+  }
+
+  // playlist mutations
+  async createPlaylist(params: {
+    title: string;
+    description?: string | null;
+    is_public?: boolean;
+  }): Promise<PlaylistSummary> {
+    const db = await initMusicDB();
+    const now = Date.now();
+
+    const playlist: Playlist = {
+      playlist_id: generateUUID(),
+      title: params.title,
+      description: params.description || null,
+      is_public: params.is_public ?? false,
+      thumbnail_blob_id: null,
+      source_type: "local",
+      source_remote_id: null,
+      source_remote_url: null,
+      source_etag: null,
+      last_synced_at: null,
+      is_editable: true,
+      created_at: now,
+      updated_at: now,
+    };
+
+    await db.put(STORE_PLAYLISTS, playlist);
+
+    return {
+      playlist_id: playlist.playlist_id,
+      title: playlist.title,
+      description: playlist.description,
+      is_public: playlist.is_public,
+      thumbnail_blob_id: playlist.thumbnail_blob_id,
+      song_count: 0,
+      created_at: playlist.created_at,
+      updated_at: playlist.updated_at,
+    };
+  }
+
+  async updatePlaylist(
+    playlistId: string,
+    params: {
+      title?: string | null;
+      description?: string | null;
+      is_public?: boolean | null;
+      thumbnail_blob_id?: string | null;
+    },
+  ): Promise<PlaylistSummary> {
+    const db = await initMusicDB();
+
+    const playlist = await db.get(STORE_PLAYLISTS, playlistId);
+    if (!playlist) {
+      throw new Error("playlist not found");
+    }
+
+    // update fields
+    if (params.title !== undefined) {
+      playlist.title = params.title || "";
+    }
+    if (params.description !== undefined) {
+      playlist.description = params.description;
+    }
+    if (params.is_public !== undefined) {
+      playlist.is_public = params.is_public ?? false;
+    }
+    if (params.thumbnail_blob_id !== undefined) {
+      playlist.thumbnail_blob_id = params.thumbnail_blob_id;
+    }
+
+    playlist.updated_at = Date.now();
+
+    await db.put(STORE_PLAYLISTS, playlist);
+
+    // get song count
+    const playlistSongs = await db.getAllFromIndex(
+      STORE_PLAYLIST_SONGS,
+      "by_playlist_id",
+      playlistId,
+    );
+
+    return {
+      playlist_id: playlist.playlist_id,
+      title: playlist.title,
+      description: playlist.description,
+      is_public: playlist.is_public,
+      thumbnail_blob_id: playlist.thumbnail_blob_id,
+      song_count: playlistSongs.length,
+      created_at: playlist.created_at,
+      updated_at: playlist.updated_at,
+    };
+  }
+
+  async deletePlaylist(playlistId: string): Promise<void> {
+    const db = await initMusicDB();
+    await deletePlaylistFromDB(db, playlistId);
+  }
+
+  async addSongsToPlaylist(
+    playlistId: string,
+    songIds: string[],
+  ): Promise<void> {
+    const db = await initMusicDB();
+
+    // get current max position
+    const existingSongs = await db.getAllFromIndex(
+      STORE_PLAYLIST_SONGS,
+      "by_playlist_id",
+      playlistId,
+    );
+
+    let maxPosition = 0;
+    for (const ps of existingSongs) {
+      if (ps.position > maxPosition) {
+        maxPosition = ps.position;
+      }
+    }
+
+    // add new songs
+    const now = Date.now();
+    for (let i = 0; i < songIds.length; i++) {
+      const sha256 = songIds[i];
+
+      // check if song already exists in playlist
+      const existing = existingSongs.find((ps) => ps.sha256 === sha256);
+      if (existing) {
+        continue; // skip duplicates
+      }
+
+      const playlistSong: PlaylistSong = {
+        playlist_id: playlistId,
+        sha256,
+        position: maxPosition + i + 1,
+        added_at: now,
+      };
+
+      await db.put(STORE_PLAYLIST_SONGS, playlistSong);
+    }
+
+    // update playlist updated_at
+    const playlist = await db.get(STORE_PLAYLISTS, playlistId);
+    if (playlist) {
+      playlist.updated_at = Date.now();
+      await db.put(STORE_PLAYLISTS, playlist);
+    }
+  }
+
+  async removeSongsFromPlaylist(
+    playlistId: string,
+    songIds: string[],
+  ): Promise<void> {
+    const db = await initMusicDB();
+
+    // delete each song from playlist
+    for (const sha256 of songIds) {
+      await db.delete(STORE_PLAYLIST_SONGS, [playlistId, sha256]);
+    }
+
+    // update playlist updated_at
+    const playlist = await db.get(STORE_PLAYLISTS, playlistId);
+    if (playlist) {
+      playlist.updated_at = Date.now();
+      await db.put(STORE_PLAYLISTS, playlist);
+    }
+  }
+
+  async reorderPlaylistSongs(
+    playlistId: string,
+    songIds: string[],
+    newPosition: number,
+  ): Promise<void> {
+    const db = await initMusicDB();
+
+    // get all songs in playlist
+    const allSongs = await db.getAllFromIndex(
+      STORE_PLAYLIST_SONGS,
+      "by_playlist_id",
+      playlistId,
+    );
+
+    // sort by position
+    allSongs.sort((a, b) => a.position - b.position);
+
+    // find songs to move
+    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.sha256));
+    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.sha256));
+
+    // insert moved songs at new position (1-based index -> 0-based)
+    const targetIndex = newPosition - 1;
+    const reordered = [
+      ...songsToKeep.slice(0, targetIndex),
+      ...songsToMove,
+      ...songsToKeep.slice(targetIndex),
+    ];
+
+    // update positions
+    const updates = reordered.map((song, index) => ({
+      sha256: song.sha256,
+      position: index + 1,
+    }));
+
+    await updatePlaylistSongs(db, playlistId, updates);
+
+    // update playlist updated_at
+    const playlist = await db.get(STORE_PLAYLISTS, playlistId);
+    if (playlist) {
+      playlist.updated_at = Date.now();
+      await db.put(STORE_PLAYLISTS, playlist);
+    }
   }
 
   // source metadata

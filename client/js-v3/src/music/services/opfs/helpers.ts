@@ -3,6 +3,8 @@
 
 // opfs directory for audio files
 const AUDIO_DIR = "audio";
+// opfs directory for thumbnail images
+const THUMBNAILS_DIR = "thumbnails";
 
 // get opfs root directory
 async function getOPFSRoot(): Promise<FileSystemDirectoryHandle> {
@@ -13,6 +15,12 @@ async function getOPFSRoot(): Promise<FileSystemDirectoryHandle> {
 async function ensureAudioDir(): Promise<FileSystemDirectoryHandle> {
   const root = await getOPFSRoot();
   return root.getDirectoryHandle(AUDIO_DIR, { create: true });
+}
+
+// ensure thumbnails directory exists
+async function ensureThumbnailsDir(): Promise<FileSystemDirectoryHandle> {
+  const root = await getOPFSRoot();
+  return root.getDirectoryHandle(THUMBNAILS_DIR, { create: true });
 }
 
 // write audio file to opfs
@@ -41,10 +49,38 @@ export async function writeAudioToOPFS(
   }
 }
 
+// write thumbnail image to opfs
+export async function writeThumbnailToOPFS(
+  blob: Blob,
+  id: string,
+): Promise<string> {
+  try {
+    const thumbnailsDir = await ensureThumbnailsDir();
+
+    // determine extension from mime type
+    const mimeType = blob.type || "image/jpeg";
+    const extension = mimeType.split("/")[1] || "jpg";
+    const fileName = `${id}.${extension}`;
+
+    // create or get file handle
+    const fileHandle = await thumbnailsDir.getFileHandle(fileName, {
+      create: true,
+    });
+
+    // create writable stream and write blob
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+
+    return `${THUMBNAILS_DIR}/${fileName}`;
+  } catch (error) {
+    console.error("failed to write thumbnail to opfs:", error);
+    throw new Error(`failed to write thumbnail to opfs: ${error}`);
+  }
+}
+
 // read audio file from opfs
-export async function readAudioFromOPFS(
-  path: string,
-): Promise<File> {
+export async function readAudioFromOPFS(path: string): Promise<File> {
   try {
     // path format: "audio/id.ext"
     const parts = path.split("/");
@@ -62,6 +98,27 @@ export async function readAudioFromOPFS(
   } catch (error) {
     console.error(`failed to read audio from opfs (${path}):`, error);
     throw new Error(`failed to read audio from opfs: ${error}`);
+  }
+}
+
+// read thumbnail image from opfs
+export async function readThumbnailFromOPFS(path: string): Promise<File> {
+  try {
+    // path format: "thumbnails/id.ext"
+    const parts = path.split("/");
+    if (parts.length !== 2 || parts[0] !== THUMBNAILS_DIR) {
+      throw new Error(`invalid opfs path: ${path}`);
+    }
+
+    const fileName = parts[1];
+    const thumbnailsDir = await ensureThumbnailsDir();
+    const fileHandle = await thumbnailsDir.getFileHandle(fileName);
+    const file = await fileHandle.getFile();
+
+    return file;
+  } catch (error) {
+    console.error(`failed to read thumbnail from opfs (${path}):`, error);
+    throw new Error(`failed to read thumbnail from opfs: ${error}`);
   }
 }
 
@@ -111,10 +168,7 @@ export function isOPFSSupported(): boolean {
 }
 
 // get file extension from mime type or filename
-export function getFileExtension(
-  mimeType: string,
-  fileName?: string,
-): string {
+export function getFileExtension(mimeType: string, fileName?: string): string {
   // try to get from filename first
   if (fileName) {
     const match = fileName.match(/\.([^.]+)$/);

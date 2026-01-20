@@ -41,7 +41,12 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   };
 
   return (
-    <Modal isOpen={props.isOpen} onClose={props.onClose} title={title()}>
+    <Modal
+      isOpen={props.isOpen}
+      onClose={props.onClose}
+      title={title()}
+      showCloseButton={false}
+    >
       <div class="space-y-6">
         <Show
           when={props.alertVariant}

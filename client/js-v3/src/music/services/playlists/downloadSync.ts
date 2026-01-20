@@ -3,7 +3,7 @@
 
 import * as apiClient from "freqhole-api-client";
 import { generateUUID } from "../../../utils/uuid";
-import { writeAudioToOPFS } from "../opfs/helpers";
+import { writeAudioToOPFS, writeThumbnailToOPFS } from "../opfs/helpers";
 import {
   getOrCreateAlbum,
   getOrCreateArtist,
@@ -131,6 +131,26 @@ export async function downloadPlaylist(
       downloadedSongs: 0,
     });
 
+    // download thumbnail if present
+    let localThumbnailId: string | null = null;
+    if (remotePlaylist.thumbnail_blob_id) {
+      try {
+        const thumbnailBlobUrl = `${remoteUrl}/api/blobs/${remotePlaylist.thumbnail_blob_id}`;
+        const thumbnailResponse = await fetch(thumbnailBlobUrl, {
+          credentials: "include",
+        });
+
+        if (thumbnailResponse.ok) {
+          const thumbnailBlob = await thumbnailResponse.blob();
+          localThumbnailId = generateUUID();
+          await writeThumbnailToOPFS(thumbnailBlob, localThumbnailId);
+        }
+      } catch (error) {
+        console.warn("failed to download playlist thumbnail:", error);
+        // continue without thumbnail
+      }
+    }
+
     // create local playlist
     const localPlaylistId = generateUUID();
     await createSyncedPlaylist(db, {
@@ -138,7 +158,7 @@ export async function downloadPlaylist(
       title: remotePlaylist.title,
       description: remotePlaylist.description,
       is_public: Boolean(remotePlaylist.is_public),
-      thumbnail_blob_id: null, // TODO: download thumbnail
+      thumbnail_blob_id: localThumbnailId,
       source_remote_id: remotePlaylistId,
       source_remote_url: remoteUrl,
       source_etag: etag,
@@ -171,8 +191,7 @@ export async function downloadPlaylist(
 
         if (!metadataResult.success) {
           console.error(
-            `failed to fetch blob metadata for ${song.media_blob_id}:`,
-            metadataResult.error,
+            `failed to fetch blob metadata for ${song.media_blob_id}`,
           );
           throw new Error(
             `failed to fetch blob metadata for ${song.media_blob_id}`,

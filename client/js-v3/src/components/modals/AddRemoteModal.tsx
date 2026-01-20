@@ -423,7 +423,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               {/* step 3: authenticate */}
               <Match when={step() === "auth"}>
                 <div class="space-y-4">
-                  <div class="p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
+                  {/*<div class="p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
                     <p class="text-sm text-[var(--color-text-secondary)]">
                       connected to <strong>{serverInfo()?.name}</strong>
                     </p>
@@ -432,7 +432,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         version {serverInfo()?.version}
                       </p>
                     </Show>
-                  </div>
+                  </div>*/}
 
                   <AuthForm
                     initialMode="login"
