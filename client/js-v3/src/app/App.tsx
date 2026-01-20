@@ -104,7 +104,7 @@ export function App() {
     }
 
     // play the clicked song
-    await playSong(song.sha256);
+    await playSong(song);
   };
 
   return (

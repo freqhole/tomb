@@ -74,7 +74,7 @@ export function AlbumsView(props: AlbumsViewProps) {
 
       // set queue and play first song
       await setQueue(sortedSongs);
-      await playSong(sortedSongs[0].sha256);
+      await playSong(sortedSongs[0]);
     } catch (error) {
       console.error("failed to play album:", error);
     }

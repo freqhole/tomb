@@ -115,7 +115,7 @@ export function ArtistDetailView() {
     if (songList.length === 0) return;
 
     await setQueue(songList);
-    await playSong(songList[0].sha256);
+    await playSong(songList[0]);
   };
 
   // play specific album
@@ -128,7 +128,7 @@ export function ArtistDetailView() {
     const sortedSongs = sortSongsCanonical(albumSongs);
 
     await setQueue(sortedSongs);
-    await playSong(sortedSongs[0].sha256);
+    await playSong(sortedSongs[0]);
   };
 
   // add album to queue

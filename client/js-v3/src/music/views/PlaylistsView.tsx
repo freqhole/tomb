@@ -124,13 +124,19 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // check if viewing remote playlists
   const isViewingRemote = createMemo(() => getCurrentRemote() !== null);
 
-  // check sync status ONLY for local synced playlists (not remote playlists)
+  // check sync status for both remote and local playlists
   createEffect(() => {
     const playlist = selectedPlaylist();
+    const remote = getCurrentRemote();
     const viewingRemote = isViewingRemote();
 
-    // only check sync status when viewing LOCAL playlist that has remote source
-    if (
+    if (playlist && remote && viewingRemote) {
+      // viewing remote playlist - check if there's a local copy
+      checkIfPlaylistNeedsSync(remote.url, playlist.playlist_id).then(
+        setSyncStatus,
+      );
+      setSyncSourceRemoteName(null); // remote context doesn't need remote name
+    } else if (
       !viewingRemote &&
       playlist?.source_remote_url &&
       playlist?.source_remote_id
@@ -146,7 +152,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         setSyncSourceRemoteName(remote?.name || null);
       });
     } else {
-      // not a synced local playlist - clear sync status
+      // not a synced playlist - clear sync status
       setSyncStatus(null);
       setSyncSourceRemoteName(null);
     }

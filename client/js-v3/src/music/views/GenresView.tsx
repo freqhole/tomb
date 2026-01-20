@@ -123,7 +123,7 @@ export function GenresView(props: GenresViewProps) {
     if (!songs || songs.length === 0) return;
 
     await setQueue(songs);
-    await playSong(songs[0].sha256);
+    await playSong(songs[0]);
   };
 
   // shuffle all songs for selected genre
@@ -133,7 +133,7 @@ export function GenresView(props: GenresViewProps) {
 
     const shuffled = shuffleArray(songs);
     await setQueue(shuffled);
-    await playSong(shuffled[0].sha256);
+    await playSong(shuffled[0]);
   };
 
   // add all songs to end of queue
@@ -159,7 +159,7 @@ export function GenresView(props: GenresViewProps) {
 
     if (sortedSongs.length === 0) return;
     await setQueue(sortedSongs);
-    await playSong(sortedSongs[0].sha256);
+    await playSong(sortedSongs[0]);
   };
 
   // add album to queue

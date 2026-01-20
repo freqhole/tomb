@@ -375,7 +375,7 @@ export async function playQueue(songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
 
   await setQueue(songs);
-  await playSong(songs[0].sha256);
+  await playSong(songs[0]);
 }
 
 // add song to end of queue

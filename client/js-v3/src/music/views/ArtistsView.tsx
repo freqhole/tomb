@@ -186,7 +186,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (songs.length === 0) return;
 
     await setQueue(songs);
-    await playSong(songs[0].sha256);
+    await playSong(songs[0]);
   };
 
   // shuffle all songs for selected artist
@@ -196,7 +196,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
     const shuffled = shuffleArray(songs);
     await setQueue(shuffled);
-    await playSong(shuffled[0].sha256);
+    await playSong(shuffled[0]);
   };
 
   // add all songs to end of queue
@@ -234,7 +234,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
     if (sortedSongs.length === 0) return;
     await setQueue(sortedSongs);
-    await playSong(sortedSongs[0].sha256);
+    await playSong(sortedSongs[0]);
   };
 
   // add album to queue
