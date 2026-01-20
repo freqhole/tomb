@@ -2,6 +2,7 @@
 //! handles filesystem traversal, audio file detection, and import
 
 mod directory;
+mod filename_parser;
 mod import;
 mod models;
 mod service;
@@ -19,3 +20,6 @@ pub use directory::{is_audio_file, scan_directory_and_create_jobs};
 
 // re-export import functions
 pub use import::{extract_and_import, import_basic, ImportResult};
+
+// re-export filename parser
+pub use filename_parser::{parse_filename, ParsedFilename};

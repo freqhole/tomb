@@ -3,7 +3,9 @@
 //! rescans all tracked directories to find new/moved/deleted files
 //! includes orphan detection to clean up missing files
 
+use crate::blob_data;
 use crate::jobs::{Job, JobError};
+use crate::music::crud;
 use crate::music::scanner::scan_directory;
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};
@@ -26,6 +28,9 @@ use crate::media_blobz::MediaBlob;
 /// 2. orphan detection: check all blobs, soft delete if file missing
 pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing RescanDirectories job: {}", job.id);
+
+    // initialize duplicate report for this rescan session
+    crud::init_duplicate_report();
 
     let params: serde_json::Value = job.parameters()?;
     let specific_dir_id = params["directory_id"].as_str();
@@ -159,6 +164,14 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         checked,
         deleted
     );
+
+    // clear caches and write reports
+    if let Some(sid) = &job.session_id {
+        blob_data::clear_scan_cache(sid).await;
+    }
+    if let Err(e) = crud::write_duplicate_report() {
+        warn!("failed to write duplicate report: {}", e);
+    }
 
     Ok(Some(json!({
         "scanned_directories": directories.len(),

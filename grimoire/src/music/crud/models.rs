@@ -29,8 +29,10 @@ pub struct ImportSongRequest {
     pub year: Option<i64>,
     pub bpm: Option<i64>,
     pub key_signature: Option<String>,
+    pub metadata: Option<String>,
     pub lyrics: Option<String>,
     pub created_by: Option<String>,
+    pub is_compilation: bool,
 }
 
 /// result of importing a song with metadata

@@ -6,6 +6,7 @@ use super::models::{
     BulkImportResult, BulkImportSummary, CreateSongWithMetadataRequest, ImportSongRequest,
     ImportSongResult, SongImportError, SongImportErrorType,
 };
+use crate::config;
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::entities::{
@@ -13,6 +14,88 @@ use crate::music::entities::{
     CreateGenreRequest, CreateSongRequest, Genre, Playlist, Song,
 };
 use crate::GrimoireResponse;
+use std::sync::Mutex;
+
+// global duplicate report tracker (CSV rows accumulated during scan)
+static DUPLICATE_REPORT: Mutex<Option<Vec<DuplicateReportRow>>> = Mutex::new(None);
+
+/// duplicate report row for CSV export
+#[derive(Debug, Clone)]
+struct DuplicateReportRow {
+    skipped_file_path: String,
+    artist: String,
+    album: String,
+    title: String,
+    disc_number: i64,
+    track_number: i64,
+    duration_ms: i64,
+    existing_song_id: String,
+    existing_file_path: Option<String>,
+}
+
+/// initialize duplicate report tracking (call at start of scan)
+pub fn init_duplicate_report() {
+    let config = config::get_config();
+    if config.media.generate_scan_duplicate_report {
+        *DUPLICATE_REPORT.lock().unwrap() = Some(Vec::new());
+    }
+}
+
+/// write duplicate report to CSV file (call at end of scan)
+pub fn write_duplicate_report() -> Result<(), std::io::Error> {
+    let config = config::get_config();
+    if !config.media.generate_scan_duplicate_report {
+        return Ok(());
+    }
+
+    let rows = DUPLICATE_REPORT.lock().unwrap().take();
+    if let Some(rows) = rows {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let report_path = config.data_dir.join("duplicate_report.csv");
+        let row_count = rows.len(); // save length before consuming
+        let mut wtr = csv::Writer::from_path(&report_path)?;
+
+        // write header
+        wtr.write_record(&[
+            "skipped_file_path",
+            "artist",
+            "album",
+            "title",
+            "disc_number",
+            "track_number",
+            "duration_ms",
+            "existing_song_id",
+            "existing_file_path",
+        ])?;
+
+        // write rows
+        for row in rows {
+            wtr.write_record(&[
+                &row.skipped_file_path,
+                &row.artist,
+                &row.album,
+                &row.title,
+                &row.disc_number.to_string(),
+                &row.track_number.to_string(),
+                &row.duration_ms.to_string(),
+                &row.existing_song_id,
+                &row.existing_file_path.unwrap_or_default(),
+            ])?;
+        }
+
+        wtr.flush()?;
+        tracing::info!(
+            "wrote duplicate report: {} rows to {:?}",
+            row_count,
+            report_path
+        );
+    }
+
+    Ok(())
+}
 
 /// import a song with full metadata, creating related entities as needed
 pub async fn import_song_with_metadata(
@@ -20,8 +103,119 @@ pub async fn import_song_with_metadata(
 ) -> GrimoireResponse<ImportSongResult> {
     let _start_time = std::time::Instant::now();
 
+    // 0. Check for duplicate songs (skip if artist + album + title + track/disc + duration match)
+    // only check if config enables it and we have valid artist, album, and a positive duration
+    let config = config::get_config();
+    if config.media.skip_duplicates {
+        if let (Some(artist_name), Some(album_title), Some(duration)) =
+            (&req.artist_name, &req.album_title, &req.duration)
+        {
+            // only perform duplicate check if duration is a valid positive number
+            if *duration > 0 {
+                let dup_check_start = std::time::Instant::now();
+                let pool = match database::connect().await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "Failed to connect to database",
+                            vec![e.into()],
+                        );
+                    }
+                };
+
+                // check for existing song with same artist, album, title, track/disc, and similar duration (±3 seconds)
+                let duration_tolerance_ms = 3000; // 3 seconds
+                let duration_min = duration - duration_tolerance_ms;
+                let duration_max = duration + duration_tolerance_ms;
+
+                let existing_song = sqlx::query!(
+                    r#"
+                SELECT s.id as "id!", s.title as "title!", s.duration, mb.local_path
+                FROM songz s
+                JOIN artist_songz asz ON asz.song_id = s.id
+                JOIN artistz a ON a.id = asz.artist_id
+                JOIN album_songz als ON als.song_id = s.id
+                JOIN albumz alb ON alb.id = als.album_id
+                LEFT JOIN media_blobz mb ON mb.id = s.media_blob_id
+                WHERE LOWER(a.name) = LOWER(?)
+                  AND LOWER(alb.title) = LOWER(?)
+                  AND LOWER(s.title) = LOWER(?)
+                  AND s.track_number = ?
+                  AND s.disc_number = ?
+                  AND s.duration BETWEEN ? AND ?
+                  AND s.deleted_at IS NULL
+                LIMIT 1
+                "#,
+                    artist_name,
+                    album_title,
+                    req.title,
+                    req.track_number,
+                    req.disc_number,
+                    duration_min,
+                    duration_max
+                )
+                .fetch_optional(&pool)
+                .await;
+
+                let dup_check_elapsed = dup_check_start.elapsed();
+                tracing::debug!("duplicate check took {:?}", dup_check_elapsed);
+
+                if let Ok(Some(existing)) = existing_song {
+                    let duration_str = existing
+                        .duration
+                        .map(|d| format!("{}ms", d))
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    tracing::info!(
+                        "skipping duplicate song: artist='{}', album='{}', track {}/{}, title='{}', duration={} (existing song_id: {})",
+                        artist_name,
+                        album_title,
+                        req.disc_number,
+                        req.track_number,
+                        req.title,
+                        duration_str,
+                        existing.id
+                    );
+
+                    // add to duplicate report if enabled
+                    if config.media.generate_scan_duplicate_report {
+                        if let Ok(mut report) = DUPLICATE_REPORT.lock() {
+                            if let Some(ref mut rows) = *report {
+                                rows.push(DuplicateReportRow {
+                                    skipped_file_path: req.media_blob_id.clone(), // this is actually the file path in this context
+                                    artist: artist_name.clone(),
+                                    album: album_title.clone(),
+                                    title: req.title.clone(),
+                                    disc_number: req.disc_number,
+                                    track_number: req.track_number,
+                                    duration_ms: *duration,
+                                    existing_song_id: existing.id.clone(),
+                                    existing_file_path: existing.local_path,
+                                });
+                            }
+                        }
+                    }
+
+                    // skip this import - duplicate found
+                    // return an error that signals duplicate detection
+                    return GrimoireResponse::failure(
+                        "Duplicate song detected and skipped",
+                        vec![ErrorDetail::new(
+                            "duplicate_song",
+                            "Duplicate Song",
+                            format!(
+                                "Song with artist '{}', album '{}', disc {}, track {}, and similar duration already exists (song_id: {})",
+                                artist_name, album_title, req.disc_number, req.track_number, existing.id
+                            ),
+                        )],
+                    );
+                }
+            }
+        }
+    }
+
     // 1. Find or create artist
-    let (artist, created_new_artist) = if let Some(artist_name) = &req.artist_name {
+    let (mut artist, created_new_artist) = if let Some(artist_name) = &req.artist_name {
         let artist_req = ArtistImportRequest {
             name: artist_name.clone(),
             created_by: req.created_by.clone(),
@@ -81,7 +275,11 @@ pub async fn import_song_with_metadata(
         // Has album metadata - create/find real album
         let album_req = AlbumImportRequest {
             title: album_title.clone(),
-            album_type: Some("album".to_string()),
+            album_type: Some(if req.is_compilation {
+                "compilation".to_string()
+            } else {
+                "album".to_string()
+            }),
             release_date: req.year.map(|y| y.to_string()),
             release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
@@ -108,6 +306,35 @@ pub async fn import_song_with_metadata(
                 return GrimoireResponse::failure("Failed to import song", errors);
             }
         };
+
+        // if we have album but no artist, create "Unknown Artist"
+        if artist.is_none() {
+            let unknown_artist_req = ArtistImportRequest {
+                name: "Unknown Artist".to_string(),
+                created_by: req.created_by.clone(),
+            };
+            let (unknown_artist, _created) = match find_or_create_artist(unknown_artist_req).await {
+                GrimoireResponse {
+                    success: true,
+                    data: Some(result),
+                    ..
+                } => result,
+                response => {
+                    let errors = if response.errors.is_empty() {
+                        vec![ErrorDetail::new(
+                            "artist_creation_failed",
+                            "Unknown Artist Creation Failed",
+                            "failed to find or create unknown artist",
+                        )]
+                    } else {
+                        response.errors
+                    };
+                    return GrimoireResponse::failure("failed to import song", errors);
+                }
+            };
+            artist = Some(unknown_artist);
+        }
+
         (Some(album), created)
     } else if let Some(artist) = &artist {
         // Has artist but no album - create artist-specific "Unknown Album"
@@ -133,8 +360,55 @@ pub async fn import_song_with_metadata(
             };
         (Some(album), created)
     } else {
-        // No artist, no album - will create "Unknown Artist" + their "Unknown Album" later
-        (None, false)
+        // No artist, no album - create "Unknown Artist" and their "Unknown Album"
+        let unknown_artist_req = ArtistImportRequest {
+            name: "Unknown Artist".to_string(),
+            created_by: req.created_by.clone(),
+        };
+        let (unknown_artist, created) = match find_or_create_artist(unknown_artist_req).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(result),
+                ..
+            } => result,
+            response => {
+                let errors = if response.errors.is_empty() {
+                    vec![ErrorDetail::new(
+                        "artist_creation_failed",
+                        "Unknown Artist Creation Failed",
+                        "failed to find or create unknown artist",
+                    )]
+                } else {
+                    response.errors
+                };
+                return GrimoireResponse::failure("failed to import song", errors);
+            }
+        };
+
+        let unknown_album_req = AlbumImportRequest {
+            title: "Unknown Album".to_string(),
+            album_type: Some("album".to_string()),
+            release_date: req.year.map(|y| y.to_string()),
+            release_date_precision: req.year.map(|_| "year".to_string()),
+            label: None,
+            genre_id: genre.as_ref().map(|g| g.id.clone()),
+            year: req.year,
+            created_by: req.created_by.clone(),
+        };
+        let (unknown_album, album_created) =
+            match find_or_create_album_for_artist(unknown_album_req, &unknown_artist.id).await {
+                Ok(result) => result,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to find or create unknown album",
+                        vec![e.into()],
+                    )
+                }
+            };
+
+        // Update artist to Some for relationship creation
+        artist = Some(unknown_artist);
+        (Some(unknown_album), album_created || created)
     };
 
     // 4. Create the song
@@ -147,6 +421,7 @@ pub async fn import_song_with_metadata(
         year: req.year,
         bpm: req.bpm,
         key_signature: req.key_signature,
+        metadata: req.metadata,
         lyrics: req.lyrics,
         created_by: req.created_by,
     };
@@ -495,8 +770,10 @@ pub async fn create_song_with_artist_and_album(
         year: req.year,
         bpm: None,
         key_signature: None,
+        metadata: None,
         lyrics: None,
         created_by: req.created_by,
+        is_compilation: false,
     };
 
     import_song_with_metadata(import_req).await

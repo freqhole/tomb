@@ -41,6 +41,7 @@ pub struct CreateSongRequest {
     pub year: Option<i64>,
     pub bpm: Option<i64>,
     pub key_signature: Option<String>,
+    pub metadata: Option<String>,
     pub lyrics: Option<String>,
     pub created_by: Option<String>,
 }

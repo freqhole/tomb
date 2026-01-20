@@ -54,7 +54,10 @@ pub use create_or_update::{
     get_or_create_playlist_by_name,
     import_album_with_songs,
     import_song_with_metadata as add_song, // renamed for cleaner API
+    // duplicate report functions
+    init_duplicate_report,
     update_song_with_relationships,
+    write_duplicate_report,
 };
 
 // re-export query operations

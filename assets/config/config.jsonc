@@ -28,7 +28,13 @@
     // FFmpeg configuration for audio processing (album art, waveforms)
     "ffmpeg_path": "ffmpeg",
     "extract_album_art_args": "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}",
-    "generate_waveform_args": "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -update 1 -y {output}",
+    "generate_waveform_args": "-i {input} -filter_complex \"color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto\" -frames:v 1 -y {output}",
+
+    // Duplicate detection during scan
+    // Skip importing songs that match existing songs (same artist, album, title, track/disc number, similar duration)
+    "skip_duplicates": true,
+    // Generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
+    "generate_scan_duplicate_report": true,
 
     // URL download configuration using yt-dlp
     "downloads": {

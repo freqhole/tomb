@@ -66,14 +66,31 @@ pub async fn import_audio_file(
 ) -> GrimoireResponse<ImportResult> {
     match extract_and_import(media_blob_id, file_path).await {
         Ok(result) => GrimoireResponse::success("Audio file imported successfully", result),
-        Err(e) => GrimoireResponse::failure(
-            "Failed to import audio file",
-            vec![ErrorDetail::new(
-                "import_failed",
-                "Import Failed",
-                format!("Failed to import audio file: {}", e),
-            )],
-        ),
+        Err(e) => {
+            // check if this is a JobError with a wrapped GrimoireResponse
+            let error_str = format!("{}", e);
+            if error_str.contains("Duplicate song detected") || error_str.contains("duplicate_song")
+            {
+                // preserve the duplicate error for early bail-out detection
+                GrimoireResponse::failure(
+                    "Failed to import audio file",
+                    vec![ErrorDetail::new(
+                        "duplicate_song",
+                        "Duplicate Song",
+                        format!("job processing failed: {}", e),
+                    )],
+                )
+            } else {
+                GrimoireResponse::failure(
+                    "Failed to import audio file",
+                    vec![ErrorDetail::new(
+                        "import_failed",
+                        "Import Failed",
+                        format!("Failed to import audio file: {}", e),
+                    )],
+                )
+            }
+        }
     }
 }
 

@@ -13,7 +13,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
     let blob_type_str = blob_type.as_str();
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
 
-    // Check if a blob with this SHA256 already exists
+    // check if a blob with this SHA256 already exists (including deleted ones)
     if let Ok(existing_blob) = sqlx::query_as!(
         MediaBlob,
         "SELECT
@@ -34,14 +34,54 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             created_by,
             updated_by
          FROM media_blobz
-         WHERE sha256 = ? AND deleted_at IS NULL
+         WHERE sha256 = ?
          LIMIT 1",
         req.sha256
     )
     .fetch_one(&pool)
     .await
     {
-        // Blob already exists, return it with parsed metadata
+        // if blob was deleted, undelete it
+        if existing_blob.deleted_at.is_some() {
+            let undeleted_blob = sqlx::query_as!(
+                MediaBlob,
+                "UPDATE media_blobz
+                 SET deleted_at = NULL,
+                     deleted_by = NULL,
+                     updated_at = unixepoch(),
+                     updated_by = ?
+                 WHERE id = ?
+                 RETURNING
+                    id as \"id!\",
+                    sha256 as \"sha256!\",
+                    size,
+                    mime,
+                    source_client_id,
+                    local_path,
+                    filename,
+                    parent_blob_id,
+                    blob_type as \"blob_type!\",
+                    metadata,
+                    created_at as \"created_at!\",
+                    updated_at as \"updated_at!\",
+                    deleted_at,
+                    deleted_by,
+                    created_by,
+                    updated_by",
+                req.created_by,
+                existing_blob.id
+            )
+            .fetch_one(&pool)
+            .await?;
+
+            let mut undeleted_with_metadata = undeleted_blob;
+            undeleted_with_metadata.metadata =
+                serde_json::from_str(&undeleted_with_metadata.metadata.as_str().unwrap_or("{}"))
+                    .unwrap_or_default();
+            return Ok(undeleted_with_metadata);
+        }
+
+        // blob already exists and is not deleted, return it with parsed metadata
         let mut existing_with_metadata = existing_blob;
         existing_with_metadata.metadata =
             serde_json::from_str(&existing_with_metadata.metadata.as_str().unwrap_or("{}"))

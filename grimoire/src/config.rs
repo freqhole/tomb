@@ -58,6 +58,12 @@ pub struct MediaConfig {
     /// Args for generating waveform (placeholders: {input}, {output})
     #[serde(default = "default_generate_waveform_args")]
     pub generate_waveform_args: String,
+    /// Skip importing duplicate songs during scan
+    #[serde(default = "default_skip_duplicates")]
+    pub skip_duplicates: bool,
+    /// Generate CSV report of skipped duplicates during scan
+    #[serde(default = "default_generate_scan_duplicate_report")]
+    pub generate_scan_duplicate_report: bool,
 }
 
 fn default_ffmpeg_path() -> String {
@@ -69,8 +75,16 @@ fn default_extract_album_art_args() -> String {
 }
 
 fn default_generate_waveform_args() -> String {
-    "-i {input} -filter_complex showwavespic=s=800x200:colors=0x3b82f6 -frames:v 1 -update 1 -y {output}"
+    "-i {input} -filter_complex \"color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto\" -frames:v 1 -y {output}"
         .to_string()
+}
+
+fn default_skip_duplicates() -> bool {
+    true
+}
+
+fn default_generate_scan_duplicate_report() -> bool {
+    false
 }
 
 /// Download configuration

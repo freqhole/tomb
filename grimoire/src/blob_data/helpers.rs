@@ -10,6 +10,80 @@ use sha2::{Digest, Sha256};
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Stdio;
+use tokio::io::AsyncReadExt;
+
+/// get directory image blob IDs from scan cache (database-backed)
+async fn get_cached_directory_images(session_id: &str, dir_path: &str) -> Option<Vec<String>> {
+    let pool = crate::database::connect().await.ok()?;
+
+    let result = sqlx::query!(
+        "SELECT cache_value FROM scan_cache WHERE session_id = ? AND cache_key = ?",
+        session_id,
+        dir_path
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()?;
+
+    if let Some(row) = result {
+        serde_json::from_str(&row.cache_value).ok()
+    } else {
+        None
+    }
+}
+
+/// store directory image blob IDs in scan cache (database-backed)
+async fn cache_directory_images(session_id: &str, dir_path: &str, blob_ids: &[String]) {
+    if let Ok(pool) = crate::database::connect().await {
+        let value = serde_json::to_string(blob_ids).unwrap_or_default();
+        let _ = sqlx::query!(
+            "INSERT OR REPLACE INTO scan_cache (session_id, cache_key, cache_value) VALUES (?, ?, ?)",
+            session_id,
+            dir_path,
+            value
+        )
+        .execute(&pool)
+        .await;
+    }
+}
+
+/// clear scan cache for a session (call at end of scan)
+pub async fn clear_scan_cache(session_id: &str) {
+    if let Ok(pool) = crate::database::connect().await {
+        match sqlx::query!("DELETE FROM scan_cache WHERE session_id = ?", session_id)
+            .execute(&pool)
+            .await
+        {
+            Ok(result) => {
+                tracing::info!(
+                    "cleared scan cache for session {} ({} entries)",
+                    session_id,
+                    result.rows_affected()
+                );
+            }
+            Err(e) => {
+                tracing::warn!("failed to clear scan cache: {}", e);
+            }
+        }
+    }
+}
+
+/// stream SHA256 hash of a file by reading in chunks (avoids loading entire file into memory)
+async fn stream_sha256_hash(file_path: &str) -> Result<String, std::io::Error> {
+    let mut file = tokio::fs::File::open(file_path).await?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 8192]; // 8KB chunks
+
+    loop {
+        let bytes_read = file.read(&mut buffer).await?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
 
 /// Create a media blob record from an audio file path
 ///
@@ -33,24 +107,20 @@ pub async fn create_media_blob_from_file(
         .map(|m| m.to_string())
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    // Calculate SHA256 hash of the actual file contents for proper deduplication
-    let file_data = match tokio::fs::read(file_path).await {
-        Ok(data) => data,
+    // Calculate SHA256 hash by streaming the file instead of loading it all into memory
+    let sha256 = match stream_sha256_hash(file_path).await {
+        Ok(hash) => hash,
         Err(e) => {
             return GrimoireResponse::failure(
-                "Failed to read file for hashing",
+                "Failed to hash file",
                 vec![ErrorDetail::new(
-                    "file_read_error",
-                    "File Read Error",
-                    format!("Failed to read file {}: {}", file_path, e),
+                    "file_hash_error",
+                    "File Hash Error",
+                    format!("Failed to hash file {}: {}", file_path, e),
                 )],
             )
         }
     };
-
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let sha256 = format!("{:x}", hasher.finalize());
 
     let request = CreateMediaBlobRequest {
         sha256,
@@ -214,18 +284,17 @@ async fn extract_album_art_to_webp(
 }
 
 /// find album art image file in directory and convert to webp
-/// #todo: this could be improved, art_filenames prolly not needed, like any image in the dir should work BUT we should take
-/// some care to not over-apply an image, like if there's lots of songs in a dir, as in they're different albums, then we should not apply the image
+/// first tries common album art filenames, then falls back to any image file in directory
 async fn find_album_art_in_directory_to_webp(
     audio_file_path: &str,
 ) -> Result<Vec<u8>, crate::error::GrimoireError> {
     let dir = std::path::Path::new(audio_file_path)
         .parent()
         .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-            message: "Could not get directory from audio file path".to_string(),
+            message: "could not get directory from audio file path".to_string(),
         })?;
 
-    // Common album art filenames
+    // common album art filenames (prioritized)
     let art_filenames = [
         "folder.jpg",
         "folder.jpeg",
@@ -245,21 +314,53 @@ async fn find_album_art_in_directory_to_webp(
         "art.webp",
     ];
 
+    // try each known filename first
     for filename in &art_filenames {
-        let art_path = dir.join(filename);
-        if art_path.exists() {
-            match tokio::fs::read(&art_path).await {
-                Ok(data) if !data.is_empty() => {
-                    // Convert to WebP if needed
-                    return convert_to_webp(&data);
+        let path = dir.join(filename);
+        if path.exists() {
+            let image_data = tokio::fs::read(&path).await.map_err(|e| {
+                crate::error::GrimoireError::ProcessingFailed {
+                    message: format!("failed to read album art: {}", e),
                 }
-                _ => continue,
+            })?;
+            return convert_to_webp(&image_data);
+        }
+    }
+
+    // fallback: find any image file in directory
+    let mut entries = tokio::fs::read_dir(dir).await.map_err(|e| {
+        crate::error::GrimoireError::ProcessingFailed {
+            message: format!("failed to read directory: {}", e),
+        }
+    })?;
+
+    let image_extensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+
+    while let Some(entry) =
+        entries
+            .next_entry()
+            .await
+            .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+                message: format!("failed to read directory entry: {}", e),
+            })?
+    {
+        let path = entry.path();
+        if let Some(ext) = path.extension() {
+            if let Some(ext_str) = ext.to_str() {
+                if image_extensions.contains(&ext_str.to_lowercase().as_str()) {
+                    let image_data = tokio::fs::read(&path).await.map_err(|e| {
+                        crate::error::GrimoireError::ProcessingFailed {
+                            message: format!("failed to read image file: {}", e),
+                        }
+                    })?;
+                    return convert_to_webp(&image_data);
+                }
             }
         }
     }
 
     Err(GrimoireError::ProcessingFailed {
-        message: "No album art found in directory".to_string(),
+        message: "no album art found in directory".to_string(),
     })
 }
 
@@ -423,4 +524,246 @@ async fn create_waveform_blob_from_webp_data(
         Some("job_processor".to_string()),
     )
     .await
+}
+
+/// result of collecting images for a song
+#[derive(Debug, Clone)]
+pub struct CollectedImages {
+    /// embedded art blob id (if extracted from audio file)
+    pub embedded_art_blob_id: Option<String>,
+    /// directory image blob ids (in order found)
+    pub directory_image_blob_ids: Vec<String>,
+    /// true if embedded art or known filename was found (good match for album art)
+    pub has_good_match: bool,
+}
+
+/// collect all images for a song: embedded art + all directory images
+/// creates blobs for each image found (uses database cache to avoid re-processing directory images)
+/// requires session_id to use the cache
+pub async fn collect_song_images(
+    source_blob_id: &str,
+    audio_file_path: &str,
+    config: &GrimoireConfig,
+    session_id: Option<&str>,
+) -> GrimoireResponse<CollectedImages> {
+    let mut embedded_art_blob_id = None;
+    let mut directory_image_blob_ids = Vec::new();
+    let mut has_good_match = false;
+
+    // step 1: try to extract embedded art
+    match extract_album_art_to_webp(audio_file_path, config).await {
+        Ok(webp_data) => {
+            let blob_response = create_thumbnail_blob_from_webp_data(
+                source_blob_id,
+                webp_data,
+                "embedded_album_art",
+            )
+            .await;
+
+            if blob_response.success {
+                if let Some(blob_id) = blob_response.data {
+                    embedded_art_blob_id = Some(blob_id);
+                    has_good_match = true;
+                }
+            }
+        }
+        Err(_) => {
+            // no embedded art, continue to directory images
+        }
+    }
+
+    // step 2: get directory and check cache
+    let dir = match std::path::Path::new(audio_file_path).parent() {
+        Some(d) => d,
+        None => {
+            // if we at least got embedded art, return that
+            if embedded_art_blob_id.is_some() {
+                return GrimoireResponse::success(
+                    "Collected embedded art only",
+                    CollectedImages {
+                        embedded_art_blob_id,
+                        directory_image_blob_ids,
+                        has_good_match,
+                    },
+                );
+            }
+            return GrimoireResponse::failure(
+                "Could not get directory from audio file path",
+                vec![],
+            );
+        }
+    };
+
+    let dir_path = dir.to_string_lossy().to_string();
+
+    // check cache first - if we've already processed this directory's images, reuse them
+    if let Some(sid) = session_id {
+        if let Some(cached_blob_ids) = get_cached_directory_images(sid, &dir_path).await {
+            // cache hit! reuse blob IDs
+            tracing::debug!(
+                "CACHE HIT! reusing {} directory images from database cache for: {}",
+                cached_blob_ids.len(),
+                dir_path
+            );
+            directory_image_blob_ids = cached_blob_ids;
+
+            // determine has_good_match based on cached results
+            if !directory_image_blob_ids.is_empty() {
+                has_good_match = true;
+            }
+
+            return GrimoireResponse::success(
+                "Collected song images (from cache)",
+                CollectedImages {
+                    embedded_art_blob_id,
+                    directory_image_blob_ids,
+                    has_good_match,
+                },
+            );
+        } else {
+            tracing::debug!(
+                "CACHE MISS: processing directory images for first time: {}",
+                dir_path
+            );
+        }
+    }
+
+    // cache miss - process directory images
+    // known album art filenames (prioritized)
+    let art_filenames = [
+        "folder.jpg",
+        "folder.jpeg",
+        "folder.png",
+        "folder.webp",
+        "cover.jpg",
+        "cover.jpeg",
+        "cover.png",
+        "cover.webp",
+        "album.jpg",
+        "album.jpeg",
+        "album.png",
+        "album.webp",
+        "art.jpg",
+        "art.jpeg",
+        "art.png",
+        "art.webp",
+    ];
+
+    let mut known_filename_found = false;
+    let mut processed_paths = std::collections::HashSet::new();
+
+    // step 3: process known filenames first
+    for filename in &art_filenames {
+        let path = dir.join(filename);
+        if path.exists() {
+            if let Some(path_str) = path.to_str() {
+                if processed_paths.insert(path_str.to_string()) {
+                    match process_directory_image(source_blob_id, &path).await {
+                        Ok(blob_id) => {
+                            directory_image_blob_ids.push(blob_id);
+                            known_filename_found = true;
+                        }
+                        Err(e) => {
+                            tracing::warn!("failed to process known image {}: {}", filename, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // if we found a known filename, that's a good match for album art
+    if known_filename_found {
+        has_good_match = true;
+    }
+
+    // step 4: sweep for all other images in directory
+    let image_extensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+
+    if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if let Some(ext_str) = ext.to_str() {
+                    if image_extensions.contains(&ext_str.to_lowercase().as_str()) {
+                        if let Some(path_str) = path.to_str() {
+                            // skip if already processed
+                            if processed_paths.insert(path_str.to_string()) {
+                                match process_directory_image(source_blob_id, &path).await {
+                                    Ok(blob_id) => {
+                                        directory_image_blob_ids.push(blob_id);
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "failed to process directory image {}: {}",
+                                            path_str,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // store in cache for next song in this directory
+    if let Some(sid) = session_id {
+        tracing::debug!(
+            "caching {} directory images for: {}",
+            directory_image_blob_ids.len(),
+            dir_path
+        );
+        cache_directory_images(sid, &dir_path, &directory_image_blob_ids).await;
+    }
+
+    GrimoireResponse::success(
+        "Collected song images",
+        CollectedImages {
+            embedded_art_blob_id,
+            directory_image_blob_ids,
+            has_good_match,
+        },
+    )
+}
+
+/// process a single directory image: read, convert to webp, create blob
+async fn process_directory_image(
+    source_blob_id: &str,
+    image_path: &std::path::Path,
+) -> Result<String, GrimoireError> {
+    let image_data =
+        tokio::fs::read(image_path)
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("failed to read image file: {}", e),
+            })?;
+
+    let webp_data = convert_to_webp(&image_data)?;
+
+    let filename = image_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+
+    let blob_response = create_thumbnail_blob_from_webp_data(
+        source_blob_id,
+        webp_data,
+        &format!("directory_image_{}", filename),
+    )
+    .await;
+
+    if blob_response.success {
+        blob_response
+            .data
+            .ok_or_else(|| GrimoireError::ProcessingFailed {
+                message: "blob created but no id returned".to_string(),
+            })
+    } else {
+        Err(GrimoireError::ProcessingFailed {
+            message: format!("failed to create blob: {}", blob_response.message),
+        })
+    }
 }

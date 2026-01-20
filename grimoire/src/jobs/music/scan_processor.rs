@@ -3,12 +3,17 @@
 //! scans filesystem directories for audio files and creates ProcessFile jobs
 
 use super::models::{ScanDirectoryParams, ScanDirectoryResult};
+use crate::blob_data;
 use crate::jobs::models::{Job, JobError};
+use crate::music::crud;
 use crate::music::scanner;
 use serde_json::Value;
 
 /// process directory scan job - recursively scan for audio files and create import jobs
 pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobError> {
+    // initialize duplicate report for this scan session
+    crud::init_duplicate_report();
+
     // parse job parameters
     let params: ScanDirectoryParams = match serde_json::from_str(&job.parameters) {
         Ok(p) => p,
@@ -45,6 +50,14 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
             })
         }
     };
+
+    // clear caches and write reports
+    if let Some(sid) = &job.session_id {
+        blob_data::clear_scan_cache(sid).await;
+    }
+    if let Err(e) = crud::write_duplicate_report() {
+        tracing::warn!("failed to write duplicate report: {}", e);
+    }
 
     // return scan results
     let result = ScanDirectoryResult {
