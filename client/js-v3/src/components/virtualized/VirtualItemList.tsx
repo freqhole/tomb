@@ -1,5 +1,6 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, For, JSX } from "solid-js";
+import { createMemo, createSignal, For, JSX, Show } from "solid-js";
+import { Icon } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface ListItem {
@@ -105,19 +106,37 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                     w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
                     ${
                       isSelected
-                        ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                        ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
                         : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                     }
                   `}
                   onClick={() => handleItemClick(item)}
                 >
-                  {item.thumbnailUrl && (
+                  <Show
+                    when={item.thumbnailUrl}
+                    fallback={
+                      <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] flex items-center justify-center">
+                        <Icon name="playlist" size="24" />
+                      </div>
+                    }
+                  >
                     <img
-                      src={item.thumbnailUrl}
+                      src={item.thumbnailUrl!}
                       alt=""
                       class="w-12 h-12 object-cover rounded flex-shrink-0"
+                      onError={(e) => {
+                        // hide broken image and show fallback
+                        e.currentTarget.style.display = "none";
+                        const fallback = e.currentTarget.nextElementSibling;
+                        if (fallback) {
+                          (fallback as HTMLElement).style.display = "flex";
+                        }
+                      }}
                     />
-                  )}
+                    <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] items-center justify-center hidden">
+                      <Icon name="playlist" size="24" />
+                    </div>
+                  </Show>
                   <div class="flex-1 min-w-0">
                     <div class="font-medium text-base">
                       <MarqueeText text={item.title} hoverOnly={true} />
