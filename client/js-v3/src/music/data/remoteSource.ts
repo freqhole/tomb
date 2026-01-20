@@ -323,8 +323,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
         is_public: item.playlist.is_public === 1,
         thumbnail_blob_id: item.playlist.thumbnail_blob_id,
         song_count: item.song_count,
-        created_at: item.playlist.created_at,
-        updated_at: item.playlist.updated_at,
+        created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
+        updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
       })),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -386,8 +386,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
       is_public: result.data.is_public === 1,
       thumbnail_blob_id: result.data.thumbnail_blob_id,
       song_count: result.data.song_count,
-      created_at: result.data.created_at,
-      updated_at: result.data.updated_at,
+      created_at: result.data.created_at * 1000, // convert seconds to milliseconds
+      updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
     };
   }
 
@@ -419,8 +419,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
       is_public: result.data.is_public === 1,
       thumbnail_blob_id: result.data.thumbnail_blob_id,
       song_count: result.data.song_count,
-      created_at: result.data.created_at,
-      updated_at: result.data.updated_at,
+      created_at: result.data.created_at * 1000, // convert seconds to milliseconds
+      updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
     };
   }
 
