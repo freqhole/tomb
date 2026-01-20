@@ -233,6 +233,16 @@ export const AssociationInfoSchema = z.object({
 });
 export type AssociationInfo = z.infer<typeof AssociationInfoSchema>;
 
+export const BlobMetadataResponseSchema = z.object({
+  id: z.string(),
+  sha256: z.string(),
+  size: z.number().nullable(),
+  mime: z.string().nullable(),
+  filename: z.string().nullable(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+});
+export type BlobMetadataResponse = z.infer<typeof BlobMetadataResponseSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullable()

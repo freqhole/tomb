@@ -105,7 +105,7 @@ pub mod type_registry {
     use crate::health::{EmptyResponse, HealthResponse};
 
     // music types
-    use crate::media_blobz::MediaBlob;
+    use crate::media_blobz::{BlobMetadataResponse, MediaBlob};
     use crate::music::crud::{
         AlbumQueryResult, AlbumsQueryResult, ArtistQueryResult, ArtistsQueryResult,
         DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest, DeleteArtistResponse,
@@ -180,6 +180,10 @@ pub mod type_registry {
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
+
+        // blob types
+        gen.add_schema::<BlobMetadataResponse>("BlobMetadataResponse");
+        registered.insert("BlobMetadataResponse".to_string());
 
         gen.add_schema::<ApiKeyRegenerateResponse>("ApiKeyRegenerateResponse");
         registered.insert("ApiKeyRegenerateResponse".to_string());

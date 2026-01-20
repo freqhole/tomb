@@ -103,6 +103,7 @@ pub async fn start_server(
                 CONTENT_TYPE,
                 HeaderName::from_static("cache-control"),
                 HeaderName::from_static("content-disposition"),
+                HeaderName::from_static("etag"),
             ])
             .allow_credentials(true)
     } else {

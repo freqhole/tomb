@@ -12,7 +12,11 @@ import { Button } from "../buttons/Button";
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (remote: {
+    remote_id: string;
+    name: string;
+    base_url: string;
+  }) => void;
 }
 
 type Step = "url" | "testing" | "auth" | "complete";
@@ -253,7 +257,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     try {
       // use url as the name
       const remoteUrl = url();
-      await createRemote({
+      const remote = await createRemote({
         name: remoteUrl,
         base_url: remoteUrl,
       });
@@ -263,7 +267,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       // auto-close after short delay
       setTimeout(() => {
         handleClose();
-        props.onSuccess?.();
+        props.onSuccess?.(remote);
       }, 1500);
     } catch (err) {
       console.error("failed to save remote:", err);

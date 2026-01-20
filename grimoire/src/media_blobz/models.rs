@@ -91,6 +91,30 @@ pub struct MediaBlob {
     pub updated_by: Option<String>,
 }
 
+/// safe response type for blob metadata endpoint - excludes internal fields like local_path
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BlobMetadataResponse {
+    pub id: String,
+    pub sha256: String,
+    pub size: Option<i64>,
+    pub mime: Option<String>,
+    pub filename: Option<String>,
+    pub blob_type: BlobType,
+}
+
+impl From<MediaBlob> for BlobMetadataResponse {
+    fn from(blob: MediaBlob) -> Self {
+        Self {
+            id: blob.id,
+            sha256: blob.sha256,
+            size: blob.size,
+            mime: blob.mime,
+            filename: blob.filename,
+            blob_type: blob.blob_type,
+        }
+    }
+}
+
 /// request for creating a new media blob
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateMediaBlobRequest {

@@ -9,7 +9,10 @@ import {
 } from "../services/storage/db";
 import {
   STORE_ALBUMS,
+  STORE_PLAYLIST_SONGS,
+  STORE_PLAYLISTS,
   STORE_SONGS,
+  type Playlist,
   type Song,
 } from "../services/storage/types";
 import { sortSongsByArtist, sortSongsCanonical } from "../utils/songSort";
@@ -19,6 +22,7 @@ import type {
   GenreSummary,
   MusicDataSource,
   PaginatedResponse,
+  PlaylistSummary,
   QueryParams,
 } from "./types";
 
@@ -240,6 +244,101 @@ export class LocalMusicDataSource implements MusicDataSource {
       offset,
       limit,
       has_more: offset + limit < sortedSongs.length,
+    };
+  }
+
+  // playlists
+  async getPlaylists(
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<PlaylistSummary>> {
+    const limit = params?.limit ?? 50;
+    const offset = params?.offset ?? 0;
+
+    const db = await initMusicDB();
+    const allPlaylists = await db.getAll(STORE_PLAYLISTS);
+
+    // filter out deleted playlists
+    const activePlaylists = allPlaylists.filter((p) => !p.deleted_at);
+
+    // sort by updated_at desc
+    activePlaylists.sort((a, b) => b.updated_at - a.updated_at);
+
+    // get song counts for each playlist
+    const playlistsWithCounts = await Promise.all(
+      activePlaylists.map(async (playlist) => {
+        const playlistSongs = await db.getAllFromIndex(
+          STORE_PLAYLIST_SONGS,
+          "by_playlist_id",
+          playlist.playlist_id,
+        );
+
+        const summary: PlaylistSummary = {
+          playlist_id: playlist.playlist_id,
+          title: playlist.title,
+          description: playlist.description,
+          is_public: playlist.is_public,
+          thumbnail_blob_id: playlist.thumbnail_blob_id,
+          song_count: playlistSongs.length,
+          created_at: playlist.created_at,
+          updated_at: playlist.updated_at,
+        };
+
+        return summary;
+      }),
+    );
+
+    // apply pagination
+    const paginatedPlaylists = playlistsWithCounts.slice(
+      offset,
+      offset + limit,
+    );
+
+    return {
+      items: paginatedPlaylists,
+      total: playlistsWithCounts.length,
+      offset,
+      limit,
+      has_more: offset + limit < playlistsWithCounts.length,
+    };
+  }
+
+  async getPlaylistSongs(
+    playlistId: string,
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<Song>> {
+    const limit = params?.limit ?? 50;
+    const offset = params?.offset ?? 0;
+
+    const db = await initMusicDB();
+
+    // get playlist songs ordered by position
+    const playlistSongs = await db.getAllFromIndex(
+      STORE_PLAYLIST_SONGS,
+      "by_playlist_id",
+      playlistId,
+    );
+
+    // sort by position
+    playlistSongs.sort((a, b) => a.position - b.position);
+
+    // get full song details for each
+    const songs: Song[] = [];
+    for (const ps of playlistSongs) {
+      const song = await db.get(STORE_SONGS, ps.sha256);
+      if (song) {
+        songs.push(song);
+      }
+    }
+
+    // apply pagination
+    const paginatedSongs = songs.slice(offset, offset + limit);
+
+    return {
+      items: paginatedSongs,
+      total: songs.length,
+      offset,
+      limit,
+      has_more: offset + limit < songs.length,
     };
   }
 

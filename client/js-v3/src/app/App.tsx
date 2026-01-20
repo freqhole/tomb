@@ -5,7 +5,11 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
-import { getDataSource, initializeDataSource } from "../music/data";
+import {
+  getDataSource,
+  initializeDataSource,
+  useRemoteSource,
+} from "../music/data";
 import { playSong } from "../music/services/audio/player";
 import {
   cleanupCacheNetworkHandlers,
@@ -24,6 +28,7 @@ export function App() {
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [hasSongs, setHasSongs] = createSignal(false);
+  const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
 
@@ -43,6 +48,10 @@ export function App() {
 
       // initialize cache network handlers (online/offline events)
       initCacheNetworkHandlers();
+
+      // check if we have any remotes configured
+      const remotes = await getAllRemotes();
+      setHasRemotes(remotes.length > 0);
 
       // check if we have any songs
       const source = getDataSource();
@@ -111,7 +120,7 @@ export function App() {
         }
       >
         <Show
-          when={hasSongs()}
+          when={hasSongs() || hasRemotes()}
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
@@ -140,10 +149,16 @@ export function App() {
       <AddRemoteModal
         isOpen={isAddRemoteOpen()}
         onClose={() => setIsAddRemoteOpen(false)}
-        onSuccess={() => {
-          console.log("remote added successfully");
-          // check if we now have songs from the remote
+        onSuccess={(remote) => {
+          console.log("remote added successfully:", remote.name);
+          // activate and switch to the newly added remote
           void (async () => {
+            await useRemoteSource(
+              remote.remote_id,
+              remote.name,
+              remote.base_url,
+            );
+            setHasRemotes(true);
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });
             setHasSongs(result.total > 0);

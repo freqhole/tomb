@@ -284,7 +284,7 @@ pub fn build_router() -> Router<AppState> {
         .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
-    // blob streaming routes (auth only, no origin validation needed for media requests)
+    // blob streaming routes (auth required, origin validation for cross-origin requests)
     let blob_routes = Router::new()
         .route(
             routes["music"]["stream_blob"].path,
@@ -294,6 +294,7 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["blob_metadata"].path,
             get(blobs::blob_metadata_handler),
         )
+        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)

@@ -25,7 +25,15 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
-import { downloadPlaylist } from "../services/playlists/downloadSync";
+import {
+  checkIfPlaylistNeedsSync,
+  downloadPlaylist,
+  syncPlaylist,
+  type SyncCheckResult,
+} from "../services/playlists/downloadSync";
+import { getRemoteByUrl } from "../services/remotes/remoteManager";
+import { getPlaylistById } from "../services/storage/db";
+import { type Playlist } from "../services/storage/types";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -59,6 +67,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
     null,
   );
+  const [syncStatus, setSyncStatus] = createSignal<SyncCheckResult | null>(
+    null,
+  );
+  const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<
+    string | null
+  >(null);
 
   // mutations for updating playlist
   const updatePlaylistMutation = useUpdatePlaylistMutation();
@@ -66,6 +80,62 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // query client for invalidation
   const queryClient = useQueryClient();
+
+  // check if viewing remote playlists
+  const isViewingRemote = createMemo(() => getCurrentRemote() !== null);
+
+  // check sync status when viewing a playlist (remote or local synced)
+  createEffect(() => {
+    const playlist = selectedPlaylist();
+    const remote = getCurrentRemote();
+
+    console.log(
+      "[PlaylistsView] checking sync status for playlist:",
+      playlist?.playlist_id,
+    );
+    console.log(
+      "[PlaylistsView] playlist.source_remote_url:",
+      playlist?.source_remote_url,
+    );
+    console.log(
+      "[PlaylistsView] playlist.source_remote_id:",
+      playlist?.source_remote_id,
+    );
+    console.log("[PlaylistsView] isViewingRemote:", !!remote);
+
+    if (playlist && remote) {
+      // viewing remote playlist - check if needs sync
+      console.log("[PlaylistsView] viewing remote playlist, checking sync");
+      checkIfPlaylistNeedsSync(remote.url, playlist.playlist_id).then(
+        setSyncStatus,
+      );
+    } else if (
+      playlist &&
+      playlist.source_remote_url &&
+      playlist.source_remote_id
+    ) {
+      // viewing local synced playlist - check if needs sync with its remote source
+      console.log(
+        "[PlaylistsView] viewing local synced playlist, checking sync with:",
+        playlist.source_remote_url,
+      );
+      checkIfPlaylistNeedsSync(
+        playlist.source_remote_url,
+        playlist.source_remote_id,
+      ).then(setSyncStatus);
+      // look up remote name from URL
+      getRemoteByUrl(playlist.source_remote_url).then((remote) => {
+        console.log("[PlaylistsView] found remote for URL:", remote);
+        setSyncSourceRemoteName(remote?.name || null);
+      });
+    } else {
+      console.log(
+        "[PlaylistsView] not a synced playlist, clearing sync status",
+      );
+      setSyncStatus(null);
+      setSyncSourceRemoteName(null);
+    }
+  });
 
   // fetch playlists using infinite query
   const playlistsQuery = usePlaylistsQuery({
@@ -98,10 +168,37 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   });
 
   // get selected playlist metadata
+  // for local playlists, fetch full record from db to get sync fields
+  const [fullPlaylist, setFullPlaylist] = createSignal<Playlist | null>(null);
+
+  // fetch full playlist when viewing local and selection changes
+  createEffect(() => {
+    const id = selectedPlaylistId();
+    if (!id || isViewingRemote()) {
+      setFullPlaylist(null);
+      return;
+    }
+
+    // fetch full playlist record from db to get sync fields
+    getPlaylistById(id).then((playlist) => {
+      setFullPlaylist(playlist || null);
+    });
+  });
+
   const selectedPlaylist = createMemo(() => {
     const id = selectedPlaylistId();
     if (!id) return null;
-    return playlists().find((p) => p.playlist_id === id);
+
+    const summary = playlists().find((p) => p.playlist_id === id);
+    if (!summary) return null;
+
+    // if viewing local, return the full playlist record (has sync fields)
+    if (!isViewingRemote() && fullPlaylist()?.playlist_id === id) {
+      return fullPlaylist();
+    }
+
+    // for remote, just return the summary (cast to Playlist for compatibility)
+    return summary as unknown as Playlist;
   });
 
   // convert playlists to list items for VirtualItemList
@@ -525,10 +622,48 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       });
 
       console.log("playlist downloaded successfully");
+      // refresh sync status
+      const newSyncStatus = await checkIfPlaylistNeedsSync(
+        remote.url,
+        playlist.playlist_id,
+      );
+      setSyncStatus(newSyncStatus);
       // TODO: show success notification
       // TODO: refresh local playlists view
     } catch (error) {
       console.error("failed to download playlist:", error);
+      // TODO: show error notification
+    }
+  };
+
+  // handle sync playlist (update local copy from remote)
+  const handleSyncPlaylist = async () => {
+    const status = syncStatus();
+    if (!status || !status.localPlaylistId) return;
+
+    const remote = getCurrentRemote();
+    if (!remote) return;
+
+    try {
+      await syncPlaylist(status.localPlaylistId, (progress) => {
+        console.log(
+          `sync progress: ${progress.stage} - ${progress.downloadedSongs}/${progress.totalSongs}`,
+        );
+      });
+
+      console.log("playlist synced successfully");
+      // refresh sync status
+      const playlist = selectedPlaylist();
+      if (playlist) {
+        const newSyncStatus = await checkIfPlaylistNeedsSync(
+          remote.url,
+          playlist.playlist_id,
+        );
+        setSyncStatus(newSyncStatus);
+      }
+      // TODO: show success notification
+    } catch (error) {
+      console.error("failed to sync playlist:", error);
       // TODO: show error notification
     }
   };
@@ -702,6 +837,21 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <span>•</span>
                               <span>{formatDuration(totalDuration())}</span>
                             </Show>
+                            <Show
+                              when={syncStatus() && !syncStatus()?.needsSync}
+                            >
+                              <span>•</span>
+                              <Show
+                                when={!isViewingRemote()}
+                                fallback={<span>synced</span>}
+                              >
+                                <span>
+                                  synced from{" "}
+                                  {syncSourceRemoteName() ||
+                                    selectedPlaylist()?.source_remote_url}
+                                </span>
+                              </Show>
+                            </Show>
                           </div>
                         </Show>
 
@@ -717,12 +867,28 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                             >
                               + add to queue
                             </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={handleDownloadPlaylist}
-                            >
-                              ⬇ download playlist
-                            </Button>
+                            <Show when={isViewingRemote()}>
+                              <Show
+                                when={syncStatus()}
+                                fallback={
+                                  <Button
+                                    variant="secondary"
+                                    onClick={handleDownloadPlaylist}
+                                  >
+                                    download playlist
+                                  </Button>
+                                }
+                              >
+                                <Show when={syncStatus()?.needsSync}>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={handleSyncPlaylist}
+                                  >
+                                    sync playlist
+                                  </Button>
+                                </Show>
+                              </Show>
+                            </Show>
                           </div>
                         </Show>
 
@@ -788,9 +954,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   <DraggableRow
                                     id={song.sha256}
                                     index={index()}
-                                    isDragging={
-                                      draggedSongId() === song.sha256
-                                    }
+                                    isDragging={draggedSongId() === song.sha256}
                                     isDropTarget={dropTargetIndex() === index()}
                                     onDragStart={handleDragStart(song.sha256)}
                                     onDragOver={handleDragOver(index())}

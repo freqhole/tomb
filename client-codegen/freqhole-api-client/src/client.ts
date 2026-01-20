@@ -1,6 +1,6 @@
 // low-level fetch implementation used by all wrapper functions
-import { routes } from "./codegen/routes.js";
 import { z } from "zod";
+import { routes } from "./codegen/routes.js";
 
 type SafeParseSuccess<T> = { success: true; data: T };
 type SafeParseError = { success: false; error: z.ZodError };
@@ -37,9 +37,12 @@ export async function call<Resp>(
   }
 
   // make request
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const headers: Record<string, string> = {};
+
+  // only set content-type for requests with a body
+  if (method !== "GET" && method !== "DELETE" && method !== "HEAD") {
+    headers["Content-Type"] = "application/json";
+  }
 
   // auth: use bearer token if provided, otherwise cookies
   if (apiKey) {
@@ -52,6 +55,11 @@ export async function call<Resp>(
     credentials: apiKey ? "omit" : "include", // use cookies if no api key
   };
 
+  // disable cache for blob metadata routes to prevent stale cached responses
+  if (path.includes("/api/blobs/") && path.includes("/metadata")) {
+    options.cache = "no-store";
+  }
+
   // only send body for post/put/patch methods
   if (method !== "GET" && method !== "DELETE" && params) {
     options.body = JSON.stringify(params);
@@ -59,6 +67,7 @@ export async function call<Resp>(
 
   try {
     const response = await fetch(url, options);
+
     if (!response.ok) {
       return {
         success: false,

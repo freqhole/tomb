@@ -19,11 +19,11 @@ use axum::{
         },
         HeaderValue, StatusCode,
     },
-    response::Response,
+    response::{IntoResponse, Json, Response},
     Extension,
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
-use grimoire::media_blobz::get_media_blob_with_data;
+use grimoire::media_blobz::{get_media_blob_with_data, BlobMetadataResponse};
 use std::io::SeekFrom;
 use tokio::{
     fs::File,
@@ -50,7 +50,7 @@ inventory::submit! {
         method: Method::GET,
         domain: Domain::Music,
         request_type: "String",
-        response_type: "String",
+        response_type: "BlobMetadataResponse",
     }
 }
 
@@ -91,32 +91,20 @@ pub async fn stream_blob_handler(
     }
 }
 
-/// blob metadata (HEAD request)
+/// blob metadata with sha256 for download deduplication
 ///
 /// GET /api/blobs/{id}/metadata
 pub async fn blob_metadata_handler(
     Extension(_user): Extension<AuthenticatedUser>,
     Path(blob_id): Path<String>,
-) -> Result<Response, ApiError> {
+) -> Result<impl IntoResponse, ApiError> {
     let blob = grimoire::media_blobz::get_media_blob(&blob_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
 
-    let size = blob.size.unwrap_or(0);
-    let content_type = blob
-        .mime
-        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let response: BlobMetadataResponse = blob.into();
 
-    let response = Response::builder()
-        .status(StatusCode::OK)
-        .header(CONTENT_LENGTH, size)
-        .header(CONTENT_TYPE, content_type)
-        .header(ACCEPT_RANGES, "bytes")
-        .header(CACHE_CONTROL, "public, max-age=2592000") // 30 days
-        .body(Body::empty())
-        .unwrap();
-
-    Ok(response)
+    Ok(Json(response))
 }
 
 // ============================================================================

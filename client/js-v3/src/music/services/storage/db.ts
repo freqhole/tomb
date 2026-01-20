@@ -1023,6 +1023,14 @@ export {
   updateSong,
 };
 
+// get playlist by id
+export async function getPlaylistById(
+  playlistId: string,
+): Promise<Playlist | undefined> {
+  const db = await initMusicDB();
+  return db.get(STORE_PLAYLISTS, playlistId);
+}
+
 // re-export playlist sync helpers
 export {
   convertToLocalPlaylist,

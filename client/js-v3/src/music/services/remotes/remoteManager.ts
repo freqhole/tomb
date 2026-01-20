@@ -19,6 +19,12 @@ export async function getRemoteById(
   return db.get(STORE_REMOTES, remoteId);
 }
 
+// get remote by url
+export async function getRemoteByUrl(url: string): Promise<Remote | undefined> {
+  const remotes = await getAllRemotes();
+  return remotes.find((r) => r.url === url);
+}
+
 // get currently active remote (if any)
 export async function getActiveRemote(): Promise<Remote | null> {
   const db = await initMusicDB();

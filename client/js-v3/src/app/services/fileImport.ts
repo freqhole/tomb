@@ -1,7 +1,11 @@
 // file import service - handles adding music files to library
 import { processMusicFiles } from "../../music/services/metadata/fileProcessor";
-import { createSong, findDuplicateSong } from "../../music/services/storage/db";
-import { generateUUID } from "../../utils/uuid";
+import {
+  createSong,
+  findDuplicateSong,
+  getSongById,
+} from "../../music/services/storage/db";
+import { computeSHA256 } from "../../utils/hash";
 
 export interface ImportResult {
   addedCount: number;
@@ -14,14 +18,28 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
   let addedCount = 0;
   let skippedCount = 0;
 
-  // generate song ids upfront (needed for opfs storage)
-  const songIds = fileArray.map(() => generateUUID());
+  // compute sha256 hashes for all files upfront (used as primary keys and opfs storage)
+  console.log("computing sha256 hashes for uploaded files...");
+  const sha256Hashes = await Promise.all(
+    fileArray.map((file) => computeSHA256(file)),
+  );
 
-  // process files with their ids (creates artists/albums and returns songs)
-  const songsData = await processMusicFiles(fileArray, songIds);
+  // process files with their sha256 hashes (creates artists/albums and returns songs)
+  const songsData = await processMusicFiles(fileArray, sha256Hashes);
 
   for (const songData of songsData) {
-    // check for duplicates - match on filename, file size, and last modified
+    // check for duplicates by sha256 first (content-based deduplication)
+    const existingSong = await getSongById(songData.sha256);
+
+    if (existingSong) {
+      console.log(
+        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as ${existingSong.file_name}`,
+      );
+      skippedCount++;
+      continue;
+    }
+
+    // fallback: check for duplicates by file metadata
     const isDuplicate = await findDuplicateSong(
       songData.file_name!,
       songData.file_size!,
@@ -30,7 +48,7 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
 
     if (isDuplicate) {
       console.log(
-        `skipping duplicate: ${songData.file_name} (${songData.file_size} bytes)`,
+        `skipping duplicate (metadata match): ${songData.file_name} (${songData.file_size} bytes)`,
       );
       skippedCount++;
     } else {
