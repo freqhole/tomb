@@ -1375,6 +1375,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                     onDoubleClick={() =>
                                       handleSongDoubleClick(song)
                                     }
+                                    onPlayClick={() =>
+                                      handleSongDoubleClick(song)
+                                    }
+                                    thumbnailUrl={
+                                      song.thumbnail_blob_id
+                                        ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
+                                        : undefined
+                                    }
                                     disabled={
                                       !isEditablePlaylist(selectedPlaylist()!)
                                     }

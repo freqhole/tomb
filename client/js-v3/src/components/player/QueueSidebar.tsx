@@ -3,6 +3,7 @@ import { createSignal, For, Show, type JSX } from "solid-js";
 import { isMobile } from "../../utils/isMobile";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
+import { SongThumbnail } from "../media/SongThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -254,47 +255,15 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           : "double-click to play"
                     }
                   >
-                    {/* index number */}
-                    <div
-                      class={`w-6 text-center text-xs flex-shrink-0 ${
-                        isCurrentlyPlaying()
-                          ? "text-[var(--color-accent-500)] font-medium"
-                          : "text-[var(--color-text-muted)]"
-                      }`}
-                    >
-                      {isCurrentlyPlaying() ? (
-                        <Icon
-                          name="play"
-                          size={14}
-                          color="var(--color-accent-500)"
-                        />
-                      ) : (
-                        itemIndex + 1
-                      )}
-                    </div>
-
-                    {/* thumbnail */}
-                    <div class="w-10 h-10 flex-shrink-0 ml-2 mr-3">
-                      <Show
-                        when={song()?.thumbnailUrl}
-                        fallback={
-                          <div class="w-full h-full bg-gradient-to-br from-[var(--color-accent-500)]/20 to-[var(--color-accent-500)]/40 rounded flex items-center justify-center">
-                            <Icon
-                              name="music"
-                              size={16}
-                              color="var(--color-accent-500)"
-                            />
-                          </div>
-                        }
-                      >
-                        <img
-                          src={song()!.thumbnailUrl}
-                          alt={song()!.title}
-                          class="w-full h-full rounded object-cover"
-                          loading="lazy"
-                        />
-                      </Show>
-                    </div>
+                    {/* thumbnail with index overlay */}
+                    <SongThumbnail
+                      thumbnailUrl={song()?.thumbnailUrl}
+                      index={itemIndex}
+                      hideIndex={false}
+                      onPlayClick={() => handleSongDoubleClick(itemIndex)}
+                      size={48}
+                      class="mr-3"
+                    />
 
                     {/* song info */}
                     <div class="flex-1 min-w-0">

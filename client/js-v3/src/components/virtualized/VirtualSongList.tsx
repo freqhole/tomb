@@ -8,6 +8,7 @@ import {
   Show,
   untrack,
 } from "solid-js";
+import { SongThumbnail } from "../media/SongThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface VirtualSong {
@@ -21,6 +22,7 @@ export interface VirtualSong {
   year?: number;
   discNumber?: number;
   trackNumber?: number;
+  thumbnailUrl?: string | null;
   userIsFavorite?: boolean;
   userRating?: number | null;
   tags?: string[];
@@ -214,14 +216,14 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     const cols: string[] = [];
 
     if (showTrackNumber()) cols.push("60px"); // #
-    cols.push("minmax(200px, 2fr)"); // title
+    cols.push("minmax(200px, 3fr)"); // title - wider
     if (showArtist()) cols.push("minmax(150px, 1.5fr)"); // artist
     if (showAlbum()) cols.push("minmax(150px, 1.5fr)"); // album
     cols.push("minmax(100px, 1fr)"); // genre
-    cols.push("80px"); // year
-    cols.push("80px"); // duration
-    if (showFavorites()) cols.push("50px"); // favorite
-    if (showRating()) cols.push("70px"); // rating
+    cols.push("60px"); // year - narrower
+    cols.push("60px"); // duration - narrower
+    if (showFavorites()) cols.push("40px"); // favorite - narrower
+    if (showRating()) cols.push("60px"); // rating - narrower
     if (showTags()) cols.push("minmax(150px, 1fr)"); // tags
 
     return cols.join(" ");
@@ -371,10 +373,18 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                     handleRowDoubleClick(song, virtualRow.index)
                   }
                 >
-                  {/* track number */}
+                  {/* thumbnail with track number overlay */}
                   <Show when={showTrackNumber()}>
-                    <div class="px-3 text-center text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                      {getTrackNumber(song, virtualRow.index)}
+                    <div class="px-3 flex justify-center">
+                      <SongThumbnail
+                        thumbnailUrl={song.thumbnailUrl}
+                        indexText={getTrackNumber(song, virtualRow.index)}
+                        hideIndex={false}
+                        onPlayClick={() =>
+                          handleRowDoubleClick(song, virtualRow.index)
+                        }
+                        size={40}
+                      />
                     </div>
                   </Show>
 

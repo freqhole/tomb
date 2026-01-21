@@ -7,6 +7,7 @@ import {
   type SortField,
   type VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
+import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
 
@@ -68,6 +69,9 @@ export function SongsView(props: SongsViewProps) {
       year: song.year ?? undefined,
       trackNumber: song.track_number,
       discNumber: song.disc_number,
+      thumbnailUrl: song.thumbnail_blob_id
+        ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
+        : null,
       userIsFavorite: false, // TODO: implement favorites in data source
       userRating: 0, // TODO: implement ratings in data source
     }));

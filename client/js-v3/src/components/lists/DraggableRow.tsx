@@ -1,5 +1,6 @@
 import { createSignal, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
+import { SongThumbnail } from "../media/SongThumbnail";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -30,6 +31,10 @@ export interface DraggableRowProps {
   onContextMenu?: (e: MouseEvent) => void;
   /** whether to show drag handle instead of index */
   showDragHandle?: boolean;
+  /** thumbnail url */
+  thumbnailUrl?: string;
+  /** callback when thumbnail/play button is clicked */
+  onPlayClick?: () => void;
   /** additional classes */
   class?: string;
   /** row content */
@@ -53,6 +58,8 @@ export function DraggableRow(props: DraggableRowProps) {
     "onDoubleClick",
     "onContextMenu",
     "showDragHandle",
+    "thumbnailUrl",
+    "onPlayClick",
     "class",
     "children",
   ]);
@@ -99,32 +106,14 @@ export function DraggableRow(props: DraggableRowProps) {
       data-row-id={local.id}
       {...others}
     >
-      {/* track number / drag handle */}
-      <div class="w-8 flex-shrink-0 flex items-center justify-center text-[var(--color-accent-500)] text-sm relative">
-        {/* show index number by default, hide on hover if draggable */}
-        <Show
-          when={local.disabled}
-          fallback={
-            <>
-              <span
-                class="font-mono absolute inset-0 flex items-center justify-center transition-opacity duration-200"
-                style={{ opacity: isHovered() ? 0 : 1 }}
-              >
-                {local.index + 1}
-              </span>
-              <div
-                class="absolute inset-0 flex items-center justify-center transition-opacity duration-200 cursor-grab active:cursor-grabbing"
-                style={{ opacity: isHovered() ? 1 : 0 }}
-                title="drag to reorder"
-              >
-                <Icon name="drag" size={16} color="var(--color-accent-500)" />
-              </div>
-            </>
-          }
-        >
-          <span class="font-mono">{local.index + 1}</span>
-        </Show>
-      </div>
+      {/* thumbnail with index overlay - always shown for playlists */}
+      <SongThumbnail
+        thumbnailUrl={local.thumbnailUrl}
+        index={local.index}
+        hideIndex={isHovered()}
+        onPlayClick={local.onPlayClick}
+        size={48}
+      />
 
       {/* content */}
       <div class="flex-1 min-w-0">{local.children}</div>
@@ -142,6 +131,8 @@ export interface DraggableRowSongContentProps {
   album?: string;
   /** duration in seconds */
   durationSeconds?: number;
+  /** thumbnail url (deprecated - use DraggableRow.thumbnailUrl instead) */
+  thumbnailUrl?: string;
   /** additional actions (buttons, icons, etc) */
   actions?: JSX.Element;
   /** additional classes */
