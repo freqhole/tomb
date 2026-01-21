@@ -80,6 +80,128 @@ export interface PlaylistSummary {
   updated_at: number;
 }
 
+// search suggestion types
+export type SuggestionType =
+  | "artist"
+  | "album"
+  | "song"
+  | "genre"
+  | "subgenre"
+  | "playlist";
+
+export interface SearchSuggestion {
+  value: string;
+  display: string;
+  highlight: string;
+  count: number;
+  suggestion_type?: SuggestionType;
+  confidence: number;
+  metadata?: any;
+  entity_id: string;
+}
+
+export interface SuggestionsResponse {
+  suggestions: SearchSuggestion[];
+  query_time_ms: number;
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+// search result types
+export interface SearchSongResult {
+  id: string;
+  title: string;
+  artist_names: string[];
+  album_title?: string | null;
+  album_id?: string | null;
+  duration?: number | null;
+  thumbnail_url?: string | null;
+  user_rating?: number | null;
+  is_favorite: boolean;
+  search_rank: number;
+  match_type: string;
+  highlight?: string | null;
+}
+
+export interface SearchArtistResult {
+  id: string;
+  name: string;
+  song_count: number;
+  album_count: number;
+  genres: string[];
+  user_rating?: number | null;
+  is_favorite: boolean;
+  search_rank: number;
+  highlight?: string | null;
+}
+
+export interface SearchAlbumResult {
+  id: string;
+  title: string;
+  artist_names: string[];
+  genre?: string | null;
+  sub_genres: string[];
+  song_count: number;
+  thumbnail_url?: string | null;
+  user_rating?: number | null;
+  is_favorite: boolean;
+  search_rank: number;
+  highlight?: string | null;
+}
+
+export interface SearchGenreResult {
+  genre: string;
+  genre_id: string;
+  sub_genres: string[];
+  song_count: number;
+  artist_count: number;
+  representative_song_id?: string | null;
+  representative_thumbnail?: string | null;
+  avg_rating?: number | null;
+  search_rank: number;
+}
+
+export interface SearchPlaylistResult {
+  id: string;
+  title: string;
+  description?: string | null;
+  song_count: number;
+  is_public: boolean;
+  created_by: string;
+  thumbnail_url?: string | null;
+  search_rank: number;
+  highlight?: string | null;
+}
+
+export interface SearchResponse {
+  songs: SearchSongResult[];
+  artists?: SearchArtistResult[] | null;
+  albums?: SearchAlbumResult[] | null;
+  genres?: SearchGenreResult[] | null;
+  playlists?: SearchPlaylistResult[] | null;
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+  query_time_ms: number;
+  applied_filters?: any | null;
+  sort_applied?: string | null;
+}
+
+export type SearchField =
+  | "all"
+  | "artists"
+  | "albums"
+  | "songs"
+  | "genres"
+  | "playlists";
+
 // main data source interface
 // both local and remote sources implement this
 export interface MusicDataSource {
@@ -141,6 +263,20 @@ export interface MusicDataSource {
     songIds: string[],
     newPosition: number,
   ): Promise<void>;
+
+  // search (optional - remote only initially)
+  searchSuggestions?(params: {
+    field: SearchField;
+    partial: string;
+    page_size?: number;
+  }): Promise<SuggestionsResponse>;
+
+  search?(params: {
+    query: string;
+    field?: SearchField | null;
+    page?: number;
+    page_size?: number;
+  }): Promise<SearchResponse>;
 
   // source metadata
   getSourceInfo(): Promise<{

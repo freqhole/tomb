@@ -1,6 +1,6 @@
 import { createSignal, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
-import { SongThumbnail } from "../media/SongThumbnail";
+import { MediaThumbnail } from "../media/MediaThumbnail";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -115,7 +115,7 @@ export function DraggableRow(props: DraggableRowProps) {
       {...others}
     >
       {/* thumbnail with index overlay - always shown for playlists */}
-      <SongThumbnail
+      <MediaThumbnail
         thumbnailUrl={local.thumbnailUrl}
         index={local.index}
         hideIndex={isHovered()}

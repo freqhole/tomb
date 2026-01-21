@@ -3,7 +3,7 @@ import { createSignal, For, Show, type JSX } from "solid-js";
 import { isMobile } from "../../utils/isMobile";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
-import { SongThumbnail } from "../media/SongThumbnail";
+import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -256,7 +256,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     }
                   >
                     {/* thumbnail with index overlay */}
-                    <SongThumbnail
+                    <MediaThumbnail
                       thumbnailUrl={song()?.thumbnailUrl}
                       index={itemIndex}
                       hideIndex={false}

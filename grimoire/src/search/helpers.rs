@@ -70,9 +70,9 @@ pub fn generate_highlight(text: &str, query: &str) -> String {
     if let Some(pos) = text_lower.find(&query_lower) {
         let mut result = String::new();
         result.push_str(&text[..pos]);
-        result.push_str("**");
+        result.push_str("<mark>");
         result.push_str(&text[pos..pos + query.len()]);
-        result.push_str("**");
+        result.push_str("</mark>");
         result.push_str(&text[pos + query.len()..]);
         result
     } else {

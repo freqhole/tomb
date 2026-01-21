@@ -1,0 +1,215 @@
+// top nav search component with suggestions and navigation
+import { useNavigate } from "@solidjs/router";
+import { createMemo, createSignal, Show } from "solid-js";
+import { getCurrentRemote, getDataSource } from "../../music/data";
+import type { SearchField, SearchSuggestion } from "../../music/data/types";
+import { useSearchSuggestions } from "../../music/queries/search";
+import { playQueue } from "../../music/services/audio/player";
+import { IconButton } from "../buttons/IconButton";
+import type { SearchSuggestion as SearchInputSuggestion } from "../forms/SearchInput";
+import { SearchInput } from "../forms/SearchInput";
+
+interface TopNavSearchProps {
+  /** placeholder text */
+  placeholder?: string;
+  /** callback when search is collapsed */
+  onCollapse?: () => void;
+}
+
+// top nav search with suggestions and navigation
+export function TopNavSearch(props: TopNavSearchProps) {
+  const navigate = useNavigate();
+  const [searchValue, setSearchValue] = createSignal("");
+  const [isExpanded, setIsExpanded] = createSignal(false);
+
+  // suggestions query
+  const suggestionsQuery = useSearchSuggestions({
+    field: () => "all",
+    partial: searchValue,
+    pageSize: 10,
+    enabled: () => searchValue().length >= 2,
+  });
+
+  // convert API suggestions to SearchInput format
+  const suggestions = createMemo((): SearchInputSuggestion[] => {
+    const data = suggestionsQuery.data;
+    if (!data) return [];
+
+    const remote = getCurrentRemote();
+    const baseUrl = remote?.base_url || "";
+
+    return data.suggestions.map((s) => {
+      // extract thumbnail from metadata if available
+      let thumbnailUrl: string | undefined;
+
+      if (s.metadata) {
+        const meta = s.metadata as any;
+        if (meta.thumbnail_blob_id) {
+          thumbnailUrl = `${baseUrl}/api/blobs/${meta.thumbnail_blob_id}`;
+        }
+      }
+
+      return {
+        id: s.entity_id,
+        text: s.display,
+        category: s.suggestion_type,
+        highlight: s.highlight,
+        count: s.count > 0 ? s.count : undefined,
+        thumbnailUrl,
+        data: s,
+      };
+    });
+  });
+
+  const handleInputChange = (value: string) => {
+    setSearchValue(value);
+    // don't collapse if value is empty - keep expanded while focused
+    if (value && !isExpanded()) {
+      setIsExpanded(true);
+    }
+  };
+
+  const handleToggle = () => {
+    if (isExpanded()) {
+      // collapsing - clear text and close
+      setSearchValue("");
+      setIsExpanded(false);
+      props.onCollapse?.();
+    } else {
+      // expanding - just open
+      setIsExpanded(true);
+    }
+  };
+
+  const handleClear = () => {
+    setSearchValue("");
+    // keep expanded even after clearing
+  };
+
+  const handleSelect = (suggestion: SearchInputSuggestion) => {
+    if (!suggestion || !suggestion.data) return;
+
+    const s = suggestion.data as SearchSuggestion;
+    const remote = getCurrentRemote();
+    const baseRoute = remote ? `/${remote.remote_id}` : "/local";
+
+    // navigate based on suggestion type
+    switch (s.suggestion_type) {
+      case "song":
+        // for songs, play them directly
+        handlePlaySong(s.entity_id);
+        break;
+
+      case "artist":
+        navigate(`${baseRoute}/artists/${s.entity_id}`);
+        break;
+
+      case "album":
+        navigate(`${baseRoute}/albums/${s.entity_id}`);
+        break;
+
+      case "genre":
+        navigate(`${baseRoute}/genres/${s.entity_id}`);
+        break;
+
+      case "playlist":
+        navigate(`${baseRoute}/playlists/${s.entity_id}`);
+        break;
+
+      default:
+        // fallback: go to search results
+        handleSearchSubmit();
+        break;
+    }
+
+    // collapse search after selection
+    setSearchValue("");
+    setIsExpanded(false);
+  };
+
+  const handleSearchSubmit = () => {
+    const query = searchValue();
+    if (query.length < 2) return;
+
+    const remote = getCurrentRemote();
+    const baseRoute = remote ? `/${remote.remote_id}` : "/local";
+
+    // navigate to search results page
+    navigate(`${baseRoute}/search?q=${encodeURIComponent(query)}`);
+
+    // collapse search after submit
+    setSearchValue("");
+    setIsExpanded(false);
+  };
+
+  const handlePlaySong = async (songId: string) => {
+    const remote = getCurrentRemote();
+    if (!remote) return;
+
+    // fetch full song data from the data source
+    try {
+      const dataSource = getDataSource();
+      const song = await dataSource.getSongById(songId);
+
+      if (!song) {
+        console.error("song not found:", songId);
+        return;
+      }
+
+      // play the song with full data
+      await playQueue([song]);
+    } catch (error) {
+      console.error("failed to play song:", error);
+    }
+  };
+
+  // handle enter key to submit search
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSearchSubmit();
+    }
+  };
+
+  return (
+    <div class="flex items-center gap-2">
+      <Show
+        when={isExpanded() || searchValue()}
+        fallback={
+          <IconButton
+            icon="search"
+            aria-label="search"
+            onClick={handleToggle}
+            variant="ghost"
+          />
+        }
+      >
+        <div class="flex items-center gap-2 transition-all duration-300">
+          <SearchInput
+            placeholder={
+              props.placeholder || "search songs, artists, albums..."
+            }
+            loading={suggestionsQuery.isFetching}
+            suggestions={suggestions()}
+            onInputChange={handleInputChange}
+            onSelect={handleSelect}
+            onClear={handleClear}
+            onBlur={() => {
+              // collapse if there's no search value when focus is lost
+              if (!searchValue()) {
+                setIsExpanded(false);
+              }
+            }}
+            class="w-64"
+            variant="filled"
+          />
+          <IconButton
+            icon="close"
+            aria-label="close search"
+            onClick={handleToggle}
+            variant="ghost"
+          />
+        </div>
+      </Show>
+    </div>
+  );
+}

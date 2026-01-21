@@ -8,7 +8,7 @@ import {
   Show,
   untrack,
 } from "solid-js";
-import { SongThumbnail } from "../media/SongThumbnail";
+import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface VirtualSong {
@@ -380,7 +380,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   {/* thumbnail with track number overlay */}
                   <Show when={showTrackNumber()}>
                     <div class="px-3 flex justify-center">
-                      <SongThumbnail
+                      <MediaThumbnail
                         thumbnailUrl={song.thumbnailUrl}
                         indexText={getTrackNumber(song, virtualRow.index)}
                         hideIndex={false}

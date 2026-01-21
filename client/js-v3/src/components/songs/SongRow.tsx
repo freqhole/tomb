@@ -1,6 +1,6 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
-import { SongThumbnail } from "../media/SongThumbnail";
+import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface SongRowProps {
@@ -73,7 +73,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
           </div>
         }
       >
-        <SongThumbnail
+        <MediaThumbnail
           thumbnailUrl={props.thumbnailUrl}
           indexText={props.trackNumber?.toString()}
           hideIndex={false}

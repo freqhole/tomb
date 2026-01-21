@@ -9,7 +9,10 @@ import type {
   PaginatedResponse,
   PlaylistSummary,
   QueryParams,
+  SearchField,
+  SearchResponse,
   Song,
+  SuggestionsResponse,
 } from "./types";
 
 // adapter to convert API song query result to local Song type
@@ -489,6 +492,48 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!result.success) {
       throw new Error("failed to reorder playlist songs");
     }
+  }
+
+  // search suggestions
+  async searchSuggestions(params: {
+    field: SearchField;
+    partial: string;
+    page_size?: number;
+  }): Promise<SuggestionsResponse> {
+    const result = await apiClient.music.suggestions(this.baseUrl, {
+      field: params.field,
+      partial: params.partial,
+      page_size: params.page_size || null,
+      context: null,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to get search suggestions");
+    }
+
+    return result.data;
+  }
+
+  // full search
+  async search(params: {
+    query: string;
+    field?: SearchField | null;
+    page?: number;
+    page_size?: number;
+  }): Promise<SearchResponse> {
+    const result = await apiClient.music.search(this.baseUrl, {
+      query: params.query,
+      field: params.field || null,
+      page: params.page || null,
+      page_size: params.page_size || null,
+      context: null,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to search");
+    }
+
+    return result.data;
   }
 
   // source metadata

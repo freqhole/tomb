@@ -1,8 +1,8 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import { IconButton } from "../buttons/IconButton";
-import { SearchInput } from "../forms/SearchInput";
 import { Icon, type IconName } from "../icons/registry";
+import { TopNavSearch } from "./TopNavSearch";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -78,31 +78,6 @@ export interface TopNavProps {
 
 // compact top nav with brand icon + search, 3-column flyout menu
 export function TopNav(props: TopNavProps) {
-  const [isSearchExpanded, setIsSearchExpanded] = createSignal(false);
-  const [searchValue, setSearchValue] = createSignal(props.searchQuery || "");
-
-  const handleSearchToggle = () => {
-    setIsSearchExpanded(!isSearchExpanded());
-    if (!isSearchExpanded() && searchValue()) {
-      // if collapsing and there's a value, clear it
-      setSearchValue("");
-      props.onSearchChange?.("");
-    }
-  };
-
-  const handleSearchChange = (value: string) => {
-    setSearchValue(value);
-    props.onSearchChange?.(value);
-    // keep search expanded if there's input
-    if (value) {
-      setIsSearchExpanded(true);
-    }
-  };
-
-  const handleSearchSubmit = () => {
-    props.onSearchSubmit?.(searchValue() as string);
-  };
-
   // format relative time (e.g. "2 hours ago", "3 days ago")
   const formatRelativeTime = (timestamp: number): string => {
     const now = Date.now();
@@ -429,41 +404,7 @@ export function TopNav(props: TopNavProps) {
       </KobalteNav>
 
       {/* search */}
-      <div class="flex items-center gap-2">
-        <Show
-          when={isSearchExpanded() || searchValue()}
-          fallback={
-            <IconButton
-              icon="search"
-              aria-label="search"
-              onClick={handleSearchToggle}
-              variant="ghost"
-            />
-          }
-        >
-          <div class="flex items-center gap-2 transition-all duration-300">
-            <SearchInput
-              placeholder={props.searchPlaceholder || "search..."}
-              onInputChange={handleSearchChange}
-              onSelect={(suggestion) => {
-                if (suggestion) {
-                  handleSearchChange(suggestion.text);
-                  handleSearchSubmit();
-                }
-              }}
-              class="w-64"
-            />
-            <Show when={!searchValue()}>
-              <IconButton
-                icon="close"
-                aria-label="close search"
-                onClick={handleSearchToggle}
-                variant="ghost"
-              />
-            </Show>
-          </div>
-        </Show>
-      </div>
+      <TopNavSearch placeholder={props.searchPlaceholder} />
     </nav>
   );
 }

@@ -13,6 +13,7 @@ import { ArtistsView } from "../../music/views/ArtistsView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistDetailView } from "../../music/views/PlaylistDetailView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
+import { SearchResultsView } from "../../music/views/SearchResultsView";
 import { SongsView } from "../../music/views/SongsView";
 import { AppLayout } from "../AppLayout";
 
@@ -92,6 +93,7 @@ export function routes(props: RoutesProps) {
           component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
         />
         <Route path="/playlist/:id" component={PlaylistDetailView} />
+        <Route path="/search" component={SearchResultsView} />
       </Route>
 
       {/* remote context routes */}
@@ -131,6 +133,7 @@ export function routes(props: RoutesProps) {
           component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
         />
         <Route path="/playlist/:id" component={PlaylistDetailView} />
+        <Route path="/search" component={SearchResultsView} />
       </Route>
     </Route>
   );

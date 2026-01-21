@@ -1,8 +1,8 @@
-// reusable song thumbnail with index overlay and play icon hover
+// reusable media thumbnail with index overlay and play icon hover
 import { Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 
-export interface SongThumbnailProps {
+export interface MediaThumbnailProps {
   /** thumbnail image url (optional) */
   thumbnailUrl?: string | null;
   /** index number to display (will be zero-padded to 3 digits) */
@@ -22,18 +22,18 @@ export interface SongThumbnailProps {
 }
 
 /**
- * song thumbnail component with index overlay
+ * media thumbnail component with index overlay and play icon
  *
  * features:
- * - displays album artwork or transparent fallback
+ * - displays artwork for songs, albums, artists, or playlists
  * - shows zero-padded index number (e.g. "001") on thumbnail
  * - index fades out when hideIndex is true (controlled by parent row hover)
  * - play icon appears on thumbnail hover with dark overlay
  * - clicking thumbnail triggers onPlayClick callback
  *
- * used in: queue sidebar, playlist rows, song rows
+ * used in: queue sidebar, playlist rows, song rows, search results
  */
-export function SongThumbnail(props: SongThumbnailProps): JSX.Element {
+export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   const size = () => props.size ?? 48;
   const displayText = () => {
     if (props.indexText !== undefined) {
@@ -47,7 +47,7 @@ export function SongThumbnail(props: SongThumbnailProps): JSX.Element {
 
   return (
     <div
-      class={`flex-shrink-0 relative ${props.enablePlayClick !== false ? "cursor-pointer" : ""} ${props.class || ""}`}
+      class={`group flex-shrink-0 relative ${props.enablePlayClick !== false ? "cursor-pointer" : ""} ${props.class || ""}`}
       style={{ width: `${size()}px`, height: `${size()}px` }}
       draggable={false}
       data-thumbnail="true"
@@ -73,18 +73,18 @@ export function SongThumbnail(props: SongThumbnailProps): JSX.Element {
         </Show>
       </div>
 
-      {/* index number overlay - hidden when hideIndex is true */}
+      {/* index number overlay - hidden when hideIndex is true or on group hover */}
       <div
-        class="absolute inset-0 flex items-center justify-center transition-opacity duration-200"
+        class="absolute inset-0 flex items-center justify-center transition-opacity duration-200 group-hover:opacity-0 pointer-events-none"
         style={{ opacity: props.hideIndex ? 0 : 1 }}
       >
-        <span class="bg-black/70 text-white text-xs font-medium leading-none">
+        <span class="bg-black/70 text-white text-xs font-medium leading-none px-1">
           {displayText()}
         </span>
       </div>
 
-      {/* play icon - shown on thumbnail hover */}
-      <div class="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/40">
+      {/* play icon - shown on group hover */}
+      <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 pointer-events-none">
         <Icon name="play" size={24} color="white" />
       </div>
     </div>

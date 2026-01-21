@@ -1,6 +1,7 @@
 import { Search } from "@kobalte/core/search";
 import { createSignal, For, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
+import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 
 export interface SearchSuggestion {
   /** unique identifier for the suggestion */
@@ -13,6 +14,8 @@ export interface SearchSuggestion {
   highlight?: string;
   /** optional count to display next to suggestion */
   count?: number;
+  /** optional thumbnail image url */
+  thumbnailUrl?: string;
   /** whether this suggestion is disabled */
   disabled?: boolean;
   /** original data passed through for selection */
@@ -36,6 +39,8 @@ export interface SearchInputProps {
   onSelect?: (suggestion: SearchSuggestion) => void;
   /** callback when clear button is clicked */
   onClear?: () => void;
+  /** callback when input loses focus */
+  onBlur?: () => void;
   /** debounce time in milliseconds for input changes (default: 300) */
   debounceMs?: number;
   /** whether the input is disabled */
@@ -105,6 +110,7 @@ export function SearchInput(props: SearchInputProps) {
     "onInputChange",
     "onSelect",
     "onClear",
+    "onBlur",
     "debounceMs",
     "disabled",
     "class",
@@ -153,33 +159,93 @@ export function SearchInput(props: SearchInputProps) {
         disabled={local.disabled}
         triggerMode="input"
         multiple={false}
-        itemComponent={(itemProps) => (
-          <Search.Item item={itemProps.item} class="outline-none">
-            <div
-              class="
-                px-4 py-3 cursor-pointer text-sm transition-all
-                data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)]
-                data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed
-                hover:bg-[var(--color-bg-hover)]
-                text-[var(--color-text-primary)]
-              "
-            >
-              <div class="flex items-center justify-between">
-                <Search.ItemLabel class="flex-1">
-                  <HighlightedText
-                    text={itemProps.item.rawValue.text}
-                    highlight={itemProps.item.rawValue.highlight}
-                  />
-                </Search.ItemLabel>
-                <Show when={itemProps.item.rawValue.count}>
-                  <span class="text-xs text-[var(--color-text-muted)] ml-2">
-                    ({itemProps.item.rawValue.count})
-                  </span>
-                </Show>
+        itemComponent={(itemProps) => {
+          const [isHovering, setIsHovering] = createSignal(false);
+
+          return (
+            <Search.Item item={itemProps.item} class="outline-none">
+              <div
+                class="
+                  px-4 py-2 cursor-pointer text-sm transition-all
+                  data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)]
+                  data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed
+                  hover:bg-[var(--color-bg-hover)]
+                  text-[var(--color-text-primary)]
+                "
+                onMouseEnter={() => setIsHovering(true)}
+                onMouseLeave={() => setIsHovering(false)}
+              >
+                <div class="flex items-center gap-3">
+                  {/* thumbnail or icon based on category */}
+                  <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)] flex items-center justify-center">
+                    <Show
+                      when={itemProps.item.rawValue.thumbnailUrl}
+                      fallback={
+                        <Show when={itemProps.item.rawValue.category}>
+                          {(() => {
+                            const category = itemProps.item.rawValue.category;
+                            const iconName =
+                              category === "song"
+                                ? "music"
+                                : category === "artist"
+                                  ? "user"
+                                  : category === "album"
+                                    ? "album"
+                                    : category === "playlist"
+                                      ? "list"
+                                      : "music";
+                            return (
+                              <Icon
+                                name={iconName}
+                                size={20}
+                                color="var(--color-text-tertiary)"
+                              />
+                            );
+                          })()}
+                        </Show>
+                      }
+                    >
+                      <img
+                        src={itemProps.item.rawValue.thumbnailUrl!}
+                        alt=""
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </Show>
+                  </div>
+
+                  {/* text content with marquee */}
+                  <div class="flex-1 min-w-0">
+                    <Search.ItemLabel class="block">
+                      <HighlightedMarqueeText
+                        text={itemProps.item.rawValue.text}
+                        highlight={itemProps.item.rawValue.highlight}
+                        isHovering={isHovering()}
+                      />
+                    </Search.ItemLabel>
+                    <Show
+                      when={
+                        itemProps.item.rawValue.count &&
+                        itemProps.item.rawValue.count > 1
+                      }
+                    >
+                      <span class="text-xs text-[var(--color-text-muted)]">
+                        {itemProps.item.rawValue.count} items
+                      </span>
+                    </Show>
+                  </div>
+
+                  {/* category badge */}
+                  <Show when={itemProps.item.rawValue.category}>
+                    <div class="px-2 py-1 rounded bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] text-xs font-medium flex-shrink-0">
+                      {itemProps.item.rawValue.category}
+                    </div>
+                  </Show>
+                </div>
               </div>
-            </div>
-          </Search.Item>
-        )}
+            </Search.Item>
+          );
+        }}
         {...rest}
       >
         <Show when={local.label}>
@@ -214,6 +280,7 @@ export function SearchInput(props: SearchInputProps) {
 
               <Search.Input
                 ref={inputRef}
+                onBlur={() => local.onBlur?.()}
                 class={`
                   ${variantClasses()}
                   px-3 py-2 pl-10 pr-10 text-sm h-10
@@ -268,6 +335,9 @@ export function SearchInput(props: SearchInputProps) {
               overflow-hidden
               shadow-lg
               z-50
+              min-w-[400px]
+              max-w-[600px]
+              w-max
             "
           >
             <Search.Listbox class="max-h-80 overflow-y-auto" />
