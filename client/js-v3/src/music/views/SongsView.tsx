@@ -1,6 +1,6 @@
 // songs view - displays all songs with infinite scroll using tanstack query
 import { useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import {
   VirtualSongList,
@@ -30,6 +30,9 @@ export function SongsView(props: SongsViewProps) {
   // get search params from URL
   const [searchParams] = useSearchParams();
 
+  // track query changes to force list reset
+  const [isResetting, setIsResetting] = createSignal(false);
+
   // sorting state - maps to query key so changes trigger refetch
   const [sortField, setSortField] = createSignal<SongSortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<SortDirection>("desc");
@@ -43,6 +46,15 @@ export function SongsView(props: SongsViewProps) {
       const q = searchParams.q;
       return Array.isArray(q) ? q[0] : q;
     },
+  });
+
+  // reset virtual list when query param changes
+  createEffect(() => {
+    const q = searchParams.q;
+    const queryParam = Array.isArray(q) ? q[0] : q;
+    // briefly show resetting state to force virtual list to remount
+    setIsResetting(true);
+    setTimeout(() => setIsResetting(false), 0);
   });
 
   // map query sort field to UI sort field for display
@@ -154,6 +166,10 @@ export function SongsView(props: SongsViewProps) {
                 add music
               </Button>
             </div>
+          </div>
+        ) : isResetting() ? (
+          <div class="flex items-center justify-center h-full">
+            <div class="text-[var(--color-text-secondary)]">loading...</div>
           </div>
         ) : (
           <>
