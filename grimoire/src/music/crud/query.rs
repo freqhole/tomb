@@ -464,6 +464,9 @@ pub struct GenreViewRow {
     genre_id: String,
     genre_name: String,
     genre_created_at: i64,
+    // aggregated stats
+    song_count: i64,
+    album_count: i64,
     // User context fields from view joins (no ratings for genres)
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
@@ -488,8 +491,8 @@ impl GenreViewRow {
 
         GenreQueryResult {
             genre,
-            song_count: None,
-            album_count: None,
+            song_count: Some(self.song_count),
+            album_count: Some(self.album_count),
             is_favorite,
             favorited_at,
         }
