@@ -20,6 +20,8 @@ export interface VirtualItemListProps {
   onItemClick?: (item: ListItem) => void;
   /** callback when user scrolls near end (for infinite scroll) */
   onEndReached?: () => void;
+  /** callback when virtualizer is ready, provides scrollToIndex function */
+  onVirtualizerReady?: (scrollToIndex: (index: number) => void) => void;
   /** height of the container in pixels (defaults to 100% of parent) */
   height?: number;
   /** additional CSS classes */
@@ -42,12 +44,21 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   // create virtualizer instance - wrap in memo to recreate when items change
   const rowVirtualizer = createMemo(() => {
     props.items.length; // track items for reactivity
-    return createVirtualizer({
+    const virtualizer = createVirtualizer({
       count: props.items.length,
       getScrollElement: () => parentRef,
       estimateSize: () => 80,
       overscan: 5,
     });
+
+    // expose scrollToIndex via callback
+    if (props.onVirtualizerReady) {
+      props.onVirtualizerReady((index: number) => {
+        virtualizer.scrollToIndex(index, { align: "start" });
+      });
+    }
+
+    return virtualizer;
   });
 
   const handleItemClick = (item: ListItem) => {

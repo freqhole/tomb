@@ -41,6 +41,9 @@ export function ArtistsView(props: ArtistsViewProps) {
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
   const [currentLetter, setCurrentLetter] = createSignal<string | null>(null);
+  const [scrollToIndex, setScrollToIndex] = createSignal<
+    ((index: number) => void) | null
+  >(null);
 
   // fetch artists using tanstack query (works with local + remote)
   const artistsQuery = useArtistsQuery(1000);
@@ -145,6 +148,26 @@ export function ArtistsView(props: ArtistsViewProps) {
     });
 
     return disabledSet;
+  });
+
+  // calculate index for each letter (for A-Z navigation)
+  const letterToIndexMap = createMemo(() => {
+    if (sortBy() !== "name") return new Map<string, number>();
+
+    const artists = sortedArtists();
+    const map = new Map<string, number>();
+
+    artists.forEach((artist, index) => {
+      const firstChar = artist.name[0]?.toUpperCase() || "";
+      const letter = /[A-Z]/.test(firstChar) ? firstChar : "#";
+
+      // only store the first occurrence of each letter
+      if (!map.has(letter)) {
+        map.set(letter, index);
+      }
+    });
+
+    return map;
   });
 
   // auto-select first artist when data loads
@@ -330,6 +353,7 @@ export function ArtistsView(props: ArtistsViewProps) {
               setSelectedArtistId(item.id);
               props.onArtistClick?.(item.id);
             }}
+            onVirtualizerReady={(scroll) => setScrollToIndex(() => scroll)}
             height={window.innerHeight - 120}
           />
         </Show>
@@ -383,8 +407,13 @@ export function ArtistsView(props: ArtistsViewProps) {
         disabledLetters={disabledLetters()}
         onLetterClick={(letter) => {
           setCurrentLetter(letter);
-          // TODO: scroll to letter in list
-          console.log("jump to letter:", letter);
+          const index = letterToIndexMap().get(letter);
+          if (index !== undefined) {
+            const scroll = scrollToIndex();
+            if (scroll) {
+              scroll(index);
+            }
+          }
         }}
         sortDirection={sortDirection()}
       />
