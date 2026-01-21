@@ -1,4 +1,4 @@
-import { createSignal, JSX, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, JSX, onCleanup, onMount } from "solid-js";
 
 interface MarqueeTextProps {
   /** text content to display */
@@ -66,6 +66,32 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     setTimeout(checkOverflow, 10);
     window.addEventListener("resize", checkOverflow);
     onCleanup(() => window.removeEventListener("resize", checkOverflow));
+  });
+
+  // recheck overflow whenever text changes
+  createEffect(() => {
+    props.text; // track text changes
+    setTimeout(() => {
+      if (containerRef && textRef) {
+        const containerWidth = containerRef.offsetWidth;
+        const textWidth = textRef.scrollWidth;
+        const shouldScroll = textWidth > containerWidth;
+        setShouldMarquee(shouldScroll);
+
+        if (shouldScroll) {
+          containerRef.style.setProperty(
+            "--container-width",
+            `${containerWidth}px`,
+          );
+
+          const baseDuration = 2;
+          const extraTimePerChar = 0.03;
+          const calculatedDuration =
+            baseDuration + props.text.length * extraTimePerChar;
+          setAnimationDuration(Math.max(calculatedDuration, 2));
+        }
+      }
+    }, 10);
   });
 
   return (
