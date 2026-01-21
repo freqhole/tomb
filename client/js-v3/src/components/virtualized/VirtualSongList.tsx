@@ -134,20 +134,24 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   // track last triggered count to prevent infinite loops
   const [lastTriggeredAtCount, setLastTriggeredAtCount] = createSignal(0);
 
-  // create virtualizer instance - only recreate when songs.length changes
-  const rowVirtualizer = createMemo(() => {
-    return createVirtualizer({
-      count: props.songs.length,
-      getScrollElement: () => parentRef,
-      estimateSize: () => 48,
-      overscan: 20,
-    });
+  // create virtualizer instance - don't recreate, just update count reactively
+  const rowVirtualizer = createVirtualizer({
+    get count() {
+      return props.songs.length;
+    },
+    getScrollElement: () => parentRef,
+    estimateSize: () => 48,
+    overscan: 20,
+    measureElement:
+      typeof window !== "undefined" &&
+      navigator.userAgent.indexOf("Firefox") === -1
+        ? (element) => element?.getBoundingClientRect().height
+        : undefined,
   });
 
   // detect when virtualizer is rendering items near end (for infinite scroll)
   createEffect(() => {
-    const virtualizer = rowVirtualizer();
-    const items = virtualizer.getVirtualItems();
+    const items = rowVirtualizer.getVirtualItems();
     if (items.length === 0) return;
 
     const lastItem = items[items.length - 1];
@@ -331,13 +335,13 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
       {/* virtual list container */}
       <div
         style={{
-          height: `${rowVirtualizer().getTotalSize()}px`,
+          height: `${rowVirtualizer.getTotalSize()}px`,
           width: "100%",
           position: "relative",
           "min-width": "fit-content",
         }}
       >
-        <For each={rowVirtualizer().getVirtualItems()}>
+        <For each={rowVirtualizer.getVirtualItems()}>
           {(virtualRow) => {
             const song = props.songs[virtualRow.index];
             const isPlaying = props.playingSongId === song.id;
