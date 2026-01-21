@@ -687,7 +687,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!playlist) return;
 
     const songs = playlistSongs();
-    const draggedIndex = songs.findIndex((s) => s.sha256 === draggedId);
+    const draggedIndex = songs.findIndex((s) => s.id === draggedId);
     if (draggedIndex === -1) return;
 
     // don't do anything if dropped on same position
@@ -1364,11 +1364,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <For each={playlistSongs()}>
                                 {(song, index) => (
                                   <DraggableRow
-                                    id={song.sha256}
+                                    id={song.id}
                                     index={index()}
-                                    isDragging={draggedSongId() === song.sha256}
+                                    isDragging={draggedSongId() === song.id}
                                     isDropTarget={dropTargetIndex() === index()}
-                                    onDragStart={handleDragStart(song.sha256)}
+                                    onDragStart={handleDragStart(song.id)}
                                     onDragOver={handleDragOver(index())}
                                     onDragLeave={handleDragLeave}
                                     onDrop={() => handleDrop(index())}

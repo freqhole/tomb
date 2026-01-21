@@ -899,9 +899,11 @@ export const FullAppDemo: Story = {
               ],
             },
           ]}
-          recentPlaylists={mockPlaylists.slice(0, 5).map((playlist) => ({
+          recentPlaylists={mockPlaylists.slice(0, 5).map((playlist, index) => ({
             id: playlist.id,
             name: playlist.name,
+            thumbnailUrl: null,
+            updatedAt: Date.now() - index * 3600000,
             onClick: () => {
               navigateTo("playlists");
               setSelectedPlaylist(playlist);

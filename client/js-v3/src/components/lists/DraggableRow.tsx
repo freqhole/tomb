@@ -94,7 +94,15 @@ export function DraggableRow(props: DraggableRowProps) {
     <div
       class={rowClasses()}
       draggable={!local.disabled}
-      onDragStart={(e) => local.onDragStart?.(e)}
+      onDragStart={(e) => {
+        // prevent drag if starting from thumbnail
+        const target = e.target as HTMLElement;
+        if (target.closest("[data-thumbnail]")) {
+          e.preventDefault();
+          return;
+        }
+        local.onDragStart?.(e);
+      }}
       onDragOver={(e) => local.onDragOver?.(e)}
       onDragLeave={(e) => local.onDragLeave?.(e)}
       onDrop={(e) => local.onDrop?.(e)}
@@ -112,6 +120,7 @@ export function DraggableRow(props: DraggableRowProps) {
         index={local.index}
         hideIndex={isHovered()}
         onPlayClick={local.onPlayClick}
+        enablePlayClick={true}
         size={48}
       />
 

@@ -13,6 +13,8 @@ export interface SongThumbnailProps {
   hideIndex?: boolean;
   /** callback when thumbnail/play icon is clicked */
   onPlayClick?: () => void;
+  /** whether to enable click handling (disable for draggable contexts) */
+  enablePlayClick?: boolean;
   /** size of the thumbnail in pixels (default: 48) */
   size?: number;
   /** additional classes */
@@ -45,11 +47,15 @@ export function SongThumbnail(props: SongThumbnailProps): JSX.Element {
 
   return (
     <div
-      class={`flex-shrink-0 relative cursor-pointer ${props.class || ""}`}
+      class={`flex-shrink-0 relative ${props.enablePlayClick !== false ? "cursor-pointer" : ""} ${props.class || ""}`}
       style={{ width: `${size()}px`, height: `${size()}px` }}
+      draggable={false}
+      data-thumbnail="true"
       onClick={(e) => {
-        e.stopPropagation();
-        props.onPlayClick?.();
+        if (props.enablePlayClick !== false) {
+          e.stopPropagation();
+          props.onPlayClick?.();
+        }
       }}
     >
       {/* thumbnail image or transparent fallback */}

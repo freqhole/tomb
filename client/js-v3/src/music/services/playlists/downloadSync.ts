@@ -261,6 +261,7 @@ export async function downloadPlaylist(
 
         // create local song entry
         const localSong: Song = {
+          id: sha256, // for downloaded files, use sha256 as the id
           sha256,
           title: song.title || "untitled",
           artist_id: artistId,
@@ -534,6 +535,7 @@ export async function syncPlaylist(
 
         // create local song entry
         const localSong: Song = {
+          id: sha256, // for synced files, use sha256 as the id
           sha256,
           title: song.title || "untitled",
           artist_id: artist?.id || generateUUID(),

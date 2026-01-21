@@ -84,9 +84,11 @@ const mockMainNavSections: NavMenuSection[] = [
 
 const mockRecentPlaylists: RecentPlaylist[] = mockPlaylists
   .slice(0, 5)
-  .map((playlist) => ({
+  .map((playlist, index) => ({
     id: playlist.id,
     name: playlist.name,
+    thumbnailUrl: null,
+    updatedAt: Date.now() - index * 3600000, // stagger by 1 hour each
     onClick: () => console.log("open playlist:", playlist.name),
   }));
 

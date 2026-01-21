@@ -28,7 +28,8 @@ export interface Album {
 
 // ===== SONGS TABLE =====
 export interface Song {
-  sha256: string; // primary key - content hash of audio file
+  id: string; // database ID (songz.id)
+  sha256: string; // media blob ID - content hash of audio file
   title: string;
   artist_id: string; // FK to artists (always required)
   album_id: string; // FK to albums

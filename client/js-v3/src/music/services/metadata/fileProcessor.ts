@@ -149,6 +149,7 @@ export async function processMusicFile(
   const albumPrimaryGenreId: string | null = null;
 
   const song: Song = {
+    id: songId, // for local files, use sha256 as the id
     sha256: songId,
     title: metadata.title,
     artist_id: artist.artist_id,

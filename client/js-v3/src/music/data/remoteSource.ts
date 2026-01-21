@@ -22,6 +22,7 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
   const sha256 = blob?.sha256 || song.media_blob_id;
 
   return {
+    id: song.id,
     sha256,
     title: song.title,
     artist_id: artist?.id || "",
