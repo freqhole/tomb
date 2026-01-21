@@ -39,15 +39,25 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const baseUrl = remote?.base_url || "";
 
     return data.suggestions.map((s) => {
-      // extract thumbnail from metadata if available
+      // extract thumbnail and metadata
       let thumbnailUrl: string | undefined;
+      let albumId: string | undefined;
 
       if (s.metadata) {
         const meta = s.metadata as any;
         if (meta.thumbnail_blob_id) {
           thumbnailUrl = `${baseUrl}/api/blobs/${meta.thumbnail_blob_id}`;
         }
+        if (meta.album_id) {
+          albumId = meta.album_id;
+        }
       }
+
+      // only add thumbnail click for playable types (songs, albums, playlists)
+      const isPlayable =
+        s.suggestion_type === "song" ||
+        s.suggestion_type === "album" ||
+        s.suggestion_type === "playlist";
 
       return {
         id: s.entity_id,
@@ -57,6 +67,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
         count: s.count > 0 ? s.count : undefined,
         thumbnailUrl,
         data: s,
+        onThumbnailClick: isPlayable
+          ? () => handleThumbnailClick(s, albumId)
+          : undefined,
       };
     });
   });
@@ -86,18 +99,66 @@ export function TopNavSearch(props: TopNavSearchProps) {
     // keep expanded even after clearing
   };
 
+  const handleThumbnailClick = async (
+    suggestion: SearchSuggestion,
+    albumId?: string,
+  ) => {
+    const dataSource = getDataSource();
+
+    try {
+      // play based on suggestion type
+      switch (suggestion.suggestion_type) {
+        case "song":
+          await handlePlaySong(suggestion.entity_id);
+          break;
+
+        case "album":
+          // fetch and play all songs in the album
+          const albumSongs = await dataSource.getAlbumSongs?.(
+            suggestion.entity_id,
+          );
+          if (albumSongs && albumSongs.items.length > 0) {
+            await playQueue(albumSongs.items);
+          }
+          break;
+
+        case "playlist":
+          // fetch and play all songs in the playlist
+          const playlistSongs = await dataSource.getPlaylistSongs?.(
+            suggestion.entity_id,
+          );
+          if (playlistSongs && playlistSongs.items.length > 0) {
+            await playQueue(playlistSongs.items);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error("failed to play:", error);
+    }
+
+    // collapse search after playing
+    setSearchValue("");
+    setIsExpanded(false);
+  };
+
   const handleSelect = (suggestion: SearchInputSuggestion) => {
     if (!suggestion || !suggestion.data) return;
 
     const s = suggestion.data as SearchSuggestion;
     const remote = getCurrentRemote();
     const baseRoute = remote ? `/${remote.remote_id}` : "/local";
+    const meta = s.metadata as any;
 
-    // navigate based on suggestion type
+    // row click navigates to detail page
     switch (s.suggestion_type) {
       case "song":
-        // for songs, play them directly
-        handlePlaySong(s.entity_id);
+        // for songs, navigate to album detail page if we have album_id
+        if (meta?.album_id) {
+          navigate(`${baseRoute}/albums/${meta.album_id}`);
+        } else {
+          // fallback: go to search results
+          handleSearchSubmit();
+        }
         break;
 
       case "artist":

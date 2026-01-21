@@ -15,6 +15,8 @@ export interface MediaThumbnailProps {
   onPlayClick?: () => void;
   /** whether to enable click handling (disable for draggable contexts) */
   enablePlayClick?: boolean;
+  /** whether to show play icon on hover (default: true) */
+  showPlayIcon?: boolean;
   /** size of the thumbnail in pixels (default: 48) */
   size?: number;
   /** additional classes */
@@ -35,6 +37,7 @@ export interface MediaThumbnailProps {
  */
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   const size = () => props.size ?? 48;
+  const showPlayIcon = () => props.showPlayIcon !== false;
   const displayText = () => {
     if (props.indexText !== undefined) {
       return props.indexText;
@@ -54,7 +57,18 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
       onClick={(e) => {
         if (props.enablePlayClick !== false) {
           e.stopPropagation();
+          e.preventDefault();
           props.onPlayClick?.();
+        }
+      }}
+      onPointerDown={(e) => {
+        if (props.enablePlayClick !== false) {
+          e.stopPropagation();
+        }
+      }}
+      onMouseDown={(e) => {
+        if (props.enablePlayClick !== false) {
+          e.stopPropagation();
         }
       }}
     >
@@ -75,7 +89,10 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
 
       {/* index number overlay - hidden when hideIndex is true or on group hover */}
       <div
-        class="absolute inset-0 flex items-center justify-center transition-opacity duration-200 group-hover:opacity-0 pointer-events-none"
+        class="absolute inset-0 flex items-center justify-center transition-opacity duration-200 pointer-events-none"
+        classList={{
+          "group-hover:opacity-0": showPlayIcon(),
+        }}
         style={{ opacity: props.hideIndex ? 0 : 1 }}
       >
         <span class="bg-black/70 text-white text-xs font-medium leading-none px-1">
@@ -84,9 +101,11 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
       </div>
 
       {/* play icon - shown on group hover */}
-      <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 pointer-events-none">
-        <Icon name="play" size={24} color="white" />
-      </div>
+      <Show when={showPlayIcon()}>
+        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 pointer-events-none">
+          <Icon name="play" size={24} color="white" />
+        </div>
+      </Show>
     </div>
   );
 }

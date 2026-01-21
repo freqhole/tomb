@@ -1,7 +1,6 @@
 // highlighted marquee text component - supports HTML highlights with marquee on hover
 import {
   createEffect,
-  createMemo,
   createSignal,
   For,
   JSX,
@@ -51,78 +50,14 @@ function parseHighlight(
 export function HighlightedMarqueeText(
   props: HighlightedMarqueeTextProps,
 ): JSX.Element {
-  const [shouldMarquee, setShouldMarquee] = createSignal(false);
-  const [animationDuration, setAnimationDuration] = createSignal(4);
+  const [needsMarquee, setNeedsMarquee] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
-  let fullTextRef: HTMLSpanElement | undefined;
+  let measureRef: HTMLDivElement | undefined;
 
   const textToDisplay = () => props.highlight || props.text;
   const hasHighlight = () =>
     props.highlight && props.highlight.includes("<mark>");
   const parts = () => (hasHighlight() ? parseHighlight(textToDisplay()) : []);
-
-  // use createMemo to ensure reactivity
-  const isAnimating = createMemo(() => {
-    return shouldMarquee() && props.isHovering;
-  });
-
-  onMount(() => {
-    // add css keyframes for marquee animation if not exists
-    if (!document.querySelector("#marquee-styles")) {
-      const style = document.createElement("style");
-      style.id = "marquee-styles";
-      style.textContent = `
-        @keyframes marquee-scroll {
-          0%, 15% {
-            transform: translateX(0%);
-          }
-          50% {
-            transform: translateX(calc(-100% + var(--container-width)));
-          }
-          85%, 100% {
-            transform: translateX(0%);
-          }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-
-    // check if text overflows
-    const checkOverflow = () => {
-      if (containerRef && fullTextRef) {
-        const containerWidth = containerRef.offsetWidth;
-        const textWidth = fullTextRef.offsetWidth;
-        const shouldScroll = textWidth > containerWidth;
-
-        setShouldMarquee(shouldScroll);
-
-        if (shouldScroll) {
-          const containerWidthPx = `${containerWidth}px`;
-          containerRef.style.setProperty("--container-width", containerWidthPx);
-
-          // calculate duration based on text length for consistent speed
-          const baseDuration = 3;
-          const extraTimePerChar = 0.02;
-          const calculatedDuration =
-            baseDuration + props.text.length * extraTimePerChar;
-          setAnimationDuration(Math.min(calculatedDuration, 12));
-        }
-      }
-    };
-
-    // check on mount and when text changes
-    setTimeout(checkOverflow, 50); // delay to ensure DOM is rendered
-    createEffect(() => {
-      props.text;
-      props.highlight;
-      setTimeout(checkOverflow, 50);
-    });
-
-    // re-check on window resize
-    const handleResize = () => checkOverflow();
-    window.addEventListener("resize", handleResize);
-    onCleanup(() => window.removeEventListener("resize", handleResize));
-  });
 
   // render text content with highlights
   const renderText = () => (
@@ -139,35 +74,94 @@ export function HighlightedMarqueeText(
     </Show>
   );
 
+  onMount(() => {
+    // measure if text overflows
+    const checkOverflow = () => {
+      if (!containerRef || !measureRef) return;
+
+      const containerWidth = containerRef.clientWidth;
+      const textWidth = measureRef.scrollWidth;
+      const overflows = textWidth > containerWidth;
+
+      setNeedsMarquee(overflows);
+
+      if (overflows) {
+        // calculate how far to scroll (negative to move left)
+        const distance = containerWidth - textWidth;
+        containerRef.style.setProperty("--marquee-distance", `${distance}px`);
+
+        // duration based on text length for consistent speed
+        const duration = Math.min(3 + textWidth / 100, 10);
+        containerRef.style.setProperty("--marquee-duration", `${duration}s`);
+      }
+    };
+
+    // initial check after render
+    setTimeout(checkOverflow, 0);
+
+    // recheck when text changes
+    createEffect(() => {
+      props.text;
+      props.highlight;
+      setTimeout(checkOverflow, 0);
+    });
+
+    // recheck on resize
+    const resizeObserver = new ResizeObserver(() => {
+      checkOverflow();
+    });
+
+    if (containerRef) {
+      resizeObserver.observe(containerRef);
+    }
+
+    onCleanup(() => {
+      resizeObserver.disconnect();
+    });
+  });
+
+  const shouldAnimate = () => needsMarquee() && props.isHovering;
+
   return (
     <div
       ref={containerRef}
       class={`relative overflow-hidden ${props.class || ""}`}
       title={props.text}
     >
-      {/* visible text - shows ellipsis when not hovering */}
-      <span
-        class="block truncate"
+      {/* measurement element - invisible but rendered for accurate scrollWidth */}
+      <div
+        ref={measureRef}
+        class="absolute top-0 left-0 whitespace-nowrap pointer-events-none"
+        style={{ opacity: 0, visibility: "visible" }}
+        aria-hidden="true"
+      >
+        {renderText()}
+      </div>
+
+      {/* visible truncated text */}
+      <div
+        class="truncate"
         style={{
-          visibility: isAnimating() ? "hidden" : "visible",
+          opacity: shouldAnimate() ? 0 : 1,
         }}
       >
         {renderText()}
-      </span>
+      </div>
 
-      {/* full text for marquee - always rendered for measurement */}
-      <span
-        ref={fullTextRef}
+      {/* animated text - overlays truncated text when hovering */}
+      <div
         class="absolute top-0 left-0 whitespace-nowrap"
         style={{
-          visibility: isAnimating() ? "visible" : "hidden",
-          animation: isAnimating()
-            ? `marquee-scroll ${animationDuration()}s ease-in-out infinite`
+          opacity: shouldAnimate() ? 1 : 0,
+          animation: shouldAnimate()
+            ? `text-marquee var(--marquee-duration, 4s) ease-in-out infinite`
             : "none",
+          "pointer-events": "none",
         }}
+        aria-hidden="true"
       >
         {renderText()}
-      </span>
+      </div>
     </div>
   );
 }

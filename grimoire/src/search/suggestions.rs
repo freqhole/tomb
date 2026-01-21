@@ -22,6 +22,7 @@ pub async fn get_song_suggestions(
         song_id: String,
         song_title: String,
         thumbnail_blob_id: Option<String>,
+        album_id: Option<String>,
         fts_rank: f64,
         user_rating: Option<i64>,
         is_favorite: i64,
@@ -37,6 +38,7 @@ pub async fn get_song_suggestions(
             song.id as "song_id!: String",
             song.title as "song_title!: String",
             song.thumbnail_blob_id as "thumbnail_blob_id: String",
+            (SELECT album_id FROM album_songz WHERE song_id = song.id LIMIT 1) as "album_id: String",
             fts.rank as "fts_rank!: f64",
             rating.rating as "user_rating: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64"
@@ -84,7 +86,8 @@ pub async fn get_song_suggestions(
                 confidence,
                 metadata: Some(serde_json::json!({
                     "match_type": "title",
-                    "thumbnail_blob_id": row.thumbnail_blob_id
+                    "thumbnail_blob_id": row.thumbnail_blob_id,
+                    "album_id": row.album_id
                 })),
                 entity_id: row.song_id,
             }

@@ -325,3 +325,18 @@ body {
         transform: translateX(0);
     }
 }
+
+@keyframes text-marquee {
+    0%,
+    10% {
+        transform: translateX(0);
+    }
+    45%,
+    55% {
+        transform: translateX(var(--marquee-distance));
+    }
+    90%,
+    100% {
+        transform: translateX(0);
+    }
+}

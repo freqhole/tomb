@@ -1,6 +1,7 @@
 import { Search } from "@kobalte/core/search";
 import { createSignal, For, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
+import { MediaThumbnail } from "../media/MediaThumbnail";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 
 export interface SearchSuggestion {
@@ -20,6 +21,8 @@ export interface SearchSuggestion {
   disabled?: boolean;
   /** original data passed through for selection */
   data?: any;
+  /** callback when thumbnail is clicked (for play action) */
+  onThumbnailClick?: () => void;
 }
 
 export interface SearchInputProps {
@@ -161,9 +164,30 @@ export function SearchInput(props: SearchInputProps) {
         multiple={false}
         itemComponent={(itemProps) => {
           const [isHovering, setIsHovering] = createSignal(false);
+          let thumbnailClicked = false;
 
           return (
-            <Search.Item item={itemProps.item} class="outline-none">
+            <Search.Item
+              item={itemProps.item}
+              class="outline-none"
+              onPointerDown={(e) => {
+                // check if click was on thumbnail during capture phase
+                const target = e.target as HTMLElement;
+                const clickedThumbnail = target.closest(
+                  '[data-thumbnail="true"]',
+                );
+
+                if (clickedThumbnail) {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  thumbnailClicked = true;
+                  // call the thumbnail click handler immediately
+                  setTimeout(() => {
+                    itemProps.item.rawValue.onThumbnailClick?.();
+                  }, 0);
+                }
+              }}
+            >
               <div
                 class="
                   px-4 py-2 cursor-pointer text-sm transition-all
@@ -176,42 +200,24 @@ export function SearchInput(props: SearchInputProps) {
                 onMouseLeave={() => setIsHovering(false)}
               >
                 <div class="flex items-center gap-3">
-                  {/* thumbnail or icon based on category */}
-                  <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)] flex items-center justify-center">
-                    <Show
-                      when={itemProps.item.rawValue.thumbnailUrl}
-                      fallback={
-                        <Show when={itemProps.item.rawValue.category}>
-                          {(() => {
-                            const category = itemProps.item.rawValue.category;
-                            const iconName =
-                              category === "song"
-                                ? "music"
-                                : category === "artist"
-                                  ? "user"
-                                  : category === "album"
-                                    ? "album"
-                                    : category === "playlist"
-                                      ? "list"
-                                      : "music";
-                            return (
-                              <Icon
-                                name={iconName}
-                                size={20}
-                                color="var(--color-text-tertiary)"
-                              />
-                            );
-                          })()}
-                        </Show>
+                  {/* thumbnail with play on click */}
+                  <div data-thumbnail="true" class="cursor-pointer">
+                    <MediaThumbnail
+                      thumbnailUrl={itemProps.item.rawValue.thumbnailUrl}
+                      size={40}
+                      hideIndex={
+                        !itemProps.item.rawValue.count ||
+                        itemProps.item.rawValue.count <= 1
                       }
-                    >
-                      <img
-                        src={itemProps.item.rawValue.thumbnailUrl!}
-                        alt=""
-                        class="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </Show>
+                      indexText={
+                        itemProps.item.rawValue.count &&
+                        itemProps.item.rawValue.count > 1
+                          ? `${itemProps.item.rawValue.count}`
+                          : undefined
+                      }
+                      enablePlayClick={false}
+                      showPlayIcon={!!itemProps.item.rawValue.onThumbnailClick}
+                    />
                   </div>
 
                   {/* text content with marquee */}
@@ -223,16 +229,6 @@ export function SearchInput(props: SearchInputProps) {
                         isHovering={isHovering()}
                       />
                     </Search.ItemLabel>
-                    <Show
-                      when={
-                        itemProps.item.rawValue.count &&
-                        itemProps.item.rawValue.count > 1
-                      }
-                    >
-                      <span class="text-xs text-[var(--color-text-muted)]">
-                        {itemProps.item.rawValue.count} items
-                      </span>
-                    </Show>
                   </div>
 
                   {/* category badge */}
