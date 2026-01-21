@@ -9,6 +9,7 @@ import {
   untrack,
 } from "solid-js";
 import { MediaThumbnail } from "../media/MediaThumbnail";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface VirtualSong {
@@ -61,6 +62,8 @@ export interface VirtualSongListProps {
   onFavoriteToggle?: (song: VirtualSong, isFavorite: boolean) => void;
   /** callback when rating changes */
   onRatingChange?: (song: VirtualSong, rating: number) => void;
+  /** callback to get context menu actions for a song */
+  getContextMenuActions?: (song: VirtualSong, index: number) => MenuAction[];
   /** callback when virtualizer is rendering items near end (for infinite scroll) */
   onNearEnd?: () => void;
   /** currently playing song id */
@@ -347,6 +350,138 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
             const isPlaying = props.playingSongId === song.id;
             const isSelected = props.selectedSongIds?.has(song.id);
 
+            const rowContent = (
+              <div
+                class={`
+                  h-full cursor-pointer
+                  border-b border-[var(--color-border-subtle)]
+                  transition-colors
+                  ${isPlaying ? "bg-[var(--color-accent-500)] bg-opacity-10 text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
+                  ${isSelected ? "bg-[var(--color-bg-hover)]" : ""}
+                `}
+                style={{
+                  display: "grid",
+                  "grid-template-columns": getGridTemplate(),
+                  "align-items": "center",
+                }}
+                onClick={() => handleRowClick(song, virtualRow.index)}
+                onDblClick={() => handleRowDoubleClick(song, virtualRow.index)}
+              >
+                {/* thumbnail with track number overlay */}
+                <Show when={showTrackNumber()}>
+                  <div class="px-3 flex justify-center">
+                    <MediaThumbnail
+                      thumbnailUrl={song.thumbnailUrl}
+                      indexText={getTrackNumber(song, virtualRow.index)}
+                      hideIndex={false}
+                      onPlayClick={() =>
+                        handleRowDoubleClick(song, virtualRow.index)
+                      }
+                      size={40}
+                    />
+                  </div>
+                </Show>
+
+                {/* title */}
+                <div class="px-4 min-w-0">
+                  <div class="font-medium">
+                    <MarqueeText text={song.title} hoverOnly={true} />
+                  </div>
+                </div>
+
+                {/* artist */}
+                <Show when={showArtist()}>
+                  <div class="px-4 min-w-0">
+                    <div class="text-[var(--color-text-secondary)]">
+                      <MarqueeText text={song.artist} hoverOnly={true} />
+                    </div>
+                  </div>
+                </Show>
+
+                {/* album */}
+                <Show when={showAlbum()}>
+                  <div class="px-4 min-w-0">
+                    <div class="text-[var(--color-text-secondary)]">
+                      <MarqueeText text={song.album} hoverOnly={true} />
+                    </div>
+                  </div>
+                </Show>
+
+                {/* genre */}
+                <div class="px-4 min-w-0">
+                  <div class="text-[var(--color-text-tertiary)] text-sm">
+                    <MarqueeText text={song.genre || "—"} hoverOnly={true} />
+                  </div>
+                </div>
+
+                {/* year */}
+                <div class="px-4 text-left text-[var(--color-text-tertiary)] text-sm tabular-nums">
+                  {song.year || "—"}
+                </div>
+
+                {/* duration */}
+                <div class="px-4 text-right text-[var(--color-text-tertiary)] text-sm tabular-nums">
+                  {song.duration}
+                </div>
+
+                {/* favorite */}
+                <Show when={showFavorites()}>
+                  <div class="px-3 flex justify-center">
+                    <button
+                      class={`w-4 h-4 transition-colors ${
+                        song.userIsFavorite
+                          ? "text-[var(--color-accent-500)]"
+                          : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                      }`}
+                      onClick={(e) => handleFavoriteClick(e, song)}
+                      title={
+                        song.userIsFavorite
+                          ? "remove from favorites"
+                          : "add to favorites"
+                      }
+                    >
+                      <svg
+                        class="w-full h-full"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                      </svg>
+                    </button>
+                  </div>
+                </Show>
+
+                {/* rating */}
+                <Show when={showRating()}>
+                  <div class="px-3 flex justify-center">
+                    <button
+                      class={`text-sm transition-colors ${
+                        song.userRating
+                          ? "text-[var(--color-accent-500)]"
+                          : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                      }`}
+                      onClick={(e) => handleRatingClick(e, song)}
+                      title={`rating: ${song.userRating || 0}/5 (click to cycle)`}
+                    >
+                      {song.userRating ? `★${song.userRating}` : "☆"}
+                    </button>
+                  </div>
+                </Show>
+
+                {/* tags */}
+                <Show when={showTags()}>
+                  <div class="px-4 min-w-0">
+                    <div class="text-xs text-[var(--color-text-muted)]">
+                      <MarqueeText
+                        text={song.tags?.join(", ") || ""}
+                        hoverOnly={true}
+                      />
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            );
+
             return (
               <div
                 data-index={virtualRow.index}
@@ -359,137 +494,18 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <div
-                  class={`
-                    h-full cursor-pointer
-                    border-b border-[var(--color-border-subtle)]
-                    transition-colors
-                    ${isPlaying ? "bg-[var(--color-accent-500)] bg-opacity-10 text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
-                    ${isSelected ? "bg-[var(--color-bg-hover)]" : ""}
-                  `}
-                  style={{
-                    display: "grid",
-                    "grid-template-columns": getGridTemplate(),
-                    "align-items": "center",
-                  }}
-                  onClick={() => handleRowClick(song, virtualRow.index)}
-                  onDblClick={() =>
-                    handleRowDoubleClick(song, virtualRow.index)
-                  }
-                >
-                  {/* thumbnail with track number overlay */}
-                  <Show when={showTrackNumber()}>
-                    <div class="px-3 flex justify-center">
-                      <MediaThumbnail
-                        thumbnailUrl={song.thumbnailUrl}
-                        indexText={getTrackNumber(song, virtualRow.index)}
-                        hideIndex={false}
-                        onPlayClick={() =>
-                          handleRowDoubleClick(song, virtualRow.index)
-                        }
-                        size={40}
-                      />
-                    </div>
-                  </Show>
-
-                  {/* title */}
-                  <div class="px-4 min-w-0">
-                    <div class="font-medium">
-                      <MarqueeText text={song.title} hoverOnly={true} />
-                    </div>
-                  </div>
-
-                  {/* artist */}
-                  <Show when={showArtist()}>
-                    <div class="px-4 min-w-0">
-                      <div class="text-[var(--color-text-secondary)]">
-                        <MarqueeText text={song.artist} hoverOnly={true} />
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* album */}
-                  <Show when={showAlbum()}>
-                    <div class="px-4 min-w-0">
-                      <div class="text-[var(--color-text-secondary)]">
-                        <MarqueeText text={song.album} hoverOnly={true} />
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* genre */}
-                  <div class="px-4 min-w-0">
-                    <div class="text-[var(--color-text-tertiary)] text-sm">
-                      <MarqueeText text={song.genre || "—"} hoverOnly={true} />
-                    </div>
-                  </div>
-
-                  {/* year */}
-                  <div class="px-4 text-left text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                    {song.year || "—"}
-                  </div>
-
-                  {/* duration */}
-                  <div class="px-4 text-right text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                    {song.duration}
-                  </div>
-
-                  {/* favorite */}
-                  <Show when={showFavorites()}>
-                    <div class="px-3 flex justify-center">
-                      <button
-                        class={`w-4 h-4 transition-colors ${
-                          song.userIsFavorite
-                            ? "text-[var(--color-accent-500)]"
-                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-                        }`}
-                        onClick={(e) => handleFavoriteClick(e, song)}
-                        title={
-                          song.userIsFavorite
-                            ? "remove from favorites"
-                            : "add to favorites"
-                        }
-                      >
-                        <svg
-                          class="w-full h-full"
-                          fill="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </Show>
-
-                  {/* rating */}
-                  <Show when={showRating()}>
-                    <div class="px-3 flex justify-center">
-                      <button
-                        class={`text-sm transition-colors ${
-                          song.userRating
-                            ? "text-[var(--color-accent-500)]"
-                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-                        }`}
-                        onClick={(e) => handleRatingClick(e, song)}
-                        title={`rating: ${song.userRating || 0}/5 (click to cycle)`}
-                      >
-                        {song.userRating ? `★${song.userRating}` : "☆"}
-                      </button>
-                    </div>
-                  </Show>
-
-                  {/* tags */}
-                  <Show when={showTags()}>
-                    <div class="px-4 min-w-0">
-                      <div class="text-xs text-[var(--color-text-muted)]">
-                        <MarqueeText
-                          text={song.tags?.join(", ") || ""}
-                          hoverOnly={true}
-                        />
-                      </div>
-                    </div>
-                  </Show>
-                </div>
+                {props.getContextMenuActions ? (
+                  <ContextMenu
+                    actions={props.getContextMenuActions(
+                      song,
+                      virtualRow.index,
+                    )}
+                  >
+                    {rowContent}
+                  </ContextMenu>
+                ) : (
+                  rowContent
+                )}
               </div>
             );
           }}

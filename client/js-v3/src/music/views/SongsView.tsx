@@ -11,6 +11,7 @@ import {
 import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
+import { useSongContextMenu } from "../services/contextMenu";
 
 export interface SongsViewProps {
   onAddMusic: () => void;
@@ -113,6 +114,16 @@ export function SongsView(props: SongsViewProps) {
     if (song) props.onSongDoubleClick?.(song);
   };
 
+  // build context menu actions for each song
+  const getContextMenuActions = (virtualSong: VirtualSong, index: number) => {
+    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
+    if (!song) return [];
+    return useSongContextMenu(song, {
+      showPlayActions: true,
+      isFavorite: virtualSong.userIsFavorite,
+    });
+  };
+
   // handle sort changes - this triggers query refetch via key change
   const handleSortChange = (field: SortField, direction: SortDirection) => {
     // map UI sort field to query sort field
@@ -183,6 +194,7 @@ export function SongsView(props: SongsViewProps) {
               onSortChange={handleSortChange}
               onSongClick={handleSongClick}
               onSongDoubleClick={handleSongDoubleClick}
+              getContextMenuActions={getContextMenuActions}
               onNearEnd={loadMore}
             />
             {songsQuery.isFetchingNextPage && (

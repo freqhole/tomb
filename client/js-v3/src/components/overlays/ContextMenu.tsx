@@ -81,7 +81,7 @@ export function ContextMenu(props: ContextMenuProps) {
                         action.disabled
                           ? "text-[var(--color-text-disabled)] cursor-not-allowed opacity-50"
                           : action.destructive
-                            ? "text-[var(--color-error)] data-[highlighted]:bg-[var(--color-error)] data-[highlighted]:bg-opacity-10"
+                            ? "text-[var(--color-error)] data-[highlighted]:bg-[var(--color-error)] data-[highlighted]:text-white"
                             : "text-[var(--color-text-primary)] data-[highlighted]:bg-[var(--color-bg-hover)]"
                       }
                     `}
@@ -166,7 +166,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
                         action.disabled
                           ? "text-[var(--color-text-disabled)] cursor-not-allowed opacity-50"
                           : action.destructive
-                            ? "text-[var(--color-error)] data-[highlighted]:bg-[var(--color-error)] data-[highlighted]:bg-opacity-10"
+                            ? "text-[var(--color-error)] data-[highlighted]:bg-[var(--color-error)] data-[highlighted]:text-white"
                             : "text-[var(--color-text-primary)] data-[highlighted]:bg-[var(--color-bg-hover)]"
                       }
                     `}

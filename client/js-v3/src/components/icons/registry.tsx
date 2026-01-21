@@ -338,6 +338,87 @@ export const IconRegistry = {
 
 export type IconName = keyof typeof IconRegistry;
 
+// icon name constants for use in code without type casting
+// usage: IconNames.play, IconNames.pause, etc.
+export const IconNames = {
+  // Player controls
+  play: "play",
+  pause: "pause",
+  previous: "previous",
+  next: "next",
+  stop: "stop",
+
+  // Volume controls
+  volume: "volume",
+  volumeOff: "volumeOff",
+  volumeLow: "volumeLow",
+  volumeHigh: "volumeHigh",
+
+  // Playback modes
+  shuffle: "shuffle",
+  repeat: "repeat",
+  repeatOne: "repeatOne",
+  queue: "queue",
+
+  // Navigation
+  music: "music",
+  album: "album",
+  artist: "artist",
+  playlist: "playlist",
+  library: "library",
+  genre: "genre",
+  home: "home",
+  discover: "discover",
+  recent: "recent",
+  search: "search",
+
+  // Layout & view
+  menu: "menu",
+  grid: "grid",
+  list: "list",
+  filter: "filter",
+  sort: "sort",
+
+  // Arrows & navigation
+  arrowUp: "arrowUp",
+  arrowDown: "arrowDown",
+  arrowLeft: "arrowLeft",
+  arrowRight: "arrowRight",
+  chevronUp: "chevronUp",
+  chevronDown: "chevronDown",
+  chevronLeft: "chevronLeft",
+  chevronRight: "chevronRight",
+
+  // Actions
+  add: "add",
+  edit: "edit",
+  delete: "delete",
+  close: "close",
+  drag: "drag",
+  more: "more",
+  favorite: "favorite",
+  favoriteOutline: "favoriteOutline",
+  star: "star",
+  starOutline: "starOutline",
+
+  // Auth & user
+  logout: "logout",
+  user: "user",
+
+  // System
+  settings: "settings",
+  info: "info",
+  upload: "upload",
+  check: "check",
+  x: "x",
+  alertTriangle: "alertTriangle",
+  loader: "loader",
+  database: "database",
+
+  // Brand
+  freqhole: "freqhole",
+} as const satisfies Record<IconName, IconName>;
+
 // Dynamic icon component
 export const Icon = (props: IconProps & { name: IconName }) => {
   return (

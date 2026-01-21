@@ -21,3 +21,30 @@ export function buildRoute(path: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${prefix}${cleanPath}`;
 }
+
+/**
+ * route helpers for music entities
+ * all routes are context-aware and include the correct remote/local prefix
+ */
+export const routes = {
+  // main views
+  songs: () => buildRoute("/songs"),
+  albums: () => buildRoute("/albums"),
+  artists: () => buildRoute("/artists"),
+  playlists: () => buildRoute("/playlists"),
+  genres: () => buildRoute("/genres"),
+  search: (query?: string) => {
+    const base = buildRoute("/search");
+    return query ? `${base}?q=${encodeURIComponent(query)}` : base;
+  },
+
+  // detail views
+  album: (albumId: string) => buildRoute(`/albums/${albumId}`),
+  artist: (artistId: string) => buildRoute(`/artists/${artistId}`),
+  playlist: (playlistId: string) => buildRoute(`/playlists/${playlistId}`),
+  genre: (genreId: string) => buildRoute(`/genres/${genreId}`),
+
+  // settings & admin
+  settings: () => buildRoute("/settings"),
+  remotes: () => buildRoute("/remotes"),
+};

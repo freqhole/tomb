@@ -313,6 +313,7 @@ export function setPlayerVolume(vol: number): void {
 }
 
 // play next song in queue (with retry logic for unplayable songs)
+// if queue is empty/finished and autoplay is desired, this can be extended
 export async function playNext(): Promise<void> {
   if (!canGoNext()) return;
 
@@ -370,7 +371,8 @@ async function handleSongEnded(): Promise<void> {
   await playNext();
 }
 
-// add songs to queue and play first
+// replace queue and play first song
+// used for "play all", "shuffle all", etc.
 export async function playQueue(songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
 
@@ -378,11 +380,62 @@ export async function playQueue(songs: Song[]): Promise<void> {
   await playSong(songs[0]);
 }
 
-// add song to end of queue
-export async function addToQueue(song: Song): Promise<void> {
+// add songs to end of queue (append without interrupting playback)
+// auto-plays if queue is empty or playback has ended
+export async function addToQueue(songs: Song | Song[]): Promise<void> {
+  const songsArray = Array.isArray(songs) ? songs : [songs];
+  if (songsArray.length === 0) return;
+
   const state = appState();
   const currentQueue = state?.queue || [];
-  await setQueue([...currentQueue, song]);
+  const newQueue = [...currentQueue, ...songsArray];
+  await setQueue(newQueue);
+
+  // if nothing is playing and queue was empty, start playing first added song
+  if (!state?.current_sha256 || currentQueue.length === 0) {
+    await playSong(songsArray[0]);
+  }
+}
+
+// insert songs after currently playing song (play next)
+// used for "play next" context menu action
+export async function addToQueueAfterCurrent(
+  songs: Song | Song[],
+): Promise<void> {
+  const songsArray = Array.isArray(songs) ? songs : [songs];
+  if (songsArray.length === 0) return;
+
+  const state = appState();
+  const currentQueue = state?.queue || [];
+  const currentId = state?.current_sha256;
+
+  // if no current song or queue is empty, just add to front
+  if (!currentId || currentQueue.length === 0) {
+    await setQueue([...songsArray, ...currentQueue]);
+    // if nothing is playing, start playing first added song
+    if (!currentId) {
+      await playSong(songsArray[0]);
+    }
+    return;
+  }
+
+  // find current song index
+  const currentIdx = currentQueue.findIndex((s) => s.sha256 === currentId);
+
+  if (currentIdx === -1) {
+    // current song not in queue (shouldn't happen), append to end
+    await addToQueue(songsArray);
+    return;
+  }
+
+  // insert after current song
+  const newQueue = [
+    ...currentQueue.slice(0, currentIdx + 1),
+    ...songsArray,
+    ...currentQueue.slice(currentIdx + 1),
+  ];
+
+  await setQueue(newQueue);
 }
 
 // cleanup

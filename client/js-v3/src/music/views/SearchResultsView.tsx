@@ -25,6 +25,7 @@ import { useSearchQuery } from "../queries/search";
 import { playQueue } from "../services/audio/player";
 import { formatDuration } from "../utils/format";
 import { getBlobImageUrl, getPrimaryImageUrl } from "../utils/images";
+import { routes } from "../utils/routing";
 
 export function SearchResultsView() {
   const navigate = useNavigate();
@@ -156,49 +157,24 @@ export function SearchResultsView() {
   // handle navigate to song's album
   const handleNavigateToSongAlbum = (albumId: string | null | undefined) => {
     if (!albumId) return;
-    const remote = getCurrentRemote();
-    if (remote) {
-      navigate(`/${remote.remote_id}/albums/${albumId}`);
-    } else {
-      navigate(`/local/albums/${albumId}`);
-    }
+    navigate(routes.album(albumId));
   };
 
   // handle navigate to detail
   const handleNavigateToArtist = (artistId: string) => {
-    const remote = getCurrentRemote();
-    if (remote) {
-      navigate(`/${remote.remote_id}/artists/${artistId}`);
-    } else {
-      navigate(`/local/artists/${artistId}`);
-    }
+    navigate(routes.artist(artistId));
   };
 
   const handleNavigateToAlbum = (albumId: string) => {
-    const remote = getCurrentRemote();
-    if (remote) {
-      navigate(`/${remote.remote_id}/albums/${albumId}`);
-    } else {
-      navigate(`/local/albums/${albumId}`);
-    }
+    navigate(routes.album(albumId));
   };
 
   const handleNavigateToGenre = (genreId: string) => {
-    const remote = getCurrentRemote();
-    if (remote) {
-      navigate(`/${remote.remote_id}/genres/${genreId}`);
-    } else {
-      navigate(`/local/genres/${genreId}`);
-    }
+    navigate(routes.genre(genreId));
   };
 
   const handleNavigateToPlaylist = (playlistId: string) => {
-    const remote = getCurrentRemote();
-    if (remote) {
-      navigate(`/${remote.remote_id}/playlists/${playlistId}`);
-    } else {
-      navigate(`/local/playlists/${playlistId}`);
-    }
+    navigate(routes.playlist(playlistId));
   };
 
   // render different result types
