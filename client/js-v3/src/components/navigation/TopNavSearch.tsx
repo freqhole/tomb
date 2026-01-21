@@ -1,5 +1,5 @@
 // top nav search component with suggestions and navigation
-import { useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, Show } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchField, SearchSuggestion } from "../../music/data/types";
@@ -19,8 +19,10 @@ interface TopNavSearchProps {
 // top nav search with suggestions and navigation
 export function TopNavSearch(props: TopNavSearchProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchValue, setSearchValue] = createSignal("");
   const [isExpanded, setIsExpanded] = createSignal(false);
+  const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
 
   // suggestions query
   const suggestionsQuery = useSearchSuggestions({
@@ -80,12 +82,18 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (value && !isExpanded()) {
       setIsExpanded(true);
     }
+    // open suggestions when user types enough text
+    if (value.length >= 2) {
+      setSuggestionsOpen(true);
+    } else {
+      setSuggestionsOpen(false);
+    }
   };
 
   const handleToggle = () => {
     if (isExpanded()) {
-      // collapsing - clear text and close
-      setSearchValue("");
+      // collapsing - clear everything
+      handleClear();
       setIsExpanded(false);
       props.onCollapse?.();
     } else {
@@ -96,6 +104,21 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   const handleClear = () => {
     setSearchValue("");
+    // if on a filterable view with query param, clear it by navigating to the route without query
+    const pathname = location.pathname;
+    const filterableRoutes = [
+      "songs",
+      "albums",
+      "artists",
+      "playlists",
+      "genres",
+    ];
+    const currentRoute = filterableRoutes.find((route) =>
+      pathname.endsWith(`/${route}`),
+    );
+    if (currentRoute && location.search) {
+      navigate(pathname, { replace: true });
+    }
     // keep expanded even after clearing
   };
 
@@ -195,12 +218,29 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const remote = getCurrentRemote();
     const baseRoute = remote ? `/${remote.remote_id}` : "/local";
 
-    // navigate to search results page
-    navigate(`${baseRoute}/search?q=${encodeURIComponent(query)}`);
+    // detect if on a filterable view route
+    const pathname = location.pathname;
+    const filterableRoutes = [
+      "songs",
+      "albums",
+      "artists",
+      "playlists",
+      "genres",
+    ];
+    const currentRoute = filterableRoutes.find((route) =>
+      pathname.endsWith(`/${route}`),
+    );
 
-    // collapse search after submit
-    setSearchValue("");
-    setIsExpanded(false);
+    if (currentRoute) {
+      // add query param to current view (don't clear search input)
+      navigate(`${pathname}?q=${encodeURIComponent(query)}`);
+    } else {
+      // navigate to search results page
+      navigate(`${baseRoute}/search?q=${encodeURIComponent(query)}`);
+      // collapse search after navigating to search results page
+      setSearchValue("");
+      setIsExpanded(false);
+    }
   };
 
   const handlePlaySong = async (songId: string) => {
@@ -228,6 +268,16 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
       handleSearchSubmit();
+      // close suggestions and blur input
+      setSuggestionsOpen(false);
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  // handle focus to show suggestions
+  const handleFocus = () => {
+    if (searchValue().length >= 2) {
+      setSuggestionsOpen(true);
     }
   };
 
@@ -251,12 +301,48 @@ export function TopNavSearch(props: TopNavSearchProps) {
             }
             loading={suggestionsQuery.isFetching}
             suggestions={suggestions()}
+            open={suggestionsOpen()}
+            onOpenChange={setSuggestionsOpen}
             onInputChange={handleInputChange}
             onSelect={handleSelect}
             onClear={handleClear}
-            onBlur={() => {
-              // collapse if there's no search value when focus is lost
-              if (!searchValue()) {
+            onFocus={handleFocus}
+            onKeyDown={handleKeyDown}
+            onBlur={(e) => {
+              // check if we're blurring to something outside the search component
+              const relatedTarget = e.relatedTarget as HTMLElement | null;
+              const isBlurringToSuggestion =
+                relatedTarget?.closest('[role="listbox"]');
+
+              // don't process blur if clicking on a suggestion
+              if (isBlurringToSuggestion) {
+                return;
+              }
+
+              // close suggestions
+              setSuggestionsOpen(false);
+
+              const query = searchValue();
+              // if there's a search value, submit the search on blur
+              if (query && query.length >= 2) {
+                handleSearchSubmit();
+              } else if (!query) {
+                // if empty, clear the query param if on a filterable view
+                const pathname = location.pathname;
+                const filterableRoutes = [
+                  "songs",
+                  "albums",
+                  "artists",
+                  "playlists",
+                  "genres",
+                ];
+                const currentRoute = filterableRoutes.find((route) =>
+                  pathname.endsWith(`/${route}`),
+                );
+                if (currentRoute && location.search) {
+                  navigate(pathname, { replace: true });
+                }
+                // collapse if there's no search value when focus is lost
                 setIsExpanded(false);
               }
             }}

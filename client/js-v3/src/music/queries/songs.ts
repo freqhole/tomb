@@ -20,6 +20,7 @@ interface UseSongsInfiniteQueryOptions {
   pageSize?: number;
   artistId?: Accessor<string | undefined>;
   albumId?: Accessor<string | undefined>;
+  query?: Accessor<string | undefined>;
 }
 
 export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
@@ -28,6 +29,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const artistId = options?.artistId;
   const albumId = options?.albumId;
+  const query = options?.query;
 
   return createInfiniteQuery(() => ({
     queryKey: [
@@ -37,6 +39,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
       sortDirection(),
       artistId?.(),
       albumId?.(),
+      query?.(),
     ],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
@@ -48,6 +51,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
         sort_direction: sortDirection(),
         artist_id: artistId?.(),
         album_id: albumId?.(),
+        search: query?.(),
       });
 
       return response;

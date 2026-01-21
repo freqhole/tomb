@@ -1,4 +1,5 @@
 // songs view - displays all songs with infinite scroll using tanstack query
+import { useSearchParams } from "@solidjs/router";
 import { createMemo, createSignal } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import {
@@ -26,6 +27,9 @@ function formatDuration(seconds: number): string {
 }
 
 export function SongsView(props: SongsViewProps) {
+  // get search params from URL
+  const [searchParams] = useSearchParams();
+
   // sorting state - maps to query key so changes trigger refetch
   const [sortField, setSortField] = createSignal<SongSortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<SortDirection>("desc");
@@ -35,6 +39,10 @@ export function SongsView(props: SongsViewProps) {
     sortField: () => sortField(),
     sortDirection: () => sortDirection(),
     pageSize: 100,
+    query: () => {
+      const q = searchParams.q;
+      return Array.isArray(q) ? q[0] : q;
+    },
   });
 
   // map query sort field to UI sort field for display

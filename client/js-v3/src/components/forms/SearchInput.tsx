@@ -43,7 +43,15 @@ export interface SearchInputProps {
   /** callback when clear button is clicked */
   onClear?: () => void;
   /** callback when input loses focus */
-  onBlur?: () => void;
+  onBlur?: (event: FocusEvent) => void;
+  /** callback when input gains focus */
+  onFocus?: () => void;
+  /** callback when key is pressed */
+  onKeyDown?: (event: KeyboardEvent) => void;
+  /** controlled open state for suggestions dropdown */
+  open?: boolean;
+  /** callback when open state changes */
+  onOpenChange?: (open: boolean) => void;
   /** debounce time in milliseconds for input changes (default: 300) */
   debounceMs?: number;
   /** whether the input is disabled */
@@ -114,6 +122,10 @@ export function SearchInput(props: SearchInputProps) {
     "onSelect",
     "onClear",
     "onBlur",
+    "onFocus",
+    "onKeyDown",
+    "open",
+    "onOpenChange",
     "debounceMs",
     "disabled",
     "class",
@@ -144,6 +156,8 @@ export function SearchInput(props: SearchInputProps) {
   return (
     <div class={`space-y-1 ${local.class || ""}`}>
       <Search<SearchSuggestion>
+        open={local.open}
+        onOpenChange={local.onOpenChange}
         options={suggestions()}
         optionValue="id"
         optionLabel="text"
@@ -276,43 +290,17 @@ export function SearchInput(props: SearchInputProps) {
 
               <Search.Input
                 ref={inputRef}
-                onBlur={() => local.onBlur?.()}
+                onFocus={() => local.onFocus?.()}
+                onBlur={(e) => local.onBlur?.(e)}
+                onKeyDown={(e) => local.onKeyDown?.(e)}
                 class={`
                   ${variantClasses()}
-                  px-3 py-2 pl-10 pr-10 text-sm h-10
+                  px-3 py-2 pl-10 text-sm h-10
                   text-[var(--color-text-primary)]
                   placeholder:text-[var(--color-text-muted)]
                   focus:outline-none
                 `}
               />
-
-              <Show when={inputText().length > 0}>
-                <button
-                  type="button"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 z-10 p-1 hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                  onClick={() => {
-                    // directly clear the input element
-                    if (inputRef) {
-                      inputRef.value = "";
-                      // trigger input event so kobalte updates
-                      inputRef.dispatchEvent(
-                        new Event("input", { bubbles: true }),
-                      );
-                    }
-                    api.clear();
-                    setInputText("");
-                    local.onInputChange?.("");
-                    local.onClear?.();
-                  }}
-                  aria-label="clear search"
-                >
-                  <Icon
-                    name="close"
-                    size={16}
-                    color="var(--color-text-muted)"
-                  />
-                </button>
-              </Show>
             </>
           )}
         </Search.Control>
