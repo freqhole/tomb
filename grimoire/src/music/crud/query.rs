@@ -6,7 +6,7 @@ use std::time::Instant;
 use crate::database;
 
 use crate::music::crud::models::{
-    AlbumQueryResult, ArtistQueryResult, GenreQueryResult, QueryParams, QueryResult,
+    AlbumQueryResult, ArtistQueryResult, GenreQueryResult, ImageMetadata, QueryParams, QueryResult,
     SongQueryResult,
 };
 use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
@@ -110,6 +110,7 @@ pub struct SongViewRow {
     song_media_blob_id: String,
     song_thumbnail_blob_id: Option<String>,
     song_waveform_blob_id: Option<String>,
+    song_images: Option<String>, // JSON array from view
     song_title: String,
     song_track_number: i64,
     song_disc_number: i64,
@@ -163,6 +164,11 @@ pub struct SongViewRow {
 
 impl SongViewRow {
     pub fn to_song_query_result(self, user_id: Option<&str>) -> SongQueryResult {
+        // parse images JSON array
+        let images = self
+            .song_images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
+
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
@@ -249,6 +255,7 @@ impl SongViewRow {
             album,
             genre: None,
             media_blob: None,
+            images,
             relevance_score: None,
             snippet: None,
             is_favorite,
@@ -273,6 +280,7 @@ pub struct ArtistViewRow {
     artist_deleted_by: Option<String>,
     artist_created_by: Option<String>,
     artist_updated_by: Option<String>,
+    artist_images: Option<String>, // JSON array from view
     song_count: i64,
     album_count: i64,
     total_duration: i64,
@@ -286,6 +294,11 @@ pub struct ArtistViewRow {
 
 impl ArtistViewRow {
     pub fn to_artist_query_result(self, user_id: Option<&str>) -> ArtistQueryResult {
+        // parse images JSON array
+        let images = self
+            .artist_images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
+
         let artist = Artist {
             id: self.artist_id,
             name: self.artist_name,
@@ -318,6 +331,7 @@ impl ArtistViewRow {
 
         ArtistQueryResult {
             artist,
+            images,
             song_count: self.song_count,
             album_count: self.album_count,
             total_duration: Some(self.total_duration),
@@ -346,6 +360,7 @@ pub struct AlbumViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_images: Option<String>, // JSON array from view
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -360,6 +375,25 @@ pub struct AlbumViewRow {
 
 impl AlbumViewRow {
     pub fn to_album_query_result(self, user_id: Option<&str>) -> AlbumQueryResult {
+        // parse images JSON array
+        let images = self.album_images.and_then(|json_str| {
+            tracing::debug!("parsing album images JSON: {}", json_str);
+            match serde_json::from_str::<Vec<ImageMetadata>>(&json_str) {
+                Ok(imgs) => {
+                    tracing::debug!("successfully parsed {} images", imgs.len());
+                    Some(imgs)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to parse album images JSON: {} - error: {}",
+                        json_str,
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
         let album = Album {
             id: self.album_id,
             title: self.album_title,
@@ -416,6 +450,7 @@ impl AlbumViewRow {
             album,
             artist,
             genre: None,
+            images,
             is_favorite,
             rating,
             favorited_at,

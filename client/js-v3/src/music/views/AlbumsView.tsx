@@ -1,11 +1,12 @@
 // albums view - displays all albums in a grid
 import { useNavigate } from "@solidjs/router";
-import { Show } from "solid-js";
+import { createEffect, on, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
-import { getDataSource } from "../data";
+import { getCurrentRemote, getDataSource } from "../data";
+import type { ImageMetadata } from "../data/types";
 import { useAlbumsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { buildRoute } from "../utils/routing";
@@ -22,6 +23,27 @@ export function AlbumsView(props: AlbumsViewProps) {
   // fetch albums using query hook
   const albumsQuery = useAlbumsQuery(100);
 
+  // auto-fetch next page when query becomes idle and has more data
+  createEffect(
+    on(
+      () => ({
+        hasNextPage: albumsQuery.hasNextPage,
+        isFetchingNextPage: albumsQuery.isFetchingNextPage,
+        isFetching: albumsQuery.isFetching,
+      }),
+      (state) => {
+        // automatically load more if there's more data and we're not already fetching
+        if (
+          state.hasNextPage &&
+          !state.isFetchingNextPage &&
+          !state.isFetching
+        ) {
+          albumsQuery.fetchNextPage();
+        }
+      },
+    ),
+  );
+
   // format duration as mm:ss or hh:mm:ss
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -32,6 +54,23 @@ export function AlbumsView(props: AlbumsViewProps) {
       return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
     }
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // helper to get image url from images array
+  const getImageUrl = (images?: ImageMetadata[]): string | null => {
+    if (!images || images.length === 0) return null;
+
+    // find primary image, or use first one
+    const primaryImage = images.find((img) => img.is_primary === 1);
+    const blobId = primaryImage?.blob_id || images[0]?.blob_id;
+
+    if (!blobId) return null;
+
+    // get remote base url
+    const remote = getCurrentRemote();
+    if (!remote) return null;
+
+    return `${remote.base_url}/api/blobs/${blobId}`;
   };
 
   // flatten all pages into albums list
@@ -49,7 +88,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       year: album.year,
       trackCount: album.song_count,
       totalDuration: formatDuration(album.total_duration),
-      imageUrl: null, // TODO: implement album artwork
+      imageUrl: getImageUrl(album.images),
     }));
   };
 

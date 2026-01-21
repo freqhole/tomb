@@ -65,6 +65,10 @@ export const AlbumQueryResultSchema = z.object({
   name: z.string(),
   created_at: z.number()
 }).nullable(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   is_favorite: z.boolean().nullable(),
   rating: z.number().nullable(),
   favorited_at: z.number().nullable(),
@@ -121,6 +125,10 @@ export const AlbumsQueryResultSchema = z.object({
   name: z.string(),
   created_at: z.number()
 }).nullable(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   is_favorite: z.boolean().nullable(),
   rating: z.number().nullable(),
   favorited_at: z.number().nullable(),
@@ -169,6 +177,10 @@ export const ArtistQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable()
 }),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   song_count: z.number(),
   album_count: z.number(),
   total_duration: z.number().nullable(),
@@ -204,6 +216,10 @@ export const ArtistsQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable()
 }),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   song_count: z.number(),
   album_count: z.number(),
   total_duration: z.number().nullable(),
@@ -849,6 +865,10 @@ export const PlaylistSongResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable()
 }).nullable(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
   is_favorite: z.boolean().nullable(),
@@ -939,6 +959,10 @@ export const PlaylistSongsQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable()
 }).nullable(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
   is_favorite: z.boolean().nullable(),
@@ -1390,6 +1414,10 @@ export const SongQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable()
 }).nullable(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
   is_favorite: z.boolean().nullable(),
@@ -1498,6 +1526,10 @@ export const SongsQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable()
 }).nullable(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number()
+})).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
   is_favorite: z.boolean().nullable(),

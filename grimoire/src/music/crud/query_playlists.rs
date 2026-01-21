@@ -113,6 +113,7 @@ pub struct PlaylistSongViewRow {
     song_media_blob_id: String,
     song_thumbnail_blob_id: Option<String>,
     song_waveform_blob_id: Option<String>,
+    song_images: Option<String>, // JSON array from view
     song_title: String,
     song_track_number: i64,
     song_disc_number: i64,
@@ -163,6 +164,11 @@ impl PlaylistSongViewRow {
     pub fn to_playlist_song_result(self) -> PlaylistSongResult {
         let position = self.position;
         let added_at = self.added_at;
+
+        // parse images JSON array
+        let images = self.song_images.and_then(|json_str| {
+            serde_json::from_str::<Vec<crate::music::crud::models::ImageMetadata>>(&json_str).ok()
+        });
 
         let song = Song {
             id: self.song_id,
@@ -231,6 +237,7 @@ impl PlaylistSongViewRow {
             album,
             genre: None,
             media_blob: None,
+            images,
             relevance_score: None,
             snippet: None,
             is_favorite: None,

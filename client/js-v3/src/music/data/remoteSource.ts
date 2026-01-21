@@ -164,6 +164,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
         year: undefined, // TODO: extract year from release_date if present
         song_count: item.album.song_count,
         total_duration: item.album.total_duration,
+        images:
+          item.images?.map((img) => ({
+            blob_id: img.blob_id,
+            is_primary: img.is_primary ? 1 : 0,
+          })) || undefined,
       })),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -217,6 +222,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
         album_count: item.album_count,
         song_count: item.song_count,
         total_duration: item.total_duration || 0,
+        images:
+          item.images?.map((img) => ({
+            blob_id: img.blob_id,
+            is_primary: img.is_primary ? 1 : 0,
+          })) || undefined,
       })),
       total: result.data.total_count,
       offset: result.data.offset,

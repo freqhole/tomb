@@ -32,6 +32,12 @@ export interface PaginatedResponse<T> {
 // re-export storage Song type (no translation needed)
 export type { Song };
 
+// image metadata with primary indicator
+export interface ImageMetadata {
+  blob_id: string;
+  is_primary: number; // 0 or 1 from SQLite
+}
+
 // album summary data for grids
 export interface AlbumSummary {
   album_id: string;
@@ -41,6 +47,7 @@ export interface AlbumSummary {
   year?: number;
   song_count: number;
   total_duration: number;
+  images?: ImageMetadata[];
 }
 
 // artist summary data for lists
@@ -50,6 +57,7 @@ export interface ArtistSummary {
   album_count: number;
   song_count: number;
   total_duration: number;
+  images?: ImageMetadata[];
 }
 
 // genre summary data for lists

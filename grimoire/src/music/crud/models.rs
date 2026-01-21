@@ -15,6 +15,13 @@ use crate::music::entities::{
 };
 use crate::music::users::models::RatingTarget;
 
+/// image metadata with primary indicator
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ImageMetadata {
+    pub blob_id: String,
+    pub is_primary: i32, // 0 or 1 from SQLite JSON
+}
+
 /// request for importing a song with all metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportSongRequest {
@@ -246,12 +253,13 @@ pub struct SongQueryResult {
     pub album: Option<Album>,
     pub genre: Option<Genre>,
     pub media_blob: Option<MediaBlob>,
-    pub relevance_score: Option<f64>,   // For FTS search results
-    pub snippet: Option<String>,        // Highlighted text snippet for FTS
-    pub is_favorite: Option<bool>,      // User's favorite status
-    pub rating: Option<i32>,            // User's rating (1-5)
-    pub favorited_at: Option<i64>,      // When user favorited (unix timestamp)
-    pub rating_created_at: Option<i64>, // When user rated (unix timestamp)
+    pub images: Option<Vec<ImageMetadata>>, // all images from song_imagez with primary indicator
+    pub relevance_score: Option<f64>,       // For FTS search results
+    pub snippet: Option<String>,            // Highlighted text snippet for FTS
+    pub is_favorite: Option<bool>,          // User's favorite status
+    pub rating: Option<i32>,                // User's rating (1-5)
+    pub favorited_at: Option<i64>,          // When user favorited (unix timestamp)
+    pub rating_created_at: Option<i64>,     // When user rated (unix timestamp)
     pub artist_total_song_count: Option<i64>, // Total songs by this artist
     pub artist_total_album_count: Option<i64>, // Total albums by this artist
     pub artist_total_duration: Option<i64>, // Total duration of artist's music
@@ -261,6 +269,7 @@ pub struct SongQueryResult {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ArtistQueryResult {
     pub artist: Artist,
+    pub images: Option<Vec<ImageMetadata>>, // all images from artist_imagez with primary indicator
     pub song_count: i64,
     pub album_count: i64,
     pub total_duration: Option<i64>,
@@ -276,10 +285,11 @@ pub struct AlbumQueryResult {
     pub album: Album,
     pub artist: Option<Artist>,
     pub genre: Option<Genre>,
-    pub is_favorite: Option<bool>,      // User's favorite status
-    pub rating: Option<i32>,            // User's rating (1-5)
-    pub favorited_at: Option<i64>,      // When user favorited (unix timestamp)
-    pub rating_created_at: Option<i64>, // When user rated (unix timestamp)
+    pub images: Option<Vec<ImageMetadata>>, // all images from album_imagez with primary indicator
+    pub is_favorite: Option<bool>,          // User's favorite status
+    pub rating: Option<i32>,                // User's rating (1-5)
+    pub favorited_at: Option<i64>,          // When user favorited (unix timestamp)
+    pub rating_created_at: Option<i64>,     // When user rated (unix timestamp)
 }
 
 /// genre with optional aggregated metadata for query results
