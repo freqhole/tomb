@@ -26,6 +26,7 @@ export interface GenreDetailPanelSong {
   album_title: string;
   duration_seconds: number;
   year: number | null;
+  thumbnail_blob_id: string | null;
 }
 
 export interface GenreDetailPanelProps {

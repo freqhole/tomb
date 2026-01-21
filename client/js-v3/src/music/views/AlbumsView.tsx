@@ -5,10 +5,10 @@ import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
-import { getCurrentRemote, getDataSource } from "../data";
-import type { ImageMetadata } from "../data/types";
+import { getDataSource } from "../data";
 import { useAlbumsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import { getPrimaryImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -56,23 +56,6 @@ export function AlbumsView(props: AlbumsViewProps) {
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // helper to get image url from images array
-  const getImageUrl = (images?: ImageMetadata[]): string | null => {
-    if (!images || images.length === 0) return null;
-
-    // find primary image, or use first one
-    const primaryImage = images.find((img) => img.is_primary === 1);
-    const blobId = primaryImage?.blob_id || images[0]?.blob_id;
-
-    if (!blobId) return null;
-
-    // get remote base url
-    const remote = getCurrentRemote();
-    if (!remote) return null;
-
-    return `${remote.base_url}/api/blobs/${blobId}`;
-  };
-
   // flatten all pages into albums list
   const albums = (): CollectionCardData[] => {
     const pages = albumsQuery.data?.pages ?? [];
@@ -88,7 +71,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       year: album.year,
       trackCount: album.song_count,
       totalDuration: formatDuration(album.total_duration),
-      imageUrl: getImageUrl(album.images),
+      imageUrl: getPrimaryImageUrl(album.images),
     }));
   };
 

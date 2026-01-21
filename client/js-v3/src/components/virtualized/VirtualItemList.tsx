@@ -42,7 +42,6 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   // create virtualizer instance - wrap in memo to recreate when items change
   const rowVirtualizer = createMemo(() => {
     props.items.length; // track items for reactivity
-    props.selectedId; // track selection for reactivity
     return createVirtualizer({
       count: props.items.length,
       getScrollElement: () => parentRef,
@@ -87,7 +86,6 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
         <For each={rowVirtualizer().getVirtualItems()}>
           {(virtualRow) => {
             const item = props.items[virtualRow.index];
-            const isSelected = props.selectedId === item.id;
 
             return (
               <div
@@ -105,7 +103,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   class={`
                     w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
                     ${
-                      isSelected
+                      props.selectedId === item.id
                         ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
                         : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                     }

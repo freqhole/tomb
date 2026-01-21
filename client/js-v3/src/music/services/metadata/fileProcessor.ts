@@ -167,6 +167,7 @@ export async function processMusicFile(
     // denormalized for quick access
     artist_name: artist.name,
     album_title: album.title,
+    thumbnail_blob_id: null, // local files don't have server blob ids yet
 
     // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
     album_added_at: albumAddedAt,

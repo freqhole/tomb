@@ -237,6 +237,9 @@ export function AppLayout(props: AppLayoutProps) {
               title: song.title,
               artist: song.artist_name,
               duration: song.duration_seconds,
+              thumbnailUrl: song.thumbnail_blob_id
+                ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
+                : undefined,
             })) || []) as any[]
           }
           currentIndex={
@@ -301,6 +304,9 @@ export function AppLayout(props: AppLayoutProps) {
                   title: currentSongData()!.title,
                   artist: currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,
+                  thumbnailUrl: currentSongData()!.thumbnail_blob_id
+                    ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${currentSongData()!.thumbnail_blob_id}`
+                    : undefined,
                   isFavorite: false,
                 }
               : undefined

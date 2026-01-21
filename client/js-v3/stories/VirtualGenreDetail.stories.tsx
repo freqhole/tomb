@@ -37,6 +37,7 @@ function convertMockSongs(songs: typeof mockSongs): VirtualGenreDetailSong[] {
     album_title: song.album,
     duration_seconds: song.durationSeconds,
     year: 1970 + Math.floor(Math.random() * 50),
+    thumbnail_blob_id: null,
   }));
 }
 
@@ -57,6 +58,7 @@ function generateGenreSongs(albumCount: number = 20): VirtualGenreDetailSong[] {
         album_title: album.title,
         duration_seconds: song.durationSeconds,
         year: album.year,
+        thumbnail_blob_id: null,
       });
     });
   });

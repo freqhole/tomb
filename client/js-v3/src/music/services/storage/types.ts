@@ -46,6 +46,7 @@ export interface Song {
   // denormalized for quick access (no lookups needed for display/playback)
   artist_name: string;
   album_title: string;
+  thumbnail_blob_id: string | null; // denormalized primary image blob id
 
   // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
   album_added_at: number; // earliest added_at of any song in this album

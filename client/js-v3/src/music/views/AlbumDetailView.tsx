@@ -3,12 +3,14 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
+import { MediaImage } from "../../components/media/MediaImage";
 import { SongRow } from "../../components/songs/SongRow";
 import { getCurrentRemote, getDataSource } from "../data";
 import { useAlbumSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
+import { getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -78,6 +80,14 @@ export function AlbumDetailView() {
     navigate(buildRoute(`/artists/${info.artist_id}`));
   };
 
+  // get album artwork from first song's thumbnail
+  const albumArtworkUrl = createMemo(() => {
+    const songList = songs();
+    if (songList.length === 0) return null;
+    // use thumbnail_blob_id from first song (denormalized field)
+    return getBlobImageUrl(songList[0].thumbnail_blob_id);
+  });
+
   return (
     <div class="flex flex-col h-full">
       <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
@@ -85,11 +95,22 @@ export function AlbumDetailView() {
           <>
             {/* header with album info */}
             <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
-              {/* album artwork placeholder */}
-              <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0">
-                <span class="text-[var(--color-text-tertiary)] text-sm">
-                  no artwork
-                </span>
+              {/* album artwork */}
+              <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <Show
+                  when={albumArtworkUrl()}
+                  fallback={
+                    <span class="text-[var(--color-text-tertiary)] text-sm">
+                      no artwork
+                    </span>
+                  }
+                >
+                  <MediaImage
+                    imageUrl={albumArtworkUrl()!}
+                    alt={info().title}
+                    class="w-full h-full object-cover"
+                  />
+                </Show>
               </div>
 
               {/* album info */}

@@ -1,5 +1,6 @@
 // reusable artist detail panel component for displaying artist info and albums
 import { createMemo, For, Show, type JSX } from "solid-js";
+import { getBlobImageUrl } from "../../music/utils/images";
 import { AlbumSection, type AlbumSectionSong } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
 import {
@@ -27,6 +28,7 @@ export interface ArtistDetailPanelSong {
   disc_number: number;
   duration_seconds: number;
   year: number | null;
+  thumbnail_blob_id: string | null;
 }
 
 interface AlbumGroup {
@@ -35,6 +37,7 @@ interface AlbumGroup {
   year: number | null;
   songs: AlbumSectionSong[];
   totalDuration: number;
+  artworkUrl: string | null;
 }
 
 export interface ArtistDetailPanelProps {
@@ -75,6 +78,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           year: song.year,
           songs: [],
           totalDuration: 0,
+          artworkUrl: getBlobImageUrl(song.thumbnail_blob_id),
         });
       }
 
@@ -171,6 +175,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   year={album.year}
                   songs={album.songs}
                   totalDuration={album.totalDuration}
+                  artworkUrl={album.artworkUrl}
                   playingSongId={props.playingSongId}
                   onAlbumClick={props.onAlbumClick}
                   onPlayAlbum={() => props.onPlayAlbum?.(album.albumId)}

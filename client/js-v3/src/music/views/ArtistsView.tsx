@@ -18,6 +18,7 @@ import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
+import { getPrimaryImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -67,6 +68,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       disc_number: song.disc_number,
       duration_seconds: song.duration_seconds,
       year: song.year,
+      thumbnail_blob_id: song.thumbnail_blob_id,
     }));
   });
 
@@ -110,6 +112,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       id: artist.artist_id,
       title: artist.name,
       subtitle: `${formatNumber(artist.song_count)} songs · ${artist.album_count} albums`,
+      thumbnailUrl: getPrimaryImageUrl(artist.images),
     }));
   });
 

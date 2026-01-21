@@ -11,6 +11,7 @@ import { getCurrentRemote, getDataSource } from "../data";
 import { useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import type { Song } from "../services/storage/types";
+import { getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -30,6 +31,7 @@ interface AlbumGroup {
   year: number | null;
   songs: AlbumSectionSong[];
   totalDuration: number;
+  artworkUrl: string | null;
 }
 
 export function ArtistDetailView() {
@@ -74,6 +76,7 @@ export function ArtistDetailView() {
           year: song.year,
           songs: [],
           totalDuration: 0,
+          artworkUrl: getBlobImageUrl(song.thumbnail_blob_id),
         });
       }
 
@@ -212,6 +215,7 @@ export function ArtistDetailView() {
                       year={album.year}
                       songs={album.songs}
                       totalDuration={album.totalDuration}
+                      artworkUrl={album.artworkUrl}
                       onAlbumClick={handleAlbumClick}
                       onPlayAlbum={() => handlePlayAlbum(album.albumId)}
                       onAddToQueue={() => handleAddAlbumToQueue(album.albumId)}

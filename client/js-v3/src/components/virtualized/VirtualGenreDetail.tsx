@@ -1,6 +1,7 @@
 // virtualized genre detail component - displays albums grouped by artist with virtualized scrolling
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, For, Show, type JSX } from "solid-js";
+import { getBlobImageUrl } from "../../music/utils/images";
 import { CollectionCard } from "../cards/CollectionCard";
 import { formatDuration } from "../cards/StatsCard";
 import { MarqueeText } from "../text/MarqueeText";
@@ -14,6 +15,7 @@ export interface VirtualGenreDetailSong {
   album_title: string;
   duration_seconds: number;
   year: number | null;
+  thumbnail_blob_id: string | null;
 }
 
 interface AlbumGroup {
@@ -24,6 +26,7 @@ interface AlbumGroup {
   year: number | null;
   songCount: number;
   totalDuration: number;
+  imageUrl: string | null;
 }
 
 interface ArtistGroup {
@@ -73,6 +76,7 @@ export function VirtualGenreDetail(
           year: song.year,
           songCount: 0,
           totalDuration: 0,
+          imageUrl: getBlobImageUrl(song.thumbnail_blob_id),
         });
       }
 
@@ -128,7 +132,10 @@ export function VirtualGenreDetail(
   });
 
   return (
-    <div class={`flex flex-col ${props.class || ""}`} style={{ height: `${height()}px` }}>
+    <div
+      class={`flex flex-col ${props.class || ""}`}
+      style={{ height: `${height()}px` }}
+    >
       <div
         ref={scrollElementRef}
         class="flex-1 overflow-y-auto"
@@ -203,10 +210,13 @@ export function VirtualGenreDetail(
                                 totalDuration: formatDuration(
                                   album.totalDuration,
                                 ),
+                                imageUrl: album.imageUrl,
                               }}
                               showYear={true}
                               showDuration={true}
-                              onClick={() => props.onAlbumClick?.(album.albumId)}
+                              onClick={() =>
+                                props.onAlbumClick?.(album.albumId)
+                              }
                               onPlay={() => props.onPlayAlbum?.(album.albumId)}
                             />
                           )}

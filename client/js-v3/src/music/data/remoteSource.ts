@@ -44,6 +44,7 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     // denormalized fields
     artist_name: artist?.name || "unknown artist",
     album_title: album?.title || "unknown album",
+    thumbnail_blob_id: song.thumbnail_blob_id || null,
     album_added_at: song.created_at, // use song's created_at as proxy
     album_primary_genre_id: item.genre?.id || null,
 
