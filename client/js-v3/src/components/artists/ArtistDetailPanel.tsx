@@ -1,5 +1,10 @@
 // reusable artist detail panel component for displaying artist info and albums
 import { createMemo, For, Show, type JSX } from "solid-js";
+import {
+  useAlbumContextMenu,
+  useArtistContextMenu,
+  useSongContextMenu,
+} from "../../music/services/contextMenu";
 import { getBlobImageUrl } from "../../music/utils/images";
 import { AlbumSection, type AlbumSectionSong } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -9,6 +14,7 @@ import {
   StatsCard,
   StatsGrid,
 } from "../cards/StatsCard";
+import { ContextMenu } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface ArtistDetailPanelArtist {
@@ -61,6 +67,8 @@ export interface ArtistDetailPanelProps {
   onAddAlbumToQueue?: (albumId: string) => void;
   /** play specific song (double click) */
   onSongDoubleClick?: (songId: string, albumId: string) => void;
+  /** callback to get full song data for context menu (needed to convert AlbumSectionSong to full Song) */
+  getSongData?: (songId: string) => any;
   /** additional css classes */
   class?: string;
 }
@@ -183,6 +191,28 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   onSongDoubleClick={(song) =>
                     props.onSongDoubleClick?.(song.id, album.albumId)
                   }
+                  getAlbumContextMenuActions={() =>
+                    useAlbumContextMenu(
+                      {
+                        id: album.albumId,
+                        title: album.albumTitle,
+                        artist_name: props.artist.name,
+                        song_count: album.songs.length,
+                      },
+                      {
+                        showPlayActions: true,
+                        isFavorite: false, // TODO: get favorite status
+                      },
+                    )
+                  }
+                  getSongContextMenuActions={(song) => {
+                    const songData = props.getSongData?.(song.id);
+                    if (!songData) return [];
+                    return useSongContextMenu(songData, {
+                      showPlayActions: true,
+                      isFavorite: false, // TODO: get favorite status
+                    });
+                  }}
                 />
               )}
             </For>

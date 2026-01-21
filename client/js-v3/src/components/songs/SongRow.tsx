@@ -1,6 +1,7 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
 import { MediaThumbnail } from "../media/MediaThumbnail";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface SongRowProps {
@@ -28,10 +29,12 @@ export interface SongRowProps {
   class?: string;
   /** show play icon on hover */
   showPlayOnHover?: boolean;
+  /** context menu actions */
+  contextMenuActions?: MenuAction[];
 }
 
 export function SongRow(props: SongRowProps): JSX.Element {
-  return (
+  const rowContent = (
     <div
       onClick={() => props.onClick?.()}
       onDblClick={() => props.onDoubleClick?.()}
@@ -100,5 +103,11 @@ export function SongRow(props: SongRowProps): JSX.Element {
         {props.duration}
       </div>
     </div>
+  );
+
+  return props.contextMenuActions ? (
+    <ContextMenu actions={props.contextMenuActions}>{rowContent}</ContextMenu>
+  ) : (
+    rowContent
   );
 }

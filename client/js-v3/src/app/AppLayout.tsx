@@ -38,6 +38,7 @@ import {
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
+import { useSongContextMenu } from "../music/services/contextMenu";
 import {
   deactivateAllRemotes,
   getAllRemotes,
@@ -355,6 +356,16 @@ export function AppLayout(props: AppLayoutProps) {
             stop();
             void setCurrentSong(null);
             void setQueue([]);
+          }}
+          getContextMenuActions={(index, queueSong) => {
+            const state = appState();
+            if (!state?.queue[index]) return [];
+
+            const fullSong = state.queue[index];
+            return useSongContextMenu(fullSong, {
+              showPlayActions: false, // already in queue, no need for play actions
+              isFavorite: false, // TODO: get favorite status from song
+            });
           }}
         />
       </div>

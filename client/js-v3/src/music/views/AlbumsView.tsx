@@ -8,6 +8,7 @@ import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid"
 import { getDataSource } from "../data";
 import { useAlbumsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import { useAlbumContextMenu } from "../services/contextMenu";
 import { getPrimaryImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
@@ -126,6 +127,22 @@ export function AlbumsView(props: AlbumsViewProps) {
     navigate(buildRoute(`/albums/${album.id}`));
   };
 
+  // build context menu actions for each album
+  const getContextMenuActions = (album: CollectionCardData) => {
+    return useAlbumContextMenu(
+      {
+        id: album.id,
+        title: album.title,
+        artist_name: album.artist,
+        song_count: album.trackCount,
+      },
+      {
+        showPlayActions: true,
+        isFavorite: false, // TODO: get favorite status from album
+      },
+    );
+  };
+
   return (
     <div class="flex flex-col h-full">
       {/* header */}
@@ -175,6 +192,7 @@ export function AlbumsView(props: AlbumsViewProps) {
               albums={albums()}
               onAlbumClick={handleAlbumClick}
               onAlbumPlay={handleAlbumPlay}
+              getContextMenuActions={getContextMenuActions}
               showYear={true}
               cardSize="medium"
               height={undefined}

@@ -21,10 +21,18 @@ export interface ContextMenuOptions {
   showRemoveFromQueue?: boolean;
   /** queue index for remove action */
   queueIndex?: number;
+  /** callback when remove from queue is clicked */
+  onRemoveFromQueue?: () => void;
   /** whether item is currently favorited */
   isFavorite?: boolean;
   /** custom actions to append */
   customActions?: MenuAction[];
+  /** callback when play all is clicked (for artists/genres) */
+  onPlayAll?: () => void | Promise<void>;
+  /** callback when shuffle is clicked (for artists/genres) */
+  onShuffle?: () => void | Promise<void>;
+  /** callback when add to queue is clicked (for artists/genres) */
+  onAddToQueue?: () => void | Promise<void>;
 }
 
 // build context menu actions for a single song
@@ -115,8 +123,7 @@ export function useSongContextMenu(
       icon: IconNames.delete,
       destructive: true,
       onClick: () => {
-        // TODO: implement queue removal
-        console.log("remove from queue:", song.sha256);
+        options.onRemoveFromQueue?.();
       },
     });
     actions.push({ type: "separator" });
@@ -537,6 +544,41 @@ export function useArtistContextMenu(
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
 
+  // play actions (if callbacks provided)
+  if (options.onPlayAll || options.onShuffle || options.onAddToQueue) {
+    if (options.onPlayAll) {
+      actions.push({
+        label: "play all",
+        icon: IconNames.play,
+        onClick: () => {
+          options.onPlayAll?.();
+        },
+      });
+    }
+
+    if (options.onShuffle) {
+      actions.push({
+        label: "shuffle all",
+        icon: IconNames.shuffle,
+        onClick: () => {
+          options.onShuffle?.();
+        },
+      });
+    }
+
+    if (options.onAddToQueue) {
+      actions.push({
+        label: "add to queue",
+        icon: IconNames.queue,
+        onClick: () => {
+          options.onAddToQueue?.();
+        },
+      });
+    }
+
+    actions.push({ type: "separator" });
+  }
+
   // navigation
   actions.push({
     label: "view artist",
@@ -579,6 +621,41 @@ export function useGenreContextMenu(
 ): MenuAction[] {
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
+
+  // play actions (if callbacks provided)
+  if (options.onPlayAll || options.onShuffle || options.onAddToQueue) {
+    if (options.onPlayAll) {
+      actions.push({
+        label: "play all",
+        icon: IconNames.play,
+        onClick: () => {
+          options.onPlayAll?.();
+        },
+      });
+    }
+
+    if (options.onShuffle) {
+      actions.push({
+        label: "shuffle all",
+        icon: IconNames.shuffle,
+        onClick: () => {
+          options.onShuffle?.();
+        },
+      });
+    }
+
+    if (options.onAddToQueue) {
+      actions.push({
+        label: "add to queue",
+        icon: IconNames.queue,
+        onClick: () => {
+          options.onAddToQueue?.();
+        },
+      });
+    }
+
+    actions.push({ type: "separator" });
+  }
 
   // navigation
   actions.push({

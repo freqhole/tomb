@@ -1,6 +1,7 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, createSignal, For, JSX, Show } from "solid-js";
 import { Icon } from "../icons/registry";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface ListItem {
@@ -22,6 +23,8 @@ export interface VirtualItemListProps {
   onEndReached?: () => void;
   /** callback when virtualizer is ready, provides scrollToIndex function */
   onVirtualizerReady?: (scrollToIndex: (index: number) => void) => void;
+  /** callback to get context menu actions for an item */
+  getContextMenuActions?: (item: ListItem, index: number) => MenuAction[];
   /** height of the container in pixels (defaults to 100% of parent) */
   height?: number;
   /** additional CSS classes */
@@ -98,6 +101,61 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
           {(virtualRow) => {
             const item = props.items[virtualRow.index];
 
+            const itemButton = (
+              <button
+                class={`
+                  w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
+                  ${
+                    props.selectedId === item.id
+                      ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                      : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                  }
+                `}
+                onClick={() => handleItemClick(item)}
+              >
+                <Show
+                  when={item.thumbnailUrl}
+                  fallback={
+                    <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] flex items-center justify-center">
+                      <Icon name="playlist" size="24" />
+                    </div>
+                  }
+                >
+                  <img
+                    src={item.thumbnailUrl!}
+                    alt=""
+                    class="w-12 h-12 object-cover rounded flex-shrink-0"
+                    onError={(e) => {
+                      // hide broken image and show fallback
+                      e.currentTarget.style.display = "none";
+                      const fallback = e.currentTarget.nextElementSibling;
+                      if (fallback) {
+                        (fallback as HTMLElement).style.display = "flex";
+                      }
+                    }}
+                  />
+                  <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] items-center justify-center hidden">
+                    <Icon name="playlist" size="24" />
+                  </div>
+                </Show>
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium text-base">
+                    <MarqueeText text={item.title} hoverOnly={true} />
+                  </div>
+                  {item.subtitle && (
+                    <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                      {item.subtitle}
+                    </div>
+                  )}
+                  {item.metadata && (
+                    <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
+                      {item.metadata}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+
             return (
               <div
                 data-index={virtualRow.index}
@@ -110,58 +168,18 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <button
-                  class={`
-                    w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
-                    ${
-                      props.selectedId === item.id
-                        ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                        : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
-                    }
-                  `}
-                  onClick={() => handleItemClick(item)}
-                >
-                  <Show
-                    when={item.thumbnailUrl}
-                    fallback={
-                      <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] flex items-center justify-center">
-                        <Icon name="playlist" size="24" />
-                      </div>
-                    }
+                {props.getContextMenuActions ? (
+                  <ContextMenu
+                    actions={props.getContextMenuActions(
+                      item,
+                      virtualRow.index,
+                    )}
                   >
-                    <img
-                      src={item.thumbnailUrl!}
-                      alt=""
-                      class="w-12 h-12 object-cover rounded flex-shrink-0"
-                      onError={(e) => {
-                        // hide broken image and show fallback
-                        e.currentTarget.style.display = "none";
-                        const fallback = e.currentTarget.nextElementSibling;
-                        if (fallback) {
-                          (fallback as HTMLElement).style.display = "flex";
-                        }
-                      }}
-                    />
-                    <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] items-center justify-center hidden">
-                      <Icon name="playlist" size="24" />
-                    </div>
-                  </Show>
-                  <div class="flex-1 min-w-0">
-                    <div class="font-medium text-base">
-                      <MarqueeText text={item.title} hoverOnly={true} />
-                    </div>
-                    {item.subtitle && (
-                      <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                        {item.subtitle}
-                      </div>
-                    )}
-                    {item.metadata && (
-                      <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
-                        {item.metadata}
-                      </div>
-                    )}
-                  </div>
-                </button>
+                    {itemButton}
+                  </ContextMenu>
+                ) : (
+                  itemButton
+                )}
               </div>
             );
           }}

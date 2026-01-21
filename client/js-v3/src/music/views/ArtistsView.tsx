@@ -16,6 +16,7 @@ import {
 import { getCurrentRemote, getDataSource } from "../data";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import { useArtistContextMenu } from "../services/contextMenu";
 import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { getPrimaryImageUrl } from "../utils/images";
@@ -326,6 +327,56 @@ export function ArtistsView(props: ArtistsViewProps) {
     await playSong(songId);
   };
 
+  // build context menu actions for each artist
+  const getContextMenuActions = (item: ListItem, index: number) => {
+    const artist = sortedArtists().find((a) => a.artist_id === item.id);
+    if (!artist) return [];
+
+    return useArtistContextMenu(
+      {
+        id: artist.artist_id,
+        name: artist.name,
+        song_count: artist.song_count,
+        album_count: artist.album_count,
+      },
+      {
+        isFavorite: false, // TODO: get favorite status from artist
+        onPlayAll: async () => {
+          // select this artist first
+          setSelectedArtistId(artist.artist_id);
+          // wait a tick for query to update
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          // play all songs (limited to 100)
+          const songs = await getFullSongs();
+          const limited = songs.slice(0, 100);
+          if (limited.length === 0) return;
+          await setQueue(limited);
+          await playSong(limited[0]);
+        },
+        onShuffle: async () => {
+          setSelectedArtistId(artist.artist_id);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const songs = await getFullSongs();
+          const limited = songs.slice(0, 100);
+          if (limited.length === 0) return;
+          const shuffled = shuffleArray(limited);
+          await setQueue(shuffled);
+          await playSong(shuffled[0]);
+        },
+        onAddToQueue: async () => {
+          setSelectedArtistId(artist.artist_id);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const songs = await getFullSongs();
+          const limited = songs.slice(0, 100);
+          if (limited.length === 0) return;
+          const state = appState();
+          const currentQueue = state?.queue || [];
+          await setQueue([...currentQueue, ...limited]);
+        },
+      },
+    );
+  };
+
   // left column - artist list
   const leftColumn = (
     <div class="flex flex-col h-full">
@@ -373,6 +424,7 @@ export function ArtistsView(props: ArtistsViewProps) {
               props.onArtistClick?.(item.id);
             }}
             onVirtualizerReady={(scroll) => setScrollToIndex(() => scroll)}
+            getContextMenuActions={getContextMenuActions}
             height={window.innerHeight - 120}
           />
         </Show>
@@ -413,6 +465,10 @@ export function ArtistsView(props: ArtistsViewProps) {
           onPlayAlbum={handlePlayAlbum}
           onAddAlbumToQueue={handleAddAlbumToQueue}
           onSongDoubleClick={handleSongDoubleClick}
+          getSongData={(songId) => {
+            // find the full song data from artistSongs
+            return artistSongs().find((s) => s.sha256 === songId);
+          }}
         />
       )}
     </Show>

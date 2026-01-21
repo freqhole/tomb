@@ -1,4 +1,5 @@
 // genres view - displays all genres in a two-column layout
+// genres view - displays all genres in a two-column layout with genre detail panel
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
@@ -12,9 +13,10 @@ import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
-import { getCurrentRemote } from "../data";
+import { getCurrentRemote, getDataSource } from "../data";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import { useGenreContextMenu } from "../services/contextMenu";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
@@ -240,6 +242,50 @@ export function GenresView(props: GenresViewProps) {
             selectedId={selectedGenreId()}
             onItemClick={(item) => {
               setSelectedGenreId(item.id);
+            }}
+            getContextMenuActions={(item) => {
+              const genre = sortedGenres().find((g) => g.genre_id === item.id);
+              if (!genre) return [];
+
+              return useGenreContextMenu(
+                {
+                  id: genre.genre_id,
+                  name: genre.name,
+                  song_count: genre.song_count,
+                },
+                {
+                  isFavorite: false, // TODO: get favorite status
+                  onPlayAll: async () => {
+                    // select this genre first
+                    setSelectedGenreId(genre.genre_id);
+                    // wait a tick for query to update
+                    await new Promise((resolve) => setTimeout(resolve, 50));
+                    // play all songs (limited to 100)
+                    const songs = genreSongs().slice(0, 100);
+                    if (songs.length === 0) return;
+                    await setQueue(songs);
+                    await playSong(songs[0]);
+                  },
+                  onShuffle: async () => {
+                    setSelectedGenreId(genre.genre_id);
+                    await new Promise((resolve) => setTimeout(resolve, 50));
+                    const songs = genreSongs().slice(0, 100);
+                    if (songs.length === 0) return;
+                    const shuffled = shuffleArray(songs);
+                    await setQueue(shuffled);
+                    await playSong(shuffled[0]);
+                  },
+                  onAddToQueue: async () => {
+                    setSelectedGenreId(genre.genre_id);
+                    await new Promise((resolve) => setTimeout(resolve, 50));
+                    const songs = genreSongs().slice(0, 100);
+                    if (songs.length === 0) return;
+                    const state = appState();
+                    const currentQueue = state?.queue || [];
+                    await setQueue([...currentQueue, ...songs]);
+                  },
+                },
+              );
             }}
             height={window.innerHeight - 120}
           />

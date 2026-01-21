@@ -8,6 +8,7 @@ import {
   onMount,
 } from "solid-js";
 import { CollectionCard, CollectionCardData } from "../cards/CollectionCard";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 
 export interface VirtualAlbumGridProps {
   /** array of albums to display */
@@ -18,6 +19,8 @@ export interface VirtualAlbumGridProps {
   onAlbumClick?: (album: CollectionCardData) => void;
   /** callback when play button is clicked */
   onAlbumPlay?: (album: CollectionCardData) => void;
+  /** callback to get context menu actions for an album */
+  getContextMenuActions?: (album: CollectionCardData) => MenuAction[];
   /** height of the container */
   height?: number;
   /** card size variant */
@@ -149,16 +152,28 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
                   }}
                 >
                   <For each={rowAlbums}>
-                    {(album) => (
-                      <CollectionCard
-                        collection={album}
-                        size={props.cardSize}
-                        showYear={props.showYear}
-                        showGenres={props.showGenres}
-                        onClick={props.onAlbumClick}
-                        onPlay={props.onAlbumPlay}
-                      />
-                    )}
+                    {(album) => {
+                      const card = (
+                        <CollectionCard
+                          collection={album}
+                          size={props.cardSize}
+                          showYear={props.showYear}
+                          showGenres={props.showGenres}
+                          onClick={props.onAlbumClick}
+                          onPlay={props.onAlbumPlay}
+                        />
+                      );
+
+                      return props.getContextMenuActions ? (
+                        <ContextMenu
+                          actions={props.getContextMenuActions(album)}
+                        >
+                          {card}
+                        </ContextMenu>
+                      ) : (
+                        card
+                      );
+                    }}
                   </For>
                 </div>
               </div>

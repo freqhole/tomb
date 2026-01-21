@@ -4,10 +4,15 @@ import { createMemo, For, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { MediaImage } from "../../components/media/MediaImage";
+import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { SongRow } from "../../components/songs/SongRow";
 import { getCurrentRemote, getDataSource } from "../data";
 import { useAlbumSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import {
+  useAlbumContextMenu,
+  useSongContextMenu,
+} from "../services/contextMenu";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { getBlobImageUrl } from "../utils/images";
@@ -88,6 +93,33 @@ export function AlbumDetailView() {
     return getBlobImageUrl(songList[0].thumbnail_blob_id);
   });
 
+  // context menu for album image
+  const albumContextMenuActions = createMemo(() => {
+    const info = albumInfo();
+    if (!info) return [];
+
+    return useAlbumContextMenu(
+      {
+        id: info.album_id || params.id,
+        title: info.title || "",
+        artist_name: songs()[0]?.artist_name,
+        song_count: songs().length,
+      },
+      {
+        showPlayActions: true,
+        isFavorite: false, // TODO: get favorite status
+      },
+    );
+  });
+
+  // context menu for song rows
+  const getSongContextMenuActions = (song: Song) => {
+    return useSongContextMenu(song, {
+      showPlayActions: true,
+      isFavorite: false, // TODO: get favorite status
+    });
+  };
+
   return (
     <div class="flex flex-col h-full">
       <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
@@ -96,22 +128,24 @@ export function AlbumDetailView() {
             {/* header with album info */}
             <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
               {/* album artwork */}
-              <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                <Show
-                  when={albumArtworkUrl()}
-                  fallback={
-                    <span class="text-[var(--color-text-tertiary)] text-sm">
-                      no artwork
-                    </span>
-                  }
-                >
-                  <MediaImage
-                    imageUrl={albumArtworkUrl()!}
-                    alt={info().title}
-                    class="w-full h-full object-cover"
-                  />
-                </Show>
-              </div>
+              <ContextMenu actions={albumContextMenuActions()}>
+                <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <Show
+                    when={albumArtworkUrl()}
+                    fallback={
+                      <span class="text-[var(--color-text-tertiary)] text-sm">
+                        no artwork
+                      </span>
+                    }
+                  >
+                    <MediaImage
+                      imageUrl={albumArtworkUrl()!}
+                      alt={info().title}
+                      class="w-full h-full object-cover"
+                    />
+                  </Show>
+                </div>
+              </ContextMenu>
 
               {/* album info */}
               <div class="flex flex-col justify-center gap-2 min-w-0">
@@ -168,6 +202,7 @@ export function AlbumDetailView() {
                         duration={formatDuration(song.duration_seconds)}
                         onDoubleClick={() => handleSongDoubleClick(song)}
                         showPlayOnHover={true}
+                        contextMenuActions={getSongContextMenuActions(song)}
                       />
                     );
                   }}

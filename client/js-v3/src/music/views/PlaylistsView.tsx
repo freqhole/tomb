@@ -43,6 +43,7 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
+import { usePlaylistContextMenu } from "../services/contextMenu";
 import {
   readThumbnailFromOPFS,
   writeThumbnailToOPFS,
@@ -1065,6 +1066,24 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                     selectedId={selectedPlaylistId()}
                     onItemClick={handlePlaylistClick}
                     onEndReached={handlePlaylistsLoadMore}
+                    getContextMenuActions={(item) => {
+                      const playlist = playlists().find(
+                        (p) => p.playlist_id === item.id,
+                      );
+                      if (!playlist) return [];
+
+                      return usePlaylistContextMenu(
+                        {
+                          id: playlist.playlist_id,
+                          title: playlist.title,
+                          song_count: playlist.song_count,
+                        },
+                        {
+                          showPlayActions: true,
+                          isFavorite: false, // TODO: get favorite status
+                        },
+                      );
+                    }}
                   />
                 }
                 rightColumn={
