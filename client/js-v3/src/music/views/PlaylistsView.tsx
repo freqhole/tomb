@@ -1035,7 +1035,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
             }
           >
             <TwoColumnLayout
-              leftColumnWidth={400}
               leftColumn={
                 <VirtualItemList
                   items={playlistListItems()}

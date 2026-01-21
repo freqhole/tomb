@@ -443,7 +443,6 @@ export function ArtistsView(props: ArtistsViewProps) {
           leftColumn={leftColumn}
           rightColumn={rightColumn}
           alphabetNav={alphabetNav()}
-          leftColumnWidth={320}
         />
       </div>
     </div>

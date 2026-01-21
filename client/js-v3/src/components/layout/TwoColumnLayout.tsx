@@ -8,7 +8,7 @@ export interface TwoColumnLayoutProps {
   rightColumn: JSX.Element;
   /** optional alphabet navigation on the far left */
   alphabetNav?: JSX.Element;
-  /** width of the left column in pixels (default: 288px / w-72) */
+  /** width of the left column in pixels (default: 320px) */
   leftColumnWidth?: number;
   /** additional CSS classes */
   class?: string;
@@ -36,7 +36,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
   const isMobile = createIsMobile();
 
   // calculate left column width style
-  const leftWidth = () => local.leftColumnWidth || 288;
+  const leftWidth = () => local.leftColumnWidth || 320;
 
   return (
     <div
@@ -44,9 +44,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {...others}
     >
       {/* optional alphabet navigation */}
-      <Show when={local.alphabetNav && !isMobile()}>
-        {local.alphabetNav}
-      </Show>
+      <Show when={local.alphabetNav && !isMobile()}>{local.alphabetNav}</Show>
 
       {/* left column - list view */}
       <Show when={!isMobile()}>
@@ -60,16 +58,12 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
 
       {/* mobile: show only left column */}
       <Show when={isMobile()}>
-        <div class="flex-1 flex flex-col min-w-0">
-          {local.leftColumn}
-        </div>
+        <div class="flex-1 flex flex-col min-w-0">{local.leftColumn}</div>
       </Show>
 
       {/* right column - detail view (desktop only) */}
       <Show when={!isMobile()}>
-        <div class="flex-1 flex flex-col min-w-0">
-          {local.rightColumn}
-        </div>
+        <div class="flex-1 flex flex-col min-w-0">{local.rightColumn}</div>
       </Show>
     </div>
   );

@@ -287,11 +287,7 @@ export function GenresView(props: GenresViewProps) {
 
       {/* two-column layout */}
       <div class="flex-1 overflow-hidden">
-        <TwoColumnLayout
-          leftColumn={leftColumn}
-          rightColumn={rightColumn}
-          leftColumnWidth={320}
-        />
+        <TwoColumnLayout leftColumn={leftColumn} rightColumn={rightColumn} />
       </div>
     </div>
   );
