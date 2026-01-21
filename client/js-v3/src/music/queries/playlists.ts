@@ -9,6 +9,27 @@ import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
 import type { PlaylistSummary, Song } from "../data/types";
 
+// query hook for recent playlists (no pagination, just top N)
+export function useRecentPlaylistsQuery(limit: number = 5) {
+  return createQuery(() => ({
+    queryKey: ["playlists", "recent", limit],
+    queryFn: async () => {
+      const dataSource = getDataSource();
+
+      if (!dataSource.getPlaylists) {
+        return [];
+      }
+
+      const response = await dataSource.getPlaylists({
+        offset: 0,
+        limit,
+      });
+
+      return response.items;
+    },
+  }));
+}
+
 // query options for playlists
 interface UsePlaylistsQueryOptions {
   search?: Accessor<string | undefined>;

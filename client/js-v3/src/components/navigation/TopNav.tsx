@@ -23,6 +23,10 @@ export interface RecentPlaylist {
   id: string;
   /** playlist name */
   name: string;
+  /** playlist thumbnail url */
+  thumbnailUrl?: string | null;
+  /** timestamp when playlist was last updated */
+  updatedAt: number;
   /** callback when clicked */
   onClick: () => void;
 }
@@ -97,6 +101,27 @@ export function TopNav(props: TopNavProps) {
 
   const handleSearchSubmit = () => {
     props.onSearchSubmit?.(searchValue() as string);
+  };
+
+  // format relative time (e.g. "2 hours ago", "3 days ago")
+  const formatRelativeTime = (timestamp: number): string => {
+    const now = Date.now();
+    const diffMs = now - timestamp;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+    const diffWeek = Math.floor(diffDay / 7);
+    const diffMonth = Math.floor(diffDay / 30);
+    const diffYear = Math.floor(diffDay / 365);
+
+    if (diffSec < 60) return "just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    if (diffWeek < 4) return `${diffWeek}w ago`;
+    if (diffMonth < 12) return `${diffMonth}mo ago`;
+    return `${diffYear}y ago`;
   };
 
   // format bytes to human readable size
@@ -334,11 +359,34 @@ export function TopNav(props: TopNavProps) {
                         <For each={props.recentPlaylists}>
                           {(playlist) => (
                             <KobalteNav.Item
-                              class="w-full px-3 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer truncate data-[highlighted]:bg-[var(--color-accent-500)]/10"
+                              class="w-full px-3 py-2 hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10"
                               closeOnSelect={true}
                               onSelect={playlist.onClick}
                             >
-                              {playlist.name}
+                              <div class="flex items-center gap-2">
+                                <Show
+                                  when={playlist.thumbnailUrl}
+                                  fallback={
+                                    <div class="w-10 h-10 rounded bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] flex items-center justify-center flex-shrink-0">
+                                      <Icon name="playlist" size={20} />
+                                    </div>
+                                  }
+                                >
+                                  <img
+                                    src={playlist.thumbnailUrl!}
+                                    alt=""
+                                    class="w-10 h-10 object-cover rounded flex-shrink-0"
+                                  />
+                                </Show>
+                                <div class="flex-1 min-w-0">
+                                  <div class="text-sm text-[var(--color-text-primary)] truncate">
+                                    {playlist.name}
+                                  </div>
+                                  <div class="text-xs text-[var(--color-text-tertiary)]">
+                                    {formatRelativeTime(playlist.updatedAt)}
+                                  </div>
+                                </div>
+                              </div>
                             </KobalteNav.Item>
                           )}
                         </For>

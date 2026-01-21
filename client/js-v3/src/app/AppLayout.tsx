@@ -22,6 +22,7 @@ import {
   useRemoteSource,
 } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
+import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
   canGoNext,
   canGoPrevious,
@@ -44,6 +45,7 @@ import {
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
+import { buildRoute } from "../music/utils/routing";
 import {
   appState,
   setCurrentSong,
@@ -68,6 +70,9 @@ export function AppLayout(props: AppLayoutProps) {
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
+
+  // fetch recent playlists (contextual to current data source)
+  const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
   // load remotes and storage info on mount
   onMount(async () => {
@@ -127,6 +132,30 @@ export function AppLayout(props: AppLayoutProps) {
     const remote = getCurrentRemote();
     return remote ? remote.name : "local library";
   });
+
+  // handle navigate to playlists view
+  const handleViewAllPlaylists = () => {
+    const prefix = routeContext.isLocal()
+      ? "/local"
+      : `/${routeContext.remoteId()}`;
+    navigate(`${prefix}/playlists`);
+  };
+
+  // handle create playlist
+  const handleCreatePlaylist = () => {
+    const prefix = routeContext.isLocal()
+      ? "/local"
+      : `/${routeContext.remoteId()}`;
+    navigate(`${prefix}/playlists?create=true`);
+  };
+
+  // handle playlist click
+  const handlePlaylistClick = (playlistId: string) => {
+    const prefix = routeContext.isLocal()
+      ? "/local"
+      : `/${routeContext.remoteId()}`;
+    navigate(buildRoute(`${prefix}/playlists/${playlistId}`));
+  };
 
   // watch for current song changes and load song data
   createEffect(() => {
@@ -190,6 +219,19 @@ export function AppLayout(props: AppLayoutProps) {
         onAddRemote={() => setIsAddRemoteOpen(true)}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}
+        recentPlaylists={
+          recentPlaylistsQuery.data?.map((playlist) => ({
+            id: playlist.playlist_id,
+            name: playlist.title,
+            thumbnailUrl: playlist.thumbnail_blob_id
+              ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${playlist.thumbnail_blob_id}`
+              : null,
+            updatedAt: playlist.updated_at,
+            onClick: () => handlePlaylistClick(playlist.playlist_id),
+          })) || []
+        }
+        onViewAllPlaylists={handleViewAllPlaylists}
+        onCreatePlaylist={handleCreatePlaylist}
         mainNavSections={[
           {
             items: [
