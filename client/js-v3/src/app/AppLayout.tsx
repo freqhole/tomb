@@ -63,11 +63,13 @@ export function AppLayout(props: AppLayoutProps) {
   const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
+  const [storageUsage, setStorageUsage] = createSignal<number>(0);
+  const [storageQuota, setStorageQuota] = createSignal<number>(0);
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
 
-  // load remotes on mount
+  // load remotes and storage info on mount
   onMount(async () => {
     try {
       const allRemotes = await getAllRemotes();
@@ -75,6 +77,24 @@ export function AppLayout(props: AppLayoutProps) {
     } catch (error) {
       console.error("failed to load remotes:", error);
     }
+
+    // update storage usage
+    const updateStorage = async () => {
+      if (navigator.storage?.estimate) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          setStorageUsage(estimate.usage || 0);
+          setStorageQuota(estimate.quota || 0);
+        } catch (error) {
+          console.error("failed to get storage estimate:", error);
+        }
+      }
+    };
+
+    await updateStorage();
+    // refresh storage info every 30 seconds
+    const interval = setInterval(updateStorage, 30000);
+    return () => clearInterval(interval);
   });
 
   // handle switching to local source
@@ -163,10 +183,13 @@ export function AppLayout(props: AppLayoutProps) {
           id: r.remote_id,
           name: r.name,
           url: r.base_url,
+          imageUrl: r.image_url,
         }))}
         onSwitchToLocal={handleSwitchToLocal}
         onSwitchToRemote={handleSwitchToRemote}
         onAddRemote={() => setIsAddRemoteOpen(true)}
+        storageUsage={storageUsage()}
+        storageQuota={storageQuota()}
         mainNavSections={[
           {
             items: [

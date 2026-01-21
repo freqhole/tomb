@@ -55,13 +55,17 @@ export interface TopNavProps {
   /** current source name (e.g. "local library" or remote name) */
   currentSourceName?: string;
   /** available remote sources */
-  remotes?: Array<{ id: string; name: string; url: string }>;
+  remotes?: Array<{ id: string; name: string; url: string; imageUrl?: string }>;
   /** callback to switch to local source */
   onSwitchToLocal?: () => void;
   /** callback to switch to a remote source */
   onSwitchToRemote?: (remoteId: string) => void;
   /** callback to add a new remote */
   onAddRemote?: () => void;
+  /** browser storage usage in bytes */
+  storageUsage?: number;
+  /** browser storage quota in bytes */
+  storageQuota?: number;
   /** additional content to render on the right side of the nav bar */
   rightContent?: JSX.Element;
   /** additional classes */
@@ -95,9 +99,33 @@ export function TopNav(props: TopNavProps) {
     props.onSearchSubmit?.(searchValue() as string);
   };
 
+  // format bytes to human readable size
+  const formatBytes = (bytes: number | undefined): string => {
+    if (!bytes) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  };
+
+  // calculate storage percentage
+  const storagePercent = () => {
+    if (!props.storageUsage || !props.storageQuota) return 0;
+    return Math.round((props.storageUsage / props.storageQuota) * 100);
+  };
+
+  // get current remote image url
+  const currentRemoteImage = () => {
+    if (!props.remotes || !props.currentSourceName) return null;
+    const remote = props.remotes.find(
+      (r) => r.name === props.currentSourceName,
+    );
+    return remote?.imageUrl;
+  };
+
   return (
     <nav
-      class={`fixed top-4 left-4 z-50 flex items-center gap-3 bg-[var(--color-bg-primary)] rounded-lg p-2 ${props.class || ""}`}
+      class={`fixed top-4 left-4 z-50 flex items-center gap-3 bg-[var(--color-bg-primary)] rounded-lg p-2 shadow-md ${props.class || ""}`}
     >
       {/* brand icon with menu */}
       <KobalteNav>
@@ -128,6 +156,27 @@ export function TopNav(props: TopNavProps) {
                     <Show when={props.version}>
                       <div class="px-2 py-1 bg-[var(--color-bg-tertiary)] rounded text-xs text-[var(--color-text-muted)] inline-block">
                         {props.version}
+                      </div>
+                    </Show>
+
+                    {/* storage usage */}
+                    <Show
+                      when={
+                        props.storageUsage !== undefined &&
+                        props.storageQuota !== undefined
+                      }
+                    >
+                      <div class="flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] text-xs">
+                        <Icon name="database" size={14} />
+                        <div class="flex flex-col">
+                          <span class="text-[var(--color-text-secondary)]">
+                            {formatBytes(props.storageUsage)} /{" "}
+                            {formatBytes(props.storageQuota)}
+                          </span>
+                          <span class="text-[var(--color-text-tertiary)]">
+                            {storagePercent()}% used
+                          </span>
+                        </div>
                       </div>
                     </Show>
                   </div>
@@ -205,7 +254,19 @@ export function TopNav(props: TopNavProps) {
                                     color="var(--color-accent-500)"
                                   />
                                 </Show>
-                                <span class="truncate">{remote.name}</span>
+                                <Show
+                                  when={remote.imageUrl}
+                                  fallback={
+                                    <span class="truncate">{remote.name}</span>
+                                  }
+                                >
+                                  <img
+                                    src={`${remote.url}${remote.imageUrl}`}
+                                    alt=""
+                                    class="w-4 h-4 rounded object-cover flex-shrink-0"
+                                  />
+                                  <span class="truncate">{remote.name}</span>
+                                </Show>
                               </button>
                             )}
                           </For>
