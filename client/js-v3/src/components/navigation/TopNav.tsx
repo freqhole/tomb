@@ -183,27 +183,6 @@ export function TopNav(props: TopNavProps) {
                         {props.version}
                       </div>
                     </Show>
-
-                    {/* storage usage */}
-                    <Show
-                      when={
-                        props.storageUsage !== undefined &&
-                        props.storageQuota !== undefined
-                      }
-                    >
-                      <div class="flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] text-xs">
-                        <Icon name="database" size={14} />
-                        <div class="flex flex-col">
-                          <span class="text-[var(--color-text-secondary)]">
-                            {formatBytes(props.storageUsage)} /{" "}
-                            {formatBytes(props.storageQuota)}
-                          </span>
-                          <span class="text-[var(--color-text-tertiary)]">
-                            {storagePercent()}% used
-                          </span>
-                        </div>
-                      </div>
-                    </Show>
                   </div>
 
                   {/* source selector */}
@@ -346,6 +325,29 @@ export function TopNav(props: TopNavProps) {
                       </For>
                     </div>
                   </KobalteNav.Group>
+
+                  <div class="mt-auto space-y-1 pt-4 border-t border-[var(--color-border-subtle)]">
+                    {/* storage usage */}
+                    <Show
+                      when={
+                        props.storageUsage !== undefined &&
+                        props.storageQuota !== undefined
+                      }
+                    >
+                      <div class="flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] text-xs">
+                        <Icon name="database" size={14} />
+                        <div class="flex flex-col">
+                          <span class="text-[var(--color-text-secondary)]">
+                            {formatBytes(props.storageUsage)} /{" "}
+                            {formatBytes(props.storageQuota)}
+                          </span>
+                          <span class="text-[var(--color-text-tertiary)]">
+                            {storagePercent()}% used
+                          </span>
+                        </div>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
 
                 {/* column 3: recent playlists */}
