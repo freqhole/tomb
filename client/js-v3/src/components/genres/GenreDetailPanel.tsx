@@ -7,6 +7,7 @@ import {
   StatsCard,
   StatsGrid,
 } from "../cards/StatsCard";
+import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { VirtualGenreDetail } from "../virtualized/VirtualGenreDetail";
 
@@ -48,6 +49,8 @@ export interface GenreDetailPanelProps {
   onAddAlbumToQueue?: (albumId: string) => void;
   /** navigate to artist detail */
   onArtistClick?: (artistId: string) => void;
+  /** callback to get context menu actions for an album */
+  getAlbumContextMenuActions?: (albumId: string) => MenuAction[];
   /** additional css classes */
   class?: string;
 }
@@ -118,6 +121,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
         onAlbumClick={props.onAlbumClick}
         onPlayAlbum={props.onPlayAlbum}
         onArtistClick={props.onArtistClick}
+        getAlbumContextMenuActions={props.getAlbumContextMenuActions}
         height={600}
         gridColumns={5}
       />

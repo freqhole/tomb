@@ -27,6 +27,7 @@ import {
   DraggableRow,
   DraggableRowSongContent,
 } from "../../components/lists/DraggableRow";
+import { ContextMenu } from "../../components/overlays/ContextMenu";
 import {
   VirtualItemList,
   type ListItem,
@@ -43,7 +44,10 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
-import { usePlaylistContextMenu } from "../services/contextMenu";
+import {
+  usePlaylistContextMenu,
+  useSongContextMenu,
+} from "../services/contextMenu";
 import {
   readThumbnailFromOPFS,
   writeThumbnailToOPFS,
@@ -308,61 +312,25 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     });
   });
 
-  // sync URL parameter with selected playlist
+  // read URL parameter on mount (for standalone page support)
   createEffect(() => {
     const id = params.id;
-    if (id && id !== selectedPlaylistId()) {
+    if (id && !selectedPlaylistId()) {
       setSelectedPlaylistId(id);
     }
   });
 
-  // update URL when playlist selection changes
+  // auto-select first playlist when data loads (like ArtistsView/GenresView)
   createEffect(() => {
-    const id = selectedPlaylistId();
-    const prefix = getRoutePrefix();
-    if (id && id !== params.id) {
-      navigate(`${prefix}/playlists/${id}`, { replace: true });
-    } else if (!id && params.id) {
-      navigate(`${prefix}/playlists`, { replace: true });
+    const items = playlists();
+    if (items.length > 0 && !selectedPlaylistId()) {
+      setSelectedPlaylistId(items[0].playlist_id);
     }
   });
 
-  // restore selected playlist from app state
-  createEffect(() => {
-    const state = appState();
-    if (state?.queue.length && state.queue[0]) {
-      // could restore last viewed playlist here if we track it
-    }
-  });
-
-  // handle playlist selection with double-click support
+  // handle playlist selection (simple click, like ArtistsView/GenresView)
   const handlePlaylistClick = (item: ListItem) => {
-    const playlistId = item.id;
-    const now = Date.now();
-    const lastClick = lastClickedId();
-    const timeout = clickTimeout();
-
-    // check if this is a double-click (same item within 300ms)
-    if (lastClick === playlistId && timeout && now - timeout < 300) {
-      // double-click: play all playlist songs
-      clearTimeout(timeout);
-      setClickTimeout(null);
-      setLastClickedId(null);
-      handlePlayAll();
-    } else {
-      // potential single-click: wait to see if double-click follows
-      setLastClickedId(playlistId);
-      setClickTimeout(now);
-
-      // if no second click within 300ms, treat as single click
-      setTimeout(() => {
-        if (clickTimeout() === now) {
-          // single-click: select playlist
-          setSelectedPlaylistId(playlistId);
-          setClickTimeout(null);
-        }
-      }, 300);
-    }
+    setSelectedPlaylistId(item.id);
   };
 
   // handle song double-click (play song)
@@ -1412,53 +1380,71 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                             <div class="overflow-auto h-full p-4">
                               <div class="space-y-1">
                                 <For each={playlistSongs()}>
-                                  {(song, index) => (
-                                    <DraggableRow
-                                      id={song.id}
-                                      index={index()}
-                                      isDragging={draggedSongId() === song.id}
-                                      isDropTarget={
-                                        dropTargetIndex() === index()
-                                      }
-                                      onDragStart={handleDragStart(song.id)}
-                                      onDragOver={handleDragOver(index())}
-                                      onDragLeave={handleDragLeave}
-                                      onDrop={() => handleDrop(index())}
-                                      onDoubleClick={() =>
-                                        handleSongDoubleClick(song)
-                                      }
-                                      onPlayClick={() =>
-                                        handleSongDoubleClick(song)
-                                      }
-                                      thumbnailUrl={
-                                        song.thumbnail_blob_id
-                                          ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
-                                          : undefined
-                                      }
-                                      disabled={
-                                        !isEditablePlaylist(selectedPlaylist()!)
-                                      }
-                                    >
-                                      <DraggableRowSongContent
-                                        title={song.title}
-                                        artist={song.artist_name}
-                                        album={song.album_title}
-                                        durationSeconds={song.duration_seconds}
-                                        actions={
-                                          <IconButton
-                                            icon="queue"
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={(e: MouseEvent) => {
-                                              e.stopPropagation();
-                                              handleAddSongToQueue(song);
-                                            }}
-                                            aria-label="add to queue"
+                                  {(song, index) => {
+                                    const contextMenuActions =
+                                      useSongContextMenu(song, {
+                                        showPlayActions: true,
+                                        showRemoveFromPlaylist: true,
+                                        playlistId: selectedPlaylistId()!,
+                                        isFavorite: false, // TODO: get actual favorite status
+                                      });
+
+                                    return (
+                                      <ContextMenu actions={contextMenuActions}>
+                                        <DraggableRow
+                                          id={song.id}
+                                          index={index()}
+                                          isDragging={
+                                            draggedSongId() === song.id
+                                          }
+                                          isDropTarget={
+                                            dropTargetIndex() === index()
+                                          }
+                                          onDragStart={handleDragStart(song.id)}
+                                          onDragOver={handleDragOver(index())}
+                                          onDragLeave={handleDragLeave}
+                                          onDrop={() => handleDrop(index())}
+                                          onDoubleClick={() =>
+                                            handleSongDoubleClick(song)
+                                          }
+                                          onPlayClick={() =>
+                                            handleSongDoubleClick(song)
+                                          }
+                                          thumbnailUrl={
+                                            song.thumbnail_blob_id
+                                              ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
+                                              : undefined
+                                          }
+                                          disabled={
+                                            !isEditablePlaylist(
+                                              selectedPlaylist()!,
+                                            )
+                                          }
+                                        >
+                                          <DraggableRowSongContent
+                                            title={song.title}
+                                            artist={song.artist_name}
+                                            album={song.album_title}
+                                            durationSeconds={
+                                              song.duration_seconds
+                                            }
+                                            actions={
+                                              <IconButton
+                                                icon="queue"
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={(e: MouseEvent) => {
+                                                  e.stopPropagation();
+                                                  handleAddSongToQueue(song);
+                                                }}
+                                                aria-label="add to queue"
+                                              />
+                                            }
                                           />
-                                        }
-                                      />
-                                    </DraggableRow>
-                                  )}
+                                        </DraggableRow>
+                                      </ContextMenu>
+                                    );
+                                  }}
                                 </For>
                               </div>
                             </div>

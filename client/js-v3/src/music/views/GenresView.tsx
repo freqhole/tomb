@@ -16,7 +16,10 @@ import {
 import { getCurrentRemote, getDataSource } from "../data";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import { useGenreContextMenu } from "../services/contextMenu";
+import {
+  useAlbumContextMenu,
+  useGenreContextMenu,
+} from "../services/contextMenu";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
@@ -327,6 +330,24 @@ export function GenresView(props: GenresViewProps) {
           onPlayAlbum={handlePlayAlbum}
           onAddAlbumToQueue={handleAddAlbumToQueue}
           onArtistClick={handleArtistClick}
+          getAlbumContextMenuActions={(albumId) => {
+            // find album info from songs
+            const albumSongs = genreSongs().filter(
+              (s) => s.album_id === albumId,
+            );
+            if (albumSongs.length === 0) return [];
+
+            const firstSong = albumSongs[0];
+            return useAlbumContextMenu(
+              {
+                id: albumId,
+                title: firstSong.album_title,
+                artist_name: firstSong.artist_name,
+                song_count: albumSongs.length,
+              },
+              { showPlayActions: true },
+            );
+          }}
         />
       )}
     </Show>

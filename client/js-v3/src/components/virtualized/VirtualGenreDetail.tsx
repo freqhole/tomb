@@ -4,6 +4,7 @@ import { createMemo, For, Show, type JSX } from "solid-js";
 import { getBlobImageUrl } from "../../music/utils/images";
 import { CollectionCard } from "../cards/CollectionCard";
 import { formatDuration } from "../cards/StatsCard";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface VirtualGenreDetailSong {
@@ -44,6 +45,8 @@ export interface VirtualGenreDetailProps {
   onPlayAlbum?: (albumId: string) => void;
   /** callback when artist name is clicked */
   onArtistClick?: (artistId: string) => void;
+  /** callback to get context menu actions for an album */
+  getAlbumContextMenuActions?: (albumId: string) => MenuAction[];
   /** height of the scrollable area */
   height?: number;
   /** number of columns in grid */
@@ -198,28 +201,44 @@ export function VirtualGenreDetail(
                         }}
                       >
                         <For each={artist.albums}>
-                          {(album) => (
-                            <CollectionCard
-                              collection={{
-                                id: album.albumId,
-                                title: album.albumTitle,
-                                subtitle: `${album.songCount} songs`,
-                                domainType: "album",
-                                year: album.year,
-                                trackCount: album.songCount,
-                                totalDuration: formatDuration(
-                                  album.totalDuration,
-                                ),
-                                imageUrl: album.imageUrl,
-                              }}
-                              showYear={true}
-                              showDuration={true}
-                              onClick={() =>
-                                props.onAlbumClick?.(album.albumId)
-                              }
-                              onPlay={() => props.onPlayAlbum?.(album.albumId)}
-                            />
-                          )}
+                          {(album) => {
+                            const contextMenuActions =
+                              props.getAlbumContextMenuActions?.(album.albumId);
+
+                            const card = (
+                              <CollectionCard
+                                collection={{
+                                  id: album.albumId,
+                                  title: album.albumTitle,
+                                  subtitle: `${album.songCount} songs`,
+                                  domainType: "album",
+                                  year: album.year,
+                                  trackCount: album.songCount,
+                                  totalDuration: formatDuration(
+                                    album.totalDuration,
+                                  ),
+                                  imageUrl: album.imageUrl,
+                                }}
+                                showYear={true}
+                                showDuration={true}
+                                onClick={() =>
+                                  props.onAlbumClick?.(album.albumId)
+                                }
+                                onPlay={() =>
+                                  props.onPlayAlbum?.(album.albumId)
+                                }
+                              />
+                            );
+
+                            return contextMenuActions &&
+                              contextMenuActions.length > 0 ? (
+                              <ContextMenu actions={contextMenuActions}>
+                                {card}
+                              </ContextMenu>
+                            ) : (
+                              card
+                            );
+                          }}
                         </For>
                       </div>
                     </div>

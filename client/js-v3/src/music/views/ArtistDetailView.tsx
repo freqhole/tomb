@@ -7,9 +7,15 @@ import {
   type AlbumSectionSong,
 } from "../../components/albums/AlbumSection";
 import { Button } from "../../components/buttons/Button";
+import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { getCurrentRemote, getDataSource } from "../data";
 import { useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
+import {
+  useAlbumContextMenu,
+  useArtistContextMenu,
+  useSongContextMenu,
+} from "../services/contextMenu";
 import type { Song } from "../services/storage/types";
 import { getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
@@ -122,6 +128,45 @@ export function ArtistDetailView() {
     await playSong(songList[0]);
   };
 
+  // shuffle all songs
+  const handleShuffleArtist = async () => {
+    const songList = songs();
+    if (songList.length === 0) return;
+
+    const shuffled = [...songList].sort(() => Math.random() - 0.5);
+    await setQueue(shuffled);
+    await playSong(shuffled[0]);
+  };
+
+  // add all songs to queue
+  const handleAddArtistToQueue = async () => {
+    const songList = songs();
+    if (songList.length === 0) return;
+
+    const currentQueue = songs() ?? [];
+    await setQueue([...currentQueue, ...songList]);
+  };
+
+  // context menu for artist avatar
+  const artistContextMenuActions = createMemo(() => {
+    const info = artistInfo();
+    if (!info) return [];
+
+    return useArtistContextMenu(
+      {
+        id: info.artist_id,
+        name: info.name,
+        song_count: totalSongs(),
+      },
+      {
+        showPlayActions: false, // we have buttons for this
+        onPlayAll: handlePlayArtist,
+        onShuffle: handleShuffleArtist,
+        onAddToQueue: handleAddArtistToQueue,
+      },
+    );
+  });
+
   // play specific album
   const handlePlayAlbum = async (albumId: string) => {
     const album = albumGroups().find((g) => g.albumId === albumId);
@@ -168,11 +213,13 @@ export function ArtistDetailView() {
             {/* header with artist info */}
             <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
               {/* artist avatar placeholder */}
-              <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0">
-                <span class="text-6xl text-[var(--color-text-tertiary)]">
-                  {info().name[0].toUpperCase()}
-                </span>
-              </div>
+              <ContextMenu actions={artistContextMenuActions()}>
+                <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity">
+                  <span class="text-6xl text-[var(--color-text-tertiary)]">
+                    {info().name[0].toUpperCase()}
+                  </span>
+                </div>
+              </ContextMenu>
 
               {/* artist info */}
               <div class="flex flex-col justify-center gap-2 min-w-0">
@@ -222,6 +269,26 @@ export function ArtistDetailView() {
                       onSongDoubleClick={(song) =>
                         handleSongDoubleClick(song, album.albumId)
                       }
+                      getAlbumContextMenuActions={() =>
+                        useAlbumContextMenu(
+                          {
+                            id: album.albumId,
+                            title: album.albumTitle,
+                            song_count: album.songs.length,
+                          },
+                          { showPlayActions: true },
+                        )
+                      }
+                      getSongContextMenuActions={(song) => {
+                        // find full song data
+                        const fullSong = songs().find(
+                          (s) => s.sha256 === song.id,
+                        );
+                        if (!fullSong) return [];
+                        return useSongContextMenu(fullSong, {
+                          showPlayActions: true,
+                        });
+                      }}
                     />
                   )}
                 </For>
