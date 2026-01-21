@@ -1,5 +1,5 @@
 // genres view - displays all genres in a two-column layout
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
@@ -31,14 +31,33 @@ const genreSortFields = [
 
 export function GenresView(props: GenresViewProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(
     null,
   );
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
 
+  // track query changes to force list reset
+  const [isResetting, setIsResetting] = createSignal(false);
+
   // fetch genres using tanstack query (works with local + remote)
-  const genresQuery = useGenresQuery(1000);
+  const genresQuery = useGenresQuery({
+    pageSize: 100,
+    query: () => {
+      const q = searchParams.q;
+      return Array.isArray(q) ? q[0] : q;
+    },
+  });
+
+  // reset virtual list when query param changes
+  createEffect(() => {
+    const q = searchParams.q;
+    const queryParam = Array.isArray(q) ? q[0] : q;
+    // briefly show resetting state to force list to remount
+    setIsResetting(true);
+    setTimeout(() => setIsResetting(false), 0);
+  });
 
   // flatten all pages of genres
   const genresData = createMemo(() => {
@@ -287,7 +306,13 @@ export function GenresView(props: GenresViewProps) {
 
       {/* two-column layout */}
       <div class="flex-1 overflow-hidden">
-        <TwoColumnLayout leftColumn={leftColumn} rightColumn={rightColumn} />
+        {isResetting() ? (
+          <div class="flex items-center justify-center h-full">
+            <div class="text-[var(--color-text-secondary)]">loading...</div>
+          </div>
+        ) : (
+          <TwoColumnLayout leftColumn={leftColumn} rightColumn={rightColumn} />
+        )}
       </div>
     </div>
   );

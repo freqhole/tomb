@@ -1,5 +1,10 @@
 // playlists view - displays playlists in two-column layout with detail panel
-import { useLocation, useNavigate, useParams } from "@solidjs/router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
 import {
@@ -73,6 +78,8 @@ function isSuccess<T>(result: {
 
 export function PlaylistsView(props: PlaylistsViewProps) {
   const params = useParams<{ id?: string }>();
+  const [searchParams] = useSearchParams();
+  const [isResetting, setIsResetting] = createSignal(false);
   const navigate = useNavigate();
 
   const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<
@@ -161,7 +168,19 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // fetch playlists using infinite query
   const playlistsQuery = usePlaylistsQuery({
-    search: () => search(),
+    search: () => {
+      const q = searchParams.q;
+      return Array.isArray(q) ? q[0] : q;
+    },
+  });
+
+  // reset virtual list when query param changes
+  createEffect(() => {
+    const q = searchParams.q;
+    const queryParam = Array.isArray(q) ? q[0] : q;
+    // briefly show resetting state to force list to remount
+    setIsResetting(true);
+    setTimeout(() => setIsResetting(false), 0);
   });
 
   // flatten pages into single array
@@ -1034,389 +1053,404 @@ export function PlaylistsView(props: PlaylistsViewProps) {
               </div>
             }
           >
-            <TwoColumnLayout
-              leftColumn={
-                <VirtualItemList
-                  items={playlistListItems()}
-                  selectedId={selectedPlaylistId()}
-                  onItemClick={handlePlaylistClick}
-                  onEndReached={handlePlaylistsLoadMore}
-                />
-              }
-              rightColumn={
-                <Show
-                  when={selectedPlaylistId()}
-                  fallback={
-                    <div class="flex items-center justify-center h-full">
-                      <p class="text-[var(--color-text-secondary)]">
-                        select a playlist to view songs
-                      </p>
-                    </div>
-                  }
-                >
-                  <div
-                    class="flex flex-col h-full relative"
-                    style={{
-                      ...(thumbnailUrl() && {
-                        "background-image": `url('${thumbnailUrl()}')`,
-                        "background-size": "cover",
-                        "background-position": "center top",
-                        "background-repeat": "no-repeat",
-                      }),
-                    }}
+            {isResetting() ? (
+              <div class="flex items-center justify-center h-full">
+                <div class="text-[var(--color-text-secondary)]">loading...</div>
+              </div>
+            ) : (
+              <TwoColumnLayout
+                leftColumn={
+                  <VirtualItemList
+                    items={playlistListItems()}
+                    selectedId={selectedPlaylistId()}
+                    onItemClick={handlePlaylistClick}
+                    onEndReached={handlePlaylistsLoadMore}
+                  />
+                }
+                rightColumn={
+                  <Show
+                    when={selectedPlaylistId()}
+                    fallback={
+                      <div class="flex items-center justify-center h-full">
+                        <p class="text-[var(--color-text-secondary)]">
+                          select a playlist to view songs
+                        </p>
+                      </div>
+                    }
                   >
-                    {/* background overlay */}
-                    <Show when={thumbnailUrl()}>
-                      <div class="absolute inset-0 bg-black/70 z-0" />
-                    </Show>
+                    <div
+                      class="flex flex-col h-full relative"
+                      style={{
+                        ...(thumbnailUrl() && {
+                          "background-image": `url('${thumbnailUrl()}')`,
+                          "background-size": "cover",
+                          "background-position": "center top",
+                          "background-repeat": "no-repeat",
+                        }),
+                      }}
+                    >
+                      {/* background overlay */}
+                      <Show when={thumbnailUrl()}>
+                        <div class="absolute inset-0 bg-black/70 z-0" />
+                      </Show>
 
-                    {/* playlist header */}
-                    <div class="flex-shrink-0 p-6 border-b border-[var(--color-border-default)] relative z-10">
-                      <div class="flex-1">
-                        <Show
-                          when={editMode()}
-                          fallback={
-                            <>
-                              <div class="flex items-center gap-2 mb-2">
-                                <Show
-                                  when={
-                                    selectedPlaylist()?.is_editable !== false
-                                  }
-                                >
-                                  <button
-                                    class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                                    onClick={handleEditToggle}
-                                    aria-label="edit playlist"
-                                  >
-                                    <svg
-                                      class="w-4 h-4"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                                      />
-                                    </svg>
-                                  </button>
-                                </Show>
-                                <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
-                                  {selectedPlaylist()?.title ||
-                                    "untitled playlist"}
-                                </h2>
-                              </div>
-                              <Show when={selectedPlaylist()?.description}>
-                                <p class="text-sm text-[var(--color-text-secondary)] mb-3">
-                                  {selectedPlaylist()!.description}
-                                </p>
-                              </Show>
-                            </>
-                          }
-                        >
-                          <div class="space-y-2 mb-3">
-                            <input
-                              type="text"
-                              class="w-full px-2 py-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] text-xl font-bold focus:outline-none focus:border-[var(--color-accent-500)]"
-                              value={editTitle()}
-                              onInput={(e) =>
-                                setEditTitle(e.currentTarget.value)
-                              }
-                              placeholder="playlist title"
-                            />
-                            <textarea
-                              class="w-full px-2 py-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-secondary)] text-sm focus:outline-none focus:border-[var(--color-accent-500)] resize-none"
-                              rows="2"
-                              value={editDescription()}
-                              onInput={(e) =>
-                                setEditDescription(e.currentTarget.value)
-                              }
-                              placeholder="description (optional)"
-                            />
-                            <div class="flex gap-2">
-                              <Button
-                                variant="primary"
-                                onClick={handleSavePlaylist}
-                              >
-                                save
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                onClick={handleCancelEdit}
-                              >
-                                cancel
-                              </Button>
-                              <div class="flex-1" />
-                              <Button
-                                variant="danger"
-                                onClick={() => setShowDeleteConfirm(true)}
-                              >
-                                delete
-                              </Button>
-                            </div>
-                          </div>
-                        </Show>
-
-                        <Show when={!playlistSongsQuery.isLoading}>
-                          <div class="flex items-center gap-3 text-sm text-[var(--color-text-secondary)] mb-4">
-                            <span>
-                              {playlistSongs().length}{" "}
-                              {playlistSongs().length === 1 ? "song" : "songs"}
-                            </span>
-                            <Show when={totalDuration() > 0}>
-                              <span>•</span>
-                              <span>{formatDuration(totalDuration())}</span>
-                            </Show>
-                            <Show when={selectedPlaylist()?.created_at}>
-                              <span>•</span>
-                              <span>
-                                created{" "}
-                                {formatRelativeTime(
-                                  selectedPlaylist()!.created_at,
-                                )}
-                              </span>
-                            </Show>
-                            <Show
-                              when={syncStatus() && !syncStatus()?.needsSync}
-                            >
-                              <span>•</span>
-                              <Show
-                                when={!isViewingRemote()}
-                                fallback={<span>synced</span>}
-                              >
-                                <span>
-                                  synced from{" "}
-                                  {syncSourceRemoteName() ||
-                                    selectedPlaylist()?.source_remote_url}
-                                </span>
-                              </Show>
-                            </Show>
-                          </div>
-                        </Show>
-
-                        {/* action buttons */}
-                        <Show when={playlistSongs().length > 0 && !editMode()}>
-                          <div class="flex gap-2">
-                            <Button variant="primary" onClick={handlePlayAll}>
-                              play all
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={handleAddToQueue}
-                            >
-                              + add to queue
-                            </Button>
-                            <Show when={isViewingRemote()}>
-                              <Show
-                                when={syncStatus()}
-                                fallback={
-                                  <Button
-                                    variant="secondary"
-                                    onClick={handleDownloadPlaylist}
-                                    disabled={isDownloading()}
-                                  >
-                                    {isDownloading()
-                                      ? "downloading..."
-                                      : "download playlist"}
-                                  </Button>
-                                }
-                              >
-                                <Show when={syncStatus()?.needsSync}>
-                                  <Button
-                                    variant="secondary"
-                                    onClick={handleSyncPlaylist}
-                                    disabled={isSyncing()}
-                                  >
-                                    {isSyncing()
-                                      ? "syncing..."
-                                      : "sync playlist"}
-                                  </Button>
-                                </Show>
-                              </Show>
-                            </Show>
-                            <Show
-                              when={
-                                !isViewingRemote() &&
-                                selectedPlaylist()?.source_remote_id
-                              }
-                            >
-                              <Button
-                                variant="secondary"
-                                onClick={handleMakeLocalCopy}
-                              >
-                                make local copy
-                              </Button>
-                              <IconButton
-                                icon="delete"
-                                variant="ghost"
-                                onClick={() => setShowDeleteConfirm(true)}
-                                title="delete playlist"
-                                aria-label="delete playlist"
-                              />
-                            </Show>
-                          </div>
-                        </Show>
-
-                        {/* download/sync progress indicator */}
-                        <Show when={downloadProgress()}>
-                          <div class="mt-4 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
-                            <Show
-                              when={downloadProgress()?.stage === "error"}
-                              fallback={
-                                <>
-                                  <div class="flex items-center justify-between mb-2">
-                                    <span class="text-sm text-[var(--color-text-secondary)]">
-                                      {downloadProgress()?.stage === "fetching"
-                                        ? "fetching playlist metadata..."
-                                        : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
-                                    </span>
-                                  </div>
+                      {/* playlist header */}
+                      <div class="flex-shrink-0 p-6 border-b border-[var(--color-border-default)] relative z-10">
+                        <div class="flex-1">
+                          <Show
+                            when={editMode()}
+                            fallback={
+                              <>
+                                <div class="flex items-center gap-2 mb-2">
                                   <Show
                                     when={
-                                      downloadProgress()?.stage ===
-                                        "downloading" &&
-                                      downloadProgress()?.totalSongs
+                                      selectedPlaylist()?.is_editable !== false
                                     }
                                   >
-                                    <div class="w-full bg-[var(--color-bg-tertiary)] rounded-full h-2 mb-2">
-                                      <div
-                                        class="bg-[var(--color-accent-500)] h-2 rounded-full transition-all duration-300"
-                                        style={{
-                                          width: `${((downloadProgress()?.downloadedSongs || 0) / (downloadProgress()?.totalSongs || 1)) * 100}%`,
-                                        }}
-                                      />
-                                    </div>
+                                    <button
+                                      class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                                      onClick={handleEditToggle}
+                                      aria-label="edit playlist"
+                                    >
+                                      <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          stroke-width="2"
+                                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                                        />
+                                      </svg>
+                                    </button>
                                   </Show>
-                                  <Show when={downloadProgress()?.currentSong}>
-                                    <p class="text-xs text-[var(--color-text-tertiary)] truncate">
-                                      {downloadProgress()?.currentSong}
-                                    </p>
-                                  </Show>
-                                </>
-                              }
-                            >
-                              <p class="text-sm text-[var(--color-error)]">
-                                error: {downloadProgress()?.error}
-                              </p>
-                            </Show>
-                          </div>
-                        </Show>
-
-                        {/* image upload controls (edit mode only) */}
-                        <Show when={editMode()}>
-                          <div class="mt-4 flex gap-2">
-                            <Show
-                              when={!uploadingImage()}
-                              fallback={
-                                <div class="text-[var(--color-text-secondary)] text-sm">
-                                  uploading... {uploadProgress()}%
+                                  <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                                    {selectedPlaylist()?.title ||
+                                      "untitled playlist"}
+                                  </h2>
                                 </div>
-                              }
-                            >
-                              <button
-                                class="px-3 py-1 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white text-sm rounded"
-                                onClick={handleImageUpload}
-                              >
-                                {thumbnailUrl()
-                                  ? "change background"
-                                  : "upload background"}
-                              </button>
-                              <Show when={thumbnailUrl()}>
-                                <button
-                                  class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded"
-                                  onClick={handleRemoveImage}
+                                <Show when={selectedPlaylist()?.description}>
+                                  <p class="text-sm text-[var(--color-text-secondary)] mb-3">
+                                    {selectedPlaylist()!.description}
+                                  </p>
+                                </Show>
+                              </>
+                            }
+                          >
+                            <div class="space-y-2 mb-3">
+                              <input
+                                type="text"
+                                class="w-full px-2 py-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] text-xl font-bold focus:outline-none focus:border-[var(--color-accent-500)]"
+                                value={editTitle()}
+                                onInput={(e) =>
+                                  setEditTitle(e.currentTarget.value)
+                                }
+                                placeholder="playlist title"
+                              />
+                              <textarea
+                                class="w-full px-2 py-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-secondary)] text-sm focus:outline-none focus:border-[var(--color-accent-500)] resize-none"
+                                rows="2"
+                                value={editDescription()}
+                                onInput={(e) =>
+                                  setEditDescription(e.currentTarget.value)
+                                }
+                                placeholder="description (optional)"
+                              />
+                              <div class="flex gap-2">
+                                <Button
+                                  variant="primary"
+                                  onClick={handleSavePlaylist}
                                 >
-                                  remove background
-                                </button>
+                                  save
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  onClick={handleCancelEdit}
+                                >
+                                  cancel
+                                </Button>
+                                <div class="flex-1" />
+                                <Button
+                                  variant="danger"
+                                  onClick={() => setShowDeleteConfirm(true)}
+                                >
+                                  delete
+                                </Button>
+                              </div>
+                            </div>
+                          </Show>
+
+                          <Show when={!playlistSongsQuery.isLoading}>
+                            <div class="flex items-center gap-3 text-sm text-[var(--color-text-secondary)] mb-4">
+                              <span>
+                                {playlistSongs().length}{" "}
+                                {playlistSongs().length === 1
+                                  ? "song"
+                                  : "songs"}
+                              </span>
+                              <Show when={totalDuration() > 0}>
+                                <span>•</span>
+                                <span>{formatDuration(totalDuration())}</span>
                               </Show>
-                            </Show>
-                          </div>
+                              <Show when={selectedPlaylist()?.created_at}>
+                                <span>•</span>
+                                <span>
+                                  created{" "}
+                                  {formatRelativeTime(
+                                    selectedPlaylist()!.created_at,
+                                  )}
+                                </span>
+                              </Show>
+                              <Show
+                                when={syncStatus() && !syncStatus()?.needsSync}
+                              >
+                                <span>•</span>
+                                <Show
+                                  when={!isViewingRemote()}
+                                  fallback={<span>synced</span>}
+                                >
+                                  <span>
+                                    synced from{" "}
+                                    {syncSourceRemoteName() ||
+                                      selectedPlaylist()?.source_remote_url}
+                                  </span>
+                                </Show>
+                              </Show>
+                            </div>
+                          </Show>
+
+                          {/* action buttons */}
+                          <Show
+                            when={playlistSongs().length > 0 && !editMode()}
+                          >
+                            <div class="flex gap-2">
+                              <Button variant="primary" onClick={handlePlayAll}>
+                                play all
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={handleAddToQueue}
+                              >
+                                + add to queue
+                              </Button>
+                              <Show when={isViewingRemote()}>
+                                <Show
+                                  when={syncStatus()}
+                                  fallback={
+                                    <Button
+                                      variant="secondary"
+                                      onClick={handleDownloadPlaylist}
+                                      disabled={isDownloading()}
+                                    >
+                                      {isDownloading()
+                                        ? "downloading..."
+                                        : "download playlist"}
+                                    </Button>
+                                  }
+                                >
+                                  <Show when={syncStatus()?.needsSync}>
+                                    <Button
+                                      variant="secondary"
+                                      onClick={handleSyncPlaylist}
+                                      disabled={isSyncing()}
+                                    >
+                                      {isSyncing()
+                                        ? "syncing..."
+                                        : "sync playlist"}
+                                    </Button>
+                                  </Show>
+                                </Show>
+                              </Show>
+                              <Show
+                                when={
+                                  !isViewingRemote() &&
+                                  selectedPlaylist()?.source_remote_id
+                                }
+                              >
+                                <Button
+                                  variant="secondary"
+                                  onClick={handleMakeLocalCopy}
+                                >
+                                  make local copy
+                                </Button>
+                                <IconButton
+                                  icon="delete"
+                                  variant="ghost"
+                                  onClick={() => setShowDeleteConfirm(true)}
+                                  title="delete playlist"
+                                  aria-label="delete playlist"
+                                />
+                              </Show>
+                            </div>
+                          </Show>
+
+                          {/* download/sync progress indicator */}
+                          <Show when={downloadProgress()}>
+                            <div class="mt-4 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
+                              <Show
+                                when={downloadProgress()?.stage === "error"}
+                                fallback={
+                                  <>
+                                    <div class="flex items-center justify-between mb-2">
+                                      <span class="text-sm text-[var(--color-text-secondary)]">
+                                        {downloadProgress()?.stage ===
+                                        "fetching"
+                                          ? "fetching playlist metadata..."
+                                          : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
+                                      </span>
+                                    </div>
+                                    <Show
+                                      when={
+                                        downloadProgress()?.stage ===
+                                          "downloading" &&
+                                        downloadProgress()?.totalSongs
+                                      }
+                                    >
+                                      <div class="w-full bg-[var(--color-bg-tertiary)] rounded-full h-2 mb-2">
+                                        <div
+                                          class="bg-[var(--color-accent-500)] h-2 rounded-full transition-all duration-300"
+                                          style={{
+                                            width: `${((downloadProgress()?.downloadedSongs || 0) / (downloadProgress()?.totalSongs || 1)) * 100}%`,
+                                          }}
+                                        />
+                                      </div>
+                                    </Show>
+                                    <Show
+                                      when={downloadProgress()?.currentSong}
+                                    >
+                                      <p class="text-xs text-[var(--color-text-tertiary)] truncate">
+                                        {downloadProgress()?.currentSong}
+                                      </p>
+                                    </Show>
+                                  </>
+                                }
+                              >
+                                <p class="text-sm text-[var(--color-error)]">
+                                  error: {downloadProgress()?.error}
+                                </p>
+                              </Show>
+                            </div>
+                          </Show>
+
+                          {/* image upload controls (edit mode only) */}
+                          <Show when={editMode()}>
+                            <div class="mt-4 flex gap-2">
+                              <Show
+                                when={!uploadingImage()}
+                                fallback={
+                                  <div class="text-[var(--color-text-secondary)] text-sm">
+                                    uploading... {uploadProgress()}%
+                                  </div>
+                                }
+                              >
+                                <button
+                                  class="px-3 py-1 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white text-sm rounded"
+                                  onClick={handleImageUpload}
+                                >
+                                  {thumbnailUrl()
+                                    ? "change background"
+                                    : "upload background"}
+                                </button>
+                                <Show when={thumbnailUrl()}>
+                                  <button
+                                    class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded"
+                                    onClick={handleRemoveImage}
+                                  >
+                                    remove background
+                                  </button>
+                                </Show>
+                              </Show>
+                            </div>
+                          </Show>
+                        </div>
+                      </div>
+
+                      {/* songs list */}
+                      <div class="flex-1 overflow-hidden relative z-10">
+                        <Show
+                          when={!playlistSongsQuery.isLoading}
+                          fallback={
+                            <div class="flex items-center justify-center h-full">
+                              <div class="text-[var(--color-text-secondary)]">
+                                loading songs...
+                              </div>
+                            </div>
+                          }
+                        >
+                          <Show
+                            when={playlistSongs().length > 0}
+                            fallback={
+                              <div class="flex items-center justify-center h-full">
+                                <p class="text-[var(--color-text-secondary)]">
+                                  this playlist is empty
+                                </p>
+                              </div>
+                            }
+                          >
+                            <div class="overflow-auto h-full p-4">
+                              <div class="space-y-1">
+                                <For each={playlistSongs()}>
+                                  {(song, index) => (
+                                    <DraggableRow
+                                      id={song.id}
+                                      index={index()}
+                                      isDragging={draggedSongId() === song.id}
+                                      isDropTarget={
+                                        dropTargetIndex() === index()
+                                      }
+                                      onDragStart={handleDragStart(song.id)}
+                                      onDragOver={handleDragOver(index())}
+                                      onDragLeave={handleDragLeave}
+                                      onDrop={() => handleDrop(index())}
+                                      onDoubleClick={() =>
+                                        handleSongDoubleClick(song)
+                                      }
+                                      onPlayClick={() =>
+                                        handleSongDoubleClick(song)
+                                      }
+                                      thumbnailUrl={
+                                        song.thumbnail_blob_id
+                                          ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
+                                          : undefined
+                                      }
+                                      disabled={
+                                        !isEditablePlaylist(selectedPlaylist()!)
+                                      }
+                                    >
+                                      <DraggableRowSongContent
+                                        title={song.title}
+                                        artist={song.artist_name}
+                                        album={song.album_title}
+                                        durationSeconds={song.duration_seconds}
+                                        actions={
+                                          <IconButton
+                                            icon="queue"
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={(e: MouseEvent) => {
+                                              e.stopPropagation();
+                                              handleAddSongToQueue(song);
+                                            }}
+                                            aria-label="add to queue"
+                                          />
+                                        }
+                                      />
+                                    </DraggableRow>
+                                  )}
+                                </For>
+                              </div>
+                            </div>
+                          </Show>
                         </Show>
                       </div>
                     </div>
-
-                    {/* songs list */}
-                    <div class="flex-1 overflow-hidden relative z-10">
-                      <Show
-                        when={!playlistSongsQuery.isLoading}
-                        fallback={
-                          <div class="flex items-center justify-center h-full">
-                            <div class="text-[var(--color-text-secondary)]">
-                              loading songs...
-                            </div>
-                          </div>
-                        }
-                      >
-                        <Show
-                          when={playlistSongs().length > 0}
-                          fallback={
-                            <div class="flex items-center justify-center h-full">
-                              <p class="text-[var(--color-text-secondary)]">
-                                this playlist is empty
-                              </p>
-                            </div>
-                          }
-                        >
-                          <div class="overflow-auto h-full p-4">
-                            <div class="space-y-1">
-                              <For each={playlistSongs()}>
-                                {(song, index) => (
-                                  <DraggableRow
-                                    id={song.id}
-                                    index={index()}
-                                    isDragging={draggedSongId() === song.id}
-                                    isDropTarget={dropTargetIndex() === index()}
-                                    onDragStart={handleDragStart(song.id)}
-                                    onDragOver={handleDragOver(index())}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={() => handleDrop(index())}
-                                    onDoubleClick={() =>
-                                      handleSongDoubleClick(song)
-                                    }
-                                    onPlayClick={() =>
-                                      handleSongDoubleClick(song)
-                                    }
-                                    thumbnailUrl={
-                                      song.thumbnail_blob_id
-                                        ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
-                                        : undefined
-                                    }
-                                    disabled={
-                                      !isEditablePlaylist(selectedPlaylist()!)
-                                    }
-                                  >
-                                    <DraggableRowSongContent
-                                      title={song.title}
-                                      artist={song.artist_name}
-                                      album={song.album_title}
-                                      durationSeconds={song.duration_seconds}
-                                      actions={
-                                        <IconButton
-                                          icon="queue"
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={(e: MouseEvent) => {
-                                            e.stopPropagation();
-                                            handleAddSongToQueue(song);
-                                          }}
-                                          aria-label="add to queue"
-                                        />
-                                      }
-                                    />
-                                  </DraggableRow>
-                                )}
-                              </For>
-                            </div>
-                          </div>
-                        </Show>
-                      </Show>
-                    </div>
-                  </div>
-                </Show>
-              }
-            />
+                  </Show>
+                }
+              />
+            )}
           </Show>
         </Show>
       </div>

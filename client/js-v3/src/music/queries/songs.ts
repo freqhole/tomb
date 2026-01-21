@@ -90,9 +90,17 @@ export function useSongQuery(songId: Accessor<string | undefined>) {
 
 // albums query hooks
 
-export function useAlbumsQuery(pageSize: number = 100) {
+interface UseAlbumsQueryOptions {
+  query?: Accessor<string | undefined>;
+  pageSize?: number;
+}
+
+export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
+  const pageSize = options?.pageSize || 100;
+  const query = options?.query;
+
   return createInfiniteQuery(() => ({
-    queryKey: ["albums", "list"],
+    queryKey: ["albums", "list", query?.()],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getAlbums) {
@@ -107,6 +115,7 @@ export function useAlbumsQuery(pageSize: number = 100) {
       return dataSource.getAlbums({
         offset: pageParam,
         limit: pageSize,
+        search: query?.(),
       });
     },
     getNextPageParam: (lastPage) => {
@@ -116,6 +125,8 @@ export function useAlbumsQuery(pageSize: number = 100) {
     initialPageParam: 0,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   }));
 }
 
@@ -142,9 +153,17 @@ export function useAlbumSongsQuery(albumId: Accessor<string | undefined>) {
 
 // artists query hooks
 
-export function useArtistsQuery(pageSize: number = 100) {
+interface UseArtistsQueryOptions {
+  query?: Accessor<string | undefined>;
+  pageSize?: number;
+}
+
+export function useArtistsQuery(options?: UseArtistsQueryOptions) {
+  const pageSize = options?.pageSize || 100;
+  const query = options?.query;
+
   return createInfiniteQuery(() => ({
-    queryKey: ["artists", "list"],
+    queryKey: ["artists", "list", query?.()],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getArtists) {
@@ -159,6 +178,7 @@ export function useArtistsQuery(pageSize: number = 100) {
       return dataSource.getArtists({
         offset: pageParam,
         limit: pageSize,
+        search: query?.(),
       });
     },
     getNextPageParam: (lastPage) => {
@@ -168,6 +188,8 @@ export function useArtistsQuery(pageSize: number = 100) {
     initialPageParam: 0,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   }));
 }
 
@@ -194,9 +216,17 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
 
 // genres query hooks
 
-export function useGenresQuery(pageSize: number = 100) {
+interface UseGenresQueryOptions {
+  query?: Accessor<string | undefined>;
+  pageSize?: number;
+}
+
+export function useGenresQuery(options?: UseGenresQueryOptions) {
+  const pageSize = options?.pageSize || 100;
+  const query = options?.query;
+
   return createInfiniteQuery(() => ({
-    queryKey: ["genres", "list"],
+    queryKey: ["genres", "list", query?.()],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getGenres) {
@@ -211,6 +241,7 @@ export function useGenresQuery(pageSize: number = 100) {
       return dataSource.getGenres({
         offset: pageParam,
         limit: pageSize,
+        search: query?.(),
       });
     },
     getNextPageParam: (lastPage) => {
@@ -220,6 +251,8 @@ export function useGenresQuery(pageSize: number = 100) {
     initialPageParam: 0,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   }));
 }
 

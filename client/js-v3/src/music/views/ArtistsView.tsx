@@ -1,5 +1,5 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
@@ -35,6 +35,7 @@ const artistSortFields = [
 
 export function ArtistsView(props: ArtistsViewProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(
     null,
   );
@@ -45,8 +46,26 @@ export function ArtistsView(props: ArtistsViewProps) {
     ((index: number) => void) | null
   >(null);
 
+  // track query changes to force list reset
+  const [isResetting, setIsResetting] = createSignal(false);
+
   // fetch artists using tanstack query (works with local + remote)
-  const artistsQuery = useArtistsQuery(1000);
+  const artistsQuery = useArtistsQuery({
+    pageSize: 100,
+    query: () => {
+      const q = searchParams.q;
+      return Array.isArray(q) ? q[0] : q;
+    },
+  });
+
+  // reset virtual list when query param changes
+  createEffect(() => {
+    const q = searchParams.q;
+    const queryParam = Array.isArray(q) ? q[0] : q;
+    // briefly show resetting state to force list to remount
+    setIsResetting(true);
+    setTimeout(() => setIsResetting(false), 0);
+  });
 
   // flatten all pages of artists
   const artistsData = createMemo(() => {
@@ -439,11 +458,17 @@ export function ArtistsView(props: ArtistsViewProps) {
 
       {/* two-column layout */}
       <div class="flex-1 overflow-hidden">
-        <TwoColumnLayout
-          leftColumn={leftColumn}
-          rightColumn={rightColumn}
-          alphabetNav={alphabetNav()}
-        />
+        {isResetting() ? (
+          <div class="flex items-center justify-center h-full">
+            <div class="text-[var(--color-text-secondary)]">loading...</div>
+          </div>
+        ) : (
+          <TwoColumnLayout
+            leftColumn={leftColumn}
+            rightColumn={rightColumn}
+            alphabetNav={alphabetNav()}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 // albums view - displays all albums in a grid
-import { useNavigate } from "@solidjs/router";
-import { createEffect, on, Show } from "solid-js";
+import { useNavigate, useSearchParams } from "@solidjs/router";
+import { createEffect, createSignal, on, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
@@ -19,9 +19,28 @@ export interface AlbumsViewProps {
 
 export function AlbumsView(props: AlbumsViewProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // track query changes to force grid reset
+  const [isResetting, setIsResetting] = createSignal(false);
 
   // fetch albums using query hook
-  const albumsQuery = useAlbumsQuery(100);
+  const albumsQuery = useAlbumsQuery({
+    pageSize: 100,
+    query: () => {
+      const q = searchParams.q;
+      return Array.isArray(q) ? q[0] : q;
+    },
+  });
+
+  // reset virtual grid when query param changes
+  createEffect(() => {
+    const q = searchParams.q;
+    const queryParam = Array.isArray(q) ? q[0] : q;
+    // briefly show resetting state to force grid to remount
+    setIsResetting(true);
+    setTimeout(() => setIsResetting(false), 0);
+  });
 
   // auto-fetch next page when query becomes idle and has more data
   createEffect(
@@ -128,34 +147,40 @@ export function AlbumsView(props: AlbumsViewProps) {
 
       {/* album grid */}
       <div class="flex-1 overflow-hidden">
-        <Show
-          when={albums().length > 0 || albumsQuery.isLoading}
-          fallback={
-            <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-              <div class="text-center max-w-md">
-                <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                  no albums in your library yet
-                </p>
-                <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                  click "add music" above to import local audio files or
-                  download from urls
-                </p>
-                <Button variant="primary" onClick={props.onAddMusic}>
-                  add music
-                </Button>
+        {isResetting() ? (
+          <div class="flex items-center justify-center h-full">
+            <div class="text-[var(--color-text-secondary)]">loading...</div>
+          </div>
+        ) : (
+          <Show
+            when={albums().length > 0 || albumsQuery.isLoading}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                <div class="text-center max-w-md">
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                    no albums in your library yet
+                  </p>
+                  <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                    click "add music" above to import local audio files or
+                    download from urls
+                  </p>
+                  <Button variant="primary" onClick={props.onAddMusic}>
+                    add music
+                  </Button>
+                </div>
               </div>
-            </div>
-          }
-        >
-          <VirtualAlbumGrid
-            albums={albums()}
-            onAlbumClick={handleAlbumClick}
-            onAlbumPlay={handleAlbumPlay}
-            showYear={true}
-            cardSize="medium"
-            height={undefined}
-          />
-        </Show>
+            }
+          >
+            <VirtualAlbumGrid
+              albums={albums()}
+              onAlbumClick={handleAlbumClick}
+              onAlbumPlay={handleAlbumPlay}
+              showYear={true}
+              cardSize="medium"
+              height={undefined}
+            />
+          </Show>
+        )}
       </div>
     </div>
   );
