@@ -1,6 +1,12 @@
 // top nav search component with suggestions and navigation
 import { useLocation, useNavigate } from "@solidjs/router";
-import { createMemo, createSignal, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchField, SearchSuggestion } from "../../music/data/types";
 import { useSearchSuggestions } from "../../music/queries/search";
@@ -24,6 +30,38 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [searchValue, setSearchValue] = createSignal("");
   const [isExpanded, setIsExpanded] = createSignal(false);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
+  let inputRef: HTMLInputElement | undefined;
+  let preventReopen = false;
+
+  // get current filterable view name
+  const currentFilterableView = createMemo(() => {
+    const pathname = location.pathname;
+    const filterableRoutes = [
+      "songs",
+      "albums",
+      "artists",
+      "playlists",
+      "genres",
+    ];
+    return filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
+  });
+
+  // cmd+k keyboard shortcut to focus search
+  createEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setIsExpanded(true);
+        // focus input after it's rendered
+        setTimeout(() => {
+          inputRef?.focus();
+        }, 0);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
 
   // suggestions query with infinite scroll
   const suggestionsQuery = useSearchSuggestions({
@@ -78,6 +116,13 @@ export function TopNavSearch(props: TopNavSearchProps) {
             : undefined,
         };
       });
+  });
+
+  // create hint message for enter key action
+  const enterHintMessage = createMemo(() => {
+    const view = currentFilterableView();
+    if (!view || !searchValue() || searchValue().length < 2) return null;
+    return `press enter to filter ${view}`;
   });
 
   // handle loading more suggestions
@@ -270,15 +315,24 @@ export function TopNavSearch(props: TopNavSearchProps) {
   // handle enter key to submit search
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
-      handleSearchSubmit();
-      // close suggestions and blur input
+      // prevent suggestions from reopening when Kobalte restores focus
+      preventReopen = true;
       setSuggestionsOpen(false);
-      (e.target as HTMLInputElement).blur();
+      handleSearchSubmit();
+
+      // clear the flag after Kobalte's auto-focus restoration completes
+      setTimeout(() => {
+        preventReopen = false;
+      }, 100);
     }
   };
 
   // handle focus to show suggestions
   const handleFocus = () => {
+    // don't reopen if we just closed via Enter (Kobalte auto-focuses on unmount)
+    if (preventReopen) {
+      return;
+    }
     if (searchValue().length >= 2) {
       setSuggestionsOpen(true);
     }
@@ -299,6 +353,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
       >
         <div class="flex items-center gap-2 transition-all duration-300">
           <SearchInput
+            ref={inputRef}
             placeholder={
               props.placeholder || "search songs, artists, albums..."
             }
@@ -313,6 +368,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onKeyDown={handleKeyDown}
             onEndReached={handleEndReached}
             loadingMore={suggestionsQuery.isFetchingNextPage}
+            hintMessage={enterHintMessage()}
+            onHintClick={handleSearchSubmit}
             onBlur={(e) => {
               // check if we're blurring to something outside the search component
               const relatedTarget = e.relatedTarget as HTMLElement | null;
@@ -324,32 +381,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
                 return;
               }
 
-              // close suggestions
+              // just close suggestions on blur
               setSuggestionsOpen(false);
-
-              const query = searchValue();
-              // if there's a search value, submit the search on blur
-              if (query && query.length >= 2) {
-                handleSearchSubmit();
-              } else if (!query) {
-                // if empty, clear the query param if on a filterable view
-                const pathname = location.pathname;
-                const filterableRoutes = [
-                  "songs",
-                  "albums",
-                  "artists",
-                  "playlists",
-                  "genres",
-                ];
-                const currentRoute = filterableRoutes.find((route) =>
-                  pathname.endsWith(`/${route}`),
-                );
-                if (currentRoute && location.search) {
-                  navigate(pathname, { replace: true });
-                }
-                // collapse if there's no search value when focus is lost
-                setIsExpanded(false);
-              }
             }}
             class="w-64"
             variant="filled"

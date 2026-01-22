@@ -5,6 +5,8 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 
+type Ref<T> = T | ((el: T) => void);
+
 export interface SearchSuggestion {
   /** unique identifier for the suggestion */
   id: string;
@@ -67,6 +69,12 @@ export interface SearchInputProps {
   class?: string;
   /** variant style */
   variant?: "default" | "filled";
+  /** hint message to show at top of suggestions (e.g., "press enter to...") */
+  hintMessage?: string | null;
+  /** callback when hint message is clicked */
+  onHintClick?: () => void;
+  /** ref to the input element */
+  ref?: Ref<HTMLInputElement>;
 }
 
 // get display name for category
@@ -139,6 +147,9 @@ export function SearchInput(props: SearchInputProps) {
     "variant",
     "onEndReached",
     "loadingMore",
+    "hintMessage",
+    "onHintClick",
+    "ref",
   ]);
 
   const variant = () => local.variant || "default";
@@ -323,7 +334,12 @@ export function SearchInput(props: SearchInputProps) {
               </div>
 
               <Search.Input
-                ref={inputRef}
+                ref={(el) => {
+                  inputRef = el;
+                  if (typeof local.ref === "function") {
+                    local.ref(el);
+                  }
+                }}
                 onFocus={() => local.onFocus?.()}
                 onBlur={(e) => local.onBlur?.(e)}
                 onKeyDown={(e) => local.onKeyDown?.(e)}
@@ -358,6 +374,15 @@ export function SearchInput(props: SearchInputProps) {
               w-max
             "
           >
+            <Show when={local.hintMessage}>
+              <div
+                class="px-4 py-2 text-xs text-[var(--color-text-secondary)] border-b border-[var(--color-border-default)] cursor-pointer hover:bg-[var(--color-bg-hover)]"
+                onClick={() => local.onHintClick?.()}
+              >
+                {local.hintMessage}
+              </div>
+            </Show>
+
             <Search.Listbox
               class="max-h-80 overflow-y-auto"
               onScroll={handleScroll}
