@@ -145,6 +145,9 @@ export function SearchInput(props: SearchInputProps) {
   const [inputText, setInputText] = createSignal("");
   let inputRef: HTMLInputElement | undefined;
 
+  // track if thumbnail was clicked to prevent row navigation
+  let thumbnailClicked = false;
+
   // handle scroll for infinite loading
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLElement;
@@ -184,9 +187,12 @@ export function SearchInput(props: SearchInputProps) {
           local.onInputChange?.(value);
         }}
         onChange={(value) => {
-          if (value) {
+          // don't navigate if thumbnail was clicked (play action)
+          if (value && !thumbnailClicked) {
             local.onSelect?.(value);
           }
+          // reset flag for next interaction
+          thumbnailClicked = false;
         }}
         debounceOptionsMillisecond={local.debounceMs ?? 300}
         disabled={local.disabled}
@@ -194,7 +200,6 @@ export function SearchInput(props: SearchInputProps) {
         multiple={false}
         itemComponent={(itemProps) => {
           const [isHovering, setIsHovering] = createSignal(false);
-          let thumbnailClicked = false;
 
           return (
             <Search.Item
