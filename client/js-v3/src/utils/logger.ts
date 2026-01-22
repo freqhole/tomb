@@ -18,7 +18,7 @@ declare global {
 const getConfig = (): LoggerConfig => {
   return (
     window.__LOGGER_CONFIG || {
-      level: "debug", // temporarily set to debug for troubleshooting
+      level: "info",
       enabled: true,
     }
   );

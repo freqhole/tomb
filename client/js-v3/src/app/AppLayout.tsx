@@ -75,8 +75,7 @@ export function AppLayout(props: AppLayoutProps) {
   const routeContext = useRouteDataSource();
 
   // fetch recent playlists (contextual to current data source)
-  // TEMPORARILY DISABLED to isolate favorites issue
-  // const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
+  const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
   // load remotes and storage info on mount
   onMount(async () => {
@@ -216,7 +215,17 @@ export function AppLayout(props: AppLayoutProps) {
         onAddRemote={() => setIsAddRemoteOpen(true)}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}
-        recentPlaylists={[]}
+        recentPlaylists={
+          recentPlaylistsQuery.data?.map((playlist) => ({
+            id: playlist.playlist_id,
+            name: playlist.title,
+            thumbnailUrl: playlist.thumbnail_blob_id
+              ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${playlist.thumbnail_blob_id}`
+              : null,
+            updatedAt: playlist.updated_at,
+            onClick: () => handlePlaylistClick(playlist.playlist_id),
+          })) || []
+        }
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
         mainNavSections={[

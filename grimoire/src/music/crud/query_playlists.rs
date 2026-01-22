@@ -16,20 +16,34 @@ use crate::GrimoireResponse;
 enum PlaylistView {
     #[iden = "playlist_query_view"]
     Table,
+    #[iden = "playlist_id"]
+    PlaylistId,
     #[iden = "playlist_title"]
     PlaylistTitle,
     #[iden = "playlist_description"]
     PlaylistDescription,
+    #[iden = "playlist_is_public"]
+    PlaylistIsPublic,
+    #[iden = "playlist_thumbnail_blob_id"]
+    PlaylistThumbnailBlobId,
+    #[iden = "playlist_created_by_id"]
+    PlaylistCreatedById,
     #[iden = "playlist_created_at"]
     PlaylistCreatedAt,
     #[iden = "playlist_updated_at"]
     PlaylistUpdatedAt,
+    #[iden = "playlist_deleted_at"]
+    PlaylistDeletedAt,
     #[iden = "playlist_song_count"]
     PlaylistSongCount,
     #[iden = "playlist_total_duration"]
     PlaylistTotalDuration,
-    #[iden = "playlist_is_public"]
-    PlaylistIsPublic,
+    #[iden = "favorite_id"]
+    FavoriteId,
+    #[iden = "favorite_user_id"]
+    FavoriteUserId,
+    #[iden = "favorited_at"]
+    FavoritedAt,
 }
 
 // Playlist songs view for position-ordered songs
@@ -73,9 +87,11 @@ pub struct PlaylistViewRow {
     playlist_song_count: i64,
     playlist_total_duration: i64,
     // user favorites
-    _favorite_id: Option<i64>,
+    #[allow(dead_code)]
+    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
-    _favorited_at: Option<i64>,
+    #[allow(dead_code)]
+    favorited_at: Option<i64>,
 }
 
 impl PlaylistViewRow {
@@ -320,7 +336,22 @@ pub async fn query_playlists(
     let offset = params.offset.unwrap_or(0);
 
     let mut query = Query::select();
-    query.column(sea_query::Asterisk).from(PlaylistView::Table);
+    query
+        .column(PlaylistView::PlaylistId)
+        .column(PlaylistView::PlaylistTitle)
+        .column(PlaylistView::PlaylistDescription)
+        .column(PlaylistView::PlaylistIsPublic)
+        .column(PlaylistView::PlaylistThumbnailBlobId)
+        .column(PlaylistView::PlaylistCreatedById)
+        .column(PlaylistView::PlaylistCreatedAt)
+        .column(PlaylistView::PlaylistUpdatedAt)
+        .column(PlaylistView::PlaylistDeletedAt)
+        .column(PlaylistView::PlaylistSongCount)
+        .column(PlaylistView::PlaylistTotalDuration)
+        .column(PlaylistView::FavoriteId)
+        .column(PlaylistView::FavoriteUserId)
+        .column(PlaylistView::FavoritedAt)
+        .from(PlaylistView::Table);
 
     add_playlist_filters(&mut query, &params);
 
@@ -375,7 +406,13 @@ pub async fn query_playlists(
 
     let rows: Vec<PlaylistViewRow> = match sqlx_query.fetch_all(&pool).await {
         Ok(r) => r,
-        Err(e) => return GrimoireResponse::failure("Failed to query playlists", vec![e.into()]),
+        Err(e) => {
+            tracing::error!("Failed to fetch playlists from database: {:?}", e);
+            return GrimoireResponse::failure(
+                &format!("Failed to query playlists: {}", e),
+                vec![e.into()],
+            );
+        }
     };
 
     let user_id_ref = params.user_id.as_deref();
