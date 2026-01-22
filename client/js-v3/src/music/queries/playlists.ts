@@ -8,11 +8,15 @@ import {
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
 import type { PlaylistSummary, Song } from "../data/types";
+import { queryKeys } from "./queryKeys";
 
 // query hook for recent playlists (no pagination, just top N)
-export function useRecentPlaylistsQuery(limit: number = 5) {
+export function useRecentPlaylistsQuery(
+  limit: number = 5,
+  enabled: Accessor<boolean> = () => true,
+) {
   return createQuery(() => ({
-    queryKey: ["playlists", "recent", limit],
+    queryKey: queryKeys.playlists.recent(limit),
     queryFn: async () => {
       const dataSource = getDataSource();
 
@@ -27,6 +31,9 @@ export function useRecentPlaylistsQuery(limit: number = 5) {
 
       return response.items;
     },
+    enabled: enabled(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
   }));
 }
 
@@ -42,7 +49,7 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
   const pageSize = options?.pageSize || 50;
 
   return createInfiniteQuery(() => ({
-    queryKey: ["playlists", "infinite", search?.()],
+    queryKey: [...queryKeys.playlists.all, "infinite", search?.()],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
 
@@ -139,7 +146,7 @@ export function useCreatePlaylistMutation() {
     },
     onSuccess: () => {
       // invalidate playlists queries to refetch
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all });
     },
   }));
 }
@@ -167,7 +174,7 @@ export function useUpdatePlaylistMutation() {
     },
     onSuccess: (_, variables) => {
       // invalidate playlists queries and specific playlist songs
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all });
       queryClient.invalidateQueries({
         queryKey: ["playlists", variables.playlistId],
       });

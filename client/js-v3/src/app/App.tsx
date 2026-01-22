@@ -11,6 +11,7 @@ import {
   initializeDataSource,
   useRemoteSource,
 } from "../music/data";
+import { queryKeys } from "../music/queries/queryKeys";
 import { playSong } from "../music/services/audio/player";
 import {
   cleanupCacheNetworkHandlers,
@@ -77,7 +78,7 @@ export function App() {
       if (result.addedCount > 0) {
         setHasSongs(true);
         // invalidate songs query to show new songs
-        queryClient.invalidateQueries({ queryKey: ["songs"] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
       }
       setIsAddMusicOpen(false);
     } catch (error) {

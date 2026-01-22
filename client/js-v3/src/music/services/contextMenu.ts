@@ -140,6 +140,7 @@ export function useSongContextMenu(
       toggleFavoriteMutation.mutate({
         targetType: "song",
         targetId: song.id,
+        sha256: song.sha256,
         isFavorite: !options.isFavorite,
       });
     },

@@ -346,9 +346,10 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
       >
         <For each={rowVirtualizer.getVirtualItems()}>
           {(virtualRow) => {
-            const song = props.songs[virtualRow.index];
-            const isPlaying = props.playingSongId === song.id;
-            const isSelected = props.selectedSongIds?.has(song.id);
+            // make song access reactive so changes to song data trigger re-renders
+            const song = () => props.songs[virtualRow.index];
+            const isPlaying = () => props.playingSongId === song().id;
+            const isSelected = () => props.selectedSongIds?.has(song().id);
 
             const rowContent = (
               <div
@@ -356,26 +357,28 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   h-full cursor-pointer
                   border-b border-[var(--color-border-subtle)]
                   transition-colors
-                  ${isPlaying ? "bg-[var(--color-accent-500)] bg-opacity-10 text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
-                  ${isSelected ? "bg-[var(--color-bg-hover)]" : ""}
+                  ${isPlaying() ? "bg-[var(--color-accent-500)] bg-opacity-10 text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
+                  ${isSelected() ? "bg-[var(--color-bg-hover)]" : ""}
                 `}
                 style={{
                   display: "grid",
                   "grid-template-columns": getGridTemplate(),
                   "align-items": "center",
                 }}
-                onClick={() => handleRowClick(song, virtualRow.index)}
-                onDblClick={() => handleRowDoubleClick(song, virtualRow.index)}
+                onClick={() => handleRowClick(song(), virtualRow.index)}
+                onDblClick={() =>
+                  handleRowDoubleClick(song(), virtualRow.index)
+                }
               >
                 {/* thumbnail with track number overlay */}
                 <Show when={showTrackNumber()}>
                   <div class="px-3 flex justify-center">
                     <MediaThumbnail
-                      thumbnailUrl={song.thumbnailUrl}
-                      indexText={getTrackNumber(song, virtualRow.index)}
+                      thumbnailUrl={song().thumbnailUrl}
+                      indexText={getTrackNumber(song(), virtualRow.index)}
                       hideIndex={false}
                       onPlayClick={() =>
-                        handleRowDoubleClick(song, virtualRow.index)
+                        handleRowDoubleClick(song(), virtualRow.index)
                       }
                       size={40}
                     />
@@ -385,15 +388,15 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {/* title */}
                 <div class="px-4 min-w-0">
                   <div class="font-medium">
-                    <MarqueeText text={song.title} hoverOnly={true} />
+                    <MarqueeText text={song().title} hoverOnly={true} />
                   </div>
                 </div>
 
                 {/* artist */}
                 <Show when={showArtist()}>
                   <div class="px-4 min-w-0">
-                    <div class="text-[var(--color-text-secondary)]">
-                      <MarqueeText text={song.artist} hoverOnly={true} />
+                    <div class="text-sm text-[var(--color-text-secondary)]">
+                      <MarqueeText text={song().artist} hoverOnly={true} />
                     </div>
                   </div>
                 </Show>
@@ -401,8 +404,8 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {/* album */}
                 <Show when={showAlbum()}>
                   <div class="px-4 min-w-0">
-                    <div class="text-[var(--color-text-secondary)]">
-                      <MarqueeText text={song.album} hoverOnly={true} />
+                    <div class="text-sm text-[var(--color-text-secondary)]">
+                      <MarqueeText text={song().album} hoverOnly={true} />
                     </div>
                   </div>
                 </Show>
@@ -410,18 +413,18 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {/* genre */}
                 <div class="px-4 min-w-0">
                   <div class="text-[var(--color-text-tertiary)] text-sm">
-                    <MarqueeText text={song.genre || "—"} hoverOnly={true} />
+                    <MarqueeText text={song().genre || "—"} hoverOnly={true} />
                   </div>
                 </div>
 
                 {/* year */}
                 <div class="px-4 text-left text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                  {song.year || "—"}
+                  {song().year || "—"}
                 </div>
 
                 {/* duration */}
                 <div class="px-4 text-right text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                  {song.duration}
+                  {song().duration}
                 </div>
 
                 {/* favorite */}
@@ -429,13 +432,13 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   <div class="px-3 flex justify-center">
                     <button
                       class={`w-4 h-4 transition-colors ${
-                        song.userIsFavorite
+                        song().userIsFavorite
                           ? "text-[var(--color-accent-500)]"
                           : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                       }`}
-                      onClick={(e) => handleFavoriteClick(e, song)}
+                      onClick={(e) => handleFavoriteClick(e, song())}
                       title={
-                        song.userIsFavorite
+                        song().userIsFavorite
                           ? "remove from favorites"
                           : "add to favorites"
                       }
@@ -456,14 +459,14 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   <div class="px-3 flex justify-center">
                     <button
                       class={`text-sm transition-colors ${
-                        song.userRating
+                        song().userRating
                           ? "text-[var(--color-accent-500)]"
                           : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                       }`}
-                      onClick={(e) => handleRatingClick(e, song)}
-                      title={`rating: ${song.userRating || 0}/5 (click to cycle)`}
+                      onClick={(e) => handleRatingClick(e, song())}
+                      title={`rating: ${song().userRating || 0}/5 (click to cycle)`}
                     >
-                      {song.userRating ? `★${song.userRating}` : "☆"}
+                      {song().userRating ? `★${song().userRating}` : "☆"}
                     </button>
                   </div>
                 </Show>
@@ -473,7 +476,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   <div class="px-4 min-w-0">
                     <div class="text-xs text-[var(--color-text-muted)]">
                       <MarqueeText
-                        text={song.tags?.join(", ") || ""}
+                        text={song().tags?.join(", ") || ""}
                         hoverOnly={true}
                       />
                     </div>
@@ -497,7 +500,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {props.getContextMenuActions ? (
                   <ContextMenu
                     actions={props.getContextMenuActions(
-                      song,
+                      song(),
                       virtualRow.index,
                     )}
                   >

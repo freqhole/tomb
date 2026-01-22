@@ -1,9 +1,18 @@
-// query hooks for favorites
+// query hooks for favorites with optimistic updates
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
+import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
+import { debug, error as logError, warn } from "../../utils/logger";
 import { getCurrentRemote } from "../data";
 import { setFavorite as setLocalFavorite } from "../services/storage/db";
+import {
+  updateAlbumInCache,
+  updateArtistInCache,
+  updatePlaylistInCache,
+  updateSongInCache,
+} from "./cacheUpdates";
+import { queryKeys } from "./queryKeys";
 
 // favorite target types
 export type FavoriteTarget = "song" | "album" | "artist" | "playlist";
@@ -16,6 +25,7 @@ export function useToggleFavoriteMutation() {
     mutationFn: async (params: {
       targetType: FavoriteTarget;
       targetId: string;
+      sha256?: string; // for songs
       isFavorite: boolean;
     }) => {
       const remote = getCurrentRemote();
@@ -59,59 +69,81 @@ export function useToggleFavoriteMutation() {
 
       return params.isFavorite;
     },
+
+    // optimistic update - immediately update the cache before the API call
+    onMutate: async (variables) => {
+      debug("favorites", "onMutate called:", variables);
+
+      // update the song in the queue (IndexedDB) immediately so PlayerBar and Queue show correct state
+      if (variables.targetType === "song" && variables.sha256) {
+        debug("favorites", "updating song in queue (IndexedDB)");
+        await updateSongInQueue(variables.targetId, variables.sha256, {
+          is_favorite: variables.isFavorite,
+        });
+      }
+
+      debug("favorites", "onMutate complete");
+      return { variables };
+    },
+
     onSuccess: (isFavorite, variables) => {
+      debug("favorites", "onSuccess:", { isFavorite, variables });
       // show success toast
       const action = isFavorite ? "added to" : "removed from";
       toast.success(`${action} favorites`);
 
-      // invalidate relevant queries to refetch with updated favorite status
-      invalidateQueriesForTarget(
-        queryClient,
+      // invalidate queries to trigger refetch with updated favorite status
+      const queryKeyToInvalidate = getQueryKeyForTargetType(
         variables.targetType,
-        variables.targetId,
       );
+      debug(
+        "favorites",
+        "invalidating queries with key:",
+        queryKeyToInvalidate,
+      );
+
+      queryClient.invalidateQueries({
+        queryKey: queryKeyToInvalidate,
+        exact: false,
+      });
+
+      debug("favorites", "invalidation complete");
     },
-    onError: (error: Error, variables) => {
+
+    onError: (error: Error, variables, context) => {
       // show error toast
-      console.error("failed to toggle favorite:", error);
+      logError("favorites", "onError:", error);
+      logError("favorites", "variables:", variables);
       const action = variables.isFavorite ? "add to" : "remove from";
       toast.error(`failed to ${action} favorites`, {
         title: "error",
+      });
+
+      // invalidate queries to refetch and show correct state
+      debug("favorites", "invalidating queries after error");
+      const queryKeyToInvalidate = getQueryKeyForTargetType(
+        variables.targetType,
+      );
+      queryClient.invalidateQueries({
+        queryKey: queryKeyToInvalidate,
+        exact: false,
       });
     },
   }));
 }
 
-// helper to invalidate all queries that might show this item's favorite status
-function invalidateQueriesForTarget(
-  queryClient: ReturnType<typeof useQueryClient>,
+// helper to get the correct query key for a target type
+function getQueryKeyForTargetType(
   targetType: FavoriteTarget,
-  targetId: string,
-) {
-  // invalidate the specific item query
-  queryClient.invalidateQueries({
-    queryKey: [targetType + "s", targetId],
-  });
-
-  // also invalidate list queries that might show this item
+): readonly unknown[] {
   switch (targetType) {
     case "song":
-      queryClient.invalidateQueries({ queryKey: ["songs"] });
-      queryClient.invalidateQueries({ queryKey: ["albums"] }); // album detail shows songs
-      queryClient.invalidateQueries({ queryKey: ["playlists"] }); // playlist detail shows songs
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      break;
+      return queryKeys.songs.all;
     case "album":
-      queryClient.invalidateQueries({ queryKey: ["albums"] });
-      queryClient.invalidateQueries({ queryKey: ["artists"] }); // artist detail shows albums
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      break;
+      return queryKeys.albums.all;
     case "artist":
-      queryClient.invalidateQueries({ queryKey: ["artists"] });
-      queryClient.invalidateQueries({ queryKey: ["search"] });
-      break;
+      return queryKeys.artists.all;
     case "playlist":
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      break;
+      return queryKeys.playlists.all;
   }
 }

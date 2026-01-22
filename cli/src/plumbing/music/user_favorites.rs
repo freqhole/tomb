@@ -63,7 +63,7 @@ pub async fn handle_command(action: FavoritesAction) -> CommandOutput<serde_json
             };
 
             let request = SetFavoriteRequest {
-                user_id: user_id.clone(),
+                user_id: Some(user_id.clone()),
                 target_type: favorite_target,
                 target_id: target_id.clone(),
                 is_favorite: true,
@@ -91,7 +91,7 @@ pub async fn handle_command(action: FavoritesAction) -> CommandOutput<serde_json
             };
 
             let request = SetFavoriteRequest {
-                user_id: user_id.clone(),
+                user_id: Some(user_id.clone()),
                 target_type: favorite_target,
                 target_id: target_id.clone(),
                 is_favorite: false,

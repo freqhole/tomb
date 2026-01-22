@@ -92,6 +92,32 @@ async function setQueue(songs: Song[]): Promise<void> {
   clearInProgressTracking();
 }
 
+// update a specific song in the queue (for metadata changes like favorites, ratings)
+async function updateSongInQueue(
+  songId: string,
+  sha256: string,
+  updates: Partial<Song>,
+): Promise<void> {
+  const state = appState();
+  if (!state?.queue) return;
+
+  // find and update the song in the queue
+  const updatedQueue = state.queue.map((song) =>
+    song.id === songId || song.sha256 === sha256
+      ? { ...song, ...updates }
+      : song,
+  );
+
+  // only update if something changed
+  const hasChanges = updatedQueue.some(
+    (song, index) => song !== state.queue[index],
+  );
+
+  if (hasChanges) {
+    await setQueue(updatedQueue);
+  }
+}
+
 // set queue open state
 async function setQueueOpen(isOpen: boolean): Promise<void> {
   await updateAppState({ queue_open: isOpen });
@@ -119,4 +145,5 @@ export {
   setQueue,
   setQueueOpen,
   updateAppState,
+  updateSongInQueue,
 };

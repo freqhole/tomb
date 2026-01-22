@@ -64,7 +64,7 @@ function ToastItem(props: ToastProps) {
       class="toast pointer-events-auto"
     >
       <div
-        class="flex items-start gap-3 p-4 rounded-lg shadow-lg border min-w-[320px] max-w-[420px]"
+        class="flex items-start gap-3 p-4 rounded-t-lg shadow-lg border-t-1 min-w-[320px] max-w-[420px]"
         style={{
           "background-color": `${variantConfig().colors.bg}`,
           "border-color": `${variantConfig().colors.border}`,

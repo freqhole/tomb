@@ -9,6 +9,9 @@ export interface Artist {
   name: string;
   created_at: number;
   updated_at: number;
+  // user-specific fields (from query views)
+  is_favorite?: boolean;
+  user_rating?: number;
 }
 
 // ===== ALBUMS TABLE =====
@@ -24,6 +27,9 @@ export interface Album {
   year: number | null;
   created_at: number;
   updated_at: number;
+  // user-specific fields (from query views)
+  is_favorite?: boolean;
+  user_rating?: number;
 }
 
 // ===== SONGS TABLE =====
@@ -103,6 +109,9 @@ export interface Playlist {
   source_etag?: string | null; // last known etag for sync
   last_synced_at?: number | null; // timestamp of last sync
   is_editable?: boolean; // false for synced playlists, defaults to true
+  // user-specific fields (from query views)
+  is_favorite?: boolean;
+  user_rating?: number;
 }
 
 // ===== PLAYLIST_SONGS TABLE (junction) =====

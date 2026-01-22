@@ -1,8 +1,10 @@
 // infinite query hook for songs with album-grouped sorting
 import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
+import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
+import { queryKeys } from "./queryKeys";
 
 export type SongSortField =
   | "added_at"
@@ -32,16 +34,19 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
   const query = options?.query;
 
   return createInfiniteQuery(() => ({
-    queryKey: [
-      "songs",
-      "infinite",
-      sortField(),
-      sortDirection(),
-      artistId?.(),
-      albumId?.(),
-      query?.(),
-    ],
+    queryKey: queryKeys.songs.infinite({
+      sortField: sortField(),
+      sortDirection: sortDirection(),
+      artistId: artistId?.(),
+      albumId: albumId?.(),
+      search: query?.(),
+    }),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
+      debug("songsQuery", "fetching songs page:", {
+        pageParam,
+        sortField: sortField(),
+        sortDirection: sortDirection(),
+      });
       const dataSource = getDataSource();
 
       const response = await dataSource.getSongs({
@@ -54,6 +59,10 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
         search: query?.(),
       });
 
+      debug("songsQuery", "received songs page:", {
+        count: response.items.length,
+        hasMore: response.has_more,
+      });
       return response;
     },
     getNextPageParam: (lastPage, allPages) => {
@@ -74,7 +83,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
 // simple query hook for fetching a single song by id
 export function useSongQuery(songId: Accessor<string | undefined>) {
   return createQuery(() => ({
-    queryKey: ["song", songId()],
+    queryKey: queryKeys.songs.detail(songId() || ""),
     queryFn: async () => {
       const id = songId();
       if (!id) return null;

@@ -75,7 +75,8 @@ export function AppLayout(props: AppLayoutProps) {
   const routeContext = useRouteDataSource();
 
   // fetch recent playlists (contextual to current data source)
-  const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
+  // TEMPORARILY DISABLED to isolate favorites issue
+  // const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
   // load remotes and storage info on mount
   onMount(async () => {
@@ -151,19 +152,7 @@ export function AppLayout(props: AppLayoutProps) {
     navigate(routes.playlist(playlistId));
   };
 
-  // handle favorite toggle for current song
-  const handleFavoriteToggle = () => {
-    const song = currentSongData();
-    if (!song) return;
-
-    const currentIsFavorite = song.is_favorite || false;
-
-    toggleFavoriteMutation.mutate({
-      targetType: "song",
-      targetId: song.id,
-      isFavorite: !currentIsFavorite,
-    });
-  };
+  // handle favorite toggle for current song (deprecated - replaced by inline handler)
 
   // watch for current song changes and load song data
   createEffect(() => {
@@ -227,17 +216,7 @@ export function AppLayout(props: AppLayoutProps) {
         onAddRemote={() => setIsAddRemoteOpen(true)}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}
-        recentPlaylists={
-          recentPlaylistsQuery.data?.map((playlist) => ({
-            id: playlist.playlist_id,
-            name: playlist.title,
-            thumbnailUrl: playlist.thumbnail_blob_id
-              ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${playlist.thumbnail_blob_id}`
-              : null,
-            updatedAt: playlist.updated_at,
-            onClick: () => handlePlaylistClick(playlist.playlist_id),
-          })) || []
-        }
+        recentPlaylists={[]}
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
         mainNavSections={[
@@ -406,7 +385,19 @@ export function AppLayout(props: AppLayoutProps) {
           onSeek={handleSeek}
           onVolumeChange={setPlayerVolume}
           onQueueToggle={handleQueueToggle}
-          onFavoriteToggle={handleFavoriteToggle}
+          onFavoriteToggle={() => {
+            const song = currentSongData();
+            if (!song) return;
+
+            const currentIsFavorite = song.is_favorite || false;
+
+            toggleFavoriteMutation.mutate({
+              targetType: "song",
+              targetId: song.id,
+              sha256: song.sha256,
+              isFavorite: !currentIsFavorite,
+            });
+          }}
           queueLength={appState()?.queue.length || 0}
           canGoNext={canGoNext()}
           canGoPrevious={canGoPrevious()}

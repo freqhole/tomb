@@ -8,6 +8,7 @@ import {
   type SortField,
   type VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
+import { debug } from "../../utils/logger";
 import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -84,6 +85,11 @@ export function SongsView(props: SongsViewProps) {
 
   // convert to virtual song list format - memoized to prevent unnecessary recreations
   const virtualSongs = createMemo((): VirtualSong[] => {
+    debug(
+      "SongsView",
+      "virtualSongs memo recalculating, song count:",
+      allSongs().length,
+    );
     return allSongs().map((song) => ({
       id: song.sha256,
       title: song.title,
@@ -136,9 +142,11 @@ export function SongsView(props: SongsViewProps) {
     const song = allSongs().find((s) => s.sha256 === virtualSong.id);
     if (!song) return;
 
+    // mutation handles optimistic update automatically
     toggleFavoriteMutation.mutate({
       targetType: "song",
       targetId: song.id,
+      sha256: song.sha256,
       isFavorite,
     });
   };
