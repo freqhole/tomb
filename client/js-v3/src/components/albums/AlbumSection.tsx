@@ -1,6 +1,7 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { SongRow } from "../songs/SongRow";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -29,6 +30,8 @@ export interface AlbumSectionProps {
   artworkUrl?: string | null;
   /** currently playing song id */
   playingSongId?: string;
+  /** album favorite status */
+  isFavorite?: boolean;
   /** click handler for album (navigates to album detail) */
   onAlbumClick?: (albumId: string) => void;
   /** play album handler */
@@ -140,6 +143,12 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             />
           </svg>
         </button>
+        <FavoriteToggle
+          targetType="album"
+          targetId={props.albumId}
+          isFavorite={props.isFavorite ?? false}
+          size="md"
+        />
       </div>
     </div>
   );

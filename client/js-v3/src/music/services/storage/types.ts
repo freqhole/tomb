@@ -62,6 +62,7 @@ export interface Song {
   // user-specific metadata (from current authenticated user)
   is_favorite?: boolean; // whether user has favorited this song
   user_rating?: number; // user's rating (1-5)
+  album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
 
   // source information
   source_type: MusicSourceType;

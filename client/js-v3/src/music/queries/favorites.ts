@@ -153,7 +153,10 @@ function getQueryKeysToInvalidate(
         ["genre", "songs"], // genre songs
       ];
     case "album":
-      return [queryKeys.albums.all];
+      return [
+        queryKeys.albums.all,
+        ["artist", "songs"], // artist songs contain album_is_favorite
+      ];
     case "artist":
       return [queryKeys.artists.all];
     case "playlist":

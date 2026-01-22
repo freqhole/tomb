@@ -263,6 +263,7 @@ pub struct SongQueryResult {
     pub artist_total_song_count: Option<i64>, // Total songs by this artist
     pub artist_total_album_count: Option<i64>, // Total albums by this artist
     pub artist_total_duration: Option<i64>, // Total duration of artist's music
+    pub album_is_favorite: Option<bool>,    // Album's favorite status
 }
 
 /// artist with aggregated metadata for query results

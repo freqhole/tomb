@@ -877,7 +877,8 @@ export const PlaylistSongResultSchema = z.object({
   rating_created_at: z.number().nullable(),
   artist_total_song_count: z.number().nullable(),
   artist_total_album_count: z.number().nullable(),
-  artist_total_duration: z.number().nullable()
+  artist_total_duration: z.number().nullable(),
+  album_is_favorite: z.boolean().nullable()
 }),
   position: z.number(),
   added_at: z.number()
@@ -971,7 +972,8 @@ export const PlaylistSongsQueryResultSchema = z.object({
   rating_created_at: z.number().nullable(),
   artist_total_song_count: z.number().nullable(),
   artist_total_album_count: z.number().nullable(),
-  artist_total_duration: z.number().nullable()
+  artist_total_duration: z.number().nullable(),
+  album_is_favorite: z.boolean().nullable()
 }),
   position: z.number(),
   added_at: z.number()
@@ -1426,7 +1428,8 @@ export const SongQueryResultSchema = z.object({
   rating_created_at: z.number().nullable(),
   artist_total_song_count: z.number().nullable(),
   artist_total_album_count: z.number().nullable(),
-  artist_total_duration: z.number().nullable()
+  artist_total_duration: z.number().nullable(),
+  album_is_favorite: z.boolean().nullable()
 });
 export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
 
@@ -1538,7 +1541,8 @@ export const SongsQueryResultSchema = z.object({
   rating_created_at: z.number().nullable(),
   artist_total_song_count: z.number().nullable(),
   artist_total_album_count: z.number().nullable(),
-  artist_total_duration: z.number().nullable()
+  artist_total_duration: z.number().nullable(),
+  album_is_favorite: z.boolean().nullable()
 })),
   total_count: z.number(),
   has_more: z.boolean(),

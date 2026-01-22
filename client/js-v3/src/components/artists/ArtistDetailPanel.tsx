@@ -37,6 +37,7 @@ export interface ArtistDetailPanelSong {
   year: number | null;
   thumbnail_blob_id: string | null;
   is_favorite?: boolean;
+  album_is_favorite?: boolean;
 }
 
 interface AlbumGroup {
@@ -46,6 +47,7 @@ interface AlbumGroup {
   songs: AlbumSectionSong[];
   totalDuration: number;
   artworkUrl: string | null;
+  isFavorite: boolean;
 }
 
 export interface ArtistDetailPanelProps {
@@ -89,6 +91,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           songs: [],
           totalDuration: 0,
           artworkUrl: getBlobImageUrl(song.thumbnail_blob_id),
+          isFavorite: song.album_is_favorite ?? false,
         });
       }
 
@@ -188,6 +191,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   songs={album.songs}
                   totalDuration={album.totalDuration}
                   artworkUrl={album.artworkUrl}
+                  isFavorite={album.isFavorite}
                   playingSongId={props.playingSongId}
                   onAlbumClick={props.onAlbumClick}
                   onPlayAlbum={() => props.onPlayAlbum?.(album.albumId)}

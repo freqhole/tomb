@@ -28,6 +28,7 @@ import {
   DraggableRowSongContent,
 } from "../../components/lists/DraggableRow";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import {
   VirtualItemList,
   type ListItem,
@@ -1217,6 +1218,13 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <Button variant="primary" onClick={handlePlayAll}>
                                 play all
                               </Button>
+                              <FavoriteToggle
+                                targetType="playlist"
+                                targetId={selectedPlaylist()?.playlist_id || ""}
+                                isFavorite={
+                                  selectedPlaylist()?.is_favorite ?? false
+                                }
+                              />
                               <Button
                                 variant="secondary"
                                 onClick={handleAddToQueue}

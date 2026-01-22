@@ -39,6 +39,7 @@ interface AlbumGroup {
   songs: AlbumSectionSong[];
   totalDuration: number;
   artworkUrl: string | null;
+  isFavorite: boolean;
 }
 
 export function ArtistDetailView() {
@@ -87,6 +88,7 @@ export function ArtistDetailView() {
           songs: [],
           totalDuration: 0,
           artworkUrl: getBlobImageUrl(song.thumbnail_blob_id),
+          isFavorite: song.album_is_favorite ?? false,
         });
       }
 
@@ -275,6 +277,7 @@ export function ArtistDetailView() {
                       songs={album.songs}
                       totalDuration={album.totalDuration}
                       artworkUrl={album.artworkUrl}
+                      isFavorite={album.isFavorite}
                       onAlbumClick={handleAlbumClick}
                       onPlayAlbum={() => handlePlayAlbum(album.albumId)}
                       onAddToQueue={() => handleAddAlbumToQueue(album.albumId)}
@@ -296,9 +299,7 @@ export function ArtistDetailView() {
                       }
                       getSongContextMenuActions={(song) => {
                         // find full song data
-                        const fullSong = songs().find(
-                          (s) => s.sha256 === song.id,
-                        );
+                        const fullSong = songs().find((s) => s.id === song.id);
                         if (!fullSong) return [];
                         return useSongContextMenu(fullSong, {
                           showPlayActions: true,

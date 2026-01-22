@@ -55,6 +55,7 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     // user-specific metadata (from API response top-level)
     is_favorite: item.is_favorite || false,
     user_rating: item.rating || undefined,
+    album_is_favorite: item.album_is_favorite ?? false,
 
     // remote source type
     source_type: "remote" as const,

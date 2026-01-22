@@ -162,6 +162,10 @@ pub struct SongViewRow {
     rating_user_id: Option<String>,
     user_rating: Option<i32>,
     rating_created_at: Option<i64>,
+    // Album favorite fields
+    album_favorite_user_id: Option<String>,
+    #[allow(dead_code)] // used by sqlx for deserialization
+    album_favorited_at: Option<i64>,
 }
 
 impl SongViewRow {
@@ -251,6 +255,13 @@ impl SongViewRow {
             (None, None, None, None)
         };
 
+        // Determine album favorite status based on user_id match
+        let album_is_favorite = if let Some(uid) = user_id {
+            Some(self.album_favorite_user_id.as_ref() == Some(&uid.to_string()))
+        } else {
+            None
+        };
+
         SongQueryResult {
             song,
             artist,
@@ -267,6 +278,7 @@ impl SongViewRow {
             artist_total_song_count: self.artist_total_song_count,
             artist_total_album_count: self.artist_total_album_count,
             artist_total_duration: self.artist_total_duration,
+            album_is_favorite,
         }
     }
 }

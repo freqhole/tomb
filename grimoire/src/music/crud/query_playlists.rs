@@ -307,6 +307,7 @@ impl PlaylistSongViewRow {
             artist_total_song_count: None,
             artist_total_album_count: None,
             artist_total_duration: None,
+            album_is_favorite: None,
         };
 
         PlaylistSongResult {

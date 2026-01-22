@@ -115,6 +115,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       year: song.year,
       thumbnail_blob_id: song.thumbnail_blob_id,
       is_favorite: song.is_favorite,
+      album_is_favorite: song.album_is_favorite,
     }));
   });
 
@@ -490,7 +491,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           onSongDoubleClick={handleSongDoubleClick}
           getSongData={(songId) => {
             // find the full song data from artistSongs
-            return artistSongs().find((s) => s.sha256 === songId);
+            return artistSongs().find((s) => s.id === songId);
           }}
         />
       )}
