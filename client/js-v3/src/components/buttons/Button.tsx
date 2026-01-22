@@ -71,6 +71,10 @@ export function Button(props: ButtonProps) {
         focus:ring-offset-[var(--color-bg-primary)]
         disabled:opacity-50
         disabled:cursor-not-allowed
+        flex
+        items-center
+        justify-center
+        gap-2
         ${local.class || ""}
       `}
       {...others}

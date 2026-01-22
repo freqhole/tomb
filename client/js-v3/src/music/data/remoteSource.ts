@@ -391,7 +391,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      throw new Error("failed to create playlist");
+      console.error("create playlist failed:", result);
+      throw new Error("failed to create playlist - check console for details");
     }
 
     return {
@@ -460,7 +461,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      throw new Error("failed to add songs to playlist");
+      console.error("add songs to playlist failed:", result);
+      throw new Error(
+        "failed to add songs to playlist - check console for details",
+      );
     }
   }
 

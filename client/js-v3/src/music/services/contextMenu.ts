@@ -5,6 +5,7 @@ import { useNavigate } from "@solidjs/router";
 import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { confirm } from "../../utils/confirm";
+import { showPlaylistSelector } from "../../utils/playlistSelector";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
 import { routes } from "../utils/routing";
@@ -144,8 +145,7 @@ export function useSongContextMenu(
     label: "add to playlist...",
     icon: IconNames.playlist,
     onClick: () => {
-      // TODO: open playlist selection modal
-      console.log("add to playlist:", song.sha256);
+      showPlaylistSelector([song.id]);
     },
   });
 
@@ -245,8 +245,7 @@ export function useMultipleSongsContextMenu(
     label: "add to playlist...",
     icon: IconNames.playlist,
     onClick: () => {
-      // TODO: open playlist selection modal
-      console.log("add multiple songs to playlist:", songs.length);
+      showPlaylistSelector(songs.map((s) => s.id));
     },
   });
 
@@ -384,9 +383,10 @@ export function useAlbumContextMenu(
   actions.push({
     label: "add to playlist...",
     icon: IconNames.playlist,
-    onClick: () => {
-      // TODO: open playlist selection modal
-      console.log("add album to playlist:", album.id);
+    onClick: async () => {
+      const dataSource = getDataSource();
+      const response = await dataSource.getAlbumSongs(album.id);
+      showPlaylistSelector(response.items.map((s) => s.id));
     },
   });
 

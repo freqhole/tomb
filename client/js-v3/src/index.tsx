@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
 import { App } from "./app/App";
 
-const queryClient = new QueryClient();
+export const queryClient = new QueryClient();
 
 const root = document.getElementById("root");
 

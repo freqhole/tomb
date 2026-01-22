@@ -46,7 +46,7 @@ import {
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
-import { buildRoute } from "../music/utils/routing";
+import { routes } from "../music/utils/routing";
 import {
   appState,
   setCurrentSong,
@@ -136,26 +136,17 @@ export function AppLayout(props: AppLayoutProps) {
 
   // handle navigate to playlists view
   const handleViewAllPlaylists = () => {
-    const prefix = routeContext.isLocal()
-      ? "/local"
-      : `/${routeContext.remoteId()}`;
-    navigate(`${prefix}/playlists`);
+    navigate(routes.playlists());
   };
 
   // handle create playlist
   const handleCreatePlaylist = () => {
-    const prefix = routeContext.isLocal()
-      ? "/local"
-      : `/${routeContext.remoteId()}`;
-    navigate(`${prefix}/playlists?create=true`);
+    navigate(routes.playlists() + "?create=true");
   };
 
   // handle playlist click
   const handlePlaylistClick = (playlistId: string) => {
-    const prefix = routeContext.isLocal()
-      ? "/local"
-      : `/${routeContext.remoteId()}`;
-    navigate(buildRoute(`${prefix}/playlists/${playlistId}`));
+    navigate(routes.playlist(playlistId));
   };
 
   // watch for current song changes and load song data
