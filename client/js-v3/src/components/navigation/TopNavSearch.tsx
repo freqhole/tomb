@@ -176,44 +176,50 @@ export function TopNavSearch(props: TopNavSearchProps) {
   };
 
   const handleSelect = (suggestion: SearchInputSuggestion) => {
-    if (!suggestion || !suggestion.data) return;
+    if (!suggestion || !suggestion.data) {
+      return;
+    }
+
+    // collapse search BEFORE navigation to prevent blur handler from interfering
+    setSearchValue("");
+    setIsExpanded(false);
+    setSuggestionsOpen(false);
 
     const s = suggestion.data as SearchSuggestion;
     const meta = s.metadata as any;
 
-    // row click navigates to detail page using route helpers
-    switch (s.suggestion_type) {
-      case "song":
-        // for songs, navigate to album detail page if we have album_id
-        if (meta?.album_id) {
-          navigate(routes.album(meta.album_id));
-        }
-        break;
+    // delay navigation to let state changes complete
+    setTimeout(() => {
+      // row click navigates to detail page using route helpers
+      switch (s.suggestion_type) {
+        case "song":
+          // for songs, navigate to album detail page if we have album_id
+          if (meta?.album_id) {
+            navigate(routes.album(meta.album_id));
+          }
+          break;
 
-      case "artist":
-        navigate(routes.artist(s.entity_id));
-        break;
+        case "artist":
+          navigate(routes.artist(s.entity_id));
+          break;
 
-      case "album":
-        navigate(routes.album(s.entity_id));
-        break;
+        case "album":
+          navigate(routes.album(s.entity_id));
+          break;
 
-      case "genre":
-        navigate(routes.genre(s.entity_id));
-        break;
+        case "genre":
+          navigate(routes.genre(s.entity_id));
+          break;
 
-      case "playlist":
-        navigate(routes.playlist(s.entity_id));
-        break;
+        case "playlist":
+          navigate(routes.playlist(s.entity_id));
+          break;
 
-      default:
-        // no fallback needed
-        break;
-    }
-
-    // collapse search after selection
-    setSearchValue("");
-    setIsExpanded(false);
+        default:
+          // no fallback needed
+          break;
+      }
+    }, 0);
   };
 
   const handleSearchSubmit = () => {
