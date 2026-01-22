@@ -8,6 +8,7 @@ import { confirm } from "../../utils/confirm";
 import { showPlaylistSelector } from "../../utils/playlistSelector";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { routes } from "../utils/routing";
 import { addToQueue, playQueue } from "./audio/player";
 
@@ -42,6 +43,7 @@ export function useSongContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions
@@ -135,8 +137,11 @@ export function useSongContextMenu(
     label: options.isFavorite ? "remove from favorites" : "add to favorites",
     icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
     onClick: () => {
-      // TODO: implement favorite toggle API call
-      console.log("toggle favorite:", song.sha256);
+      toggleFavoriteMutation.mutate({
+        targetType: "song",
+        targetId: song.id,
+        isFavorite: !options.isFavorite,
+      });
     },
   });
 
@@ -313,6 +318,7 @@ export function useAlbumContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions
@@ -374,8 +380,11 @@ export function useAlbumContextMenu(
     label: options.isFavorite ? "remove from favorites" : "add to favorites",
     icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
     onClick: () => {
-      // TODO: implement favorite toggle for album
-      console.log("toggle favorite album:", album.id);
+      toggleFavoriteMutation.mutate({
+        targetType: "album",
+        targetId: album.id,
+        isFavorite: !options.isFavorite,
+      });
     },
   });
 
@@ -422,6 +431,7 @@ export function usePlaylistContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions
@@ -482,8 +492,11 @@ export function usePlaylistContextMenu(
     label: options.isFavorite ? "remove from favorites" : "add to favorites",
     icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
     onClick: () => {
-      // TODO: implement favorite toggle for playlist
-      console.log("toggle favorite playlist:", playlist.id);
+      toggleFavoriteMutation.mutate({
+        targetType: "playlist",
+        targetId: playlist.id,
+        isFavorite: !options.isFavorite,
+      });
     },
   });
 
@@ -542,6 +555,7 @@ export function useArtistContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions (if callbacks provided)
@@ -595,8 +609,11 @@ export function useArtistContextMenu(
     label: options.isFavorite ? "remove from favorites" : "add to favorites",
     icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
     onClick: () => {
-      // TODO: implement favorite toggle for artist
-      console.log("toggle favorite artist:", artist.id);
+      toggleFavoriteMutation.mutate({
+        targetType: "artist",
+        targetId: artist.id,
+        isFavorite: !options.isFavorite,
+      });
     },
   });
 

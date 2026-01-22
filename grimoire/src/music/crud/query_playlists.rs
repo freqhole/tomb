@@ -72,10 +72,14 @@ pub struct PlaylistViewRow {
     playlist_deleted_at: Option<i64>,
     playlist_song_count: i64,
     playlist_total_duration: i64,
+    // user favorites
+    _favorite_id: Option<i64>,
+    favorite_user_id: Option<String>,
+    _favorited_at: Option<i64>,
 }
 
 impl PlaylistViewRow {
-    pub fn to_playlist_query_result(self) -> PlaylistQueryResult {
+    pub fn to_playlist_query_result(self, user_id: Option<&str>) -> PlaylistQueryResult {
         let playlist = Playlist {
             id: self.playlist_id,
             title: self.playlist_title,
@@ -92,11 +96,18 @@ impl PlaylistViewRow {
             song_count: self.playlist_song_count,
         };
 
+        // determine favorite status based on user_id match
+        let is_favorite = if let Some(uid) = user_id {
+            Some(self.favorite_user_id.as_ref() == Some(&uid.to_string()))
+        } else {
+            None
+        };
+
         PlaylistQueryResult {
             playlist,
             song_count: self.playlist_song_count,
             total_duration: Some(self.playlist_total_duration),
-            is_favorite: None,
+            is_favorite,
         }
     }
 }
@@ -362,14 +373,15 @@ pub async fn query_playlists(
         }
     }
 
-    let rows = match sqlx_query.fetch_all(&pool).await {
+    let rows: Vec<PlaylistViewRow> = match sqlx_query.fetch_all(&pool).await {
         Ok(r) => r,
         Err(e) => return GrimoireResponse::failure("Failed to query playlists", vec![e.into()]),
     };
 
+    let user_id_ref = params.user_id.as_deref();
     let playlists: Vec<PlaylistQueryResult> = rows
         .into_iter()
-        .map(|r| r.to_playlist_query_result())
+        .map(|row| row.to_playlist_query_result(user_id_ref))
         .collect();
     let playlist_count = playlists.len();
 

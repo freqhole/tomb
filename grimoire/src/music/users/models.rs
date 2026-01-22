@@ -130,7 +130,8 @@ impl UserRating {
 /// Request to set a favorite
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetFavoriteRequest {
-    pub user_id: String,
+    /// User ID - optional, defaults to authenticated user
+    pub user_id: Option<String>,
     pub target_type: FavoriteTarget,
     pub target_id: String,
     pub is_favorite: bool,

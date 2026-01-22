@@ -7,7 +7,8 @@ use grimoire::response::GrimoireResponse;
 use grimoire::users::{FavoriteTarget, FavoritesService, SetFavoriteRequest};
 use inventory;
 
-use crate::{error::ApiError, AppState};
+use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
+use axum::extract::Extension;
 
 // ============================================================================
 // Route Registration
@@ -44,15 +45,38 @@ inventory::submit! {
 /// POST /api/favorites/set
 pub async fn set_favorite_handler(
     State(_state): State<AppState>,
-    Json(request): Json<SetFavoriteRequest>,
+    Extension(auth_user): Extension<AuthenticatedUser>,
+    Json(mut request): Json<SetFavoriteRequest>,
 ) -> Result<Json<SetFavoriteResponse>, ApiError> {
+    // determine the target user_id
+    let target_user_id = match &request.user_id {
+        Some(uid) => {
+            // user_id was provided - check if it's different from authenticated user
+            if uid != &auth_user.user_id {
+                // trying to set favorite for a different user - must be admin
+                if !auth_user.role.is_admin() {
+                    return Err(ApiError::Forbidden);
+                }
+            }
+            uid.clone()
+        }
+        None => {
+            // no user_id provided - use authenticated user
+            auth_user.user_id.clone()
+        }
+    };
+
     tracing::debug!(
-        "set_favorite: user_id={}, target_type={:?}, target_id={}, is_favorite={}",
-        request.user_id,
+        "set_favorite: user_id={}, target_type={:?}, target_id={}, is_favorite={}, requesting_user={}",
+        target_user_id,
         request.target_type,
         request.target_id,
-        request.is_favorite
+        request.is_favorite,
+        auth_user.user_id
     );
+
+    // set the resolved user_id in the request
+    request.user_id = Some(target_user_id);
 
     let favorites_service = FavoritesService::new();
     let response = favorites_service.set_favorite(&request).await;
@@ -80,13 +104,30 @@ pub async fn set_favorite_handler(
 /// POST /api/favorites/list
 pub async fn list_favorites_handler(
     State(_state): State<AppState>,
-    Json(request): Json<ListFavoritesRequest>,
+    Extension(auth_user): Extension<AuthenticatedUser>,
+    Json(mut request): Json<ListFavoritesRequest>,
 ) -> Result<Json<GrimoireResponse<ListFavoritesResponse>>, ApiError> {
+    // determine the target user_id (similar logic to set_favorite)
+    let target_user_id = match &request.user_id {
+        Some(uid) if uid != &auth_user.user_id => {
+            // requesting favorites for a different user - must be admin
+            if !auth_user.role.is_admin() {
+                return Err(ApiError::Forbidden);
+            }
+            uid.clone()
+        }
+        Some(uid) => uid.clone(),
+        None => auth_user.user_id.clone(),
+    };
+
+    request.user_id = Some(target_user_id.clone());
+
     tracing::debug!(
-        "list_favorites: user_id={}, target_type={:?}, limit={:?}",
-        request.user_id,
+        "list_favorites: user_id={}, target_type={:?}, limit={:?}, requesting_user={}",
+        target_user_id,
         request.target_type,
-        request.limit
+        request.limit,
+        auth_user.user_id
     );
 
     let favorites_service = FavoritesService::new();
@@ -103,7 +144,7 @@ pub async fn list_favorites_handler(
 
     let response = favorites_service
         .get_user_favorites(
-            &request.user_id,
+            &target_user_id,
             target_filter,
             request.limit,
             request.offset,

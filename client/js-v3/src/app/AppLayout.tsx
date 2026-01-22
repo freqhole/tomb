@@ -22,6 +22,7 @@ import {
   useRemoteSource,
 } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
+import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
   canGoNext,
@@ -63,6 +64,7 @@ export function AppLayout(props: AppLayoutProps) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
@@ -147,6 +149,20 @@ export function AppLayout(props: AppLayoutProps) {
   // handle playlist click
   const handlePlaylistClick = (playlistId: string) => {
     navigate(routes.playlist(playlistId));
+  };
+
+  // handle favorite toggle for current song
+  const handleFavoriteToggle = () => {
+    const song = currentSongData();
+    if (!song) return;
+
+    const currentIsFavorite = song.is_favorite || false;
+
+    toggleFavoriteMutation.mutate({
+      targetType: "song",
+      targetId: song.id,
+      isFavorite: !currentIsFavorite,
+    });
   };
 
   // watch for current song changes and load song data
@@ -355,7 +371,7 @@ export function AppLayout(props: AppLayoutProps) {
             const fullSong = state.queue[index];
             return useSongContextMenu(fullSong, {
               showPlayActions: false, // already in queue, no need for play actions
-              isFavorite: false, // TODO: get favorite status from song
+              isFavorite: fullSong.is_favorite || false,
             });
           }}
         />
@@ -374,7 +390,7 @@ export function AppLayout(props: AppLayoutProps) {
                   thumbnailUrl: currentSongData()!.thumbnail_blob_id
                     ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${currentSongData()!.thumbnail_blob_id}`
                     : undefined,
-                  isFavorite: false,
+                  isFavorite: currentSongData()!.is_favorite || false,
                 }
               : undefined
           }
@@ -390,6 +406,7 @@ export function AppLayout(props: AppLayoutProps) {
           onSeek={handleSeek}
           onVolumeChange={setPlayerVolume}
           onQueueToggle={handleQueueToggle}
+          onFavoriteToggle={handleFavoriteToggle}
           queueLength={appState()?.queue.length || 0}
           canGoNext={canGoNext()}
           canGoPrevious={canGoPrevious()}

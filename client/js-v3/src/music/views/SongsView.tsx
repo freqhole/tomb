@@ -10,6 +10,7 @@ import {
 } from "../../components/virtualized/VirtualSongList";
 import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
 import { useSongContextMenu } from "../services/contextMenu";
 
@@ -37,6 +38,9 @@ export function SongsView(props: SongsViewProps) {
   // sorting state - maps to query key so changes trigger refetch
   const [sortField, setSortField] = createSignal<SongSortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<SortDirection>("desc");
+
+  // favorites mutation
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // infinite query hook
   const songsQuery = useSongsInfiniteQuery({
@@ -93,8 +97,8 @@ export function SongsView(props: SongsViewProps) {
       thumbnailUrl: song.thumbnail_blob_id
         ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
         : null,
-      userIsFavorite: false, // TODO: implement favorites in data source
-      userRating: 0, // TODO: implement ratings in data source
+      userIsFavorite: song.is_favorite || false,
+      userRating: song.user_rating || 0,
     }));
   });
 
@@ -121,6 +125,21 @@ export function SongsView(props: SongsViewProps) {
     return useSongContextMenu(song, {
       showPlayActions: true,
       isFavorite: virtualSong.userIsFavorite,
+    });
+  };
+
+  // handle favorite toggle
+  const handleFavoriteToggle = (
+    virtualSong: VirtualSong,
+    isFavorite: boolean,
+  ) => {
+    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
+    if (!song) return;
+
+    toggleFavoriteMutation.mutate({
+      targetType: "song",
+      targetId: song.id,
+      isFavorite,
     });
   };
 
@@ -196,6 +215,8 @@ export function SongsView(props: SongsViewProps) {
               onSongDoubleClick={handleSongDoubleClick}
               getContextMenuActions={getContextMenuActions}
               onNearEnd={loadMore}
+              showFavorites={true}
+              onFavoriteToggle={handleFavoriteToggle}
             />
             {songsQuery.isFetchingNextPage && (
               <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">

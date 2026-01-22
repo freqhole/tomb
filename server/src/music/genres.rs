@@ -15,7 +15,7 @@ use grimoire::music::entities::genres::{
 use grimoire::response::GrimoireResponse;
 use inventory;
 
-use crate::{auth::AuthenticatedUser, error::ApiError, AppState};
+use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
 
 // ============================================================================
 // Route Registration
@@ -128,10 +128,31 @@ inventory::submit! {
 ///
 /// POST /api/genres/query
 pub async fn query_genres_handler(
+    Extension(auth_user): Extension<AuthenticatedUser>,
     State(_state): State<AppState>,
-    Json(params): Json<QueryParams>,
+    Json(mut params): Json<QueryParams>,
 ) -> Result<Json<GrimoireResponse<GenresQueryResult>>, ApiError> {
-    tracing::debug!("query_genres: params={:?}", params);
+    // determine the target user_id for favorites/ratings
+    let target_user_id = match &params.user_id {
+        Some(uid) if uid != &auth_user.user_id => {
+            // requesting data for a different user - must be admin
+            if !auth_user.role.is_admin() {
+                return Err(ApiError::Forbidden);
+            }
+            uid.clone()
+        }
+        Some(uid) => uid.clone(),
+        None => auth_user.user_id.clone(),
+    };
+
+    // inject the resolved user_id into query params for favorite/rating lookups
+    params.user_id = Some(target_user_id);
+
+    tracing::debug!(
+        "query_genres: params={:?}, requesting_user={}",
+        params,
+        auth_user.user_id
+    );
 
     let response = query_genres(params).await;
 

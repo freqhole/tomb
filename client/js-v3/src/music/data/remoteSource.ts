@@ -52,6 +52,10 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     album_added_at: song.created_at, // use song's created_at as proxy
     album_primary_genre_id: item.genre?.id || null,
 
+    // user-specific metadata (from API response top-level)
+    is_favorite: item.is_favorite || false,
+    user_rating: item.rating || undefined,
+
     // remote source type
     source_type: "remote" as const,
 

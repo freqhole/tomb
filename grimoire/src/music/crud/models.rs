@@ -822,7 +822,8 @@ pub struct DeleteAlbumResponse {
 /// request for listing user favorites
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListFavoritesRequest {
-    pub user_id: String,
+    /// User ID - optional, defaults to authenticated user
+    pub user_id: Option<String>,
     pub target_type: Option<String>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,

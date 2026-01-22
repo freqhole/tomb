@@ -588,7 +588,7 @@ export const JobSchema = z.object({
 export type Job = z.infer<typeof JobSchema>;
 
 export const ListFavoritesRequestSchema = z.object({
-  user_id: z.string(),
+  user_id: z.string().nullable(),
   target_type: z.string().nullable(),
   limit: z.number().nullable(),
   offset: z.number().nullable()
@@ -1284,7 +1284,7 @@ export const SessionSummarySchema = z.object({
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
 export const SetFavoriteRequestSchema = z.object({
-  user_id: z.string(),
+  user_id: z.string().nullable(),
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")]),
   target_id: z.string(),
   is_favorite: z.boolean()

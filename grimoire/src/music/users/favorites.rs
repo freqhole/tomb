@@ -43,6 +43,9 @@ impl FavoritesService {
 
     /// Set or unset a favorite for a user
     pub async fn set_favorite(&self, request: &SetFavoriteRequest) -> GrimoireResponse<()> {
+        // Extract user_id to avoid temporary value borrow issues
+        let user_id = request.user_id.as_ref().expect("user_id must be provided");
+
         let pool = match database::connect().await {
             Ok(pool) => pool,
             Err(err) => {
@@ -60,7 +63,7 @@ impl FavoritesService {
                 INSERT OR IGNORE INTO user_favoritez (user_id, target_type, target_id, created_at)
                 VALUES (?1, ?2, ?3, ?4)
                 "#,
-                request.user_id,
+                user_id,
                 target_type,
                 request.target_id,
                 now
@@ -79,7 +82,7 @@ impl FavoritesService {
                 DELETE FROM user_favoritez
                 WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3
                 "#,
-                request.user_id,
+                user_id,
                 target_type,
                 request.target_id
             )
@@ -113,7 +116,7 @@ impl FavoritesService {
         let new_status = !is_currently_favorited;
 
         let request = SetFavoriteRequest {
-            user_id: user_id.to_string(),
+            user_id: Some(user_id.to_string()),
             target_type,
             target_id: target_id.to_string(),
             is_favorite: new_status,
@@ -459,7 +462,7 @@ impl FavoritesService {
         let mut count = 0;
         for (target_type, target_id) in favorites {
             let request = SetFavoriteRequest {
-                user_id: user_id.to_string(),
+                user_id: Some(user_id.to_string()),
                 target_type,
                 target_id,
                 is_favorite: true,

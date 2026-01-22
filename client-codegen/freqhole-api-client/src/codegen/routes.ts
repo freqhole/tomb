@@ -68,10 +68,6 @@ export const routes = {
     record_play: { method: 'POST', path: '/api/analytics/play', req: s.RecordPlayRequestSchema, resp: s.EmptyResponseSchema },
     listening_history: { method: 'POST', path: '/api/analytics/listening-history', req: s.ListeningHistoryRequestSchema, resp: s.ListeningHistoryResponseSchema },
   },
-  app: {
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
-  },
   auth: {
     regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
     logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
@@ -82,5 +78,9 @@ export const routes = {
     login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
     login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
     register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
+  },
+  app: {
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
   },
 };

@@ -53,6 +53,10 @@ export interface Song {
   album_added_at: number; // earliest added_at of any song in this album
   album_primary_genre_id: string | null; // most common genre for this album
 
+  // user-specific metadata (from current authenticated user)
+  is_favorite?: boolean; // whether user has favorited this song
+  user_rating?: number; // user's rating (1-5)
+
   // source information
   source_type: MusicSourceType;
 
