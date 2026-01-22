@@ -185,10 +185,19 @@ pub struct PlaylistSongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+
+    // User favorites and ratings
+    #[allow(dead_code)] // used by sqlx for deserialization
+    favorite_id: Option<String>,
+    favorite_user_id: Option<String>,
+    favorited_at: Option<i64>,
+    rating_user_id: Option<String>,
+    user_rating: Option<i64>,
+    rating_created_at: Option<i64>,
 }
 
 impl PlaylistSongViewRow {
-    pub fn to_playlist_song_result(self) -> PlaylistSongResult {
+    pub fn to_playlist_song_result(self, user_id: Option<&str>) -> PlaylistSongResult {
         let position = self.position;
         let added_at = self.added_at;
 
@@ -258,6 +267,30 @@ impl PlaylistSongViewRow {
             None
         };
 
+        // determine user context fields based on user_id match
+        let (is_favorite, rating, favorited_at, rating_created_at): (
+            Option<bool>,
+            Option<i32>,
+            Option<i64>,
+            Option<i64>,
+        ) = if let Some(uid) = user_id {
+            let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
+            let fav_at = if is_fav { self.favorited_at } else { None };
+            let user_rating = if self.rating_user_id.as_ref() == Some(&uid.to_string()) {
+                self.user_rating.map(|r| r as i32)
+            } else {
+                None
+            };
+            let rating_at = if user_rating.is_some() {
+                self.rating_created_at
+            } else {
+                None
+            };
+            (Some(is_fav), user_rating, fav_at, rating_at)
+        } else {
+            (None, None, None, None)
+        };
+
         let song_result = SongQueryResult {
             song,
             artist,
@@ -267,10 +300,10 @@ impl PlaylistSongViewRow {
             images,
             relevance_score: None,
             snippet: None,
-            is_favorite: None,
-            rating: None,
-            favorited_at: None,
-            rating_created_at: None,
+            is_favorite,
+            rating,
+            favorited_at,
+            rating_created_at,
             artist_total_song_count: None,
             artist_total_album_count: None,
             artist_total_duration: None,
@@ -519,9 +552,10 @@ pub async fn query_playlist_songs(
         }
     };
 
+    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
     let songs: Vec<PlaylistSongResult> = rows
         .into_iter()
-        .map(|r| r.to_playlist_song_result())
+        .map(|r| r.to_playlist_song_result(user_id_ref))
         .collect();
     let song_count = songs.len();
 

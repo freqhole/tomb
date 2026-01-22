@@ -139,6 +139,30 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   }));
 }
 
+export function useAlbumQuery(albumId: Accessor<string | undefined>) {
+  return createQuery(() => ({
+    queryKey: queryKeys.albums.detail(albumId() || ""),
+    queryFn: async () => {
+      const id = albumId();
+      if (!id) return null;
+
+      const dataSource = getDataSource();
+      if (!dataSource.getAlbums) {
+        return null;
+      }
+
+      // query for specific album by id
+      const result = await dataSource.getAlbums({
+        album_id: id,
+        limit: 1,
+      });
+
+      return result.items[0] || null;
+    },
+    enabled: () => !!albumId(),
+  }));
+}
+
 export function useAlbumSongsQuery(albumId: Accessor<string | undefined>) {
   return createQuery(() => ({
     queryKey: ["album", "songs", albumId()],
@@ -202,6 +226,30 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   }));
 }
 
+export function useArtistQuery(artistId: Accessor<string | undefined>) {
+  return createQuery(() => ({
+    queryKey: queryKeys.artists.detail(artistId() || ""),
+    queryFn: async () => {
+      const id = artistId();
+      if (!id) return null;
+
+      const dataSource = getDataSource();
+      if (!dataSource.getArtists) {
+        return null;
+      }
+
+      // query for specific artist by id
+      const result = await dataSource.getArtists({
+        artist_id: id,
+        limit: 1,
+      });
+
+      return result.items[0] || null;
+    },
+    enabled: () => !!artistId(),
+  }));
+}
+
 export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
   return createQuery(() => ({
     queryKey: ["artist", "songs", artistId()],
@@ -215,11 +263,9 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
       }
 
-      return dataSource.getArtistSongs(id, { limit: 1000 });
+      return await dataSource.getArtistSongs(id, { limit: 1000 });
     },
-    enabled: !!artistId(),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    enabled: () => !!artistId(),
   }));
 }
 

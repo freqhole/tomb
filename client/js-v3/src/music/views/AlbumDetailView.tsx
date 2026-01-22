@@ -5,9 +5,10 @@ import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import { SongRow } from "../../components/songs/SongRow";
 import { getCurrentRemote, getDataSource } from "../data";
-import { useAlbumSongsQuery } from "../queries/songs";
+import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import {
   useAlbumContextMenu,
@@ -30,6 +31,9 @@ function formatDuration(seconds: number): string {
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
+
+  // fetch album entity to get favorite status and metadata
+  const albumQuery = useAlbumQuery(() => params.id);
 
   // fetch album songs using tanstack query (works with local + remote)
   const albumSongsQuery = useAlbumSongsQuery(() => params.id);
@@ -107,7 +111,7 @@ export function AlbumDetailView() {
       },
       {
         showPlayActions: true,
-        isFavorite: songs()[0]?.is_favorite ?? false,
+        isFavorite: albumQuery.data?.is_favorite ?? false,
       },
     );
   });
@@ -176,11 +180,16 @@ export function AlbumDetailView() {
                   <span>{formatDuration(totalDuration())}</span>
                 </div>
 
-                {/* play button */}
-                <div class="mt-4">
+                {/* play button and favorite toggle */}
+                <div class="mt-4 flex items-center gap-3">
                   <Button variant="primary" onClick={handlePlayAlbum}>
                     play album
                   </Button>
+                  <FavoriteToggle
+                    targetType="album"
+                    targetId={info().album_id || params.id}
+                    isFavorite={albumQuery.data?.is_favorite ?? false}
+                  />
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
@@ -67,6 +67,27 @@ export function ArtistsView(props: ArtistsViewProps) {
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);
   });
+
+  // auto-fetch next page when query becomes idle and has more data
+  createEffect(
+    on(
+      () => ({
+        hasNextPage: artistsQuery.hasNextPage,
+        isFetchingNextPage: artistsQuery.isFetchingNextPage,
+        isFetching: artistsQuery.isFetching,
+      }),
+      (state) => {
+        // automatically load more if there's more data and we're not already fetching
+        if (
+          state.hasNextPage &&
+          !state.isFetchingNextPage &&
+          !state.isFetching
+        ) {
+          artistsQuery.fetchNextPage();
+        }
+      },
+    ),
+  );
 
   // flatten all pages of artists
   const artistsData = createMemo(() => {

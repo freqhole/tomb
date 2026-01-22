@@ -178,6 +178,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             blob_id: img.blob_id,
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
+        is_favorite: item.is_favorite,
       })),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -236,6 +237,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             blob_id: img.blob_id,
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
+        is_favorite: item.is_favorite,
       })),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -344,6 +346,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
+        is_favorite: item.is_favorite,
       })),
       total: result.data.total_count,
       offset: result.data.offset,

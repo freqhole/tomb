@@ -71,6 +71,8 @@ enum AlbumView {
 enum ArtistView {
     #[iden = "artist_query_view"]
     Table,
+    #[iden = "artist_id"]
+    ArtistId,
     #[iden = "artist_name"]
     ArtistName,
     #[iden = "artist_created_at"]
@@ -801,6 +803,11 @@ pub async fn query_artists(
     if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
         let pattern = format!("%{}%", search_term);
         query.cond_where(Expr::col(ArtistView::ArtistName).like(pattern));
+    }
+
+    // Handle artist_id filter for querying specific artist
+    if let Some(artist_id) = params.filters.get("artist_id").and_then(|v| v.as_str()) {
+        query.and_where(Expr::col(ArtistView::ArtistId).eq(artist_id));
     }
 
     // Handle starts_with filter for artists

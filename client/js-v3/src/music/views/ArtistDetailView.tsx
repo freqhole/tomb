@@ -8,8 +8,9 @@ import {
 } from "../../components/albums/AlbumSection";
 import { Button } from "../../components/buttons/Button";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import { getCurrentRemote, getDataSource } from "../data";
-import { useArtistSongsQuery } from "../queries/songs";
+import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import {
   useAlbumContextMenu,
@@ -43,6 +44,9 @@ interface AlbumGroup {
 export function ArtistDetailView() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
+
+  // fetch artist entity to get favorite status and metadata
+  const artistQuery = useArtistQuery(() => params.id);
 
   // fetch artist songs using tanstack query (works with local + remote)
   const artistSongsQuery = useArtistSongsQuery(() => params.id);
@@ -165,6 +169,7 @@ export function ArtistDetailView() {
         onPlayAll: handlePlayArtist,
         onShuffle: handleShuffleArtist,
         onAddToQueue: handleAddArtistToQueue,
+        isFavorite: artistQuery.data?.is_favorite ?? false,
       },
     );
   });
@@ -244,11 +249,16 @@ export function ArtistDetailView() {
                   <span>{formatAlbumDuration(totalDuration())}</span>
                 </div>
 
-                {/* play button */}
-                <div class="mt-4">
+                {/* play button and favorite toggle */}
+                <div class="mt-4 flex items-center gap-3">
                   <Button variant="primary" onClick={handlePlayArtist}>
                     play all
                   </Button>
+                  <FavoriteToggle
+                    targetType="artist"
+                    targetId={info().artist_id}
+                    isFavorite={artistQuery.data?.is_favorite ?? false}
+                  />
                 </div>
               </div>
             </div>

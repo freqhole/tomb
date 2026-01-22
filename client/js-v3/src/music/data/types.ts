@@ -80,6 +80,7 @@ export interface PlaylistSummary {
   song_count: number;
   created_at: number;
   updated_at: number;
+  is_favorite?: boolean;
 }
 
 // search suggestion types
