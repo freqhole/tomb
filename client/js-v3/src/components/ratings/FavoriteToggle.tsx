@@ -25,14 +25,6 @@ export interface FavoriteToggleProps
 export function FavoriteToggle(props: FavoriteToggleProps) {
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
-  // debug logging
-  console.log("[FavoriteToggle] props:", {
-    targetType: props.targetType,
-    targetId: props.targetId,
-    isFavorite: props.isFavorite,
-    sha256: props.sha256,
-  });
-
   const handleToggle = (newValue: boolean) => {
     toggleFavoriteMutation.mutate(
       {

@@ -87,12 +87,6 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   const handleRemove = (e: MouseEvent, index: number) => {
     e.stopPropagation();
-    console.log(
-      "handleRemove called with index:",
-      index,
-      "song:",
-      props.songs[index]?.title,
-    );
     props.onRemoveSong(index);
   };
 

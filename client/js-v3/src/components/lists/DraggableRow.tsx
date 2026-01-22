@@ -182,24 +182,15 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
 
       {/* favorite */}
       <Show when={props.isFavorite !== undefined && props.songId}>
-        {() => {
-          console.log("[DraggableRowSongContent] rendering favorite:", {
-            isFavorite: props.isFavorite,
-            songId: props.songId,
-            sha256: props.sha256,
-          });
-          return (
-            <div class="flex-shrink-0">
-              <FavoriteToggle
-                targetType="song"
-                targetId={props.songId!}
-                sha256={props.sha256}
-                isFavorite={props.isFavorite ?? false}
-                size="sm"
-              />
-            </div>
-          );
-        }}
+        <div class="flex-shrink-0">
+          <FavoriteToggle
+            targetType="song"
+            targetId={props.songId!}
+            sha256={props.sha256}
+            isFavorite={props.isFavorite ?? false}
+            size="sm"
+          />
+        </div>
       </Show>
 
       {/* duration */}
