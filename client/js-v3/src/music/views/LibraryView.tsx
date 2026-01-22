@@ -39,19 +39,20 @@ export function LibraryView(props: LibraryViewProps) {
     if (!data) return [];
 
     return data.items.map((song) => ({
-      id: song.sha256,
+      id: song.id,
+      sha256: song.sha256,
       title: song.title,
       artist: song.artist_name,
       album: song.album_title,
       duration: formatDuration(song.duration_seconds),
-      userIsFavorite: false,
-      userRating: 0,
+      userIsFavorite: song.is_favorite ?? false,
+      userRating: song.user_rating ?? 0,
     }));
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {
     // find the actual song by id
-    const song = songsData()?.items.find((s) => s.sha256 === virtualSong.id);
+    const song = songsData()?.items.find((s) => s.id === virtualSong.id);
     if (song) props.onSongClick?.(song);
   };
 

@@ -85,7 +85,8 @@ export function SongsView(props: SongsViewProps) {
   // convert to virtual song list format - memoized to prevent unnecessary recreations
   const virtualSongs = createMemo((): VirtualSong[] => {
     return allSongs().map((song) => ({
-      id: song.sha256,
+      id: song.id,
+      sha256: song.sha256,
       title: song.title,
       artist: song.artist_name,
       album: song.album_title,

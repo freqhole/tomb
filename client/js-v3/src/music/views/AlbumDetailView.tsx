@@ -107,7 +107,7 @@ export function AlbumDetailView() {
       },
       {
         showPlayActions: true,
-        isFavorite: false, // TODO: get favorite status
+        isFavorite: songs()[0]?.is_favorite ?? false,
       },
     );
   });
@@ -116,7 +116,7 @@ export function AlbumDetailView() {
   const getSongContextMenuActions = (song: Song) => {
     return useSongContextMenu(song, {
       showPlayActions: true,
-      isFavorite: false, // TODO: get favorite status
+      isFavorite: song.is_favorite ?? false,
     });
   };
 
@@ -203,6 +203,9 @@ export function AlbumDetailView() {
                         onDoubleClick={() => handleSongDoubleClick(song)}
                         showPlayOnHover={true}
                         contextMenuActions={getSongContextMenuActions(song)}
+                        isFavorite={song.is_favorite}
+                        songId={song.id}
+                        sha256={song.sha256}
                       />
                     );
                   }}

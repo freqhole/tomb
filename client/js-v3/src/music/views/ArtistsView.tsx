@@ -83,6 +83,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (!result || result.items.length === 0) return [];
 
     return result.items.map((song) => ({
+      id: song.id,
       sha256: song.sha256,
       title: song.title,
       album_id: song.album_id,
@@ -92,6 +93,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       duration_seconds: song.duration_seconds,
       year: song.year,
       thumbnail_blob_id: song.thumbnail_blob_id,
+      is_favorite: song.is_favorite,
     }));
   });
 
@@ -340,7 +342,7 @@ export function ArtistsView(props: ArtistsViewProps) {
         album_count: artist.album_count,
       },
       {
-        isFavorite: false, // TODO: get favorite status from artist
+        isFavorite: artist.is_favorite ?? false,
         onPlayAll: async () => {
           // select this artist first
           setSelectedArtistId(artist.artist_id);

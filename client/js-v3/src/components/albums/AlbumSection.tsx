@@ -6,10 +6,12 @@ import { MarqueeText } from "../text/MarqueeText";
 
 export interface AlbumSectionSong {
   id: string;
+  sha256?: string;
   title: string;
   trackNumber: number;
   discNumber: number;
   duration: number;
+  isFavorite?: boolean;
 }
 
 export interface AlbumSectionProps {
@@ -175,6 +177,9 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
                     ? props.getSongContextMenuActions(song)
                     : undefined
                 }
+                isFavorite={song.isFavorite}
+                songId={song.id}
+                sha256={song.sha256}
               />
             );
           }}

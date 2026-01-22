@@ -1,6 +1,7 @@
 import { createSignal, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
+import { FavoriteToggle } from "../ratings/FavoriteToggle";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -142,6 +143,12 @@ export interface DraggableRowSongContentProps {
   durationSeconds?: number;
   /** thumbnail url (deprecated - use DraggableRow.thumbnailUrl instead) */
   thumbnailUrl?: string;
+  /** whether song is favorited */
+  isFavorite?: boolean;
+  /** song id for favorite toggle */
+  songId?: string;
+  /** sha256 for favorite toggle (for queue updates) */
+  sha256?: string;
   /** additional actions (buttons, icons, etc) */
   actions?: JSX.Element;
   /** additional classes */
@@ -172,6 +179,28 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
           </Show>
         </div>
       </div>
+
+      {/* favorite */}
+      <Show when={props.isFavorite !== undefined && props.songId}>
+        {() => {
+          console.log("[DraggableRowSongContent] rendering favorite:", {
+            isFavorite: props.isFavorite,
+            songId: props.songId,
+            sha256: props.sha256,
+          });
+          return (
+            <div class="flex-shrink-0">
+              <FavoriteToggle
+                targetType="song"
+                targetId={props.songId!}
+                sha256={props.sha256}
+                isFavorite={props.isFavorite ?? false}
+                size="sm"
+              />
+            </div>
+          );
+        }}
+      </Show>
 
       {/* duration */}
       <Show when={props.durationSeconds !== undefined}>

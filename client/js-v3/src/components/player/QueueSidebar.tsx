@@ -18,6 +18,8 @@ export interface QueueSong {
   duration?: number;
   /** thumbnail url */
   thumbnailUrl?: string;
+  /** whether song is favorited */
+  isFavorite?: boolean;
 }
 
 export interface QueueSidebarProps {
@@ -287,9 +289,20 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       </p>
                     </div>
 
-                    {/* duration */}
-                    <div class="text-xs text-[var(--color-text-muted)] ml-3 flex-shrink-0">
-                      {formatDuration(song()?.duration)}
+                    {/* duration and favorite indicator */}
+                    <div class="flex items-center gap-2 ml-3 flex-shrink-0">
+                      <div class="text-xs text-[var(--color-text-muted)]">
+                        {formatDuration(song()?.duration)}
+                      </div>
+                      <Show when={song()?.isFavorite}>
+                        <div title="favorited">
+                          <Icon
+                            name="favorite"
+                            size={12}
+                            color="var(--color-accent-500)"
+                          />
+                        </div>
+                      </Show>
                     </div>
 
                     {/* remove button */}

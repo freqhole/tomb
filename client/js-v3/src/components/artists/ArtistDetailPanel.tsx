@@ -26,6 +26,7 @@ export interface ArtistDetailPanelArtist {
 }
 
 export interface ArtistDetailPanelSong {
+  id: string;
   sha256: string;
   title: string;
   album_id: string;
@@ -35,6 +36,7 @@ export interface ArtistDetailPanelSong {
   duration_seconds: number;
   year: number | null;
   thumbnail_blob_id: string | null;
+  is_favorite?: boolean;
 }
 
 interface AlbumGroup {
@@ -92,11 +94,13 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
       const group = groups.get(song.album_id)!;
       group.songs.push({
-        id: song.sha256,
+        id: song.id,
+        sha256: song.sha256,
         title: song.title,
         trackNumber: song.track_number,
         discNumber: song.disc_number,
         duration: song.duration_seconds,
+        isFavorite: song.is_favorite,
       });
       group.totalDuration += song.duration_seconds;
     });
@@ -191,8 +195,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   onSongDoubleClick={(song) =>
                     props.onSongDoubleClick?.(song.id, album.albumId)
                   }
-                  getAlbumContextMenuActions={() =>
-                    useAlbumContextMenu(
+                  getAlbumContextMenuActions={() => {
+                    // get favorite status from any song in the album
+                    const firstSongData = album.songs[0]
+                      ? props.getSongData?.(album.songs[0].id)
+                      : null;
+                    return useAlbumContextMenu(
                       {
                         id: album.albumId,
                         title: album.albumTitle,
@@ -201,16 +209,16 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                       },
                       {
                         showPlayActions: true,
-                        isFavorite: false, // TODO: get favorite status
+                        isFavorite: false, // album-level favorites not yet implemented on frontend
                       },
-                    )
-                  }
+                    );
+                  }}
                   getSongContextMenuActions={(song) => {
                     const songData = props.getSongData?.(song.id);
                     if (!songData) return [];
                     return useSongContextMenu(songData, {
                       showPlayActions: true,
-                      isFavorite: false, // TODO: get favorite status
+                      isFavorite: songData.is_favorite ?? false,
                     });
                   }}
                 />

@@ -88,11 +88,13 @@ export function ArtistDetailView() {
 
       const group = groups.get(song.album_id)!;
       group.songs.push({
-        id: song.sha256,
+        id: song.id,
+        sha256: song.sha256,
         title: song.title,
         trackNumber: song.track_number,
         discNumber: song.disc_number,
         duration: song.duration_seconds,
+        isFavorite: song.is_favorite,
       });
       group.totalDuration += song.duration_seconds;
     });
@@ -276,7 +278,10 @@ export function ArtistDetailView() {
                             title: album.albumTitle,
                             song_count: album.songs.length,
                           },
-                          { showPlayActions: true },
+                          {
+                            showPlayActions: true,
+                            isFavorite: false, // album-level favorites not yet implemented on frontend
+                          },
                         )
                       }
                       getSongContextMenuActions={(song) => {
@@ -287,6 +292,7 @@ export function ArtistDetailView() {
                         if (!fullSong) return [];
                         return useSongContextMenu(fullSong, {
                           showPlayActions: true,
+                          isFavorite: fullSong.is_favorite ?? false,
                         });
                       }}
                     />

@@ -257,7 +257,7 @@ export function GenresView(props: GenresViewProps) {
                   song_count: genre.song_count,
                 },
                 {
-                  isFavorite: false, // TODO: get favorite status
+                  isFavorite: false, // genres don't support favorites yet
                   onPlayAll: async () => {
                     // select this genre first
                     setSelectedGenreId(genre.genre_id);

@@ -109,7 +109,7 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   const query = options?.query;
 
   return createInfiniteQuery(() => ({
-    queryKey: ["albums", "list", query?.()],
+    queryKey: queryKeys.albums.list(query?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getAlbums) {
@@ -172,7 +172,7 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   const query = options?.query;
 
   return createInfiniteQuery(() => ({
-    queryKey: ["artists", "list", query?.()],
+    queryKey: queryKeys.artists.list(query?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getArtists) {
@@ -235,7 +235,7 @@ export function useGenresQuery(options?: UseGenresQueryOptions) {
   const query = options?.query;
 
   return createInfiniteQuery(() => ({
-    queryKey: ["genres", "list", query?.()],
+    queryKey: queryKeys.genres.list(query?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getGenres) {

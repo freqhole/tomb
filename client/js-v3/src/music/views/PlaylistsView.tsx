@@ -1048,7 +1048,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                         },
                         {
                           showPlayActions: true,
-                          isFavorite: false, // TODO: get favorite status
+                          isFavorite: false, // playlist-level favorites not yet implemented on frontend
                         },
                       );
                     }}
@@ -1381,12 +1381,18 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <div class="space-y-1">
                                 <For each={playlistSongs()}>
                                   {(song, index) => {
+                                    console.log("[PlaylistsView] song data:", {
+                                      id: song.id,
+                                      title: song.title,
+                                      is_favorite: song.is_favorite,
+                                      sha256: song.sha256,
+                                    });
                                     const contextMenuActions =
                                       useSongContextMenu(song, {
                                         showPlayActions: true,
                                         showRemoveFromPlaylist: true,
                                         playlistId: selectedPlaylistId()!,
-                                        isFavorite: false, // TODO: get actual favorite status
+                                        isFavorite: song.is_favorite ?? false,
                                       });
 
                                     return (
@@ -1428,6 +1434,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                             durationSeconds={
                                               song.duration_seconds
                                             }
+                                            isFavorite={song.is_favorite}
+                                            songId={song.id}
+                                            sha256={song.sha256}
                                             actions={
                                               <IconButton
                                                 icon="queue"

@@ -8,9 +8,36 @@ import { confirm } from "../../utils/confirm";
 import { showPlaylistSelector } from "../../utils/playlistSelector";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
-import { useToggleFavoriteMutation } from "../queries/favorites";
+import {
+  useToggleFavoriteMutation,
+  type FavoriteTarget,
+} from "../queries/favorites";
 import { routes } from "../utils/routing";
 import { addToQueue, playQueue } from "./audio/player";
+
+// shared helper to create favorite menu action
+// standardizes favorite toggle across all context menus
+export function createFavoriteMenuAction(
+  targetType: FavoriteTarget,
+  targetId: string,
+  isFavorite: boolean,
+  sha256?: string, // only needed for songs (for queue updates)
+): MenuAction {
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  return {
+    label: isFavorite ? "remove from favorites" : "add to favorites",
+    icon: isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
+    onClick: () => {
+      toggleFavoriteMutation.mutate({
+        targetType,
+        targetId,
+        sha256,
+        isFavorite: !isFavorite,
+      });
+    },
+  };
+}
 
 export interface ContextMenuOptions {
   /** whether to show play/queue actions (false for non-playable types like artists/genres) */
@@ -133,18 +160,14 @@ export function useSongContextMenu(
   }
 
   // favorites
-  actions.push({
-    label: options.isFavorite ? "remove from favorites" : "add to favorites",
-    icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
-    onClick: () => {
-      toggleFavoriteMutation.mutate({
-        targetType: "song",
-        targetId: song.id,
-        sha256: song.sha256,
-        isFavorite: !options.isFavorite,
-      });
-    },
-  });
+  actions.push(
+    createFavoriteMenuAction(
+      "song",
+      song.id,
+      options.isFavorite ?? false,
+      song.sha256,
+    ),
+  );
 
   // playlists
   actions.push({
@@ -377,17 +400,9 @@ export function useAlbumContextMenu(
   actions.push({ type: "separator" });
 
   // favorites
-  actions.push({
-    label: options.isFavorite ? "remove from favorites" : "add to favorites",
-    icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
-    onClick: () => {
-      toggleFavoriteMutation.mutate({
-        targetType: "album",
-        targetId: album.id,
-        isFavorite: !options.isFavorite,
-      });
-    },
-  });
+  actions.push(
+    createFavoriteMenuAction("album", album.id, options.isFavorite ?? false),
+  );
 
   // add all to playlist
   actions.push({
@@ -489,17 +504,13 @@ export function usePlaylistContextMenu(
   actions.push({ type: "separator" });
 
   // favorites
-  actions.push({
-    label: options.isFavorite ? "remove from favorites" : "add to favorites",
-    icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
-    onClick: () => {
-      toggleFavoriteMutation.mutate({
-        targetType: "playlist",
-        targetId: playlist.id,
-        isFavorite: !options.isFavorite,
-      });
-    },
-  });
+  actions.push(
+    createFavoriteMenuAction(
+      "playlist",
+      playlist.id,
+      options.isFavorite ?? false,
+    ),
+  );
 
   // edit
   actions.push({
@@ -606,17 +617,9 @@ export function useArtistContextMenu(
   actions.push({ type: "separator" });
 
   // favorites
-  actions.push({
-    label: options.isFavorite ? "remove from favorites" : "add to favorites",
-    icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
-    onClick: () => {
-      toggleFavoriteMutation.mutate({
-        targetType: "artist",
-        targetId: artist.id,
-        isFavorite: !options.isFavorite,
-      });
-    },
-  });
+  actions.push(
+    createFavoriteMenuAction("artist", artist.id, options.isFavorite ?? false),
+  );
 
   if (options.customActions && options.customActions.length > 0) {
     actions.push({ type: "separator" });

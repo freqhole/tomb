@@ -299,16 +299,17 @@ inventory::submit! {
 ///
 /// POST /api/playlists/songs
 pub async fn query_playlist_songs_handler(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(req): Json<QueryPlaylistSongsRequest>,
 ) -> Result<Json<PlaylistSongsQueryResult>, ApiError> {
     tracing::debug!(
-        "query_playlist_songs: playlist_id={}, q={:?}",
+        "query_playlist_songs: playlist_id={}, q={:?}, user_id={}",
         req.playlist_id,
-        req.q
+        req.q,
+        auth_user.user_id
     );
 
-    let params = QueryParams {
+    let mut params = QueryParams {
         q: req.q,
         sort_by: req.sort_by,
         sort_direction: req.sort_direction,
@@ -316,6 +317,9 @@ pub async fn query_playlist_songs_handler(
         offset: req.offset.map(|o| o as u32),
         ..Default::default()
     };
+
+    // inject authenticated user_id for favorites/ratings lookups
+    params.user_id = Some(auth_user.user_id);
 
     let response = query_playlist_songs(&req.playlist_id, params).await;
 

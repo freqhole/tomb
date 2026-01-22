@@ -1,5 +1,7 @@
 import { createSignal, JSX, Show } from "solid-js";
+import type { FavoriteTarget } from "../../music/queries/favorites";
 import { MediaImage } from "../media/MediaImage";
+import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { MarqueeText } from "../text/MarqueeText";
 
 // unified collection types
@@ -23,6 +25,9 @@ export interface CollectionCardData {
   totalDuration?: string | null;
   genres?: string | null;
   tags?: string | null;
+
+  // user context
+  isFavorite?: boolean | null;
 
   // analytics/activity
   playCount?: number | null;
@@ -48,6 +53,11 @@ interface CollectionCardProps {
   onPlay?: (collection: CollectionCardData) => void;
   /** callback when context menu is triggered */
   onContextMenu?: (e: MouseEvent, collection: CollectionCardData) => void;
+  /** callback when favorite is toggled */
+  onFavoriteToggle?: (
+    collection: CollectionCardData,
+    isFavorite: boolean,
+  ) => void;
   /** additional css classes */
   class?: string;
 }
@@ -140,6 +150,27 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             class={`${sizeClasses().image} object-cover transition-transform duration-300 group-hover:scale-105`}
             loading="lazy"
           />
+        </Show>
+
+        {/* favorite toggle - top right corner */}
+        <Show
+          when={
+            props.collection.isFavorite !== undefined &&
+            props.collection.isFavorite !== null
+          }
+        >
+          <div class="absolute top-2 right-2 z-10">
+            <FavoriteToggle
+              targetType={props.collection.domainType as FavoriteTarget}
+              targetId={props.collection.id}
+              isFavorite={props.collection.isFavorite ?? false}
+              size="sm"
+              class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
+              onToggleSuccess={(newValue) => {
+                props.onFavoriteToggle?.(props.collection, newValue);
+              }}
+            />
+          </div>
         </Show>
 
         {/* hover overlay with play button */}

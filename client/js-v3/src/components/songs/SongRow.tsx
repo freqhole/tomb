@@ -1,7 +1,9 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
+import type { FavoriteTarget } from "../../music/queries/favorites";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface SongRowProps {
@@ -31,6 +33,14 @@ export interface SongRowProps {
   showPlayOnHover?: boolean;
   /** context menu actions */
   contextMenuActions?: MenuAction[];
+  /** whether song is favorited */
+  isFavorite?: boolean;
+  /** song id for favorite toggle */
+  songId?: string;
+  /** sha256 for favorite toggle (for queue updates) */
+  sha256?: string;
+  /** callback after favorite toggle */
+  onFavoriteToggle?: (isFavorite: boolean) => void;
 }
 
 export function SongRow(props: SongRowProps): JSX.Element {
@@ -97,6 +107,21 @@ export function SongRow(props: SongRowProps): JSX.Element {
           <MarqueeText text={props.title} hoverOnly={true} />
         </div>
       </div>
+
+      {/* favorite indicator/toggle */}
+      <Show when={props.isFavorite !== undefined && props.songId}>
+        <div class="flex-shrink-0">
+          <FavoriteToggle
+            targetType="song"
+            targetId={props.songId!}
+            sha256={props.sha256}
+            isFavorite={props.isFavorite ?? false}
+            size="sm"
+            readonly={!props.songId}
+            onToggleSuccess={props.onFavoriteToggle}
+          />
+        </div>
+      </Show>
 
       {/* duration */}
       <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">

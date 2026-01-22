@@ -93,18 +93,21 @@ export function useToggleFavoriteMutation() {
       toast.success(`${action} favorites`);
 
       // invalidate queries to trigger refetch with updated favorite status
-      const queryKeyToInvalidate = getQueryKeyForTargetType(
+      const queryKeysToInvalidate = getQueryKeysToInvalidate(
         variables.targetType,
       );
       debug(
         "favorites",
-        "invalidating queries with key:",
-        queryKeyToInvalidate,
+        "invalidating queries with keys:",
+        queryKeysToInvalidate,
       );
 
-      queryClient.invalidateQueries({
-        queryKey: queryKeyToInvalidate,
-        exact: false,
+      // invalidate each query key prefix
+      queryKeysToInvalidate.forEach((queryKey) => {
+        queryClient.invalidateQueries({
+          queryKey,
+          exact: false,
+        });
       });
 
       debug("favorites", "invalidation complete");
@@ -121,29 +124,39 @@ export function useToggleFavoriteMutation() {
 
       // invalidate queries to refetch and show correct state
       debug("favorites", "invalidating queries after error");
-      const queryKeyToInvalidate = getQueryKeyForTargetType(
+      const queryKeysToInvalidate = getQueryKeysToInvalidate(
         variables.targetType,
       );
-      queryClient.invalidateQueries({
-        queryKey: queryKeyToInvalidate,
-        exact: false,
+      queryKeysToInvalidate.forEach((queryKey) => {
+        queryClient.invalidateQueries({
+          queryKey,
+          exact: false,
+        });
       });
     },
   }));
 }
 
-// helper to get the correct query key for a target type
-function getQueryKeyForTargetType(
+// helper to invalidate queries for a target type
+// returns array of query keys to invalidate
+function getQueryKeysToInvalidate(
   targetType: FavoriteTarget,
-): readonly unknown[] {
+): Array<readonly unknown[]> {
   switch (targetType) {
     case "song":
-      return queryKeys.songs.all;
+      // invalidate all queries that might contain songs
+      return [
+        queryKeys.songs.all,
+        queryKeys.playlists.all, // playlist songs
+        ["album", "songs"], // album songs
+        ["artist", "songs"], // artist songs
+        ["genre", "songs"], // genre songs
+      ];
     case "album":
-      return queryKeys.albums.all;
+      return [queryKeys.albums.all];
     case "artist":
-      return queryKeys.artists.all;
+      return [queryKeys.artists.all];
     case "playlist":
-      return queryKeys.playlists.all;
+      return [queryKeys.playlists.all];
   }
 }

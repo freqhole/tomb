@@ -48,6 +48,7 @@ export interface AlbumSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  is_favorite?: boolean;
 }
 
 // artist summary data for lists
@@ -58,6 +59,7 @@ export interface ArtistSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  is_favorite?: boolean;
 }
 
 // genre summary data for lists

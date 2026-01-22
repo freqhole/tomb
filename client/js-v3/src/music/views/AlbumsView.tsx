@@ -92,6 +92,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       trackCount: album.song_count,
       totalDuration: formatDuration(album.total_duration),
       imageUrl: getPrimaryImageUrl(album.images),
+      isFavorite: album.is_favorite ?? false,
     }));
   };
 
@@ -138,7 +139,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       },
       {
         showPlayActions: true,
-        isFavorite: false, // TODO: get favorite status from album
+        isFavorite: album.isFavorite ?? false,
       },
     );
   };

@@ -1,21 +1,29 @@
 import { Show } from "solid-js";
 
 export interface FavoriteHeartProps {
-  isFavorite?: boolean;
+  /** whether item is favorited */
+  isFavorite: boolean;
+  /** callback when toggled (optional - if not provided, component is readonly) */
   onToggle?: (isFavorite: boolean) => void;
+  /** whether toggle is disabled */
   disabled?: boolean;
+  /** size variant */
   size?: "sm" | "md" | "lg";
+  /** readonly mode - shows status but not interactive */
   readonly?: boolean;
+  /** additional css classes */
   class?: string;
 }
 
-// interactive heart favorite component
-// supports toggle favorite state with visual feedback
+// presentational heart favorite component
+// displays favorite status with optional toggle interaction
+// for business logic integration, use FavoriteToggle instead
 export function FavoriteHeart(props: FavoriteHeartProps) {
-  const isFavorite = () => props.isFavorite || false;
+  const isFavorite = () => props.isFavorite;
   const size = () => props.size || "md";
   const readonly = () => props.readonly || false;
   const disabled = () => props.disabled || false;
+  const isInteractive = () => !readonly() && !disabled() && props.onToggle;
 
   const getSizeClass = () => {
     switch (size()) {
@@ -51,8 +59,18 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
   };
 
   const handleToggle = () => {
-    if (disabled() || readonly()) return;
+    if (!isInteractive()) return;
     props.onToggle?.(!isFavorite());
+  };
+
+  const getTitle = () => {
+    if (readonly()) {
+      return isFavorite() ? "favorited" : "not favorited";
+    }
+    if (disabled()) {
+      return "favorite action disabled";
+    }
+    return isFavorite() ? "remove from favorites" : "add to favorites";
   };
 
   return (
@@ -64,15 +82,7 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
         e.stopPropagation();
         handleToggle();
       }}
-      title={
-        readonly()
-          ? isFavorite()
-            ? "favorited"
-            : "not favorited"
-          : isFavorite()
-            ? "remove from favorites"
-            : "add to favorites"
-      }
+      title={getTitle()}
     >
       <Show
         when={isFavorite()}

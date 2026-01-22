@@ -301,6 +301,7 @@ export function AppLayout(props: AppLayoutProps) {
               thumbnailUrl: song.thumbnail_blob_id
                 ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
                 : undefined,
+              isFavorite: song.is_favorite ?? false,
             })) || []) as any[]
           }
           currentIndex={
@@ -371,7 +372,8 @@ export function AppLayout(props: AppLayoutProps) {
           song={
             currentSongData()
               ? {
-                  id: currentSongData()!.sha256,
+                  id: currentSongData()!.id,
+                  sha256: currentSongData()!.sha256,
                   title: currentSongData()!.title,
                   artist: currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,
@@ -394,19 +396,7 @@ export function AppLayout(props: AppLayoutProps) {
           onSeek={handleSeek}
           onVolumeChange={setPlayerVolume}
           onQueueToggle={handleQueueToggle}
-          onFavoriteToggle={() => {
-            const song = currentSongData();
-            if (!song) return;
-
-            const currentIsFavorite = song.is_favorite || false;
-
-            toggleFavoriteMutation.mutate({
-              targetType: "song",
-              targetId: song.id,
-              sha256: song.sha256,
-              isFavorite: !currentIsFavorite,
-            });
-          }}
+          onFavoriteToggle={undefined}
           queueLength={appState()?.queue.length || 0}
           canGoNext={canGoNext()}
           canGoPrevious={canGoPrevious()}

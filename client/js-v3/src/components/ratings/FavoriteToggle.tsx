@@ -1,0 +1,62 @@
+// smart favorite toggle component with business logic
+// wraps FavoriteHeart with mutation handling
+import {
+  useToggleFavoriteMutation,
+  type FavoriteTarget,
+} from "../../music/queries/favorites";
+import { FavoriteHeart, type FavoriteHeartProps } from "./FavoriteHeart";
+
+export interface FavoriteToggleProps
+  extends Pick<FavoriteHeartProps, "disabled" | "size" | "readonly" | "class"> {
+  /** target type (song, album, artist, playlist) - REQUIRED */
+  targetType: FavoriteTarget;
+  /** target id - REQUIRED */
+  targetId: string;
+  /** current favorite status - REQUIRED */
+  isFavorite: boolean;
+  /** sha256 for songs (needed for queue updates) - optional, only for songs */
+  sha256?: string;
+  /** callback after successful toggle - optional */
+  onToggleSuccess?: (newValue: boolean) => void;
+}
+
+// smart favorite toggle with automatic mutation handling
+// use this in the app - NOT FavoriteHeart directly
+export function FavoriteToggle(props: FavoriteToggleProps) {
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // debug logging
+  console.log("[FavoriteToggle] props:", {
+    targetType: props.targetType,
+    targetId: props.targetId,
+    isFavorite: props.isFavorite,
+    sha256: props.sha256,
+  });
+
+  const handleToggle = (newValue: boolean) => {
+    toggleFavoriteMutation.mutate(
+      {
+        targetType: props.targetType,
+        targetId: props.targetId,
+        sha256: props.sha256,
+        isFavorite: newValue,
+      },
+      {
+        onSuccess: () => {
+          props.onToggleSuccess?.(newValue);
+        },
+      },
+    );
+  };
+
+  return (
+    <FavoriteHeart
+      isFavorite={props.isFavorite}
+      onToggle={handleToggle}
+      disabled={props.disabled || toggleFavoriteMutation.isPending}
+      size={props.size}
+      readonly={props.readonly}
+      class={props.class}
+    />
+  );
+}
