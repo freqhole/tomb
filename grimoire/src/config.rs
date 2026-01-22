@@ -405,6 +405,8 @@ mod tests {
                 ffmpeg_path: "ffmpeg".to_string(),
                 extract_album_art_args: "--whatever".to_string(),
                 generate_waveform_args: "--whatever".to_string(),
+                generate_scan_duplicate_report: false,
+                skip_duplicates: true,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
@@ -437,6 +439,8 @@ mod tests {
                 ffmpeg_path: "ffmpeg".to_string(),
                 extract_album_art_args: "--whatever".to_string(),
                 generate_waveform_args: "--whatever".to_string(),
+                generate_scan_duplicate_report: false,
+                skip_duplicates: true,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
@@ -467,6 +471,8 @@ mod tests {
                 ffmpeg_path: "ffmpeg".to_string(),
                 extract_album_art_args: "--whatever".to_string(),
                 generate_waveform_args: "--whatever".to_string(),
+                generate_scan_duplicate_report: false,
+                skip_duplicates: true,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
