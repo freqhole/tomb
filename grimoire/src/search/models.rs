@@ -107,6 +107,7 @@ pub struct Suggestion {
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
     pub entity_id: String, // primary key for navigation
+    pub is_favorite: bool,
 }
 
 /// autocomplete response

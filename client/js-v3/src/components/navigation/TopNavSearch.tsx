@@ -41,9 +41,22 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const remote = getCurrentRemote();
     const baseUrl = remote?.base_url || "";
 
+    console.log("raw pages data:", pages);
+
     return pages
-      .flatMap((page) => page.suggestions)
+      .flatMap((page) => {
+        console.log("page.suggestions:", page.suggestions);
+        return page.suggestions;
+      })
       .map((s) => {
+        console.log("raw suggestion object:", s);
+        console.log(
+          "is_favorite value:",
+          s.is_favorite,
+          "type:",
+          typeof s.is_favorite,
+        );
+        console.log("full suggestion JSON:", JSON.stringify(s, null, 2));
         // extract thumbnail and metadata
         let thumbnailUrl: string | undefined;
         let albumId: string | undefined;
@@ -64,18 +77,22 @@ export function TopNavSearch(props: TopNavSearchProps) {
           s.suggestion_type === "album" ||
           s.suggestion_type === "playlist";
 
-        return {
+        const result = {
           id: s.entity_id,
           text: s.display,
           category: s.suggestion_type,
           highlight: s.highlight,
           count: s.count > 0 ? s.count : undefined,
           thumbnailUrl,
+          isFavorite: s.is_favorite,
           data: s,
           onThumbnailClick: isPlayable
             ? () => handleThumbnailClick(s, albumId)
             : undefined,
         };
+
+        console.log("mapped suggestion result:", result);
+        return result;
       });
   });
 

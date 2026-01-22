@@ -2,6 +2,7 @@ import { Search } from "@kobalte/core/search";
 import { createSignal, For, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 
 export interface SearchSuggestion {
@@ -19,6 +20,8 @@ export interface SearchSuggestion {
   thumbnailUrl?: string;
   /** whether this suggestion is disabled */
   disabled?: boolean;
+  /** whether this suggestion is favorited */
+  isFavorite?: boolean;
   /** original data passed through for selection */
   data?: any;
   /** callback when thumbnail is clicked (for play action) */
@@ -265,6 +268,16 @@ export function SearchInput(props: SearchInputProps) {
                       />
                     </Search.ItemLabel>
                   </div>
+
+                  {/* favorite heart - only show when item is favorited */}
+                  <Show when={itemProps.item.rawValue.isFavorite === true}>
+                    <FavoriteHeart
+                      isFavorite={true}
+                      readonly={true}
+                      size="sm"
+                      class="flex-shrink-0"
+                    />
+                  </Show>
 
                   {/* category badge */}
                   <Show when={itemProps.item.rawValue.category}>

@@ -29,7 +29,7 @@ pub async fn get_song_suggestions(
     }
 
     let match_query = format!("{}*", partial);
-    let user_id_param = user_id.unwrap_or("");
+    let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query_as!(
         SongSuggestionRow,
@@ -90,6 +90,7 @@ pub async fn get_song_suggestions(
                     "album_id": row.album_id
                 })),
                 entity_id: row.song_id,
+                is_favorite: row.is_favorite != 0,
             }
         })
         .collect();
@@ -119,7 +120,7 @@ pub async fn get_artist_suggestions(
     }
 
     let match_query = format!("{}*", partial);
-    let user_id_param = user_id.unwrap_or("");
+    let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query_as!(
         ArtistSuggestionRow,
@@ -181,6 +182,7 @@ pub async fn get_artist_suggestions(
                     "thumbnail_blob_id": row.thumbnail_blob_id
                 })),
                 entity_id: row.artist_id,
+                is_favorite: row.is_favorite != 0,
             }
         })
         .collect();
@@ -210,7 +212,7 @@ pub async fn get_album_suggestions(
     }
 
     let match_query = format!("{}*", partial);
-    let user_id_param = user_id.unwrap_or("");
+    let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query_as!(
         AlbumSuggestionRow,
@@ -272,6 +274,7 @@ pub async fn get_album_suggestions(
                     "thumbnail_blob_id": row.thumbnail_blob_id
                 })),
                 entity_id: row.album_id,
+                is_favorite: row.is_favorite != 0,
             }
         })
         .collect();
@@ -328,6 +331,7 @@ pub async fn get_genre_suggestions(
                     "match_type": "name"
                 })),
                 entity_id: row.genre_id,
+                is_favorite: false,
             }
         })
         .collect();
@@ -391,6 +395,7 @@ pub async fn get_sub_genre_suggestions(
                     "match_type": "name"
                 })),
                 entity_id: row.sub_genre_id,
+                is_favorite: false,
             }
         })
         .collect();
@@ -408,7 +413,7 @@ pub async fn get_playlist_suggestions(
     // filter by privacy: (is_public = 1 OR created_by = user_id)
 
     let match_query = format!("{}*", partial);
-    let user_id_param = user_id.unwrap_or("");
+    let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query!(
         r#"
@@ -419,17 +424,23 @@ pub async fn get_playlist_suggestions(
             playlist.is_public as "is_public!: i64",
             playlist.created_by as "created_by!: String",
             fts.rank as "fts_rank!: f64",
-            COUNT(DISTINCT ps.song_id) as "song_count!: i64"
+            COUNT(DISTINCT ps.song_id) as "song_count!: i64",
+            CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64"
         FROM playlistz_fts fts
         JOIN playlistz playlist ON fts.playlist_id = playlist.id
         LEFT JOIN playlist_songz ps ON ps.playlist_id = playlist.id
+        LEFT JOIN user_favoritez favorite
+            ON favorite.target_id = playlist.id
+            AND favorite.target_type = 'playlist'
+            AND favorite.user_id = ?
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
-        GROUP BY playlist.id, playlist.title, playlist.thumbnail_blob_id, playlist.is_public, playlist.created_by, fts.rank
+        GROUP BY playlist.id, playlist.title, playlist.thumbnail_blob_id, playlist.is_public, playlist.created_by, fts.rank, favorite.id
         ORDER BY fts.rank DESC
         LIMIT 100
         "#,
+        user_id_param,
         match_query,
         user_id_param
     )
@@ -456,6 +467,7 @@ pub async fn get_playlist_suggestions(
                     "thumbnail_blob_id": row.thumbnail_blob_id
                 })),
                 entity_id: row.playlist_id,
+                is_favorite: row.is_favorite != 0,
             }
         })
         .collect();

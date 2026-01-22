@@ -101,6 +101,7 @@ export interface SearchSuggestion {
   confidence: number;
   metadata?: any;
   entity_id: string;
+  is_favorite: boolean;
 }
 
 export interface SuggestionsResponse {
