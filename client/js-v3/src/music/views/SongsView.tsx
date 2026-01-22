@@ -110,18 +110,18 @@ export function SongsView(props: SongsViewProps) {
   };
 
   const handleSongClick = (virtualSong: VirtualSong) => {
-    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
+    const song = allSongs().find((s) => s.id === virtualSong.id);
     if (song) props.onSongClick?.(song);
   };
 
   const handleSongDoubleClick = (virtualSong: VirtualSong) => {
-    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
+    const song = allSongs().find((s) => s.id === virtualSong.id);
     if (song) props.onSongDoubleClick?.(song);
   };
 
   // build context menu actions for each song
   const getContextMenuActions = (virtualSong: VirtualSong, index: number) => {
-    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
+    const song = allSongs().find((s) => s.id === virtualSong.id);
     if (!song) return [];
     return useSongContextMenu(song, {
       showPlayActions: true,
@@ -134,7 +134,7 @@ export function SongsView(props: SongsViewProps) {
     virtualSong: VirtualSong,
     isFavorite: boolean,
   ) => {
-    const song = allSongs().find((s) => s.sha256 === virtualSong.id);
+    const song = allSongs().find((s) => s.id === virtualSong.id);
     if (!song) return;
 
     // mutation handles optimistic update automatically
