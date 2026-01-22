@@ -8,7 +8,7 @@ import { confirm } from "../../utils/confirm";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
 import { routes } from "../utils/routing";
-import { addToQueue, addToQueueAfterCurrent, playQueue } from "./audio/player";
+import { addToQueue, playQueue } from "./audio/player";
 
 export interface ContextMenuOptions {
   /** whether to show play/queue actions (false for non-playable types like artists/genres) */
@@ -57,7 +57,7 @@ export function useSongContextMenu(
       label: "play next",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueueAfterCurrent([song]);
+        await addToQueue([song], { position: "next" });
       },
     });
 
@@ -225,7 +225,7 @@ export function useMultipleSongsContextMenu(
       label: "play next",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueueAfterCurrent(songs);
+        await addToQueue(songs, { position: "next" });
       },
     });
 

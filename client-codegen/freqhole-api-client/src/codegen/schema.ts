@@ -1579,6 +1579,7 @@ export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
 export const SuggestionsRequestSchema = z.object({
   field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]),
   partial: z.string(),
+  page: z.number().nullable(),
   page_size: z.number().nullable(),
   context: z.object({
   tags: z.object({

@@ -88,6 +88,8 @@ pub struct SuggestionsRequest {
     pub field: SearchField,
     pub partial: String,
     #[serde(default)]
+    pub page: Option<u32>,
+    #[serde(default)]
     pub page_size: Option<u32>,
     #[serde(default)]
     pub context: Option<QueryContext>,

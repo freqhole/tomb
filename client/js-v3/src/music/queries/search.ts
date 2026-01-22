@@ -1,14 +1,11 @@
 // search query hooks for suggestions and full search results
-import {
-    createInfiniteQuery,
-    createQuery,
-} from "@tanstack/solid-query";
+import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
 import type {
-    SearchField,
-    SearchResponse,
-    SuggestionsResponse,
+  SearchField,
+  SearchResponse,
+  SuggestionsResponse,
 } from "../data/types";
 
 interface UseSearchSuggestionsOptions {
@@ -18,16 +15,16 @@ interface UseSearchSuggestionsOptions {
   enabled?: Accessor<boolean>;
 }
 
-// hook for search suggestions (autocomplete)
+// hook for search suggestions (autocomplete) with infinite scroll
 export function useSearchSuggestions(options: UseSearchSuggestionsOptions) {
   const field = options.field;
   const partial = options.partial;
   const pageSize = options.pageSize || 10;
   const enabled = options.enabled || (() => true);
 
-  return createQuery(() => ({
+  return createInfiniteQuery(() => ({
     queryKey: ["search", "suggestions", field(), partial()],
-    queryFn: async () => {
+    queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       const partialValue = partial();
 
@@ -62,9 +59,16 @@ export function useSearchSuggestions(options: UseSearchSuggestionsOptions) {
       return dataSource.searchSuggestions({
         field: field(),
         partial: partialValue,
+        page: pageParam,
         page_size: pageSize,
       });
     },
+    getNextPageParam: (lastPage) => {
+      // check if there are more pages
+      if (!lastPage.has_next) return undefined;
+      return lastPage.page + 1;
+    },
+    initialPageParam: 1,
     enabled: () => enabled() && partial().length >= 2,
     staleTime: 30 * 1000, // 30 seconds - suggestions are fairly stable
     gcTime: 60 * 1000, // 1 minute

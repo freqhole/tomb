@@ -268,6 +268,7 @@ export interface MusicDataSource {
   searchSuggestions?(params: {
     field: SearchField;
     partial: string;
+    page?: number;
     page_size?: number;
   }): Promise<SuggestionsResponse>;
 

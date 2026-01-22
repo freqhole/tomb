@@ -157,11 +157,18 @@ pub async fn get_suggestions(
     });
 
     // paginate
+    let page = req.page.unwrap_or(1);
     let page_size = req.page_size.unwrap_or(10);
     let total = suggestions.len();
-    let paginated_suggestions = suggestions.into_iter().take(page_size as usize).collect();
+    let offset = ((page - 1) * page_size) as usize;
+    let paginated_suggestions = suggestions
+        .into_iter()
+        .skip(offset)
+        .take(page_size as usize)
+        .collect();
 
     let query_time_ms = start.elapsed().as_millis() as u64;
+    let total_pages = ((total as u32 + page_size - 1) / page_size).max(1);
 
     GrimoireResponse::success(
         format!("found {} suggestion(s)", total),
@@ -169,11 +176,11 @@ pub async fn get_suggestions(
             suggestions: paginated_suggestions,
             query_time_ms,
             total_count: total as u64,
-            page: 1,
+            page,
             page_size,
-            total_pages: ((total as u32 + page_size - 1) / page_size).max(1),
-            has_next: total > page_size as usize,
-            has_prev: false,
+            total_pages,
+            has_next: page < total_pages,
+            has_prev: page > 1,
         },
     )
 }

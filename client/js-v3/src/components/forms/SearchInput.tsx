@@ -42,6 +42,10 @@ export interface SearchInputProps {
   onSelect?: (suggestion: SearchSuggestion) => void;
   /** callback when clear button is clicked */
   onClear?: () => void;
+  /** callback when user scrolls near end (for infinite scroll) */
+  onEndReached?: () => void;
+  /** whether more items are being loaded */
+  loadingMore?: boolean;
   /** callback when input loses focus */
   onBlur?: (event: FocusEvent) => void;
   /** callback when input gains focus */
@@ -130,6 +134,8 @@ export function SearchInput(props: SearchInputProps) {
     "disabled",
     "class",
     "variant",
+    "onEndReached",
+    "loadingMore",
   ]);
 
   const variant = () => local.variant || "default";
@@ -138,6 +144,16 @@ export function SearchInput(props: SearchInputProps) {
   // track input text to show/hide clear button
   const [inputText, setInputText] = createSignal("");
   let inputRef: HTMLInputElement | undefined;
+
+  // handle scroll for infinite loading
+  const handleScroll = (e: Event) => {
+    const target = e.target as HTMLElement;
+    const { scrollTop, scrollHeight, clientHeight } = target;
+    // trigger when within 100px of bottom
+    if (scrollTop + clientHeight >= scrollHeight - 100) {
+      local.onEndReached?.();
+    }
+  };
 
   const variantClasses = () => {
     const base = "w-full rounded border transition-colors";
@@ -324,7 +340,16 @@ export function SearchInput(props: SearchInputProps) {
               w-max
             "
           >
-            <Search.Listbox class="max-h-80 overflow-y-auto" />
+            <Search.Listbox
+              class="max-h-80 overflow-y-auto"
+              onScroll={handleScroll}
+            />
+
+            <Show when={local.loadingMore}>
+              <div class="px-4 py-2 text-center text-sm text-[var(--color-text-secondary)]">
+                loading more...
+              </div>
+            </Show>
 
             <Search.NoResult class="px-4 py-3 text-sm text-[var(--color-text-tertiary)] text-center">
               no suggestions found

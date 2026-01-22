@@ -4,7 +4,8 @@ import { createMemo, createSignal, Show } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchField, SearchSuggestion } from "../../music/data/types";
 import { useSearchSuggestions } from "../../music/queries/search";
-import { playQueue } from "../../music/services/audio/player";
+import { addToQueue } from "../../music/services/audio/player";
+import { routes } from "../../music/utils/routing";
 import { IconButton } from "../buttons/IconButton";
 import type { SearchSuggestion as SearchInputSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
@@ -24,57 +25,66 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [isExpanded, setIsExpanded] = createSignal(false);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
 
-  // suggestions query
+  // suggestions query with infinite scroll
   const suggestionsQuery = useSearchSuggestions({
     field: () => "all",
     partial: searchValue,
-    pageSize: 10,
+    pageSize: 20,
     enabled: () => searchValue().length >= 2,
   });
 
-  // convert API suggestions to SearchInput format
+  // flatten paginated suggestions
   const suggestions = createMemo((): SearchInputSuggestion[] => {
-    const data = suggestionsQuery.data;
-    if (!data) return [];
+    const pages = suggestionsQuery.data?.pages;
+    if (!pages) return [];
 
     const remote = getCurrentRemote();
     const baseUrl = remote?.base_url || "";
 
-    return data.suggestions.map((s) => {
-      // extract thumbnail and metadata
-      let thumbnailUrl: string | undefined;
-      let albumId: string | undefined;
+    return pages
+      .flatMap((page) => page.suggestions)
+      .map((s) => {
+        // extract thumbnail and metadata
+        let thumbnailUrl: string | undefined;
+        let albumId: string | undefined;
 
-      if (s.metadata) {
-        const meta = s.metadata as any;
-        if (meta.thumbnail_blob_id) {
-          thumbnailUrl = `${baseUrl}/api/blobs/${meta.thumbnail_blob_id}`;
+        if (s.metadata) {
+          const meta = s.metadata as any;
+          if (meta.thumbnail_blob_id) {
+            thumbnailUrl = `${baseUrl}/api/blobs/${meta.thumbnail_blob_id}`;
+          }
+          if (meta.album_id) {
+            albumId = meta.album_id;
+          }
         }
-        if (meta.album_id) {
-          albumId = meta.album_id;
-        }
-      }
 
-      // only add thumbnail click for playable types (songs, albums, playlists)
-      const isPlayable =
-        s.suggestion_type === "song" ||
-        s.suggestion_type === "album" ||
-        s.suggestion_type === "playlist";
+        // only add thumbnail click for playable types (songs, albums, playlists)
+        const isPlayable =
+          s.suggestion_type === "song" ||
+          s.suggestion_type === "album" ||
+          s.suggestion_type === "playlist";
 
-      return {
-        id: s.entity_id,
-        text: s.display,
-        category: s.suggestion_type,
-        highlight: s.highlight,
-        count: s.count > 0 ? s.count : undefined,
-        thumbnailUrl,
-        data: s,
-        onThumbnailClick: isPlayable
-          ? () => handleThumbnailClick(s, albumId)
-          : undefined,
-      };
-    });
+        return {
+          id: s.entity_id,
+          text: s.display,
+          category: s.suggestion_type,
+          highlight: s.highlight,
+          count: s.count > 0 ? s.count : undefined,
+          thumbnailUrl,
+          data: s,
+          onThumbnailClick: isPlayable
+            ? () => handleThumbnailClick(s, albumId)
+            : undefined,
+        };
+      });
   });
+
+  // handle loading more suggestions
+  const handleEndReached = () => {
+    if (suggestionsQuery.hasNextPage && !suggestionsQuery.isFetchingNextPage) {
+      suggestionsQuery.fetchNextPage();
+    }
+  };
 
   const handleInputChange = (value: string) => {
     setSearchValue(value);
@@ -129,29 +139,29 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const dataSource = getDataSource();
 
     try {
-      // play based on suggestion type
+      // add to queue and play based on suggestion type
       switch (suggestion.suggestion_type) {
         case "song":
           await handlePlaySong(suggestion.entity_id);
           break;
 
         case "album":
-          // fetch and play all songs in the album
+          // fetch and add all songs in the album to queue
           const albumSongs = await dataSource.getAlbumSongs?.(
             suggestion.entity_id,
           );
           if (albumSongs && albumSongs.items.length > 0) {
-            await playQueue(albumSongs.items);
+            await addToQueue(albumSongs.items, { startPlaying: true });
           }
           break;
 
         case "playlist":
-          // fetch and play all songs in the playlist
+          // fetch and add all songs in the playlist to queue
           const playlistSongs = await dataSource.getPlaylistSongs?.(
             suggestion.entity_id,
           );
           if (playlistSongs && playlistSongs.items.length > 0) {
-            await playQueue(playlistSongs.items);
+            await addToQueue(playlistSongs.items, { startPlaying: true });
           }
           break;
       }
@@ -168,41 +178,35 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (!suggestion || !suggestion.data) return;
 
     const s = suggestion.data as SearchSuggestion;
-    const remote = getCurrentRemote();
-    const baseRoute = remote ? `/${remote.remote_id}` : "/local";
     const meta = s.metadata as any;
 
-    // row click navigates to detail page
+    // row click navigates to detail page using route helpers
     switch (s.suggestion_type) {
       case "song":
         // for songs, navigate to album detail page if we have album_id
         if (meta?.album_id) {
-          navigate(`${baseRoute}/albums/${meta.album_id}`);
-        } else {
-          // fallback: go to search results
-          handleSearchSubmit();
+          navigate(routes.album(meta.album_id));
         }
         break;
 
       case "artist":
-        navigate(`${baseRoute}/artists/${s.entity_id}`);
+        navigate(routes.artist(s.entity_id));
         break;
 
       case "album":
-        navigate(`${baseRoute}/albums/${s.entity_id}`);
+        navigate(routes.album(s.entity_id));
         break;
 
       case "genre":
-        navigate(`${baseRoute}/genres/${s.entity_id}`);
+        navigate(routes.genre(s.entity_id));
         break;
 
       case "playlist":
-        navigate(`${baseRoute}/playlists/${s.entity_id}`);
+        navigate(routes.playlist(s.entity_id));
         break;
 
       default:
-        // fallback: go to search results
-        handleSearchSubmit();
+        // no fallback needed
         break;
     }
 
@@ -215,10 +219,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const query = searchValue();
     if (query.length < 2) return;
 
-    const remote = getCurrentRemote();
-    const baseRoute = remote ? `/${remote.remote_id}` : "/local";
-
-    // detect if on a filterable view route
+    // apply filter to current view
     const pathname = location.pathname;
     const filterableRoutes = [
       "songs",
@@ -234,13 +235,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (currentRoute) {
       // add query param to current view (don't clear search input)
       navigate(`${pathname}?q=${encodeURIComponent(query)}`);
-    } else {
-      // navigate to search results page
-      navigate(`${baseRoute}/search?q=${encodeURIComponent(query)}`);
-      // collapse search after navigating to search results page
-      setSearchValue("");
-      setIsExpanded(false);
     }
+    // if not on a filterable view, do nothing (suggestions already work)
   };
 
   const handlePlaySong = async (songId: string) => {
@@ -257,8 +253,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
         return;
       }
 
-      // play the song with full data
-      await playQueue([song]);
+      // add song to queue and play it
+      await addToQueue([song], { startPlaying: true });
     } catch (error) {
       console.error("failed to play song:", error);
     }
@@ -308,6 +304,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onClear={handleClear}
             onFocus={handleFocus}
             onKeyDown={handleKeyDown}
+            onEndReached={handleEndReached}
+            loadingMore={suggestionsQuery.isFetchingNextPage}
             onBlur={(e) => {
               // check if we're blurring to something outside the search component
               const relatedTarget = e.relatedTarget as HTMLElement | null;

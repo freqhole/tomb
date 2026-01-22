@@ -498,12 +498,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async searchSuggestions(params: {
     field: SearchField;
     partial: string;
+    page?: number;
     page_size?: number;
   }): Promise<SuggestionsResponse> {
     const result = await apiClient.music.suggestions(this.baseUrl, {
       field: params.field,
       partial: params.partial,
-      page_size: params.page_size || null,
+      page: params.page || 1,
+      page_size: params.page_size || 10,
       context: null,
     });
 

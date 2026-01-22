@@ -442,6 +442,7 @@ export async function runStatefulTests() {
       {
         field: "all",
         partial: "test",
+        page: 1,
         page_size: 10,
         context: null,
       },
@@ -464,6 +465,7 @@ export async function runStatefulTests() {
       {
         field: "songs",
         partial: "a",
+        page: 1,
         page_size: 5,
         context: null,
       },

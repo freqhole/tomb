@@ -56,7 +56,7 @@ pub async fn get_song_suggestions(
             AND song.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
         ORDER BY fts.rank DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         user_id_param,
         user_id_param,
@@ -148,7 +148,7 @@ pub async fn get_artist_suggestions(
             AND (rating.rating IS NULL OR rating.rating != 0)
         GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id
         ORDER BY fts.rank DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         user_id_param,
         user_id_param,
@@ -239,7 +239,7 @@ pub async fn get_album_suggestions(
             AND (rating.rating IS NULL OR rating.rating != 0)
         GROUP BY album.id, album.title, fts.rank, rating.rating, favorite.id
         ORDER BY fts.rank DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         user_id_param,
         user_id_param,
@@ -304,7 +304,7 @@ pub async fn get_genre_suggestions(
             AND genre.deleted_at IS NULL
         GROUP BY genre.id, genre.name, fts.rank
         ORDER BY fts.rank DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         match_query
     )
@@ -361,7 +361,7 @@ pub async fn get_sub_genre_suggestions(
             AND sub_genre.deleted_at IS NULL
         GROUP BY sub_genre.id, sub_genre.name, parent_genre.name, fts.rank
         ORDER BY fts.rank DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         match_query
     )
@@ -428,7 +428,7 @@ pub async fn get_playlist_suggestions(
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
         GROUP BY playlist.id, playlist.title, playlist.thumbnail_blob_id, playlist.is_public, playlist.created_by, fts.rank
         ORDER BY fts.rank DESC
-        LIMIT 10
+        LIMIT 100
         "#,
         match_query,
         user_id_param
