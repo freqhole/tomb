@@ -13,6 +13,8 @@ import {
 } from "../../music/queries/songs";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
+import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
+import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 
@@ -48,8 +50,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
     lyrics: "",
     artist_name: "",
     album_title: "",
-    genre: "",
-    sub_genre: "",
   });
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
@@ -246,15 +246,23 @@ export function SongEditorModal(props: SongEditorModalProps) {
               {/* artist */}
               <div class="flex items-center gap-2">
                 <div class="flex-1">
-                  <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                    artist
-                  </label>
-                  <TextInput
+                  <ArtistAutocomplete
+                    label="artist"
                     value={formData().artist_name}
-                    oninput={(e) =>
-                      handleFieldChange("artist_name", e.currentTarget.value)
-                    }
-                    placeholder="artist name"
+                    onSelect={(artist) => {
+                      const current = formData();
+                      const initial = initialData();
+                      // if changing to different artist, clear album
+                      if (initial && artist.name !== initial.artist_name) {
+                        setFormData({
+                          ...current,
+                          artist_name: artist.name,
+                          album_title: "",
+                        });
+                      } else {
+                        setFormData({ ...current, artist_name: artist.name });
+                      }
+                    }}
                   />
                 </div>
                 <Show
@@ -275,15 +283,12 @@ export function SongEditorModal(props: SongEditorModalProps) {
               {/* album */}
               <div class="flex items-center gap-2">
                 <div class="flex-1">
-                  <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                    album
-                  </label>
-                  <TextInput
+                  <AlbumAutocomplete
+                    label="album"
                     value={formData().album_title}
-                    oninput={(e) =>
-                      handleFieldChange("album_title", e.currentTarget.value)
-                    }
-                    placeholder="album title"
+                    onSelect={(album) => {
+                      handleFieldChange("album_title", album.title);
+                    }}
                   />
                 </div>
                 <Show

@@ -38,6 +38,8 @@ export const queryKeys = {
       [...queryKeys.albums.lists(), search, tagFilters] as const,
     detail: (id: string) => [...queryKeys.albums.all, id] as const,
     songs: (albumId: string) => ["album", "songs", albumId] as const,
+    autocomplete: (search?: string, artistId?: string) =>
+      [...queryKeys.albums.all, "autocomplete", search, artistId] as const,
   },
 
   // artists
@@ -48,6 +50,8 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.artists.all, id] as const,
     songs: (artistId: string) => ["artist", "songs", artistId] as const,
     albums: (artistId: string) => ["artist", "albums", artistId] as const,
+    autocomplete: (search?: string) =>
+      [...queryKeys.artists.all, "autocomplete", search] as const,
   },
 
   // genres
