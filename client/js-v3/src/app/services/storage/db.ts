@@ -83,8 +83,15 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 
 // update queue
 async function setQueue(songs: Song[]): Promise<void> {
-  // serialize to plain objects to avoid DataCloneError with proxies
-  const plainSongs = songs.map((song) => ({ ...song }));
+  // unwrap songs and any array properties that might be proxies
+  const plainSongs = songs.map((song) => {
+    const plain = { ...song };
+    // unwrap album_tags array if present (TanStack Query wraps arrays in proxies)
+    if (song.album_tags) {
+      plain.album_tags = [...song.album_tags];
+    }
+    return plain;
+  });
   await updateAppState({ queue: plainSongs });
 
   // clear in-progress cache tracking when queue changes
