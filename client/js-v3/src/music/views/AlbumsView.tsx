@@ -1,12 +1,17 @@
 // albums view - displays all albums in a grid
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createEffect, createSignal, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
+import {
+  TagFilterPicker,
+  type TagFilter,
+} from "../../components/forms/TagFilterPicker";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
 import { useAlbumsQuery } from "../queries/songs";
+import { useTagsQuery } from "../queries/tags";
 import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu } from "../services/contextMenu";
 import { getPrimaryImageUrl } from "../utils/images";
@@ -25,6 +30,12 @@ export function AlbumsView(props: AlbumsViewProps) {
   // track query changes to force grid reset
   const [isResetting, setIsResetting] = createSignal(false);
 
+  // tag filtering state
+  const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+
+  // fetch available tags
+  const tagsQuery = useTagsQuery();
+
   // fetch albums using query hook
   const albumsQuery = useAlbumsQuery({
     pageSize: 100,
@@ -32,12 +43,14 @@ export function AlbumsView(props: AlbumsViewProps) {
       const q = searchParams.q;
       return Array.isArray(q) ? q[0] : q;
     },
+    tagFilters: () => tagFilters(),
   });
 
-  // reset virtual grid when query param changes
+  // reset virtual grid when query param or tag filters change
   createEffect(() => {
     const q = searchParams.q;
     const queryParam = Array.isArray(q) ? q[0] : q;
+    const filters = tagFilters();
     // briefly show resetting state to force grid to remount
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);
@@ -96,6 +109,42 @@ export function AlbumsView(props: AlbumsViewProps) {
     }));
   };
 
+  // tag filter handlers
+  const handleAddTag = (tag: string) => {
+    setTagFilters([...tagFilters(), { tag, mode: "include" }]);
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    setTagFilters(tagFilters().filter((f) => f.tag !== tag));
+  };
+
+  const handleToggleMode = (tag: string) => {
+    setTagFilters(
+      tagFilters().map((f) =>
+        f.tag === tag
+          ? {
+              tag: f.tag,
+              mode: (f.mode === "include" ? "exclude" : "include") as
+                | "include"
+                | "exclude",
+            }
+          : f,
+      ),
+    );
+  };
+
+  const handleClearAllTags = () => {
+    setTagFilters([]);
+  };
+
+  // convert tags to tag options for picker
+  const availableTags = createMemo(() => {
+    return (tagsQuery.data || []).map((tag) => ({
+      value: tag.name,
+      label: tag.name,
+    }));
+  });
+
   // play album: load all songs and start playing
   const handleAlbumPlay = async (album: CollectionCardData) => {
     try {
@@ -147,7 +196,7 @@ export function AlbumsView(props: AlbumsViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] ml-[150px]">
+      <div class="flex items-center justify-between p-4 ml-[150px]">
         <div>
           <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
             albums
@@ -161,6 +210,20 @@ export function AlbumsView(props: AlbumsViewProps) {
         <Button variant="primary" onClick={props.onAddMusic}>
           add music
         </Button>
+      </div>
+
+      {/* tag filter picker */}
+      <div class="ml-[150px]">
+        <TagFilterPicker
+          availableTags={availableTags()}
+          selectedFilters={tagFilters()}
+          onAddTag={handleAddTag}
+          onRemoveTag={handleRemoveTag}
+          onToggleMode={handleToggleMode}
+          onClearAll={handleClearAllTags}
+          loading={tagsQuery.isLoading}
+          compact={true}
+        />
       </div>
 
       {/* album grid */}

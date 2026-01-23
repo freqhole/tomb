@@ -34,7 +34,8 @@ export const queryKeys = {
   albums: {
     all: ["albums"] as const,
     lists: () => [...queryKeys.albums.all, "list"] as const,
-    list: (search?: string) => [...queryKeys.albums.lists(), search] as const,
+    list: (search?: string, tagFilters?: any) =>
+      [...queryKeys.albums.lists(), search, tagFilters] as const,
     detail: (id: string) => [...queryKeys.albums.all, id] as const,
     songs: (albumId: string) => ["album", "songs", albumId] as const,
   },

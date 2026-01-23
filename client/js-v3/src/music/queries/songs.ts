@@ -119,14 +119,16 @@ export function useSongQuery(songId: Accessor<string | undefined>) {
 interface UseAlbumsQueryOptions {
   query?: Accessor<string | undefined>;
   pageSize?: number;
+  tagFilters?: Accessor<TagFilter[]>;
 }
 
 export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const query = options?.query;
+  const tagFilters = options?.tagFilters;
 
   return createInfiniteQuery(() => ({
-    queryKey: queryKeys.albums.list(query?.()),
+    queryKey: queryKeys.albums.list(query?.(), tagFilters?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getAlbums) {
@@ -138,10 +140,24 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
           has_more: false,
         };
       }
+
+      // build query params with tag filters
+      const currentTagFilters = tagFilters?.();
+      const includeTags = currentTagFilters
+        ?.filter((f) => f.mode === "include")
+        .map((f) => f.tag);
+      const excludeTags = currentTagFilters
+        ?.filter((f) => f.mode === "exclude")
+        .map((f) => f.tag);
+
       return dataSource.getAlbums({
         offset: pageParam,
         limit: pageSize,
         search: query?.(),
+        include_tags:
+          includeTags && includeTags.length > 0 ? includeTags : undefined,
+        exclude_tags:
+          excludeTags && excludeTags.length > 0 ? excludeTags : undefined,
       });
     },
     getNextPageParam: (lastPage) => {
