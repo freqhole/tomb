@@ -251,17 +251,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
                     value={formData().artist_name}
                     onSelect={(artist) => {
                       const current = formData();
-                      const initial = initialData();
-                      // if changing to different artist, clear album
-                      if (initial && artist.name !== initial.artist_name) {
-                        setFormData({
-                          ...current,
-                          artist_name: artist.name,
-                          album_title: "",
-                        });
-                      } else {
-                        setFormData({ ...current, artist_name: artist.name });
-                      }
+                      setFormData({ ...current, artist_name: artist.name });
                     }}
                   />
                 </div>

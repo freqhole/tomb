@@ -9,7 +9,11 @@ use crate::blob_data::{convert_to_webp, create_image_blob_from_webp_data};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::media_blobz::BlobType;
-use crate::music::crud::{find_or_create_album, find_or_create_artist, find_or_create_genre};
+use crate::music::crud::create_or_update::{
+    find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+    get_current_album_for_song, get_current_artist_for_song,
+};
+use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
 use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::tags::{
     add_albums_tags, find_or_create_tags, remove_albums_tags, replace_albums_tags,
@@ -156,7 +160,12 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
     };
 
     // resolve relationships first (find or create once, reuse for all songs)
+    // track whether artist was explicitly provided (before moving req.artist)
+    let artist_explicitly_provided = req.artist.is_some();
+
+    // resolve artist: either from request, or get current artist if we need it for album scoping
     let artist = if let Some(artist_req) = req.artist {
+        // user is explicitly changing the artist
         let import_req = ArtistImportRequest {
             name: artist_req.name,
             created_by: req.updated_by.clone(),
@@ -178,6 +187,37 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     response.errors
                 };
                 return GrimoireResponse::failure("Failed to update songs", errors);
+            }
+        }
+    } else if req.album.is_some() {
+        // user is changing album but not artist - need current artist for scoping
+        match get_current_artist_for_song(&req.song_ids[0]).await {
+            Ok(Some(artist)) => Some(artist),
+            Ok(None) => {
+                // song has no artist, create "Unknown Artist"
+                let unknown_artist_req = ArtistImportRequest {
+                    name: "Unknown Artist".to_string(),
+                    created_by: req.updated_by.clone(),
+                };
+                match find_or_create_artist(unknown_artist_req).await {
+                    GrimoireResponse {
+                        success: true,
+                        data: Some((artist, _)),
+                        ..
+                    } => Some(artist),
+                    response => {
+                        return GrimoireResponse::failure(
+                            "Failed to create Unknown Artist",
+                            response.errors,
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to get current artist for song",
+                    vec![e.into()],
+                );
             }
         }
     } else {
@@ -278,34 +318,94 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         None
     };
 
+    // handle album: if artist changed, need to get current album title and re-scope it
     let album = if let Some(album_req) = req.album {
-        let import_req = AlbumImportRequest {
-            title: album_req.title,
-            album_type: album_req.album_type,
-            release_date: album_req.release_date,
-            release_date_precision: album_req.release_date_precision,
-            label: album_req.label,
-            genre_id: genre.as_ref().map(|g| g.id.clone()),
-            year: album_req.year,
-            created_by: req.updated_by.clone(),
-        };
-        match find_or_create_album(import_req).await {
-            GrimoireResponse {
-                success: true,
-                data: Some((album, _)),
-                ..
-            } => Some(album),
-            response => {
-                let errors = if response.errors.is_empty() {
-                    vec![ErrorDetail::new(
-                        "album_creation_failed",
-                        "Album Creation Failed",
+        // user explicitly provided new album
+        if let Some(ref artist) = artist {
+            let import_req = AlbumImportRequest {
+                title: album_req.title,
+                album_type: album_req.album_type,
+                release_date: album_req.release_date,
+                release_date_precision: album_req.release_date_precision,
+                label: album_req.label,
+                genre_id: genre.as_ref().map(|g| g.id.clone()),
+                year: album_req.year,
+                created_by: req.updated_by.clone(),
+            };
+            match find_or_create_album_for_artist(import_req, &artist.id).await {
+                Ok((album, _created)) => Some(album),
+                Err(e) => {
+                    return GrimoireResponse::failure(
                         "Failed to find or create album",
-                    )]
-                } else {
-                    response.errors
+                        vec![e.into()],
+                    );
+                }
+            }
+        } else {
+            // shouldn't happen but handle gracefully
+            return GrimoireResponse::failure(
+                "Cannot set album without artist context",
+                vec![ErrorDetail::new(
+                    "missing_artist",
+                    "Missing Artist",
+                    "Album updates require artist context",
+                )],
+            );
+        }
+    } else if artist_explicitly_provided {
+        // user changed artist but not album - need to re-scope current album to new artist
+        match get_current_album_for_song(&req.song_ids[0]).await {
+            Ok(Some(current_album)) => {
+                // re-create this album scoped to the new artist
+                let new_artist = artist.as_ref().unwrap();
+                let import_req = AlbumImportRequest {
+                    title: current_album.title.clone(),
+                    album_type: current_album.album_type.clone().into(),
+                    release_date: current_album.release_date.clone(),
+                    release_date_precision: current_album.release_date_precision.clone(),
+                    label: current_album.label.clone(),
+                    genre_id: current_album.genre_id.clone(),
+                    year: None,
+                    created_by: req.updated_by.clone(),
                 };
-                return GrimoireResponse::failure("Failed to update songs", errors);
+                match find_or_create_album_for_artist(import_req, &new_artist.id).await {
+                    Ok((album, _created)) => Some(album),
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "Failed to re-scope album to new artist",
+                            vec![e.into()],
+                        );
+                    }
+                }
+            }
+            Ok(None) => {
+                // no current album, create "Unknown Album" for new artist
+                let new_artist = artist.as_ref().unwrap();
+                let import_req = AlbumImportRequest {
+                    title: "Unknown Album".to_string(),
+                    album_type: Some("album".to_string()),
+                    release_date: None,
+                    release_date_precision: None,
+                    label: None,
+                    genre_id: genre.as_ref().map(|g| g.id.clone()),
+                    year: None,
+                    created_by: req.updated_by.clone(),
+                };
+                match find_or_create_album_for_artist(import_req, &new_artist.id).await {
+                    Ok((album, _created)) => Some(album),
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "Failed to create Unknown Album for new artist",
+                            vec![e.into()],
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to get current album for song",
+                    vec![e.into()],
+                );
             }
         }
     } else {
@@ -379,6 +479,22 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
     // update artist relationships if provided
     if let Some(ref artist) = artist {
+        // collect old artist ids for orphan cleanup
+        let mut old_artist_ids = Vec::new();
+        for song_id in &req.song_ids {
+            if let Ok(old_artist_id) = sqlx::query_scalar!(
+                "SELECT artist_id FROM artist_songz WHERE song_id = ?",
+                song_id
+            )
+            .fetch_optional(&pool)
+            .await
+            {
+                if let Some(id) = old_artist_id {
+                    old_artist_ids.push(id);
+                }
+            }
+        }
+
         // batch delete old relationships
         for song_id in &req.song_ids {
             if let Err(err) = sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
@@ -408,10 +524,33 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 );
             }
         }
+
+        // cleanup orphaned artists
+        for old_artist_id in old_artist_ids {
+            if old_artist_id != artist.id {
+                let _ = delete_artist_if_unused(&old_artist_id).await;
+            }
+        }
     }
 
     // update album relationships if provided
     if let Some(ref album) = album {
+        // collect old album ids for orphan cleanup
+        let mut old_album_ids = Vec::new();
+        for song_id in &req.song_ids {
+            if let Ok(old_album_id) = sqlx::query_scalar!(
+                "SELECT album_id FROM album_songz WHERE song_id = ?",
+                song_id
+            )
+            .fetch_optional(&pool)
+            .await
+            {
+                if let Some(id) = old_album_id {
+                    old_album_ids.push(id);
+                }
+            }
+        }
+
         // batch delete old relationships
         for song_id in &req.song_ids {
             if let Err(err) = sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
@@ -439,6 +578,13 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     "Failed to create album relationships",
                     vec![err.into()],
                 );
+            }
+        }
+
+        // cleanup orphaned albums
+        for old_album_id in old_album_ids {
+            if old_album_id != album.id {
+                let _ = delete_album_if_unused(&old_album_id).await;
             }
         }
     }

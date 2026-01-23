@@ -48,15 +48,12 @@ pub use crate::music::entities::playlists::{
 pub use create_or_update::{
     bulk_import_songs,
     create_song_with_artist_and_album,
-    find_or_create_album,
     find_or_create_artist,
     find_or_create_genre,
     get_or_create_playlist_by_name,
-    import_album_with_songs,
     import_song_with_metadata as add_song, // renamed for cleaner API
     // duplicate report functions
     init_duplicate_report,
-    update_song_with_relationships,
     write_duplicate_report,
 };
 
@@ -126,10 +123,9 @@ pub use deduplication::{
 // CREATE/UPDATE operations:
 // - add_song() - creates song + artist + album + genre in one call
 // - find_or_create_artist() - case-insensitive artist deduplication
-// - find_or_create_album() - case-insensitive album deduplication
 // - find_or_create_genre() - case-insensitive genre deduplication
 // - bulk_import_songs() - processes multiple files with relationships
-// - update_song_with_relationships() - updates song + creates missing relationships
+// - update_songs() - updates songs with optional fields and relationships
 //
 // QUERY operations:
 // - query_songs() - unified query API with FTS, filters, pagination
