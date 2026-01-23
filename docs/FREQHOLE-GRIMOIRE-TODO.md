@@ -105,7 +105,7 @@ do all the routes that have route params also include the route param in the req
 
 what about ts client wrappers to help with the two upload routes? and also a wrapper for getting the url for a media blob (takes and id and basically returns /api/media/{blob_id} i think the route is).
 
-i need to start a new convo thread. can you write a summary handoff message i can send you in a new thread that has all the context and info to pick back up this work?
+i need to start a new convo thread. can you write a summary handoff message i can send you in a new thread that has all the context and info to pick back up this work in a new convo thread? please include important rules about preferring lowercase, prose-style text when writing code.
 
 ---
 
@@ -1237,3 +1237,476 @@ sqlite3 data/grimoire.db "SELECT id, name FROM genrez LIMIT 5;"
 ---
 
 # FRONTEND 🐴
+
+ohey! so just rounding the corner on pretty huge refactor of all the backend server code for freqhole! i've moved away from pg and now using sqlite. i've also made substantial refactorings to the server api and now am generating a ts api client client-codegen/freqhole-api-client/. all this stuff is in a much better shape now! so moving back into the frontend web app code over in client/js/. there's gonna be a LOT of work to re-wire all the api calls and there's a lot of things i've learned since this code was written so i've also got a lot of other changes i'd like to do, like:
+
+more offline support; using indexed db for structured data and cache api (and maybe storagemanager api?) for persisting media files for offline support. user should be able to select music to "download" into browser cache (and do like persisted data pwa stuff-- i've got prototypes that have mostly worked this out).
+
+be able to connect to multiple remote backends. so the new ts client api takes a base api host, so the idea is there'd be indexed db and the user could configure one or more remotes and then be able to browse any number of remote freqhole instances (one at a time, tho!)
+
+the ui/ux is just ...okay, there's a lot of inconsistency and duplication of code and generally not a lot of stable patterns. THERE'S WAY TOO MUCH CODE. similar to all the backend code i just refactored, there's many many half-baked features everywhere. it's a great prototype, but i now want to take the time to re-build and get it right.
+
+so hoping you can help me get a plan started for all this work? it's gonna be evolving but i hope we can start by figuring out what code and patterns we can salvage from the current prototype.
+
+to get started, i'm wondering if we do some kind of code analysis that walks the current dependency tree to extract only the code files that are actually being used (there's so much dead code currently!) ...can we extract all the currently used code starting at client/js/src/views/freqhole/main.tsx
+
+maybe one of these can help us walk the dependency tree?
+
+https://github.com/sverweij/dependency-cruiser
+https://knip.dev/overview/getting-started
+https://github.com/pahen/madge / https://github.com/dependents/node-dependency-tree
+
+my goal here would be to extract all the "actually used" code files in client/js/ to a new folder, be able to build/tsc without any missing files, then maybe it will begin to be more clear what code can be salvaged and refactored, and then what needs to be (re)built. does that make any sense? can you help me do this?
+
+"event dispatching:\*\* use solid's createResource + refetch pattern instead of event bus" so i feel like you might be over-simplifying this. it's not always possible to feed the refetch fn into components that are, like, a long ways away in the code. or at least i haven't yet found a good pattern for this.
+
+also, not sure i want to defer the infinite loading and virtualization stuff, because it's so import and such an essential part of the ui/ux. at least in previous implementations, i started like you mentioned, with simple lists, but then the complexities of moving them to use the infinite loader stuff was a nightmare. i can't go thru that again. i'm really need to make sure i have quite a few very very solid code patterns established before i start going wild with ui view compositions.
+
+---
+
+okay, for the songs table, i will need these columns
+
+# (disc and track number, should be computed so like if there's two disc and ten tracks on each, the numbers would go from 1 - 20)
+
+title
+artist
+album
+year
+time
+favorite heart icon
+rating icon
+tag list
+
+can we also use a "grid" for the songs table so that we can also have horizontal scrolling in case the user's window isn't wide enough the fit all the columns? would be great if the header row was sticky. the columns will be sortable (server side!) and have sort direction indicators (which should cycle thru asc, desc, and then third click should clear and re-set to default sort order).
+
+then also need song row for playlists, queue, and then on artist/album detail pages. (check out clien/js-v2/ for examples!)
+
+---
+
+...there's no tailwind.config in client/storybook/? or i guess it's a theme .css file (with @theme directive block) with the recent version of tailwind (https://tailwindcss.com/docs/theme). i'd like to have a central "theme" to define colors. currently i'm only supporting a dark theme, but i suppose in the future i'll want a light theme and possibly other (but i don't want to code those other themes now! just a dark theme but built in such a way that additional themes are easy to implement).
+
+i also would like to have a typography story so that i can have a central type ramp that components will use. and a way i can control the global font face(s) and font sizes.
+
+other components i'd like you to help me stub out (please reference client/js-v2/ for aesthetic):
+
+1. icons (storybook should show all the app icons)
+2. icon button
+3. a modal popover thing, (would like to use <dialog>) with backdrop and a click away listener (js-v2 should have most of this worked out)
+4. badges (like pills, for tags and some other ui)
+5. the login/register form (usually in a modal, have this pretty well worked out in js-v2)
+6. a context menu (so right-click flyout menu, see js-v2 and try to find the one we built that also supports mobile long-touch handling)
+7. the player!
+8. the queue (like a sidebar sort of thing)
+9. `isMobile()` which uses breakpoints, need a js fn to conditionally render components (often i will have different component compositions for mobile). perhaps the breakpoints are in my theme?
+10. navigation (will plug into the router)-- i'm gonna want to re-work this quite a bit, but just pull from js-v2 for now.
+11. tag picked (should be able to list all tags, then allow user to select tags to either make them included or excluded in the music filters)
+12. a heading section that will be above the virtualized lists, usually contains some heading text, global tags filter component, the total amount of records (e.g. 50 albums, or 100 songs, etc.), and if virtualized grid, the sorting component.
+13. artists and genres do a two column layout on desktop, so one narrow column with a virtualized list and then a bigger column for artist and genre view with virtualized grid.
+14. artist index; this is like a narrow column that's A-Z + # that can jump to sections in the artists virtualized list
+15. artist and genre detail views have these stats key/value things for example: `songs: 7, albums: 4, duration: 50m, genres: Alternative, Other, Rock, Rock/Pop`
+16. playlist rows have drag and drop sorting (that is currently working well, so hope we can re-use a lot of this existing code!)
+17. for fields: so text input, text field, file picker (see playlist edit for nice looking example)
+18. search text input field and autocomplete flyout (current js-v2 has a pretty good working code for this, will need some improvements later)
+19. tabs (for the edit song(s) popover modal, search results view, and the "add music" popover)
+20. some more complex form stuff for context menus (like adding a song to a playlist, or tagging)
+21. alerts; so like alert popups but also inline for errors or warnings (like when deleting a song, confirm with "are you sure you want to do this?" or validation when editing song(s))
+
+---
+
+that seems great! but first, can we do a few tweaks to the existing ones?
+
+the icons on the forms are a little off, "Text Input With Icons" the icons are a little small in the form input, should be as tall as the form. the upload file icon is below the form input (should be the same as the others, and inside the form field) "Text Input States" the with error "this field is required" the icon isn't quite positioned correctly, like the icon and text overlap. i don't need small, medium, large variations of the form inputs.
+
+the overlays should open a model that's centered horizontally and vertically. currently they're showing in the top left corner.
+
+the accent badge variation needs a white font color not pink/magenta because the background of the badge is pink/magenta (so can't read the text). the with icon variations need a little bit more space between the icon and the text.
+
+---
+
+amazing, thank you! so i need to start a new convo thread. can you write a summary handoff message i can send you in a new thread that has all the context and info to pick back up this work in a new convo thread? please include important rules about preferring lowercase, prose-style text when writing code.
+
+## kobalte
+
+check out https://kobalte.dev/docs/core/components/navigation-menu
+
+https://kobalte.dev/docs/core/components/search (YES)
+
+maybe: https://kobalte.dev/docs/core/components/tabs/
+https://kobalte.dev/docs/core/components/toast
+https://kobalte.dev/docs/core/components/tooltip & https://kobalte.dev/docs/core/components/hover-card
+
+https://kobalte.dev/docs/core/components/combobox for like edit autocomplete?
+
+https://kobalte.dev/docs/core/components/file-field for files
+
+---
+
+### lowercase prose style (CRITICAL!)
+
+all code comments, docstrings, and user-facing strings use **lowercase, conversational style**:
+
+```typescript
+// ✅ good:
+// extract data from server response wrapper before validation
+const data = json.data ?? json;
+throw new Error("failed to connect to database");
+// TODO: add support for pagination
+
+// ❌ avoid:
+// Extract Data From Server Response Wrapper
+throw new Error("Failed to connect to database");
+// Todo: Add Support For Pagination
+```
+
+**exceptions:** keep uppercase for acronyms (API, HTTP, JSON, SQL), proper nouns (Rust, TypeScript, GitHub), code identifiers, special markers (TODO, FIXME, NOTE, WARNING)
+
+**no emojis in code files!** use text or icons instead.
+
+---
+
+check out @tanstack/solid-query (live query thing is very neat)
+https://github.com/TanStack/query/blob/main/examples/solid/solid-start-streaming/
+
+OPFS for cached media files?!
+
+tanstack db? maybe a lot of tanstack, but there's this dexie wrapper which is neat https://github.com/HimanshuKumarDutt094/tanstack-dexie-db-collection
+
+---
+
+can you see playlistz/ code now? it's got a lot of the stuff we want to build already worked out. please review, and then, yes, please update the plan (especially with what you find in playlistz/)
+
+but, hmm, not sure about needing two routes like
+
+[@offline-first-implementation-plan.md (32:33)](file:///Users/edward/src/github/freqhole/tomb/docs/offline-first-implementation-plan.md#L32:33)
+
+i guess right now, super story, is like a single "view" into what a remote server, or i guess your local/offline/downloaded/whatever view is. can we discuss this more? does this make sense?
+
+the idb schema is probably gonna be ...an adventure.
+
+first, don't name this id: "singleton", just name it "freqhole" or "app_state" something. we shouldn't store auth_token: string in idb! generally the remote servers will use cookies (the api client lib will take care of wrapping fetch() fns with credentials:include opt)
+
+i'd first like to get to a point where i can start with an empty app state, add some music by either selecting some files off disk (so no OPFS) or pasting in a url to a remote audio file (and so it would get downloaded to OPFS). i feel like i'm gonna need an audio player soon. probably gonna need some settings ui (a modal?) and a way to easily trash everything and start over.
+
+and right, i do love dexie.js, but think we can do with just `idb` (maybe not idb-keyval because we're gonna need complex keys and namespaces pretty soon).
+
+---
+
+consider using lunr js for full text search https://lunrjs.com/docs/index.html
+
+---
+
+more auth
+
+so need to stub out all the auth and webauthn passkey handling in client-codegen/freqhole-api-client so consumers don't have to do this kind of stuff client/js-v3/src/music/services/remotes/webauthnHelpers.ts
+
+currently passkey auth seems to only work for chrome? safari is giving some errors. might need to debug?
+
+server/src/auth/ might have some issues? could also maybe be missing some cors handlers in legacyserver/src/routes.rs (but i feel like i got them all)
+
+we had this worked out before client/js/src/hooks/auth/index.ts or assets/private/auth.js or assets/client/js/webauthn-auth-standalone.js or legacyserver/src/auth/
+
+i want to setup a really simple .html page in client-codegen/freqhole-api-client/auth-test.html with really plain simple html forms to test out registration and sign in. sort of like i had here: assets/index.html; then have a really simple node http server we can start via `npm run auth-test`. there's also some `any` types coming out of the codegen schema.ts for auth stuff that we should probably type (either as rust structs or just hand-written zod schemas in freqhole-api-client somewhere)
+
+### lowercase prose style (CRITICAL!)
+
+all code comments, docstrings, and user-facing strings use **lowercase, conversational style**:
+
+```typescript
+// good:
+// extract data from server response wrapper before validation
+const data = json.data ?? json;
+throw new Error("failed to connect to database");
+// TODO: add support for pagination
+
+// avoid:
+// Extract Data From Server Response Wrapper
+throw new Error("Failed to connect to database");
+// Todo: Add Support For Pagination
+```
+
+**exceptions:** keep uppercase for acronyms (API, HTTP, JSON, SQL), proper nouns (Rust, TypeScript, GitHub), code identifiers, special markers (TODO, FIXME, NOTE, WARNING)
+
+**no emojis in code files!** use text or icons instead.
+
+---
+
+[@webauthn passkey safari debug](zed:///agent/thread/23f3b185-3b8f-409f-adf9-b837acbfac5c?name=webauthn+passkey+safari+debug)
+ohey, so just got this add remote modal started [@AppLayout.tsx (253:265)](file:///Users/edward/src/github/freqhole/tomb/client/js-v3/src/app/AppLayout.tsx#L253:265) and there's a switcher to switch remote state [@AppLayout.tsx (69:76)](file:///Users/edward/src/github/freqhole/tomb/client/js-v3/src/app/AppLayout.tsx#L69:76) so now trying to work more on fetching music from remote api (we should use freqhole-api-client for remote api calls, it's just a bunch of wrapped fetch fns + zod schemas client-codegen/freqhole-api-client/)
+
+i don't yet have a clear pattern for rendering the ui in the "remote" perspective (i got some of the local perspective working, it reads from indexed db and opfs). so probably need to think about that more? maybe if we stubbed out a couple remote calls for songs and artists views some patterns might begin to emerge?
+
+i'm also starting to worry/wonder about how we can better centralize each component's concerns better than just leaving callbacks in client/js-v3/src/app/App.tsx or AppLayout.tsx (e.g. handleFilesSelected, handleUrlsSubmitted, handleSongDoubleClick, handleSwitchToLocal, handleSeek, handleQueueToggle, etc.). the ui is gonna be a lot more complex with remotes + local (as well as narrow responsive mobile views!). one option is using solid-js's global store. i did this before (see client/js-v2/) and it was ...okay, but ended up getting pretty messy. another thing i did in the previous attempt at this was use a global event bus: client/js-v2/src/views/freqhole/hooks/useGlobalEvents.ts this worked alright and made it a lot easier to dispatch events for many different (often deeply nested) components, as well as observe and respond to those events from other different corners of the code (e.g. the player could be a bit more encapsulated, or the analytics handlers could be a bit more centralized; certainly a lot less "prop drilling"). one thing that was a bit unwieldly was preventing circular dependencies (like if a some media bus thing listened to events but also emitted events, easy to cause infinite loops).
+
+a lot of backstory here; i'd like to focus on building out some remote data fetching and rendering of the songs and artists view (and then soon get to the albums and genre views). as we start getting into the more detailed and complex ui (gonna need a lot more context menus, a music edit modal, playlists CRUD, better responsive mobile views, etc.) i think we're gonna need to start using some better patterns.
+
+### lowercase prose style (CRITICAL!)
+
+all code comments, docstrings, and user-facing strings use **lowercase, conversational style**:
+
+```typescript
+// good:
+// extract data from server response wrapper before validation
+const data = json.data ?? json;
+throw new Error("failed to connect to database");
+// TODO: add support for pagination
+
+// avoid:
+// Extract Data From Server Response Wrapper
+throw new Error("Failed to connect to database");
+// Todo: Add Support For Pagination
+```
+
+**exceptions:** keep uppercase for acronyms (API, HTTP, JSON, SQL), proper nouns (Rust, TypeScript, GitHub), code identifiers, special markers (TODO, FIXME, NOTE, WARNING)
+
+**no emojis in code files!** use text or icons instead.
+
+---
+
+minor bug, when i click the player's play button after reloading the page, i can't start playback for remote songs, get this error:
+
+```
+player.ts:235 failed to play song: Error: song not found: 0b0aacf9df2f92cb
+    at playSong (player.ts:206:15)
+    at async Object.togglePlayback [as onPlayPause] (player.ts:258:11)
+playSong @ player.ts:235
+await in playSong
+togglePlayback @ player.ts:258
+PlayerBar2._el$0.$$click @ PlayerBar.tsx:190
+handleNode @ chunk-T5GFOCUH.js?v=75940bf2:912
+eventHandler @ chunk-T5GFOCUH.js?v=75940bf2:933Understand this error
+player.ts:265 failed to toggle playback: Error: song not found: 0b0aacf9df2f92cb
+    at playSong (player.ts:206:15)
+    at async Object.togglePlayback [as onPlayPause] (player.ts:258:11)
+```
+
+but it does work if i double click the song in the queue.
+
+---
+
+# TUE JAN 20, 2026
+
+zomg so much frontend shit, still 😩
+
+use config generes for top-level generes list (left/first col), then break down sub-generes ...somehow. (also it might be that albums (not songs) should have genres, ugh). also playlist stats are wrong (again in the left/first column). when clicking a genre, i get scrolled back to the top of the list. ...do genres have images? otherwise left/first col row doesn't need a thumbnail/icon.
+
+make pink accent bg buttons text black (not white)
+
+deal with this top nav bar, ugh. maybe always need a two col layout? how will it be on mobile 1-col layout, tho? prolly need to think about topnav more. albums and songs is 1-col layout.
+
+[DONE] the width of the first/left column in the two col layout should be the same width everywhere (artists, genres, playlists).
+
+[DONE] playlist song row image, and queue image need to work like: image cell with leftpad index number `000` white text on tight wrapped background centered middle of image. entire song row hover hides the index number (so can see image), hovering over the just the image shows play icon (and clicking it will play that song).
+
+[DONE] songs table list could maybe do this, too (tho icon needs to be much smaller. so maybe not?)
+
+[DONE] ...my music doesn't have any album images? or they're not loading correctly.
+
+[DONE!] scan music probably needs to work harder for song artist name and album name. can do filename splitting (to some reasonable point). is the scan truncating long title names?! double check `Headcleaner: Zentrifuge/Stabs/Rottlichtachse/Propaganda/Aufmarsh/E ...` song (seeing it in the artist detail view) also `Headcleaner: Das Gleissen/Schlacht/Lyrischer Ruckzug` doesn't marquee in the queue (wait, it's actually the last item in the queue doesn't marquee!)?
+
+oh. also double click or play icon click of song on artist detail doesn't start playing anything (whole album is queued tho); ...might be fixed? double-check to confirm
+
+[DONE] also, need to handle the case for compilation albums, there would be different artist and "album artist" metadata on the mp3 (song file). in this case, i don't really want to show these artists in the /artists route (so probably don't create artist table records? but show this somewhere?). look at legacylib/
+
+queue history tab for play history. also, since we're creating api cache for queued songs, i guess we should just create local indexed db records for this music?
+
+mild interest in just using opfs and no api cache, but need to think carefully.
+
+[DONE] topnav should show browser storage use (not a lot of open space, so keep it compact). also be nice to show the remote server image (if there is one).
+
+[DONE] add some recent playlists in top nav (order by updated_at). should be contextual to the selected remote-- like if local remote selected, show some recent local playlists, if remote selected, show some recent playlists for that remote. "view all" and "+ create" buttons should be wired up, too.
+
+album and artist detail page should also have "shuffle" and "+ queue" (or "add to queue", the "+queue" text is gonna be useful for narrow/mobile view when space starts getting tight) buttons. probably should add a new presentational component that wraps all these buttons? album and artist don't need "ARTIST" and "ABLUM" in the top of the header section. also need an edit button (only if user can edit tho, local always, remote should have proper role).
+
+[DONE] artist A-Z nav index needs to be wired up.
+
+[DONE]...search (suggestions should let user play song(s), or go to detail pages) otherwise pressing enter will go to search results page. also, persisted search input should be used as `q` param in all the query api requests (so will be a filter, will cause most all views to re-render and show filtered by this query param)
+
+[DONE] context menus
+
+[DONE] playlist context menuz
+
+[MOSTLYDONE] favorite handling everywhere the favorite is shown. same for rating.
+
+[DONE] FAVORITE INDICATOR (only when favorite) in search suggestions flyout menu (need to wire this up to server api response data + client-codegen api client)
+
+i guess also a standalone page view for all favorites (possibly new api route? maybe exists?)
+
+tags (have presentational component, just needs rendered and wired up to api calls) + tag context menus
+
+edit songs (and albums, like bulk edit)
+
+narrow mobile views? how to do this better? previous isMobile ran into some trouble. will be single column layout. would be nice if it didn't do touch detection, and could do responsive stuff instead so desktop can also render a narrow view.
+
+route transitions and more `loading...` ui (but only after >1second of loading time (maybe could pull it down to 750ms or 500ms)). should be able to tap into tanstack query more. also probably need more ETag handlers so we can handle better when new data is added to remote.
+
+artist/album detail grid (in genres) needs some size (and maybe responsive) tweaking
+
+cli for server setup, so init config, step user thru entering proper config values, setup a root user, generate 1 invite code (ask if user wants this for passkey setup), ask if user wants apikey (prolly do?), prompt dir for first music scan.
+
+YANK ALL THESE FRIGGEN BORDERS!
+
+can the playlist image take up the whole page bg? maybe album and artist detail pages can do this, too?
+
+maybe a carousel on artist and album detail pages to show all the images (no waveform images, tho)
+
+track currently playing song so we can show either a pink triangle or some other lil' animation or thing in all the places songs are rendered.
+
+...use the waveform images for something?
+
+[DONE] can we generate them not blue with white bg but pink with black bg? maybe use the image for currently playing thing? maybe like a background fill for the row or something?
+
+blob data separate .db file
+
+deal with playlistz/ a lil' standalone html page is kool. but how to share with js-v3/ code?! maybe could use .mdx files for playlists? that might be kool.
+
+rename js-v3/ ...to? spume? music? music.freqhole.net spume.freqhole.net might be better if really trying to make this a whole media app
+
+---
+
+hello! hoping do work on the music scan import (so will walk filesystem looking for music files). i think most of the logic is here: grimoire/src/jobs/music/file_processor.rs
+
+what i want to fix:
+
+1. no length limit on song titles!
+2. i want to be able to parse artist names from the file names, generally are separated by hyphens with surrounding spaces so `-`, sometimes we can get the album name, so like split the string on `-` and the first would be artist, if there's three the second would be album, but if only 1 hyphen then the second would be the track. if there are any numbers in the file, strip them from the title, and use that as the track number. sometimes there are underscores instead of spaces, so e.g. `Zeigenbock_Kopf_-_04_-_Moves_Wicked.mp3` so if underscores are converted to spaces, the prior `-` space wrapped hyphen logic should work.
+3. artist and album artist for compilations! so i don't think i want to crate a bunch of single artists record associations for compilation albums. there should be a single artist for the entire album. generally this is when there's two different non-empty strings for both "artist" or "album artist" fields; in which case we'd use the album artist for the freqhole artist db (i think we can still store, somehow the artist on the song record or something? might need to discuss the options here, because now the db is more normalized and there's artistz and albumz and songz tables)
+
+some prior examples of this that may or may not be helpful:
+
+legacylib/src/music/title_builder.rs
+
+legacylib/src/music/metadata.rs
+
+### lowercase prose style (CRITICAL!)
+
+all code comments, docstrings, and user-facing strings use **lowercase, conversational style**:
+
+```typescript
+// good:
+// extract data from server response wrapper before validation
+const data = json.data ?? json;
+throw new Error("failed to connect to database");
+// TODO: add support for pagination
+
+// avoid:
+// Extract Data From Server Response Wrapper
+throw new Error("Failed to connect to database");
+// Todo: Add Support For Pagination
+```
+
+**exceptions:** keep uppercase for acronyms (API, HTTP, JSON, SQL), proper nouns (Rust, TypeScript, GitHub), code identifiers, special markers (TODO, FIXME, NOTE, WARNING)
+
+**no emojis in code files!** use text or icons instead.
+
+---
+
+playlist (so this is the playlist item in the first/left of the two col view) selection is weird. it's weirdly slow, don't seem to respond on the first click, and sometimes i get this error:
+Uncaught (in promise) Error: Too many redirects
+at Object.fn (PlaylistsView.tsx:324:7)
+
+is the state or routing stuff somehow weird, should be similar to the artists and genres two col views... can you spot any issues?
+
+---
+
+amazing, thank you! so i need to start a new convo thread. can you write a summary handoff message i can send you in a new thread that has all the context and info to pick back up this work in a new convo thread? please include important rules about preferring lowercase, prose-style text when writing code.
+
+the next thing i want to work on is: context menus! there are gonna need to be used all over the place. tho i'm wondering if i would do well to tidy, and work out some other things up first:
+
+1. the player queue should have a simple, and central interface for adding music (and playing); there's these basic varieties:
+2. add songs (1 or more) to the end of the queue, but don't change what's currently playing (generally this is "add to queue" buttons throughout the app) (would start playing if nothing else is in the queue or the queue is over (i.e. last song in the queue done playing))
+3. clear the queue and add songs (1 or more) and start playback from the first song. ("shuffle" would do this)
+4. add songs (1 or more) after the currently playing song (but don't change current song playback) this will be "play next" (in the context menu)
+5. there's gonna need to be a custom context menu view for adding songs to a playlist. should be able to show a few of the recent playlists, a text input field for filtering all playlists or entering a new playlist name, and a "create new playlist" button that will use either a default name or name it with the text the user input into the filter text input. the "With Custom Content" context menu story is a rough stub of this.
+6. in a very similar way the playlist context menu works, i'll also want a variation to handle tags.
+7. favorites; haven't done much work here, but there should be a context menu to toggle favorite (it's a little different for songs, albums, artists, and playlists). there's also the "FavoriteHeart" component that's already used throughout the app, but needs to take care to actually call remote api to toggle favorite, as well as being able to listen for changes so it can re-render with the correct state.
+8. the "song info" context menu will open a song(s) edit modal but that's gonna be a whole other chunk of work to work out all the feature for editing a song or bulk editing many songs (probably also need variations for albums and artists editing). we'll get to this later, so we can just stub this out in a context menu and open a "dummy" edit modal (see the "Song Edit Modal" story in Modal.stories.tsx). will also need to be able to re-render any views that might have rendered the song(s) that just got edited.
+9. delete should be easy enough to wire up to remote api calls (and show toasts after api response comes back, oh and also make sure any views are re-renderd)
+10. "view artist" and "view album" should be easy to just wire up to a route navigation to those detail pages.
+11. the playlist context menu will also need a "remove from playlist" option. and the queue context menu will need a "remove from queue" option; and wouldn't need any play or queue options.
+
+cargo run music add-songs-to-playlist --playlist-id "4a2bdea4fc474e4a" --song-ids "d2c0d0cdd8af31f1,12dc3906c4e5dd75,a4ec3def5be4d294,65839f55349ca90e,d3dabaa8cc7983b2,4990e1a12182cab8,0401f3f23bc06f7d,9f31adba51d9ce7a,47ee3ada9890f9c3,a9b25f37fe8cb562,0f8add8bef920915,bc0dec86af4ca6f1,8c6006d591caa421,d992edcd3245c09d,2f51f91e179527bd,b976720724526bd1,8fd59e9e4c30b07c,5d2b0f31e7262a8d,5e743036a488cff9,0165157f27bd2be8"
+
+cargo run music add-songs-to-playlist --playlist-id "31525dbc7cd4ab2a" --song-ids "0f84d2ef0af1ae89,352ee1f7eb0b858d,1e8806dfc978f530,a7cc3f41f682108d,e6641fe99fe15c81,6b00e854fd7581c7,9dfc7f8845e95d83,ec19523b75ab372c,9f504867e5835343"
+
+---
+
+```
+--- Overall Counts ---
+metric              count
+------------------  -----
+Total Songs         1381
+Total Artists       198
+Total Albums        193
+Compilation Albums  8
+Regular Albums      185
+
+--- Unknown Entities ---
+metric           count
+---------------  -----
+Unknown Artists  0
+Unknown Albums   29
+
+--- Orphaned Songs ---
+metric                count
+--------------------  -----
+Orphaned (no artist)  106
+Orphaned (no album)   15
+
+--- Image Coverage ---
+metric                  count
+----------------------  -----
+Songs with thumbnails   0
+Songs with waveforms    0
+Songs in song_imagez    0
+Albums in album_imagez  0
+
+--- Potential Duplicates (with invisible unicode) ---
+metric                              count
+----------------------------------  -----
+Artists with trailing spaces/marks  0
+
+
+=== POST-SCAN DATABASE STATS ===
+
+--- Overall Counts ---
+metric              count
+------------------  -----
+Total Songs         1302
+Total Artists       195
+Total Albums        192
+Compilation Albums  3
+Regular Albums      189
+
+--- Unknown Entities ---
+metric           count
+---------------  -----
+Unknown Artists  1
+Unknown Albums   29
+
+--- Orphaned Songs ---
+metric                count
+--------------------  -----
+Orphaned (no artist)  0
+Orphaned (no album)   0
+
+--- Image Coverage ---
+metric                  count
+----------------------  -----
+Songs with thumbnails   733
+Songs with waveforms    1291
+Songs in song_imagez    733
+Albums in album_imagez  62
+
+--- Duplicate Artists (unicode issues) ---
+metric                             count
+---------------------------------  -----
+Total artists named Scorn          1
+Total artists named Leæther Strip  1
+
+--- Performance Improvements ---
+metric              count
+------------------  -----
+Scan cache entries  139
+```
+
+---
