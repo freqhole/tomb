@@ -356,7 +356,7 @@ export function GenresView(props: GenresViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] ml-[150px]">
+      <div class="flex items-center justify-between p-4 ml-[150px]">
         <div>
           <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
             genres

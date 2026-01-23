@@ -220,7 +220,7 @@ export function ArtistDetailView() {
         {(info) => (
           <>
             {/* header with artist info */}
-            <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
+            <div class="flex gap-6 p-6">
               {/* artist avatar placeholder */}
               <ContextMenu actions={artistContextMenuActions()}>
                 <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity">

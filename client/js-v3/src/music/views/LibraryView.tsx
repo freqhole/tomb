@@ -68,7 +68,7 @@ export function LibraryView(props: LibraryViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
+      <div class="flex items-center justify-between p-4">
         <div>
           <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
             music library

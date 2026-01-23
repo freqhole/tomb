@@ -979,7 +979,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     <div class="flex flex-col h-full">
       {/* header */}
       {/* header */}
-      <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] ml-[150px]">
+      <div class="flex items-center justify-between p-4 ml-[150px]">
         <div>
           <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
             playlists
@@ -1083,7 +1083,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                       </Show>
 
                       {/* playlist header */}
-                      <div class="flex-shrink-0 p-6 border-b border-[var(--color-border-default)] relative z-10">
+                      <div class="flex-shrink-0 p-6 relative z-10">
                         <div class="flex-1">
                           <Show
                             when={editMode()}

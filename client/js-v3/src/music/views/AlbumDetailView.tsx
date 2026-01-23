@@ -130,7 +130,7 @@ export function AlbumDetailView() {
         {(info) => (
           <>
             {/* header with album info */}
-            <div class="flex gap-6 p-6 border-b border-[var(--color-border-default)]">
+            <div class="flex gap-6 p-6">
               {/* album artwork */}
               <ContextMenu actions={albumContextMenuActions()}>
                 <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">

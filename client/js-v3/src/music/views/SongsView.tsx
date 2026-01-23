@@ -217,7 +217,7 @@ export function SongsView(props: SongsViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="p-4 border-b border-[var(--color-border-default)] ml-[150px]">
+      <div class="p-4 ml-[150px]">
         <div class="flex items-center justify-between mb-3">
           <div>
             <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
