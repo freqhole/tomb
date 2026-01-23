@@ -364,3 +364,47 @@ export function useGenreSongsQuery(genreId: Accessor<string | undefined>) {
     gcTime: 10 * 60 * 1000,
   }));
 }
+
+// mutation hooks
+
+import { createMutation, useQueryClient } from "@tanstack/solid-query";
+import * as apiClient from "freqhole-api-client";
+import { toast } from "../../components/feedback/Toast";
+import { getCurrentRemote } from "../data";
+
+export function useUpdateSongsMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (request: apiClient.UpdateSongsRequest) => {
+      const remote = getCurrentRemote();
+      if (!remote) throw new Error("no remote connected");
+
+      console.log("updateSongs request:", request);
+
+      const result = await apiClient.music.updateSongs(
+        remote.base_url,
+        request,
+      );
+
+      console.log("updateSongs result:", result);
+
+      if (!result.success) {
+        console.error("updateSongs failed:", result);
+        throw new Error("failed to update song");
+      }
+      return result.data;
+    },
+    onSuccess: () => {
+      // invalidate all music queries to refresh data
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
+      toast.success("song updated");
+    },
+    onError: (error) => {
+      console.error("failed to update songs:", error);
+      toast.error("failed to update songs");
+    },
+  }));
+}

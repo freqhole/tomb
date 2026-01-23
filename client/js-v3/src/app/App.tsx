@@ -6,11 +6,13 @@ import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/feedback/Toast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
+import { SongEditorModal } from "../components/modals/SongEditorModal";
 import {
   getDataSource,
   initializeDataSource,
   useRemoteSource,
 } from "../music/data";
+import { hideSongEditor, useSongEditorState } from "../music/modals";
 import { queryKeys } from "../music/queries/queryKeys";
 import { playSong } from "../music/services/audio/player";
 import {
@@ -173,6 +175,19 @@ export function App() {
           })();
         }}
       />
+
+      <Show when={useSongEditorState()()}>
+        {(state) => (
+          <SongEditorModal
+            songId={state().songId}
+            onClose={hideSongEditor}
+            onSave={() => {
+              state().onSave?.();
+              hideSongEditor();
+            }}
+          />
+        )}
+      </Show>
     </>
   );
 }

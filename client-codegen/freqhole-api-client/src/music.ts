@@ -2,6 +2,11 @@
 import { call } from "./client.js";
 import { routes } from "./codegen/routes.js";
 import type * as s from "./codegen/schema.js";
+import { UpdateSongsRequestSchema } from "./codegen/schema.js";
+
+// partial schema for update_songs - makes all fields optional except song_ids
+const UpdateSongsRequestPartialSchema =
+  UpdateSongsRequestSchema.partial().required({ song_ids: true });
 
 // artists
 export function queryArtists(
@@ -170,7 +175,7 @@ export function recentSongs(
 
 export function updateSongs(
   baseUrl: string,
-  params: s.UpdateSongsRequest,
+  params: Partial<s.UpdateSongsRequest> & { song_ids: string[] },
   apiKey?: string,
 ) {
   return call(
@@ -178,7 +183,7 @@ export function updateSongs(
     "music",
     "update_songs",
     routes.music.update_songs.resp,
-    routes.music.update_songs.req,
+    UpdateSongsRequestPartialSchema,
     routes.music.update_songs.method,
     routes.music.update_songs.path,
     params,

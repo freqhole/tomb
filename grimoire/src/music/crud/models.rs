@@ -488,15 +488,15 @@ pub struct UpdateSongsRequest {
 
     /// Favorite the song
     #[arg(long)]
-    pub favorite_song: bool,
+    pub favorite_song: Option<bool>,
 
     /// Favorite the artist
     #[arg(long)]
-    pub favorite_artist: bool,
+    pub favorite_artist: Option<bool>,
 
     /// Favorite the album
     #[arg(long)]
-    pub favorite_album: bool,
+    pub favorite_album: Option<bool>,
 
     #[arg(skip)]
     pub set_rating: Option<SetRatingRequest>,
@@ -539,20 +539,20 @@ impl UpdateSongsRequest {
 
         // Convert favorite flags to set_favorite
         if self.set_favorite.is_none() {
-            if self.favorite_song {
+            if let Some(is_favorite) = self.favorite_song {
                 self.set_favorite = Some(SetFavoriteRequest {
                     target_type: FavoriteTargetType::Song,
-                    is_favorite: true,
+                    is_favorite,
                 });
-            } else if self.favorite_artist {
+            } else if let Some(is_favorite) = self.favorite_artist {
                 self.set_favorite = Some(SetFavoriteRequest {
                     target_type: FavoriteTargetType::Artist,
-                    is_favorite: true,
+                    is_favorite,
                 });
-            } else if self.favorite_album {
+            } else if let Some(is_favorite) = self.favorite_album {
                 self.set_favorite = Some(SetFavoriteRequest {
                     target_type: FavoriteTargetType::Album,
-                    is_favorite: true,
+                    is_favorite,
                 });
             }
         }

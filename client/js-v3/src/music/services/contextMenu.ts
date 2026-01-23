@@ -9,6 +9,7 @@ import { showPlaylistSelector } from "../../utils/playlistSelector";
 import { showTagSelector } from "../../utils/tagSelector";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
+import { showSongEditor } from "../modals";
 import {
   useToggleFavoriteMutation,
   type FavoriteTarget,
@@ -197,8 +198,7 @@ export function useSongContextMenu(
     label: "edit info...",
     icon: IconNames.edit,
     onClick: () => {
-      // TODO: open song edit modal
-      console.log("edit song:", song.sha256);
+      showSongEditor({ songId: song.id });
     },
   });
 

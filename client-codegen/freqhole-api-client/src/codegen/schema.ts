@@ -1736,9 +1736,9 @@ export const UpdateSongsRequestSchema = z.object({
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   is_favorite: z.boolean()
 }).nullable(),
-  favorite_song: z.boolean(),
-  favorite_artist: z.boolean(),
-  favorite_album: z.boolean(),
+  favorite_song: z.boolean().nullable(),
+  favorite_artist: z.boolean().nullable(),
+  favorite_album: z.boolean().nullable(),
   set_rating: z.object({
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   rating: z.number()

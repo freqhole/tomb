@@ -3,6 +3,10 @@ import * as s from './schema';
 import { z } from 'zod';
 
 export const routes = {
+  app: {
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
+  },
   music: {
     search_musicbrainz_releases: { method: 'POST', path: '/api/musicbrainz/search/releases', req: s.SearchReleasesRequestSchema, resp: z.any() },
     get_musicbrainz_release: { method: 'POST', path: '/api/musicbrainz/release', req: s.GetReleaseRequestSchema, resp: z.any() },
@@ -78,9 +82,5 @@ export const routes = {
     login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
     login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
     register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
-  },
-  app: {
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
   },
 };
