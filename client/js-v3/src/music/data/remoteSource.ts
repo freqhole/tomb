@@ -95,6 +95,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (params?.album_id) filters.album_id = params.album_id;
     if (params?.genre_id) filters.genre_id = params.genre_id;
 
+    // map tag filters
+    if (params?.include_tags && params.include_tags.length > 0) {
+      filters.include_tags = params.include_tags;
+    }
+    if (params?.exclude_tags && params.exclude_tags.length > 0) {
+      filters.exclude_tags = params.exclude_tags;
+    }
+
     return {
       q: params?.search || null,
       search_fields: null,

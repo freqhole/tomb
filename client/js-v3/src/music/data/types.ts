@@ -18,6 +18,11 @@ export interface QueryParams {
   artist_id?: string;
   album_id?: string;
   genre_id?: string;
+
+  // flexible filters (for tag filtering and other dynamic filters)
+  include_tags?: string[];
+  exclude_tags?: string[];
+  [key: string]: any; // allow other filters
 }
 
 // paginated response wrapper

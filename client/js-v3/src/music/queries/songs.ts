@@ -1,6 +1,7 @@
 // infinite query hook for songs with album-grouped sorting
 import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
+import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
@@ -23,6 +24,7 @@ interface UseSongsInfiniteQueryOptions {
   artistId?: Accessor<string | undefined>;
   albumId?: Accessor<string | undefined>;
   query?: Accessor<string | undefined>;
+  tagFilters?: Accessor<TagFilter[]>;
 }
 
 export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
@@ -32,6 +34,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
   const artistId = options?.artistId;
   const albumId = options?.albumId;
   const query = options?.query;
+  const tagFilters = options?.tagFilters;
 
   return createInfiniteQuery(() => ({
     queryKey: queryKeys.songs.infinite({
@@ -40,6 +43,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
       artistId: artistId?.(),
       albumId: albumId?.(),
       search: query?.(),
+      tagFilters: tagFilters?.(),
     }),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       debug("songsQuery", "fetching songs page:", {
@@ -49,14 +53,27 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
       });
       const dataSource = getDataSource();
 
+      // build query params with tag filters
+      const currentTagFilters = tagFilters?.();
+      const includeTags = currentTagFilters
+        ?.filter((f) => f.mode === "include")
+        .map((f) => f.tag);
+      const excludeTags = currentTagFilters
+        ?.filter((f) => f.mode === "exclude")
+        .map((f) => f.tag);
+
       const response = await dataSource.getSongs({
         offset: pageParam,
         limit: pageSize,
         sort_by: sortField(),
         sort_direction: sortDirection(),
+        search: query?.(),
         artist_id: artistId?.(),
         album_id: albumId?.(),
-        search: query?.(),
+        include_tags:
+          includeTags && includeTags.length > 0 ? includeTags : undefined,
+        exclude_tags:
+          excludeTags && excludeTags.length > 0 ? excludeTags : undefined,
       });
 
       debug("songsQuery", "received songs page:", {

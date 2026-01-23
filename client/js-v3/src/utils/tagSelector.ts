@@ -1,8 +1,11 @@
 // utility for showing the tag selector modal
 // provides a simple function-based API for managing album tags from anywhere
 
+import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
+import { queryClient } from "..";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
+import { queryKeys } from "../music/queries/queryKeys";
 
 /**
  * show tag selector modal for managing album tags
@@ -19,13 +22,25 @@ export function showTagSelector(albumIds: string[], albumTitle?: string): void {
     container.remove();
   };
 
-  // render modal
+  // callback to invalidate queries after save
+  const handleSave = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.tags.all });
+  };
+
+  // render modal wrapped in QueryClientProvider
   render(
     () =>
-      TagSelectorModal({
-        albumIds,
-        albumTitle,
-        onClose: cleanup,
+      QueryClientProvider({
+        client: queryClient,
+        get children() {
+          return TagSelectorModal({
+            albumIds,
+            albumTitle,
+            onClose: cleanup,
+            onSave: handleSave,
+          });
+        },
       }),
     container,
   );

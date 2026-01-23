@@ -3,6 +3,10 @@ import { useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import {
+  TagFilterPicker,
+  type TagFilter,
+} from "../../components/forms/TagFilterPicker";
+import {
   VirtualSongList,
   type SortDirection,
   type SortField,
@@ -12,6 +16,7 @@ import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
+import { useTagsQuery } from "../queries/tags";
 import { useSongContextMenu } from "../services/contextMenu";
 
 export interface SongsViewProps {
@@ -39,6 +44,12 @@ export function SongsView(props: SongsViewProps) {
   const [sortField, setSortField] = createSignal<SongSortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<SortDirection>("desc");
 
+  // tag filtering state
+  const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+
+  // fetch available tags
+  const tagsQuery = useTagsQuery();
+
   // favorites mutation
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
@@ -51,15 +62,53 @@ export function SongsView(props: SongsViewProps) {
       const q = searchParams.q;
       return Array.isArray(q) ? q[0] : q;
     },
+    tagFilters: () => tagFilters(),
   });
 
-  // reset virtual list when query param changes
+  // reset virtual list when query param or tag filters change
   createEffect(() => {
     const q = searchParams.q;
     const queryParam = Array.isArray(q) ? q[0] : q;
+    const filters = tagFilters();
     // briefly show resetting state to force virtual list to remount
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);
+  });
+
+  // tag filter handlers
+  const handleAddTag = (tag: string) => {
+    setTagFilters([...tagFilters(), { tag, mode: "include" }]);
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    setTagFilters(tagFilters().filter((f) => f.tag !== tag));
+  };
+
+  const handleToggleMode = (tag: string) => {
+    setTagFilters(
+      tagFilters().map((f) =>
+        f.tag === tag
+          ? {
+              tag: f.tag,
+              mode: (f.mode === "include" ? "exclude" : "include") as
+                | "include"
+                | "exclude",
+            }
+          : f,
+      ),
+    );
+  };
+
+  const handleClearAllTags = () => {
+    setTagFilters([]);
+  };
+
+  // convert tags to tag options for picker
+  const availableTags = createMemo(() => {
+    return (tagsQuery.data || []).map((tag) => ({
+      value: tag.name,
+      label: tag.name,
+    }));
   });
 
   // map query sort field to UI sort field for display
@@ -168,20 +217,34 @@ export function SongsView(props: SongsViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] ml-[150px]">
-        <div>
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-            songs
-          </h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {songsQuery.isLoading
-              ? "loading..."
-              : `${virtualSongs().length} ${virtualSongs().length === 1 ? "song" : "songs"}`}
-          </p>
+      <div class="p-4 border-b border-[var(--color-border-default)] ml-[150px]">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
+              songs
+            </h1>
+            <p class="text-sm text-[var(--color-text-secondary)]">
+              {songsQuery.isLoading
+                ? "loading..."
+                : `${virtualSongs().length} ${virtualSongs().length === 1 ? "song" : "songs"}`}
+            </p>
+          </div>
+          <Button variant="primary" onClick={props.onAddMusic}>
+            add music
+          </Button>
         </div>
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
-        </Button>
+
+        {/* tag filter picker */}
+        <TagFilterPicker
+          availableTags={availableTags()}
+          selectedFilters={tagFilters()}
+          onAddTag={handleAddTag}
+          onRemoveTag={handleRemoveTag}
+          onToggleMode={handleToggleMode}
+          onClearAll={handleClearAllTags}
+          loading={tagsQuery.isLoading}
+          compact={true}
+        />
       </div>
 
       {/* song list */}

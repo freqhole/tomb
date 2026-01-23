@@ -14,6 +14,8 @@ interface TagSelectorModalProps {
   albumTitle?: string;
   /** callback when modal should close */
   onClose: () => void;
+  /** callback after successful save to invalidate queries */
+  onSave?: () => void;
 }
 
 export function TagSelectorModal(props: TagSelectorModalProps) {
@@ -178,6 +180,10 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
           ? props.albumTitle || "album"
           : `${props.albumIds.length} albums`;
       toast.success(`updated tags for ${albumText}`);
+
+      // call onSave callback to invalidate queries
+      props.onSave?.();
+
       props.onClose();
     } catch (error) {
       console.error("failed to update tags:", error);

@@ -103,6 +103,8 @@ enum CommonColumns {
     AlbumId,
     #[iden = "album_genre_id"]
     AlbumGenreId,
+    #[iden = "album_tags"]
+    AlbumTags,
 }
 
 // Row structures
@@ -552,10 +554,71 @@ fn add_global_filters(
         query.and_where(Expr::col(CommonColumns::AlbumGenreId).eq(genre_id));
     }
 
-    // TODO: Add other global filters
-    // if let Some(tags) = params.filters.get("tags") { ... }
-    // if let Some(favorites) = params.filters.get("favorites") { ... }
-    // if let Some(min_rating) = params.filters.get("min_rating") { ... }
+    // Handle tag filters (include_tags and exclude_tags)
+    // include_tags: show only items that have ANY of these tags (OR logic)
+    if let Some(include_tags) = params
+        .filters
+        .get("include_tags")
+        .and_then(|v| v.as_array())
+    {
+        let tag_names: Vec<String> = include_tags
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+
+        if !tag_names.is_empty() {
+            // build OR condition - match if ANY tag is present
+            let mut or_conditions = Vec::new();
+            for tag_name in tag_names {
+                let json_pattern = format!("%\"{}\"%", tag_name);
+                or_conditions.push(
+                    Expr::col(CommonColumns::AlbumTags)
+                        .is_not_null()
+                        .and(Expr::col(CommonColumns::AlbumTags).like(json_pattern)),
+                );
+            }
+            if !or_conditions.is_empty() {
+                let mut cond = Cond::any();
+                for condition in or_conditions {
+                    cond = cond.add(condition);
+                }
+                query.cond_where(cond);
+            }
+        }
+    }
+
+    // exclude_tags: show only items that have NONE of these tags (OR logic)
+    if let Some(exclude_tags) = params
+        .filters
+        .get("exclude_tags")
+        .and_then(|v| v.as_array())
+    {
+        let tag_names: Vec<String> = exclude_tags
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+
+        if !tag_names.is_empty() {
+            // build condition to exclude items with ANY of these tags
+            let mut or_conditions = Vec::new();
+            for tag_name in tag_names {
+                let json_pattern = format!("%\"{}\"%", tag_name);
+                or_conditions.push(Expr::col(CommonColumns::AlbumTags).like(json_pattern));
+            }
+            if !or_conditions.is_empty() {
+                let mut has_any_tag = Cond::any();
+                for condition in or_conditions {
+                    has_any_tag = has_any_tag.add(condition);
+                }
+                // exclude items that have ANY of the tags: either no tags OR NOT (tagA OR tagB OR ...)
+                query.cond_where(
+                    Cond::any()
+                        .add(Expr::col(CommonColumns::AlbumTags).is_null())
+                        .add(Cond::all().add(has_any_tag).not()),
+                );
+            }
+        }
+    }
 }
 
 // Main query functions

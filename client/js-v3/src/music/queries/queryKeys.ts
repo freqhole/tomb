@@ -13,17 +13,20 @@ export const queryKeys = {
       genreId?: string;
       playlistId?: string;
       search?: string;
-    }) => [
-      ...queryKeys.songs.all,
-      "infinite",
-      params.sortField,
-      params.sortDirection,
-      params.artistId,
-      params.albumId,
-      params.genreId,
-      params.playlistId,
-      params.search,
-    ] as const,
+      tagFilters?: any;
+    }) =>
+      [
+        ...queryKeys.songs.all,
+        "infinite",
+        params.sortField,
+        params.sortDirection,
+        params.artistId,
+        params.albumId,
+        params.genreId,
+        params.playlistId,
+        params.search,
+        params.tagFilters,
+      ] as const,
     detail: (id: string) => [...queryKeys.songs.all, id] as const,
   },
 
@@ -60,7 +63,8 @@ export const queryKeys = {
     all: ["playlists"] as const,
     lists: () => [...queryKeys.playlists.all, "list"] as const,
     list: () => [...queryKeys.playlists.lists()] as const,
-    recent: (limit: number) => [...queryKeys.playlists.all, "recent", limit] as const,
+    recent: (limit: number) =>
+      [...queryKeys.playlists.all, "recent", limit] as const,
     detail: (id: string) => [...queryKeys.playlists.all, id] as const,
     songs: (playlistId: string) => ["playlist", "songs", playlistId] as const,
   },
@@ -77,7 +81,8 @@ export const queryKeys = {
   // favorites
   favorites: {
     all: ["favorites"] as const,
-    list: (userId?: string) => [...queryKeys.favorites.all, "list", userId] as const,
+    list: (userId?: string) =>
+      [...queryKeys.favorites.all, "list", userId] as const,
   },
 
   // tags
