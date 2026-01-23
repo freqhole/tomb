@@ -42,9 +42,10 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       }
 
       // load current tags for the album(s) - returns union of all tags
+      const albumIds = props.albumIds;
       const currentTagsResult = await apiClient.music.getAlbumsTags(
         remote.base_url,
-        { album_ids: props.albumIds },
+        { album_ids: albumIds },
       );
       if (currentTagsResult.success) {
         setCurrentTags(new Set(currentTagsResult.data.map((t) => t.id)));
@@ -210,7 +211,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
   return (
     <div
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={props.onClose}
+      onClick={() => props.onClose()}
     >
       <div
         class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
@@ -222,7 +223,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
             {modalTitle()}
           </h2>
           <button
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
             class="p-1 hover:bg-[var(--color-bg-hover)] rounded transition-colors"
           >
             <Icon name={IconNames.close} size={20} />
