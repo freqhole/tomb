@@ -2,7 +2,7 @@
 // provides search-as-you-type with proper value syncing and "create new" option
 
 import { Combobox } from "@kobalte/core/combobox";
-import { createMemo, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { useArtistAutocompleteQuery } from "../../music/queries/autocomplete";
 import { getImageUrl } from "../../music/utils/images";
 
@@ -35,13 +35,30 @@ interface ArtistOption {
 }
 
 export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
-  // query artists based on input
-  const artistQuery = useArtistAutocompleteQuery(() => {
-    // only query if we have a value to search
-    return props.value && props.value.trim().length > 0
-      ? props.value
-      : undefined;
+  // local controlled value that syncs with props.value
+  const [localValue, setLocalValue] = createSignal<ArtistOption | undefined>(
+    props.value && props.value.trim().length > 0
+      ? { value: props.value, label: props.value }
+      : undefined,
+  );
+
+  // sync local value when props.value changes (e.g., on reset)
+  createEffect(() => {
+    const value = props.value;
+    if (value && value.trim().length > 0) {
+      setLocalValue({ value: value, label: value });
+    } else {
+      setLocalValue(undefined);
+    }
   });
+
+  // track what user is typing for query purposes
+  const [searchInput, setSearchInput] = createSignal<string | undefined>(
+    undefined,
+  );
+
+  // query artists based on what user types
+  const artistQuery = useArtistAutocompleteQuery(searchInput);
 
   // build options from query results
   const options = createMemo((): ArtistOption[] => {
@@ -63,15 +80,23 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
       });
     }
 
+    // if we have a current value that's not in the results, add it
+    // so the combobox can display it even before user searches
+    const currentVal = localValue();
+    if (currentVal && !results.find((r) => r.value === currentVal.value)) {
+      results.unshift(currentVal);
+    }
+
     // add "create new" option if no exact match
-    if (props.value && props.value.trim().length > 0) {
+    const input = searchInput();
+    if (input && input.trim().length > 0) {
       const exactMatch = items.find(
-        (item) => item.name.toLowerCase() === props.value!.trim().toLowerCase(),
+        (item) => item.name.toLowerCase() === input.trim().toLowerCase(),
       );
       if (!exactMatch) {
         results.unshift({
-          value: props.value.trim(),
-          label: `create new: ${props.value.trim()}`,
+          value: input.trim(),
+          label: `create new: ${input.trim()}`,
           isNew: true,
         });
       }
@@ -82,9 +107,9 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
 
   return (
     <Combobox<ArtistOption>
-      // value={{ value: props.value, label: props.value }}
-      onChange={(value) => {
-        const option = options().find((o) => o.value === value);
+      value={localValue()}
+      onChange={(option) => {
+        setLocalValue(option);
         if (option) {
           props.onSelect({
             id: option.id,
@@ -94,17 +119,13 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
         }
       }}
       onInputChange={(value) => {
-        // when user types, update parent with the typed value
-        // this allows the query to run
-        props.onSelect({
-          name: value,
-          isNew: false,
-        });
+        // update search query as user types
+        setSearchInput(value.trim().length > 0 ? value : undefined);
       }}
       options={options()}
       optionValue="value"
       optionTextValue="value"
-      optionLabel="label"
+      optionLabel="value"
       placeholder={props.placeholder || "search or type artist name..."}
       triggerMode="input"
       disabled={props.disabled}

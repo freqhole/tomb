@@ -207,7 +207,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
         {/* body */}
         <div class="flex-1 overflow-y-auto p-4">
           <Show
-            when={!songQuery.isLoading}
+            when={initialData()}
             fallback={
               <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
                 loading...
