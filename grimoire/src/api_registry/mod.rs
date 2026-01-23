@@ -119,8 +119,8 @@ pub mod type_registry {
     };
 
     // upload types
-    use crate::music::entities::albums::Album;
-    use crate::music::entities::artists::{Artist, CreateArtistRequest};
+    use crate::music::entities::albums::{Album, UpdateAlbumRequest};
+    use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
     use crate::music::entities::genres::{
         CreateSubGenreRequest, DeleteSubGenreRequest, FindOrCreateSubGenreRequest,
         FindOrCreateSubGenreResponse, Genre, GetSubGenreRequest, ListSubGenresForGenreRequest,
@@ -252,6 +252,12 @@ pub mod type_registry {
 
         gen.add_schema::<CreateArtistRequest>("CreateArtistRequest");
         registered.insert("CreateArtistRequest".to_string());
+
+        gen.add_schema::<UpdateArtistRequest>("UpdateArtistRequest");
+        registered.insert("UpdateArtistRequest".to_string());
+
+        gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
+        registered.insert("UpdateAlbumRequest".to_string());
 
         gen.add_schema::<Job>("Job");
         registered.insert("Job".to_string());

@@ -2,11 +2,23 @@
 import { call } from "./client.js";
 import { routes } from "./codegen/routes.js";
 import type * as s from "./codegen/schema.js";
-import { UpdateSongsRequestSchema } from "./codegen/schema.js";
+import {
+  UpdateAlbumRequestSchema,
+  UpdateArtistRequestSchema,
+  UpdateSongsRequestSchema,
+} from "./codegen/schema.js";
 
 // partial schema for update_songs - makes all fields optional except song_ids
 const UpdateSongsRequestPartialSchema =
   UpdateSongsRequestSchema.partial().required({ song_ids: true });
+
+// partial schema for update_artist - makes all fields optional except artist_id
+const UpdateArtistRequestPartialSchema =
+  UpdateArtistRequestSchema.partial().required({ artist_id: true });
+
+// partial schema for update_album - makes all fields optional except album_id
+const UpdateAlbumRequestPartialSchema =
+  UpdateAlbumRequestSchema.partial().required({ album_id: true });
 
 // artists
 export function queryArtists(
@@ -81,6 +93,24 @@ export function deleteArtist(
   );
 }
 
+export function updateArtist(
+  baseUrl: string,
+  params: Partial<s.UpdateArtistRequest> & { artist_id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "update_artist",
+    routes.music.update_artist.resp,
+    UpdateArtistRequestPartialSchema,
+    routes.music.update_artist.method,
+    routes.music.update_artist.path,
+    params,
+    apiKey,
+  );
+}
+
 // albums
 export function queryAlbums(
   baseUrl: string,
@@ -131,6 +161,24 @@ export function deleteAlbum(
     routes.music.delete_album.req,
     routes.music.delete_album.method,
     routes.music.delete_album.path,
+    params,
+    apiKey,
+  );
+}
+
+export function updateAlbum(
+  baseUrl: string,
+  params: Partial<s.UpdateAlbumRequest> & { album_id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "update_album",
+    routes.music.update_album.resp,
+    UpdateAlbumRequestPartialSchema,
+    routes.music.update_album.method,
+    routes.music.update_album.path,
     params,
     apiKey,
   );

@@ -49,7 +49,10 @@ export interface AlbumSummary {
   title: string;
   artist_id: string;
   artist_name: string;
+  album_type: string;
   year?: number;
+  release_date?: string;
+  label?: string;
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];

@@ -35,3 +35,19 @@ pub struct CreateAlbumRequest {
     pub genre_id: Option<String>,
     pub created_by: Option<String>,
 }
+
+/// request for updating an album
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdateAlbumRequest {
+    pub album_id: String,
+    pub title: Option<String>,
+    /// artist id (preferred) or name (will find first match or create new)
+    pub artist_id: Option<String>,
+    pub artist_name: Option<String>,
+    pub album_type: Option<String>,
+    pub release_date: Option<String>, // flexible: "2023", "2023-06", "2023-06-15"
+    pub label: Option<String>,
+    pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
+    pub updated_by: Option<String>,
+}

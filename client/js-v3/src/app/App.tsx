@@ -6,13 +6,22 @@ import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/feedback/Toast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
+import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
+import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import {
   getDataSource,
   initializeDataSource,
   useRemoteSource,
 } from "../music/data";
-import { hideSongEditor, useSongEditorState } from "../music/modals";
+import {
+  hideAlbumEditor,
+  hideArtistEditor,
+  hideSongEditor,
+  useAlbumEditorState,
+  useArtistEditorState,
+  useSongEditorState,
+} from "../music/modals";
 import { queryKeys } from "../music/queries/queryKeys";
 import { playSong } from "../music/services/audio/player";
 import {
@@ -185,6 +194,34 @@ export function App() {
               state().onSave?.();
               hideSongEditor();
             }}
+          />
+        )}
+      </Show>
+
+      <Show when={useArtistEditorState()()}>
+        {(state) => (
+          <ArtistEditorModal
+            artistId={state().artistId}
+            onClose={hideArtistEditor}
+            onSave={() => {
+              state().onSave?.();
+              hideArtistEditor();
+            }}
+            disableNestedModals={state().disableNestedModals}
+          />
+        )}
+      </Show>
+
+      <Show when={useAlbumEditorState()()}>
+        {(state) => (
+          <AlbumEditorModal
+            albumId={state().albumId}
+            onClose={hideAlbumEditor}
+            onSave={() => {
+              state().onSave?.();
+              hideAlbumEditor();
+            }}
+            disableNestedModals={state().disableNestedModals}
           />
         )}
       </Show>

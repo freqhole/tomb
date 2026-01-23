@@ -3,11 +3,13 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
+import { Icon, IconNames } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import { SongRow } from "../../components/songs/SongRow";
 import { getCurrentRemote, getDataSource } from "../data";
+import { showAlbumEditor } from "../modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import {
@@ -180,11 +182,20 @@ export function AlbumDetailView() {
                   <span>{formatDuration(totalDuration())}</span>
                 </div>
 
-                {/* play button and favorite toggle */}
+                {/* play button, edit button, and favorite toggle */}
                 <div class="mt-4 flex items-center gap-3">
                   <Button variant="primary" onClick={handlePlayAlbum}>
                     play album
                   </Button>
+                  <button
+                    onClick={() =>
+                      showAlbumEditor({ albumId: info().album_id || params.id })
+                    }
+                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                    title="edit album info"
+                  >
+                    <Icon name={IconNames.edit} />
+                  </button>
                   <FavoriteToggle
                     targetType="album"
                     targetId={info().album_id || params.id}

@@ -1685,6 +1685,27 @@ export const TopSongsRequestSchema = z.object({
 });
 export type TopSongsRequest = z.infer<typeof TopSongsRequestSchema>;
 
+export const UpdateAlbumRequestSchema = z.object({
+  album_id: z.string(),
+  title: z.string().nullable(),
+  artist_id: z.string().nullable(),
+  artist_name: z.string().nullable(),
+  album_type: z.string().nullable(),
+  release_date: z.string().nullable(),
+  label: z.string().nullable(),
+  genre: z.string().nullable(),
+  sub_genres: z.array(z.string()).nullable(),
+  updated_by: z.string().nullable()
+});
+export type UpdateAlbumRequest = z.infer<typeof UpdateAlbumRequestSchema>;
+
+export const UpdateArtistRequestSchema = z.object({
+  artist_id: z.string(),
+  name: z.string().nullable(),
+  updated_by: z.string().nullable()
+});
+export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
+
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),
   title: z.string().nullable(),

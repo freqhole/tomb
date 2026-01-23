@@ -1,9 +1,9 @@
 //! high-level music workflow operations
 //! coordinates multiple entities for complex business logic
 
-mod create_or_update;
+pub mod create_or_update;
 mod deduplication;
-mod delete;
+pub mod delete;
 mod models;
 mod query;
 mod query_playlists;

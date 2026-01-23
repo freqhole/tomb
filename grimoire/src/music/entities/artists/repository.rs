@@ -1,7 +1,7 @@
 //! artist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{Artist, CreateArtistRequest};
+use super::models::{Artist, CreateArtistRequest, UpdateArtistRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::response::GrimoireResponse;
@@ -35,10 +35,7 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResponse<Artist>
     {
         Ok(a) => a,
         Err(e) => {
-            return GrimoireResponse::failure(
-                "Failed to create artist",
-                vec![ErrorDetail::from(e)],
-            )
+            return GrimoireResponse::failure("Failed to create artist", vec![ErrorDetail::from(e)])
         }
     };
 
@@ -292,4 +289,100 @@ pub async fn delete_artist(id: &str, deleted_by: Option<String>) -> GrimoireResp
     }
 
     GrimoireResponse::success("Artist deleted successfully", ())
+}
+
+/// update an artist's metadata
+pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // verify artist exists (including deleted ones)
+    let existing = match sqlx::query_as!(
+        Artist,
+        r#"SELECT
+                id as "id!",
+                name as "name!",
+                created_at as "created_at!",
+                updated_at as "updated_at!",
+                deleted_at,
+                deleted_by,
+                created_by,
+                updated_by
+            FROM artistz
+            WHERE id = ?"#,
+        req.artist_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(artist)) => artist,
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "Artist not found",
+                vec![ErrorDetail::new(
+                    "not_found",
+                    "Not Found",
+                    "Artist not found",
+                )],
+            )
+        }
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query artist", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    // if artist was deleted, undelete it
+    if existing.deleted_at.is_some() {
+        if let Err(e) = sqlx::query!(
+            "UPDATE artistz SET deleted_at = NULL, deleted_by = NULL WHERE id = ?",
+            req.artist_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to undelete artist",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    }
+
+    // update artist (only name can be updated, id stays the same)
+    let updated = match sqlx::query_as!(
+        Artist,
+        r#"UPDATE artistz
+            SET name = COALESCE(?, name),
+                updated_by = COALESCE(?, updated_by),
+                updated_at = unixepoch()
+            WHERE id = ?
+            RETURNING
+                id as "id!",
+                name as "name!",
+                created_at as "created_at!",
+                updated_at as "updated_at!",
+                deleted_at,
+                deleted_by,
+                created_by,
+                updated_by"#,
+        req.name,
+        req.updated_by,
+        req.artist_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(artist) => artist,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to update artist", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Artist updated successfully", updated)
 }

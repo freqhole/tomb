@@ -7,9 +7,11 @@ import {
   type AlbumSectionSong,
 } from "../../components/albums/AlbumSection";
 import { Button } from "../../components/buttons/Button";
+import { Icon, IconNames } from "../../components/icons/registry";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import { getCurrentRemote, getDataSource } from "../data";
+import { showArtistEditor } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import {
@@ -251,11 +253,20 @@ export function ArtistDetailView() {
                   <span>{formatAlbumDuration(totalDuration())}</span>
                 </div>
 
-                {/* play button and favorite toggle */}
+                {/* play button, edit button, and favorite toggle */}
                 <div class="mt-4 flex items-center gap-3">
                   <Button variant="primary" onClick={handlePlayArtist}>
                     play all
                   </Button>
+                  <button
+                    onClick={() =>
+                      showArtistEditor({ artistId: info().artist_id })
+                    }
+                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                    title="edit artist info"
+                  >
+                    <Icon name={IconNames.edit} />
+                  </button>
                   <FavoriteToggle
                     targetType="artist"
                     targetId={info().artist_id}

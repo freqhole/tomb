@@ -180,7 +180,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.album.title,
         artist_id: item.artist?.id || "",
         artist_name: item.artist?.name || "unknown artist",
+        album_type: item.album.album_type,
         year: undefined, // TODO: extract year from release_date if present
+        release_date: item.album.release_date || undefined,
+        label: item.album.label || undefined,
         song_count: item.album.song_count,
         total_duration: item.album.total_duration,
         images:

@@ -9,7 +9,7 @@ import { showPlaylistSelector } from "../../utils/playlistSelector";
 import { showTagSelector } from "../../utils/tagSelector";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
-import { showSongEditor } from "../modals";
+import { showAlbumEditor, showArtistEditor, showSongEditor } from "../modals";
 import {
   useToggleFavoriteMutation,
   type FavoriteTarget,
@@ -433,8 +433,7 @@ export function useAlbumContextMenu(
     label: "edit info...",
     icon: IconNames.edit,
     onClick: () => {
-      // TODO: open album edit modal
-      console.log("edit album:", album.id);
+      showAlbumEditor({ albumId: album.id });
     },
   });
 
@@ -622,6 +621,17 @@ export function useArtistContextMenu(
     icon: IconNames.artist,
     onClick: () => {
       navigate(routes.artist(artist.id));
+    },
+  });
+
+  actions.push({ type: "separator" });
+
+  // edit
+  actions.push({
+    label: "edit info...",
+    icon: IconNames.edit,
+    onClick: () => {
+      showArtistEditor({ artistId: artist.id });
     },
   });
 

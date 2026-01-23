@@ -9,7 +9,9 @@ use grimoire::music::crud::{
     delete_artist, get_artist, query_artists, ArtistsQueryResult, DeleteArtistRequest,
     DeleteArtistResponse, QueryParams,
 };
-use grimoire::music::entities::artists::{create_artist, Artist, CreateArtistRequest};
+use grimoire::music::entities::artists::{
+    create_artist, update_artist, Artist, CreateArtistRequest, UpdateArtistRequest,
+};
 use grimoire::response::GrimoireResponse;
 use inventory;
 
@@ -72,6 +74,17 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeleteArtistRequest",
         response_type: "DeleteArtistResponse",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "update_artist",
+        path: "/api/artists/update",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UpdateArtistRequest",
+        response_type: "Artist",
     }
 }
 
@@ -166,4 +179,29 @@ pub async fn delete_artist_handler(
         success: true,
         message: format!("artist {} deleted successfully", artist_id),
     }))
+}
+
+/// Update an artist's metadata (admin only)
+///
+/// POST /api/artists/update
+pub async fn update_artist_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(mut req): Json<UpdateArtistRequest>,
+) -> Result<Json<Artist>, ApiError> {
+    // require admin
+    if !user.role.is_admin() {
+        return Err(ApiError::Forbidden);
+    }
+
+    // inject authenticated user id
+    req.updated_by = Some(user.user_id);
+
+    tracing::debug!("update_artist: id={}, name={:?}", req.artist_id, req.name);
+
+    let response = update_artist(req).await;
+
+    response
+        .data
+        .ok_or_else(|| ApiError::Internal(response.message))
+        .map(Json)
 }

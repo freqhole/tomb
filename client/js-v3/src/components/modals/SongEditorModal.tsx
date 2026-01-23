@@ -7,6 +7,7 @@ import {
   Show,
 } from "solid-js";
 import type { Song } from "../../music/data/types";
+import { showAlbumEditor, showArtistEditor } from "../../music/modals";
 import {
   useSongQuery,
   useUpdateSongsMutation,
@@ -22,6 +23,8 @@ interface SongEditorModalProps {
   songId: string;
   onClose: () => void;
   onSave?: () => void;
+  /** if true, hides buttons that would open other modals (prevents infinite recursion) */
+  disableNestedModals?: boolean;
 }
 
 interface FormData {
@@ -54,6 +57,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [lyricsExpanded, setLyricsExpanded] = createSignal(false);
+  const [artistId, setArtistId] = createSignal<string | undefined>(undefined);
+  const [albumId, setAlbumId] = createSignal<string | undefined>(undefined);
 
   // initialize form data when song loads
   createEffect(() => {
@@ -72,6 +77,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
       };
       setFormData(data);
       setInitialData(data);
+      setArtistId(song.artist_id);
+      setAlbumId(song.album_id);
 
       // auto-expand lyrics if song has lyrics
       if (song.lyrics && song.lyrics.trim().length > 0) {
@@ -252,9 +259,24 @@ export function SongEditorModal(props: SongEditorModalProps) {
                     onSelect={(artist) => {
                       const current = formData();
                       setFormData({ ...current, artist_name: artist.name });
+                      setArtistId(artist.id);
                     }}
                   />
                 </div>
+                <Show when={!props.disableNestedModals && artistId()}>
+                  <button
+                    onClick={() =>
+                      showArtistEditor({
+                        artistId: artistId()!,
+                        disableNestedModals: true,
+                      })
+                    }
+                    class="mt-6 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    title="edit artist info"
+                  >
+                    <Icon name={IconNames.edit} size={16} />
+                  </button>
+                </Show>
                 <Show
                   when={
                     initialData() &&
@@ -278,9 +300,24 @@ export function SongEditorModal(props: SongEditorModalProps) {
                     value={formData().album_title}
                     onSelect={(album) => {
                       handleFieldChange("album_title", album.title);
+                      setAlbumId(album.id);
                     }}
                   />
                 </div>
+                <Show when={!props.disableNestedModals && albumId()}>
+                  <button
+                    onClick={() =>
+                      showAlbumEditor({
+                        albumId: albumId()!,
+                        disableNestedModals: true,
+                      })
+                    }
+                    class="mt-6 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    title="edit album info"
+                  >
+                    <Icon name={IconNames.edit} size={16} />
+                  </button>
+                </Show>
                 <Show
                   when={
                     initialData() &&

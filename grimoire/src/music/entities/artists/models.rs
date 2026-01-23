@@ -23,3 +23,11 @@ pub struct CreateArtistRequest {
     pub name: String,
     pub created_by: Option<String>,
 }
+
+/// request for updating an artist
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdateArtistRequest {
+    pub artist_id: String,
+    pub name: Option<String>,
+    pub updated_by: Option<String>,
+}

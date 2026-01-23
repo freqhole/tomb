@@ -115,6 +115,14 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["delete_artist"].path,
             axum::routing::delete(music::artists::delete_artist_handler),
         )
+        .route(
+            routes["music"]["update_artist"].path,
+            post(music::artists::update_artist_handler),
+        )
+        .route(
+            routes["music"]["update_album"].path,
+            post(music::albums::update_album_handler),
+        )
         // songs routes
         .route(
             routes["music"]["query_songs"].path,
