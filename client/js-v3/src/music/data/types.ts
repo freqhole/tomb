@@ -54,6 +54,7 @@ export interface AlbumSummary {
   total_duration: number;
   images?: ImageMetadata[];
   is_favorite?: boolean;
+  tags?: string[];
 }
 
 // artist summary data for lists

@@ -106,6 +106,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       totalDuration: formatDuration(album.total_duration),
       imageUrl: getPrimaryImageUrl(album.images),
       isFavorite: album.is_favorite ?? false,
+      tags: album.tags,
     }));
   };
 

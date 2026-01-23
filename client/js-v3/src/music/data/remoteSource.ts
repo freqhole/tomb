@@ -189,6 +189,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
         is_favorite: item.is_favorite,
+        tags: item.album_tags || undefined,
       })),
       total: result.data.total_count,
       offset: result.data.offset,

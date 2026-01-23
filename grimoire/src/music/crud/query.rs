@@ -384,6 +384,7 @@ pub struct AlbumViewRow {
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
     album_images: Option<String>, // JSON array from view
+    album_tags: Option<String>,   // JSON array of tag names from view
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -409,6 +410,21 @@ impl AlbumViewRow {
                 Err(e) => {
                     tracing::warn!(
                         "failed to parse album images JSON: {} - error: {}",
+                        json_str,
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
+        // parse album_tags JSON array
+        let album_tags = self.album_tags.and_then(|json_str| {
+            match serde_json::from_str::<Vec<String>>(&json_str) {
+                Ok(tags) => Some(tags),
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to parse album tags JSON: {} - error: {}",
                         json_str,
                         e
                     );
@@ -474,6 +490,7 @@ impl AlbumViewRow {
             artist,
             genre: None,
             images,
+            album_tags,
             is_favorite,
             rating,
             favorited_at,

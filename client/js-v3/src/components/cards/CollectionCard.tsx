@@ -24,7 +24,7 @@ export interface CollectionCardData {
   trackCount?: number | null;
   totalDuration?: string | null;
   genres?: string | null;
-  tags?: string | null;
+  tags?: string[] | null;
 
   // user context
   isFavorite?: boolean | null;
@@ -63,6 +63,8 @@ interface CollectionCardProps {
 }
 
 export function CollectionCard(props: CollectionCardProps): JSX.Element {
+  const [isCardHovering, setIsCardHovering] = createSignal(false);
+
   // event handlers
   const handleClick = () => {
     if (props.onClick) {
@@ -265,8 +267,19 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show when={props.showGenres && props.collection.genres}>
           <MarqueeText
             text={props.collection.genres!}
-            class={`${sizeClasses().meta} text-[var(--color-text-tertiary)} group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 inline-block rounded`}
+            class={`${sizeClasses().meta} text-[var(--color-text-tertiary)} group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 rounded`}
+            hoverOnly={!isCardHovering()}
           />
+        </Show>
+        {/* tags */}
+        <Show when={props.collection.tags && props.collection.tags.length > 0}>
+          <div class="w-full overflow-hidden">
+            <MarqueeText
+              text={props.collection.tags!.join(" • ")}
+              class={`${sizeClasses().meta} text-[var(--color-text-tertiary)] group-hover:text-[var(--color-accent-500)] transition-colors bg-[var(--color-accent-500)]/10 px-1 py-0.5 rounded`}
+              hoverOnly={!isCardHovering()}
+            />
+          </div>
         </Show>
       </div>
     </div>

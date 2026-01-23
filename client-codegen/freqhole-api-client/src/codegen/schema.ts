@@ -70,6 +70,7 @@ export const AlbumQueryResultSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number()
 })).nullable(),
+  album_tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean().nullable(),
   rating: z.number().nullable(),
   favorited_at: z.number().nullable(),
@@ -130,6 +131,7 @@ export const AlbumsQueryResultSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number()
 })).nullable(),
+  album_tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean().nullable(),
   rating: z.number().nullable(),
   favorited_at: z.number().nullable(),

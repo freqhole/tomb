@@ -288,6 +288,7 @@ pub struct AlbumQueryResult {
     pub artist: Option<Artist>,
     pub genre: Option<Genre>,
     pub images: Option<Vec<ImageMetadata>>, // all images from album_imagez with primary indicator
+    pub album_tags: Option<Vec<String>>,    // tags applied to this album
     pub is_favorite: Option<bool>,          // User's favorite status
     pub rating: Option<i32>,                // User's rating (1-5)
     pub favorited_at: Option<i64>,          // When user favorited (unix timestamp)
