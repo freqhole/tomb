@@ -156,6 +156,7 @@ pub struct SongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_tags: Option<String>, // JSON array of tag names from view
     // User context fields from view joins
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
@@ -174,6 +175,11 @@ impl SongViewRow {
         let images = self
             .song_images
             .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
+
+        // parse album tags JSON array
+        let album_tags = self
+            .album_tags
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
 
         let song = Song {
             id: self.song_id,
@@ -279,6 +285,7 @@ impl SongViewRow {
             artist_total_album_count: self.artist_total_album_count,
             artist_total_duration: self.artist_total_duration,
             album_is_favorite,
+            album_tags,
         }
     }
 }

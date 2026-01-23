@@ -37,29 +37,32 @@ pub struct DeleteTagRequest {
     pub deleted_by: Option<String>,
 }
 
-/// request for getting album tags
+/// request for getting tags for multiple albums
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GetAlbumTagsRequest {
-    pub album_id: String,
+pub struct GetAlbumsTagsRequest {
+    pub album_ids: Vec<String>,
 }
 
-/// request for adding tags to an album
+/// request for adding tags to multiple albums
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct AddAlbumTagsRequest {
-    pub album_id: String,
+pub struct AddAlbumsTagsRequest {
+    pub album_ids: Vec<String>,
+    #[serde(default)]
+    pub tag_ids: Vec<String>,
+    #[serde(default)]
+    pub tag_names: Vec<String>,
+}
+
+/// request for removing tags from multiple albums
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RemoveAlbumsTagsRequest {
+    pub album_ids: Vec<String>,
     pub tag_ids: Vec<String>,
 }
 
-/// request for removing tags from an album
+/// request for replacing tags for multiple albums
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct RemoveAlbumTagsRequest {
-    pub album_id: String,
-    pub tag_ids: Vec<String>,
-}
-
-/// request for replacing all album tags
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct ReplaceAlbumTagsRequest {
-    pub album_id: String,
+pub struct ReplaceAlbumsTagsRequest {
+    pub album_ids: Vec<String>,
     pub tag_ids: Vec<String>,
 }

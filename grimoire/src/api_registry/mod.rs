@@ -133,8 +133,8 @@ pub mod type_registry {
     };
     use crate::music::entities::songs::Song;
     use crate::music::entities::tags::{
-        AddAlbumTagsRequest, CreateTagRequest, DeleteTagRequest, GetAlbumTagsRequest,
-        GetTagRequest, QueryTagsRequest, RemoveAlbumTagsRequest, ReplaceAlbumTagsRequest, Tag,
+        AddAlbumsTagsRequest, CreateTagRequest, DeleteTagRequest, GetAlbumsTagsRequest,
+        GetTagRequest, QueryTagsRequest, RemoveAlbumsTagsRequest, ReplaceAlbumsTagsRequest, Tag,
     };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
@@ -358,17 +358,17 @@ pub mod type_registry {
         gen.add_schema::<DeleteTagRequest>("DeleteTagRequest");
         registered.insert("DeleteTagRequest".to_string());
 
-        gen.add_schema::<GetAlbumTagsRequest>("GetAlbumTagsRequest");
-        registered.insert("GetAlbumTagsRequest".to_string());
+        gen.add_schema::<GetAlbumsTagsRequest>("GetAlbumsTagsRequest");
+        registered.insert("GetAlbumsTagsRequest".to_string());
 
-        gen.add_schema::<AddAlbumTagsRequest>("AddAlbumTagsRequest");
-        registered.insert("AddAlbumTagsRequest".to_string());
+        gen.add_schema::<AddAlbumsTagsRequest>("AddAlbumsTagsRequest");
+        registered.insert("AddAlbumsTagsRequest".to_string());
 
-        gen.add_schema::<RemoveAlbumTagsRequest>("RemoveAlbumTagsRequest");
-        registered.insert("RemoveAlbumTagsRequest".to_string());
+        gen.add_schema::<RemoveAlbumsTagsRequest>("RemoveAlbumsTagsRequest");
+        registered.insert("RemoveAlbumsTagsRequest".to_string());
 
-        gen.add_schema::<ReplaceAlbumTagsRequest>("ReplaceAlbumTagsRequest");
-        registered.insert("ReplaceAlbumTagsRequest".to_string());
+        gen.add_schema::<ReplaceAlbumsTagsRequest>("ReplaceAlbumsTagsRequest");
+        registered.insert("ReplaceAlbumsTagsRequest".to_string());
 
         gen.add_schema::<FetchMediaParams>("FetchMediaParams");
         registered.insert("FetchMediaParams".to_string());

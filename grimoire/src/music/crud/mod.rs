@@ -106,7 +106,7 @@ pub use crate::music::entities::genres::{
 
 // re-export tag operations
 pub use crate::music::entities::tags::{
-    delete_tag, get_album_tags, get_tag, list_tags, query_tags as search_tags,
+    delete_tag, get_albums_tags, get_tag, list_tags, query_tags as search_tags,
 };
 
 // re-export delete operations

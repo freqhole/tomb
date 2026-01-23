@@ -56,6 +56,7 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     is_favorite: item.is_favorite || false,
     user_rating: item.rating || undefined,
     album_is_favorite: item.album_is_favorite ?? false,
+    album_tags: item.album_tags || undefined,
 
     // remote source type
     source_type: "remote" as const,

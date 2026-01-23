@@ -12,7 +12,7 @@ use crate::media_blobz::BlobType;
 use crate::music::crud::{find_or_create_album, find_or_create_artist, find_or_create_genre};
 use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::tags::{
-    add_album_tags, find_or_create_tags, remove_album_tags, replace_album_tags,
+    add_albums_tags, find_or_create_tags, remove_albums_tags, replace_albums_tags,
 };
 use crate::music::entities::{songs, SubGenre};
 use crate::response::GrimoireResponse;
@@ -479,7 +479,13 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 }
             };
             let tag_ids: Vec<String> = tags.iter().map(|t| t.id.clone()).collect();
-            let add_tags_response = add_album_tags(&album.id, tag_ids).await;
+            let add_tags_response =
+                add_albums_tags(crate::music::entities::tags::AddAlbumsTagsRequest {
+                    album_ids: vec![album.id.clone()],
+                    tag_ids,
+                    tag_names: vec![],
+                })
+                .await;
             if !add_tags_response.success {
                 return GrimoireResponse::failure("Failed to add tags", add_tags_response.errors);
             }
@@ -499,7 +505,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 None => return GrimoireResponse::failure("No tags returned", vec![]),
             };
             let tag_ids: Vec<String> = tags.iter().map(|t| t.id.clone()).collect();
-            let remove_tags_response = remove_album_tags(&album.id, tag_ids).await;
+            let remove_tags_response = remove_albums_tags(vec![album.id.clone()], tag_ids).await;
             if !remove_tags_response.success {
                 return GrimoireResponse::failure(
                     "Failed to remove tags",
@@ -522,7 +528,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 None => return GrimoireResponse::failure("No tags returned", vec![]),
             };
             let tag_ids: Vec<String> = tags.iter().map(|t| t.id.clone()).collect();
-            let replace_tags_response = replace_album_tags(&album.id, tag_ids).await;
+            let replace_tags_response = replace_albums_tags(vec![album.id.clone()], tag_ids).await;
             if !replace_tags_response.success {
                 return GrimoireResponse::failure(
                     "Failed to replace tags",

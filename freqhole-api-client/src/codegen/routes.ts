@@ -3,21 +3,6 @@ import * as s from './schema';
 import { z } from 'zod';
 
 export const routes = {
-  auth: {
-    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
-    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
-    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema },
-    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema },
-    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any() },
-    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any() },
-    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
-    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
-    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
-  },
-  app: {
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
-  },
   music: {
     search_musicbrainz_releases: { method: 'POST', path: '/api/musicbrainz/search/releases', req: s.SearchReleasesRequestSchema, resp: z.any() },
     get_musicbrainz_release: { method: 'POST', path: '/api/musicbrainz/release', req: s.GetReleaseRequestSchema, resp: z.any() },
@@ -43,12 +28,12 @@ export const routes = {
     delete_album: { method: 'DELETE', path: '/api/albums/{id}', req: s.DeleteAlbumRequestSchema, resp: s.DeleteAlbumResponseSchema },
     create_fetch_job: { method: 'POST', path: '/api/music/fetch', req: s.FetchMediaParamsSchema, resp: s.JobSchema },
     get_fetch_job: { method: 'GET', path: '/api/music/fetch/{id}', req: s.GetJobRequestSchema, resp: s.JobSchema },
-    get_albums_tags: { method: 'POST', path: '/api/tags/albums/get', req: s.GetAlbumsTagsRequestSchema, resp: s.TagSchema.array() },
-    remove_albums_tags: { method: 'POST', path: '/api/tags/albums/remove', req: s.RemoveAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema },
+    get_album_tags: { method: 'POST', path: '/api/tags/album/get', req: s.GetAlbumTagsRequestSchema, resp: s.TagSchema.array() },
+    remove_album_tags: { method: 'POST', path: '/api/tags/album/remove', req: s.RemoveAlbumTagsRequestSchema, resp: s.EmptyResponseSchema },
     get_tag: { method: 'POST', path: '/api/tags/get', req: s.GetTagRequestSchema, resp: s.TagSchema },
     delete_tag: { method: 'POST', path: '/api/tags/delete', req: s.DeleteTagRequestSchema, resp: s.EmptyResponseSchema },
-    add_albums_tags: { method: 'POST', path: '/api/tags/albums/add', req: s.AddAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema },
-    replace_albums_tags: { method: 'POST', path: '/api/tags/albums/replace', req: s.ReplaceAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema },
+    add_album_tags: { method: 'POST', path: '/api/tags/album/add', req: s.AddAlbumTagsRequestSchema, resp: s.EmptyResponseSchema },
+    replace_album_tags: { method: 'POST', path: '/api/tags/album/replace', req: s.ReplaceAlbumTagsRequestSchema, resp: s.EmptyResponseSchema },
     list_tags: { method: 'GET', path: '/api/tags/list', req: null, resp: s.TagSchema.array() },
     query_tags: { method: 'POST', path: '/api/tags/query', req: s.QueryTagsRequestSchema, resp: s.TagSchema.array() },
     query_genres: { method: 'POST', path: '/api/genres/query', req: s.QueryParamsSchema, resp: s.GenresQueryResultSchema },
@@ -82,5 +67,20 @@ export const routes = {
     song_analytics: { method: 'POST', path: '/api/analytics/song-stats', req: s.SongAnalyticsRequestSchema, resp: s.PlayAnalyticsSchema },
     record_play: { method: 'POST', path: '/api/analytics/play', req: s.RecordPlayRequestSchema, resp: s.EmptyResponseSchema },
     listening_history: { method: 'POST', path: '/api/analytics/listening-history', req: s.ListeningHistoryRequestSchema, resp: s.ListeningHistoryResponseSchema },
+  },
+  auth: {
+    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
+    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
+    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema },
+    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema },
+    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any() },
+    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any() },
+    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
+    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
+    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
+  },
+  app: {
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
   },
 };

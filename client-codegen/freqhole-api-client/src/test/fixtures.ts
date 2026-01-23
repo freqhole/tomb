@@ -249,22 +249,23 @@ export const deleteTagRequest: s.DeleteTagRequest = {
   deleted_by: null,
 };
 
-export const getAlbumTagsRequest: s.GetAlbumTagsRequest = {
-  album_id: PLACEHOLDER_ID,
+export const getAlbumsTagsRequest: s.GetAlbumsTagsRequest = {
+  album_ids: [PLACEHOLDER_ID],
 };
 
-export const addAlbumTagsRequest: s.AddAlbumTagsRequest = {
-  album_id: PLACEHOLDER_ID,
+export const addAlbumsTagsRequest: s.AddAlbumsTagsRequest = {
+  album_ids: [PLACEHOLDER_ID],
+  tag_ids: [PLACEHOLDER_ID],
+  tag_names: [],
+};
+
+export const removeAlbumsTagsRequest: s.RemoveAlbumsTagsRequest = {
+  album_ids: [PLACEHOLDER_ID],
   tag_ids: [PLACEHOLDER_ID],
 };
 
-export const removeAlbumTagsRequest: s.RemoveAlbumTagsRequest = {
-  album_id: PLACEHOLDER_ID,
-  tag_ids: [PLACEHOLDER_ID],
-};
-
-export const replaceAlbumTagsRequest: s.ReplaceAlbumTagsRequest = {
-  album_id: PLACEHOLDER_ID,
+export const replaceAlbumsTagsRequest: s.ReplaceAlbumsTagsRequest = {
+  album_ids: [PLACEHOLDER_ID],
   tag_ids: [PLACEHOLDER_ID],
 };
 
@@ -457,10 +458,10 @@ export const fixtures = {
   queryTags: queryTagsRequest,
   getTag: getTagRequest,
   deleteTag: deleteTagRequest,
-  getAlbumTags: getAlbumTagsRequest,
-  addAlbumTags: addAlbumTagsRequest,
-  removeAlbumTags: removeAlbumTagsRequest,
-  replaceAlbumTags: replaceAlbumTagsRequest,
+  getAlbumTags: getAlbumsTagsRequest,
+  addAlbumTags: addAlbumsTagsRequest,
+  removeAlbumTags: removeAlbumsTagsRequest,
+  replaceAlbumTags: replaceAlbumsTagsRequest,
 
   // analytics
   recordPlay: recordPlayRequest,

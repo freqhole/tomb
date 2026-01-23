@@ -3,9 +3,10 @@
 use axum::{extract::Extension, Json};
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::entities::tags::{
-    add_album_tags, delete_tag, get_album_tags, get_tag, list_tags, query_tags, remove_album_tags,
-    replace_album_tags, AddAlbumTagsRequest, DeleteTagRequest, GetAlbumTagsRequest, GetTagRequest,
-    QueryTagsRequest, RemoveAlbumTagsRequest, ReplaceAlbumTagsRequest, Tag,
+    add_albums_tags, delete_tag, get_albums_tags, get_tag, list_tags, query_tags,
+    remove_albums_tags, replace_albums_tags, AddAlbumsTagsRequest, DeleteTagRequest,
+    GetAlbumsTagsRequest, GetTagRequest, QueryTagsRequest, RemoveAlbumsTagsRequest,
+    ReplaceAlbumsTagsRequest, Tag,
 };
 use grimoire::EmptyResponse;
 
@@ -108,12 +109,12 @@ inventory::submit! {
     }
 }
 
-/// get tags for an album
-pub async fn get_album_tags_handler(
+/// get tags for multiple albums
+pub async fn get_albums_tags_handler(
     Extension(_user): Extension<AuthenticatedUser>,
-    Json(req): Json<GetAlbumTagsRequest>,
+    Json(req): Json<GetAlbumsTagsRequest>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
-    let response = get_album_tags(&req.album_id).await;
+    let response = get_albums_tags(req.album_ids).await;
 
     response
         .data
@@ -123,21 +124,21 @@ pub async fn get_album_tags_handler(
 
 inventory::submit! {
     RouteInfo {
-        name: "get_album_tags",
-        path: "/api/tags/album/get",
+        name: "get_albums_tags",
+        path: "/api/tags/albums/get",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "GetAlbumTagsRequest",
+        request_type: "GetAlbumsTagsRequest",
         response_type: "Vec<Tag>",
     }
 }
 
-/// add tags to an album
-pub async fn add_album_tags_handler(
+/// add tags to multiple albums
+pub async fn add_albums_tags_handler(
     Extension(_user): Extension<AuthenticatedUser>,
-    Json(req): Json<AddAlbumTagsRequest>,
+    Json(req): Json<AddAlbumsTagsRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
-    let response = add_album_tags(&req.album_id, req.tag_ids).await;
+    let response = add_albums_tags(req).await;
 
     response
         .data
@@ -147,21 +148,21 @@ pub async fn add_album_tags_handler(
 
 inventory::submit! {
     RouteInfo {
-        name: "add_album_tags",
-        path: "/api/tags/album/add",
+        name: "add_albums_tags",
+        path: "/api/tags/albums/add",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "AddAlbumTagsRequest",
+        request_type: "AddAlbumsTagsRequest",
         response_type: "EmptyResponse",
     }
 }
 
-/// remove tags from an album
-pub async fn remove_album_tags_handler(
+/// remove tags from multiple albums
+pub async fn remove_albums_tags_handler(
     Extension(_user): Extension<AuthenticatedUser>,
-    Json(req): Json<RemoveAlbumTagsRequest>,
+    Json(req): Json<RemoveAlbumsTagsRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
-    let response = remove_album_tags(&req.album_id, req.tag_ids).await;
+    let response = remove_albums_tags(req.album_ids, req.tag_ids).await;
 
     response
         .data
@@ -171,21 +172,21 @@ pub async fn remove_album_tags_handler(
 
 inventory::submit! {
     RouteInfo {
-        name: "remove_album_tags",
-        path: "/api/tags/album/remove",
+        name: "remove_albums_tags",
+        path: "/api/tags/albums/remove",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "RemoveAlbumTagsRequest",
+        request_type: "RemoveAlbumsTagsRequest",
         response_type: "EmptyResponse",
     }
 }
 
-/// replace all tags for an album
-pub async fn replace_album_tags_handler(
+/// replace all tags for multiple albums
+pub async fn replace_albums_tags_handler(
     Extension(_user): Extension<AuthenticatedUser>,
-    Json(req): Json<ReplaceAlbumTagsRequest>,
+    Json(req): Json<ReplaceAlbumsTagsRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
-    let response = replace_album_tags(&req.album_id, req.tag_ids).await;
+    let response = replace_albums_tags(req.album_ids, req.tag_ids).await;
 
     response
         .data
@@ -195,11 +196,11 @@ pub async fn replace_album_tags_handler(
 
 inventory::submit! {
     RouteInfo {
-        name: "replace_album_tags",
-        path: "/api/tags/album/replace",
+        name: "replace_albums_tags",
+        path: "/api/tags/albums/replace",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "ReplaceAlbumTagsRequest",
+        request_type: "ReplaceAlbumsTagsRequest",
         response_type: "EmptyResponse",
     }
 }

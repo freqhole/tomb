@@ -185,6 +185,7 @@ pub struct PlaylistSongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_tags: Option<String>, // JSON array of tag names from view
 
     // User favorites and ratings
     #[allow(dead_code)] // used by sqlx for deserialization
@@ -205,6 +206,11 @@ impl PlaylistSongViewRow {
         let images = self.song_images.and_then(|json_str| {
             serde_json::from_str::<Vec<crate::music::crud::models::ImageMetadata>>(&json_str).ok()
         });
+
+        // parse album tags JSON array
+        let album_tags = self
+            .album_tags
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
 
         let song = Song {
             id: self.song_id,
@@ -308,6 +314,7 @@ impl PlaylistSongViewRow {
             artist_total_album_count: None,
             artist_total_duration: None,
             album_is_favorite: None,
+            album_tags,
         };
 
         PlaylistSongResult {

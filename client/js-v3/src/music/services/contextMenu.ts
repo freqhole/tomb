@@ -6,6 +6,7 @@ import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { confirm } from "../../utils/confirm";
 import { showPlaylistSelector } from "../../utils/playlistSelector";
+import { showTagSelector } from "../../utils/tagSelector";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
 import {
@@ -179,14 +180,15 @@ export function useSongContextMenu(
   });
 
   // tags
-  actions.push({
-    label: "manage tags...",
-    icon: IconNames.genre,
-    onClick: () => {
-      // TODO: open tag management modal
-      console.log("manage tags:", song.sha256);
-    },
-  });
+  if (song.album_id) {
+    actions.push({
+      label: "tags",
+      icon: IconNames.tag,
+      onClick: () => {
+        showTagSelector([song.album_id!], song.album_title);
+      },
+    });
+  }
 
   actions.push({ type: "separator" });
 
@@ -412,6 +414,15 @@ export function useAlbumContextMenu(
       const dataSource = getDataSource();
       const response = await dataSource.getAlbumSongs(album.id);
       showPlaylistSelector(response.items.map((s) => s.id));
+    },
+  });
+
+  // tags
+  actions.push({
+    label: "tags",
+    icon: IconNames.tag,
+    onClick: () => {
+      showTagSelector([album.id], album.title);
     },
   });
 

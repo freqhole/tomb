@@ -4,7 +4,7 @@ use super::MusicAction;
 use crate::plumbing::utils::CommandOutput;
 use grimoire::music::crud::{
     delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,
-    find_or_create_sub_genre, get_album, get_album_tags, get_artist, get_genre, get_genre_stats,
+    find_or_create_sub_genre, get_album, get_albums_tags, get_artist, get_genre, get_genre_stats,
     get_sub_genre, get_tag, list_albums, list_artists, list_genres, list_songs, list_sub_genres,
     list_sub_genres_for_genre, list_tags, query_albums, query_artists, query_genres,
     query_playlist_songs, query_playlists, query_songs, search_genres, search_sub_genres,
@@ -224,7 +224,7 @@ pub async fn handle_delete_album(action: MusicAction) -> CommandOutput<serde_jso
 
 pub async fn handle_get_album_tags(action: MusicAction) -> CommandOutput<serde_json::Value> {
     if let MusicAction::GetAlbumTags { album_id } = action {
-        let response = get_album_tags(&album_id).await;
+        let response = get_albums_tags(vec![album_id.clone()]).await;
         if !response.success {
             return CommandOutput::failure(response.message, response.errors, ());
         }

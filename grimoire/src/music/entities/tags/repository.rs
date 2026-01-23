@@ -1,7 +1,7 @@
 //! tag service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{CreateTagRequest, Tag};
+use super::models::{AddAlbumsTagsRequest, CreateTagRequest, Tag};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::normalize_name;
@@ -255,8 +255,12 @@ pub async fn delete_tag(id: &str, deleted_by: Option<String>) -> GrimoireRespons
     GrimoireResponse::success("Tag deleted successfully", ())
 }
 
-/// get tags for an album
-pub async fn get_album_tags(album_id: &str) -> GrimoireResponse<Vec<Tag>> {
+/// get tags for multiple albums (returns union of all tags)
+pub async fn get_albums_tags(album_ids: Vec<String>) -> GrimoireResponse<Vec<Tag>> {
+    if album_ids.is_empty() {
+        return GrimoireResponse::success("No albums provided", vec![]);
+    }
+
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -267,21 +271,26 @@ pub async fn get_album_tags(album_id: &str) -> GrimoireResponse<Vec<Tag>> {
         }
     };
 
-    let tags = match sqlx::query_as!(
-        Tag,
-        r#"SELECT
-            t.id as "id!",
-            t.name as "name!",
-            t.created_at as "created_at!"
+    // build placeholders for IN clause
+    let placeholders = album_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        r#"SELECT DISTINCT
+            t.id as id,
+            t.name as name,
+            t.created_at as created_at
            FROM tagz t
            INNER JOIN album_tagz at ON at.tag_id = t.id
-           WHERE at.album_id = ? AND t.deleted_at IS NULL
+           WHERE at.album_id IN ({}) AND t.deleted_at IS NULL
            ORDER BY t.name ASC"#,
-        album_id
-    )
-    .fetch_all(&pool)
-    .await
-    {
+        placeholders
+    );
+
+    let mut query_builder = sqlx::query_as::<_, Tag>(&query);
+    for album_id in album_ids {
+        query_builder = query_builder.bind(album_id);
+    }
+
+    let tags = match query_builder.fetch_all(&pool).await {
         Ok(t) => t,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -294,8 +303,17 @@ pub async fn get_album_tags(album_id: &str) -> GrimoireResponse<Vec<Tag>> {
     GrimoireResponse::success("Album tags retrieved successfully", tags)
 }
 
-/// add tags to an album
-pub async fn add_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResponse<()> {
+/// add tags to multiple albums
+pub async fn add_albums_tags(req: AddAlbumsTagsRequest) -> GrimoireResponse<()> {
+    // validate that at least one is provided
+    if req.tag_ids.is_empty() && req.tag_names.is_empty() {
+        return GrimoireResponse::failure("must provide either tag_ids or tag_names", vec![]);
+    }
+
+    if req.album_ids.is_empty() {
+        return GrimoireResponse::failure("must provide at least one album_id", vec![]);
+    }
+
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -306,27 +324,57 @@ pub async fn add_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireRes
         }
     };
 
-    for tag_id in tag_ids {
-        if let Err(e) = sqlx::query!(
-            "INSERT OR IGNORE INTO album_tagz (album_id, tag_id) VALUES (?, ?)",
-            album_id,
-            tag_id
-        )
-        .execute(&pool)
-        .await
-        {
+    let mut tag_ids = req.tag_ids;
+
+    // handle tag_names by finding or creating them
+    if !req.tag_names.is_empty() {
+        let tags_response = find_or_create_tags(req.tag_names).await;
+        if !tags_response.success {
             return GrimoireResponse::failure(
-                "Failed to add album tag",
-                vec![ErrorDetail::from(e)],
+                "Failed to find or create tags",
+                tags_response.errors,
             );
+        }
+        if let Some(tags) = tags_response.data {
+            tag_ids.extend(tags.into_iter().map(|t| t.id));
+        }
+    }
+
+    // apply tags to all albums
+    for album_id in req.album_ids {
+        for tag_id in &tag_ids {
+            if let Err(e) = sqlx::query!(
+                "INSERT OR IGNORE INTO album_tagz (album_id, tag_id) VALUES (?, ?)",
+                album_id,
+                tag_id
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "Failed to add album tag",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
         }
     }
 
     GrimoireResponse::success("Album tags added successfully", ())
 }
 
-/// remove tags from an album
-pub async fn remove_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResponse<()> {
+/// remove tags from multiple albums
+pub async fn remove_albums_tags(
+    album_ids: Vec<String>,
+    tag_ids: Vec<String>,
+) -> GrimoireResponse<()> {
+    if album_ids.is_empty() {
+        return GrimoireResponse::failure("must provide at least one album_id", vec![]);
+    }
+
+    if tag_ids.is_empty() {
+        return GrimoireResponse::failure("must provide at least one tag_id", vec![]);
+    }
+
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -337,27 +385,36 @@ pub async fn remove_album_tags(album_id: &str, tag_ids: Vec<String>) -> Grimoire
         }
     };
 
-    for tag_id in tag_ids {
-        if let Err(e) = sqlx::query!(
-            "DELETE FROM album_tagz WHERE album_id = ? AND tag_id = ?",
-            album_id,
-            tag_id
-        )
-        .execute(&pool)
-        .await
-        {
-            return GrimoireResponse::failure(
-                "Failed to remove album tag",
-                vec![ErrorDetail::from(e)],
-            );
+    for album_id in album_ids {
+        for tag_id in &tag_ids {
+            if let Err(e) = sqlx::query!(
+                "DELETE FROM album_tagz WHERE album_id = ? AND tag_id = ?",
+                album_id,
+                tag_id
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "Failed to remove album tag",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
         }
     }
 
     GrimoireResponse::success("Album tags removed successfully", ())
 }
 
-/// replace all tags for an album
-pub async fn replace_album_tags(album_id: &str, tag_ids: Vec<String>) -> GrimoireResponse<()> {
+/// replace all tags for multiple albums
+pub async fn replace_albums_tags(
+    album_ids: Vec<String>,
+    tag_ids: Vec<String>,
+) -> GrimoireResponse<()> {
+    if album_ids.is_empty() {
+        return GrimoireResponse::failure("must provide at least one album_id", vec![]);
+    }
+
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -368,19 +425,26 @@ pub async fn replace_album_tags(album_id: &str, tag_ids: Vec<String>) -> Grimoir
         }
     };
 
-    // remove all existing tags
-    if let Err(e) = sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
-        .execute(&pool)
-        .await
-    {
-        return GrimoireResponse::failure(
-            "Failed to remove existing album tags",
-            vec![ErrorDetail::from(e)],
-        );
+    // remove all existing tags from all albums
+    for album_id in &album_ids {
+        if let Err(e) = sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
+            .execute(&pool)
+            .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to remove existing album tags",
+                vec![ErrorDetail::from(e)],
+            );
+        }
     }
 
-    // add new tags
-    let response = add_album_tags(album_id, tag_ids).await;
+    // add new tags to all albums
+    let response = add_albums_tags(AddAlbumsTagsRequest {
+        album_ids,
+        tag_ids,
+        tag_names: vec![],
+    })
+    .await;
     if !response.success {
         return GrimoireResponse::failure("Failed to add new album tags", response.errors);
     }

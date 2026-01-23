@@ -740,73 +740,73 @@ export function deleteTag(
   );
 }
 
-export function getAlbumTags(
+export function getAlbumsTags(
   baseUrl: string,
-  params: s.GetAlbumTagsRequest,
+  params: s.GetAlbumsTagsRequest,
   apiKey?: string,
 ) {
   return call(
     baseUrl,
     "music",
-    "get_album_tags",
-    routes.music.get_album_tags.resp,
-    routes.music.get_album_tags.req,
-    routes.music.get_album_tags.method,
-    routes.music.get_album_tags.path,
+    "get_albums_tags",
+    routes.music.get_albums_tags.resp,
+    routes.music.get_albums_tags.req,
+    routes.music.get_albums_tags.method,
+    routes.music.get_albums_tags.path,
     params,
     apiKey,
   );
 }
 
-export function addAlbumTags(
+export function addAlbumsTags(
   baseUrl: string,
-  params: s.AddAlbumTagsRequest,
+  params: s.AddAlbumsTagsRequest,
   apiKey?: string,
 ) {
   return call(
     baseUrl,
     "music",
-    "add_album_tags",
-    routes.music.add_album_tags.resp,
-    routes.music.add_album_tags.req,
-    routes.music.add_album_tags.method,
-    routes.music.add_album_tags.path,
+    "add_albums_tags",
+    routes.music.add_albums_tags.resp,
+    routes.music.add_albums_tags.req,
+    routes.music.add_albums_tags.method,
+    routes.music.add_albums_tags.path,
     params,
     apiKey,
   );
 }
 
-export function removeAlbumTags(
+export function removeAlbumsTags(
   baseUrl: string,
-  params: s.RemoveAlbumTagsRequest,
+  params: s.RemoveAlbumsTagsRequest,
   apiKey?: string,
 ) {
   return call(
     baseUrl,
     "music",
-    "remove_album_tags",
-    routes.music.remove_album_tags.resp,
-    routes.music.remove_album_tags.req,
-    routes.music.remove_album_tags.method,
-    routes.music.remove_album_tags.path,
+    "remove_albums_tags",
+    routes.music.remove_albums_tags.resp,
+    routes.music.remove_albums_tags.req,
+    routes.music.remove_albums_tags.method,
+    routes.music.remove_albums_tags.path,
     params,
     apiKey,
   );
 }
 
-export function replaceAlbumTags(
+export function replaceAlbumsTags(
   baseUrl: string,
-  params: s.ReplaceAlbumTagsRequest,
+  params: s.ReplaceAlbumsTagsRequest,
   apiKey?: string,
 ) {
   return call(
     baseUrl,
     "music",
-    "replace_album_tags",
-    routes.music.replace_album_tags.resp,
-    routes.music.replace_album_tags.req,
-    routes.music.replace_album_tags.method,
-    routes.music.replace_album_tags.path,
+    "replace_albums_tags",
+    routes.music.replace_albums_tags.resp,
+    routes.music.replace_albums_tags.req,
+    routes.music.replace_albums_tags.method,
+    routes.music.replace_albums_tags.path,
     params,
     apiKey,
   );

@@ -12,18 +12,18 @@
 // - data validation beyond auth (see stateful.ts)
 //
 // runs without API_KEY - uses placeholder data to trigger auth checks
+import * as app from "../app.js";
+import * as auth from "../auth.js";
 import * as music from "../music.js";
 import * as utils from "../utils.js";
-import * as auth from "../auth.js";
-import * as app from "../app.js";
 import {
   fixtures,
-  queryParams,
-  withId,
-  withEntityId,
-  withPlaylistId,
-  withAlbumId,
   PLACEHOLDER_ID,
+  queryParams,
+  withAlbumId,
+  withEntityId,
+  withId,
+  withPlaylistId,
 } from "./fixtures.js";
 
 const baseUrl = process.env.API_URL || "http://localhost:8080";
@@ -246,20 +246,20 @@ export async function runIntegrationTests() {
       fn: () => music.deleteTag(baseUrl, fixtures.deleteTag),
     },
     {
-      name: "music.getAlbumTags",
-      fn: () => music.getAlbumTags(baseUrl, fixtures.getAlbumTags),
+      name: "music.getAlbumsTags",
+      fn: () => music.getAlbumsTags(baseUrl, fixtures.getAlbumTags),
     },
     {
-      name: "music.addAlbumTags",
-      fn: () => music.addAlbumTags(baseUrl, fixtures.addAlbumTags),
+      name: "music.addAlbumsTags",
+      fn: () => music.addAlbumsTags(baseUrl, fixtures.addAlbumTags),
     },
     {
-      name: "music.removeAlbumTags",
-      fn: () => music.removeAlbumTags(baseUrl, fixtures.removeAlbumTags),
+      name: "music.removeAlbumsTags",
+      fn: () => music.removeAlbumsTags(baseUrl, fixtures.removeAlbumTags),
     },
     {
-      name: "music.replaceAlbumTags",
-      fn: () => music.replaceAlbumTags(baseUrl, fixtures.replaceAlbumTags),
+      name: "music.replaceAlbumsTags",
+      fn: () => music.replaceAlbumsTags(baseUrl, fixtures.replaceAlbumTags),
     },
 
     // analytics

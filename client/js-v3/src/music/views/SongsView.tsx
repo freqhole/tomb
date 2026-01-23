@@ -100,6 +100,7 @@ export function SongsView(props: SongsViewProps) {
         : null,
       userIsFavorite: song.is_favorite || false,
       userRating: song.user_rating || 0,
+      tags: song.album_tags ?? undefined,
     }));
   });
 
@@ -219,6 +220,7 @@ export function SongsView(props: SongsViewProps) {
               getContextMenuActions={getContextMenuActions}
               onNearEnd={loadMore}
               showFavorites={true}
+              showTags={true}
               onFavoriteToggle={handleFavoriteToggle}
             />
             {songsQuery.isFetchingNextPage && (

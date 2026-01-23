@@ -248,20 +248,20 @@ pub fn build_router() -> Router<AppState> {
             post(music::tags::delete_tag_handler),
         )
         .route(
-            routes["music"]["get_album_tags"].path,
-            post(music::tags::get_album_tags_handler),
+            routes["music"]["get_albums_tags"].path,
+            post(music::tags::get_albums_tags_handler),
         )
         .route(
-            routes["music"]["add_album_tags"].path,
-            post(music::tags::add_album_tags_handler),
+            routes["music"]["add_albums_tags"].path,
+            post(music::tags::add_albums_tags_handler),
         )
         .route(
-            routes["music"]["remove_album_tags"].path,
-            post(music::tags::remove_album_tags_handler),
+            routes["music"]["remove_albums_tags"].path,
+            post(music::tags::remove_albums_tags_handler),
         )
         .route(
-            routes["music"]["replace_album_tags"].path,
-            post(music::tags::replace_album_tags_handler),
+            routes["music"]["replace_albums_tags"].path,
+            post(music::tags::replace_albums_tags_handler),
         )
         // musicbrainz routes
         .route(

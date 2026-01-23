@@ -63,6 +63,7 @@ export interface Song {
   is_favorite?: boolean; // whether user has favorited this song
   user_rating?: number; // user's rating (1-5)
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
+  album_tags?: string[]; // tags applied to the album this song belongs to
 
   // source information
   source_type: MusicSourceType;
