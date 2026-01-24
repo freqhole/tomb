@@ -169,10 +169,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const apiParams = this.buildApiParams(params);
     const result = await apiClient.music.queryAlbums(this.baseUrl, apiParams);
 
-    console.log("getAlbums result:", { success: result.success, itemCount: result.success ? result.data.items.length : 0, error: !result.success ? result.error : null });
-
     if (!result.success) {
-      console.error("getAlbums failed:", result.error);
       throw new Error("failed to query albums");
     }
 

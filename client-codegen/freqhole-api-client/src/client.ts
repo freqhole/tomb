@@ -96,6 +96,7 @@ export async function call<Resp>(
     if (result.success) {
       return { success: true, data: result.data };
     } else {
+      console.warn(`[API] Zod validation failed for ${domain}.${routeName}:`, result.error);
       return { success: false, error: result.error };
     }
   } catch (err) {

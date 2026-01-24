@@ -95,19 +95,28 @@ export function AlbumsView(props: AlbumsViewProps) {
     const allAlbums = pages.flatMap((page) => page.items);
 
     // map AlbumSummary to CollectionCardData format
-    return allAlbums.map((album) => ({
-      id: album.album_id,
-      title: album.title,
-      subtitle: album.artist_name,
-      domainType: "album" as const,
-      artist: album.artist_name,
-      year: album.year,
-      trackCount: album.song_count,
-      totalDuration: formatDuration(album.total_duration),
-      imageUrl: getPrimaryImageUrl(album.images),
-      isFavorite: album.is_favorite ?? false,
-      tags: album.tags,
-    }));
+    return allAlbums.map((album) => {
+      // format genres: "genre • sub_genre1 • sub_genre2"
+      const genreText = [
+        album.genre,
+        ...(album.sub_genres || []),
+      ].filter(Boolean).join(" • ") || null;
+
+      return {
+        id: album.album_id,
+        title: album.title,
+        subtitle: album.artist_name,
+        domainType: "album" as const,
+        artist: album.artist_name,
+        year: album.year,
+        trackCount: album.song_count,
+        totalDuration: formatDuration(album.total_duration),
+        imageUrl: getPrimaryImageUrl(album.images),
+        isFavorite: album.is_favorite ?? false,
+        genres: genreText,
+        tags: album.tags,
+      };
+    });
   };
 
   // tag filter handlers
@@ -259,6 +268,7 @@ export function AlbumsView(props: AlbumsViewProps) {
               onAlbumPlay={handleAlbumPlay}
               getContextMenuActions={getContextMenuActions}
               showYear={true}
+              showGenres={true}
               cardSize="medium"
               height={undefined}
             />
