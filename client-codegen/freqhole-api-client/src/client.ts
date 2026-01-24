@@ -19,8 +19,9 @@ export async function call<Resp>(
   apiKey?: string,
 ): Promise<SafeParseResult<Resp>> {
   // for get/delete requests, params are used for path interpolation (not validated)
-  // for post/put/etc, validate request body with safeparse
-  if (method !== "GET" && method !== "DELETE" && reqSchema && params) {
+  // for post/put/etc, validate request body with safeparse (unless it's FormData for file uploads)
+  const isFormData = params instanceof FormData;
+  if (method !== "GET" && method !== "DELETE" && reqSchema && params && !isFormData) {
     const validated = reqSchema.safeParse(params);
     if (!validated.success) {
       return { success: false, error: validated.error };
@@ -39,8 +40,8 @@ export async function call<Resp>(
   // make request
   const headers: Record<string, string> = {};
 
-  // only set content-type for requests with a body
-  if (method !== "GET" && method !== "DELETE" && method !== "HEAD") {
+  // only set content-type for requests with a body (but not for FormData - browser sets it with boundary)
+  if (method !== "GET" && method !== "DELETE" && method !== "HEAD" && !isFormData) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -62,7 +63,9 @@ export async function call<Resp>(
 
   // only send body for post/put/patch methods
   if (method !== "GET" && method !== "DELETE" && params) {
-    options.body = JSON.stringify(params);
+    // if FormData, send as-is (browser will set proper Content-Type with boundary)
+    // otherwise stringify to JSON
+    options.body = isFormData ? params : JSON.stringify(params);
   }
 
   try {

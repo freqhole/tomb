@@ -35,6 +35,7 @@ import {
 } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
 import { generateUUID } from "../../utils/uuid";
+import { pollJobUntilComplete } from "../../utils/jobs";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
 import {
@@ -605,44 +606,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     };
 
     input.click();
-  };
-
-  // poll for job completion
-  const pollJobUntilComplete = async (
-    baseUrl: string,
-    jobId: string,
-    timeoutMs: number = 10000,
-  ): Promise<boolean> => {
-    const startTime = Date.now();
-    const pollInterval = 500; // check every 500ms
-
-    while (Date.now() - startTime < timeoutMs) {
-      const jobResult = await apiClient.music.getJobStatus(baseUrl, {
-        job_id: jobId,
-      });
-
-      if (!isSuccess(jobResult)) {
-        console.error("failed to get job status:", jobResult.error);
-        return false;
-      }
-
-      // type guard ensures jobResult.data exists after success check
-      const jobData = jobResult.data;
-      const status = jobData.status;
-
-      if (status === "Completed") {
-        return true;
-      } else if (status === "Failed" || status === "Cancelled") {
-        console.error("job failed or was cancelled:", jobData.error_message);
-        return false;
-      }
-
-      // wait before polling again
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    }
-
-    console.warn("job polling timed out");
-    return false;
   };
 
   // handle drag start

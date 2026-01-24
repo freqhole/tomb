@@ -24,7 +24,6 @@ interface UpdateAlbumData {
   genre?: string;
   sub_genre_ids?: string[];
   sub_genres?: string[];
-  image?: File;
 }
 
 export function useUpdateArtistMutation() {
@@ -107,25 +106,6 @@ export function useUpdateAlbumMutation() {
       if (!remote) throw new Error("no remote connected");
 
       console.log("updateAlbum request:", data);
-
-      // upload image first if provided
-      if (data.image) {
-        const formData = new FormData();
-        formData.append("file", data.image);
-        formData.append("entity_type", "album");
-        formData.append("entity_id", data.album_id);
-
-        const uploadResult = await apiClient.music.uploadImage(
-          remote.base_url,
-          formData,
-        );
-
-        console.log("image upload result:", uploadResult);
-
-        if (!uploadResult.success) {
-          throw new Error("failed to upload album image");
-        }
-      }
 
       // build update request (only include changed fields)
       const request: apiClient.UpdateAlbumRequest = {
