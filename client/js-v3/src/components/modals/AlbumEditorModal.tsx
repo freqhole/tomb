@@ -36,7 +36,7 @@ interface FormData {
   genre: string;
   sub_genre_ids: string[];
   sub_genres: string[];
-  year: number | null;
+  release_date: string;
   label: string;
   image_file: File | null;
 }
@@ -55,7 +55,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     genre: "",
     sub_genre_ids: [],
     sub_genres: [],
-    year: null,
+    release_date: "",
     label: "",
     image_file: null,
   });
@@ -80,7 +80,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         genre: album.genre || "",
         sub_genre_ids: [], // sub_genre_ids come from autocomplete selection
         sub_genres: album.sub_genres || [],
-        year: album.year || null,
+        release_date: album.release_date || "",
         label: album.label || "",
         image_file: null,
       };
@@ -118,7 +118,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         JSON.stringify(initial.sub_genre_ids) ||
       JSON.stringify(current.sub_genres) !==
         JSON.stringify(initial.sub_genres) ||
-      current.year !== initial.year ||
+      current.release_date !== initial.release_date ||
       current.label !== initial.label ||
       current.image_file !== null
     );
@@ -156,8 +156,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             ? data.sub_genres
             : undefined,
         release_date:
-          data.year !== initial?.year && data.year
-            ? data.year.toString()
+          data.release_date !== initial?.release_date && data.release_date
+            ? data.release_date
             : undefined,
         label: data.label !== initial?.label ? data.label : undefined,
         image: data.image_file || undefined,
@@ -445,15 +445,15 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               </p>
             </div>
 
-            {/* year */}
+            {/* release date */}
             <div class="space-y-2">
               <div class="flex items-center justify-between">
                 <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  year
+                  release date
                 </label>
-                <Show when={formData().year !== initialData()?.year}>
+                <Show when={formData().release_date !== initialData()?.release_date}>
                   <button
-                    onClick={() => handleResetField("year")}
+                    onClick={() => handleResetField("release_date")}
                     class="text-xs text-[var(--color-text-tertiary)} hover:text-[var(--color-text-primary)]"
                   >
                     reset
@@ -461,21 +461,18 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 </Show>
               </div>
               <TextInput
-                value={formData().year?.toString() || ""}
+                value={formData().release_date}
                 onInput={(e) => {
-                  const value = e.currentTarget.value;
-                  const num = value ? parseInt(value, 10) : null;
                   setFormData((prev) => ({
                     ...prev,
-                    year: num && !isNaN(num) ? num : null,
+                    release_date: e.currentTarget.value,
                   }));
                 }}
                 placeholder="YYYY, YYYY-MM, or YYYY-MM-DD"
                 class="w-full"
               />
               <p class="text-xs text-[var(--color-text-tertiary)]">
-                release year or full date (backend accepts YYYY, YYYY-MM, or
-                YYYY-MM-DD)
+                release year or full date (accepts YYYY, YYYY-MM, or YYYY-MM-DD)
               </p>
             </div>
 

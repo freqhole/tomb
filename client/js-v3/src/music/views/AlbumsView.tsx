@@ -102,13 +102,18 @@ export function AlbumsView(props: AlbumsViewProps) {
         ...(album.sub_genres || []),
       ].filter(Boolean).join(" • ") || null;
 
+      // extract year from release_date (YYYY, YYYY-MM, or YYYY-MM-DD)
+      const year = album.release_date 
+        ? parseInt(album.release_date.substring(0, 4), 10) 
+        : album.year || null;
+
       return {
         id: album.album_id,
         title: album.title,
         subtitle: album.artist_name,
         domainType: "album" as const,
         artist: album.artist_name,
-        year: album.year,
+        year: year,
         trackCount: album.song_count,
         totalDuration: formatDuration(album.total_duration),
         imageUrl: getPrimaryImageUrl(album.images),
