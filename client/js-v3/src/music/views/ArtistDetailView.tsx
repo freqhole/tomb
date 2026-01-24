@@ -11,6 +11,7 @@ import { Icon, IconNames } from "../../components/icons/registry";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import { getCurrentRemote, getDataSource } from "../data";
+import type { AlbumSummary } from "../data/types";
 import { showArtistEditor } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
@@ -20,7 +21,7 @@ import {
   useSongContextMenu,
 } from "../services/contextMenu";
 import type { Song } from "../services/storage/types";
-import { getBlobImageUrl } from "../utils/images";
+import { getBlobImageUrl, getPrimaryImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -83,13 +84,18 @@ export function ArtistDetailView() {
 
     songList.forEach((song) => {
       if (!groups.has(song.album_id)) {
+        // prefer album's own images, fallback to song thumbnail
+        const artworkUrl = song.album_images && song.album_images.length > 0
+          ? getPrimaryImageUrl(song.album_images)
+          : getBlobImageUrl(song.thumbnail_blob_id);
+
         groups.set(song.album_id, {
           albumId: song.album_id,
           albumTitle: song.album_title,
           year: song.year,
           songs: [],
           totalDuration: 0,
-          artworkUrl: getBlobImageUrl(song.thumbnail_blob_id),
+          artworkUrl,
           isFavorite: song.album_is_favorite ?? false,
         });
       }
