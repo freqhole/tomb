@@ -6,9 +6,11 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
 import { getCurrentRemote } from "../../music/data";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
+import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../utils/jobs";
 import { Button } from "../buttons/Button";
@@ -30,6 +32,7 @@ interface FormData {
 }
 
 export function ArtistEditorModal(props: ArtistEditorModalProps) {
+  const queryClient = useQueryClient();
   const artistQuery = useArtistQuery(() => props.artistId);
   const updateMutation = useUpdateArtistMutation();
 
@@ -190,6 +193,11 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
         setProcessingJob({ status: "completed", message: "done!" });
         // store the blob_id for later save
         setFormData((prev) => ({ ...prev, uploaded_blob_id: uploadData.blob_id }));
+        
+        // invalidate queries to refresh artist images in UI
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.detail(props.artistId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
+        queryClient.invalidateQueries({ queryKey: ["artist", "songs"] }); // artist songs show artist images
       } else {
         setProcessingJob({ status: "failed", message: "image processing timed out" });
       }

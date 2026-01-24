@@ -158,7 +158,10 @@ function getQueryKeysToInvalidate(
         ["artist", "songs"], // artist songs contain album_is_favorite
       ];
     case "artist":
-      return [queryKeys.artists.all];
+      return [
+        queryKeys.artists.all,
+        ["artist", "songs"], // artist songs contain artist data with is_favorite
+      ];
     case "playlist":
       return [queryKeys.playlists.all];
   }

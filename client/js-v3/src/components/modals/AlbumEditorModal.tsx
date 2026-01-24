@@ -7,9 +7,11 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
 import { getCurrentRemote } from "../../music/data";
 import { useUpdateAlbumMutation } from "../../music/queries/mutations";
+import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../utils/jobs";
 import { Button } from "../buttons/Button";
@@ -45,6 +47,7 @@ interface FormData {
 }
 
 export function AlbumEditorModal(props: AlbumEditorModalProps) {
+  const queryClient = useQueryClient();
   const albumQuery = useAlbumQuery(() => props.albumId);
   const songsQuery = useAlbumSongsQuery(() => props.albumId);
   const updateMutation = useUpdateAlbumMutation();
@@ -268,6 +271,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         setProcessingJob({ status: "completed", message: "done!" });
         // store the blob_id for later save
         setFormData((prev) => ({ ...prev, uploaded_blob_id: uploadData.blob_id }));
+        
+        // invalidate queries to refresh album images in UI
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(props.albumId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
+        queryClient.invalidateQueries({ queryKey: ["artist", "songs"] }); // artist songs show album images
+        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
       } else {
         setProcessingJob({ status: "failed", message: "image processing timed out" });
       }
