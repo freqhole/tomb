@@ -9,7 +9,6 @@ import { queryKeys } from "./queryKeys";
 interface UpdateArtistData {
   artist_id: string;
   name?: string;
-  image?: File;
 }
 
 interface UpdateAlbumData {
@@ -35,25 +34,6 @@ export function useUpdateArtistMutation() {
       if (!remote) throw new Error("no remote connected");
 
       console.log("updateArtist request:", data);
-
-      // upload image first if provided
-      if (data.image) {
-        const formData = new FormData();
-        formData.append("file", data.image);
-        formData.append("entity_type", "artist");
-        formData.append("entity_id", data.artist_id);
-
-        const uploadResult = await apiClient.music.uploadImage(
-          remote.base_url,
-          formData,
-        );
-
-        console.log("image upload result:", uploadResult);
-
-        if (!uploadResult.success) {
-          throw new Error("failed to upload artist image");
-        }
-      }
 
       // build update request (only include changed fields)
       const request: apiClient.UpdateArtistRequest = {

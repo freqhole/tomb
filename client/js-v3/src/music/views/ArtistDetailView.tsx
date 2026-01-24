@@ -216,6 +216,16 @@ export function ArtistDetailView() {
     navigate(buildRoute(`/albums/${albumId}`));
   };
 
+  // get artist image URL
+  const artistImageUrl = createMemo(() => {
+    const artist = artistQuery.data;
+    if (!artist?.images || artist.images.length === 0) return null;
+    
+    // get primary image or first image
+    const primaryImage = artist.images.find(img => img.is_primary) || artist.images[0];
+    return getBlobImageUrl(primaryImage.blob_id);
+  });
+
   return (
     <div class="flex flex-col h-full">
       <Show when={artistInfo()} fallback={<div class="p-4">loading...</div>}>
@@ -223,12 +233,20 @@ export function ArtistDetailView() {
           <>
             {/* header with artist info */}
             <div class="flex gap-6 p-6">
-              {/* artist avatar placeholder */}
+              {/* artist avatar */}
               <ContextMenu actions={artistContextMenuActions()}>
-                <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity">
-                  <span class="text-6xl text-[var(--color-text-tertiary)]">
-                    {info().name[0].toUpperCase()}
-                  </span>
+                <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden">
+                  <Show when={artistImageUrl()} fallback={
+                    <span class="text-6xl text-[var(--color-text-tertiary)]">
+                      {info().name[0].toUpperCase()}
+                    </span>
+                  }>
+                    <img
+                      src={artistImageUrl()!}
+                      alt={info().name}
+                      class="w-full h-full object-cover"
+                    />
+                  </Show>
                 </div>
               </ContextMenu>
 

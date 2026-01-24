@@ -6,8 +6,11 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import * as apiClient from "freqhole-api-client";
+import { getCurrentRemote } from "../../music/data";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
 import { useArtistQuery } from "../../music/queries/songs";
+import { pollJobUntilComplete } from "../../utils/jobs";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -23,7 +26,7 @@ interface ArtistEditorModalProps {
 
 interface FormData {
   name: string;
-  image_file: File | null;
+  uploaded_blob_id: string | null;
 }
 
 export function ArtistEditorModal(props: ArtistEditorModalProps) {
@@ -32,11 +35,15 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
   const [formData, setFormData] = createSignal<FormData>({
     name: "",
-    image_file: null,
+    uploaded_blob_id: null,
   });
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [imagePreview, setImagePreview] = createSignal<string | null>(null);
+  const [processingJob, setProcessingJob] = createSignal<{
+    status: string;
+    message: string;
+  } | null>(null);
 
   // initialize form data when artist loads
   createEffect(() => {
@@ -44,7 +51,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     if (artist && !initialData()) {
       const data: FormData = {
         name: artist.name,
-        image_file: null,
+        uploaded_blob_id: null,
       };
       setFormData(data);
       setInitialData(data);
@@ -69,7 +76,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     const initial = initialData();
     if (!initial) return false;
 
-    return current.name !== initial.name || current.image_file !== null;
+    return current.name !== initial.name || current.uploaded_blob_id !== null;
   });
 
   const handleSave = async () => {
@@ -82,7 +89,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       await updateMutation.mutateAsync({
         artist_id: props.artistId,
         name: data.name !== initial?.name ? data.name : undefined,
-        image: data.image_file || undefined,
       });
 
       props.onSave?.();
@@ -110,12 +116,13 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       [field]: initial[field],
     }));
 
-    if (field === "image_file") {
+    if (field === "uploaded_blob_id") {
       setImagePreview(null);
+      setProcessingJob(null);
     }
   };
 
-  const handleImageSelect = (e: Event) => {
+  const handleImageSelect = async (e: Event) => {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
@@ -132,14 +139,65 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       return;
     }
 
-    setFormData((prev) => ({ ...prev, image_file: file }));
-
-    // create preview
+    // create preview immediately
     const reader = new FileReader();
     reader.onload = (e) => {
       setImagePreview(e.target?.result as string);
     };
     reader.readAsDataURL(file);
+
+    // upload immediately in background
+    setProcessingJob({ status: "uploading", message: "uploading image..." });
+
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) {
+        toast.error("no remote connected");
+        setProcessingJob(null);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("associate_with", JSON.stringify({
+        entity_type: "artist",
+        entity_id: props.artistId,
+        is_primary: true,
+      }));
+
+      const uploadResult = await apiClient.music.uploadImage(
+        remote.base_url,
+        formData,
+      );
+
+      if (!uploadResult.success) {
+        toast.error("failed to upload image");
+        setProcessingJob(null);
+        return;
+      }
+
+      const uploadData = uploadResult.data;
+      console.log("image uploaded, job_id:", uploadData.job_id);
+
+      // poll for job completion
+      setProcessingJob({ status: "processing", message: "converting to webp..." });
+      const jobCompleted = await pollJobUntilComplete(
+        remote.base_url,
+        uploadData.job_id,
+      );
+
+      if (jobCompleted) {
+        setProcessingJob({ status: "completed", message: "done!" });
+        // store the blob_id for later save
+        setFormData((prev) => ({ ...prev, uploaded_blob_id: uploadData.blob_id }));
+      } else {
+        setProcessingJob({ status: "failed", message: "image processing timed out" });
+      }
+    } catch (error) {
+      console.error("failed to upload image:", error);
+      toast.error("image upload failed");
+      setProcessingJob(null);
+    }
   };
 
   return (
@@ -208,9 +266,9 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
                 <label class="block text-sm font-medium text-[var(--color-text-primary)]">
                   artist image
                 </label>
-                <Show when={formData().image_file !== null}>
+                <Show when={formData().uploaded_blob_id !== null}>
                   <button
-                    onClick={() => handleResetField("image_file")}
+                    onClick={() => handleResetField("uploaded_blob_id")}
                     class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
                   >
                     reset
@@ -229,6 +287,24 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
                 </div>
               </Show>
 
+              {/* processing status */}
+              <Show when={processingJob()}>
+                <div class="flex items-center gap-2 text-sm">
+                  <Show when={processingJob()?.status !== "failed"} fallback={
+                    <span class="text-[var(--color-error)]">❌</span>
+                  }>
+                    <Show when={processingJob()?.status === "completed"} fallback={
+                      <div class="animate-spin h-4 w-4 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full" />
+                    }>
+                      <span class="text-green-500">✓</span>
+                    </Show>
+                  </Show>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {processingJob()?.message}
+                  </span>
+                </div>
+              </Show>
+
               {/* file input */}
               <div class="flex items-center gap-3">
                 <label class="cursor-pointer">
@@ -237,16 +313,12 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
                     accept="image/*"
                     onChange={handleImageSelect}
                     class="hidden"
+                    disabled={processingJob() !== null}
                   />
                   <div class="px-4 py-2 bg-[var(--color-bg-base)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-bg-hover)] text-sm">
-                    {formData().image_file ? "change image" : "select image"}
+                    {imagePreview() ? "change image" : "select image"}
                   </div>
                 </label>
-                <Show when={formData().image_file}>
-                  <span class="text-sm text-[var(--color-text-secondary)]">
-                    {formData().image_file!.name}
-                  </span>
-                </Show>
               </div>
               <p class="text-xs text-[var(--color-text-tertiary)]">
                 recommended: square image, at least 500×500px, max 10MB
