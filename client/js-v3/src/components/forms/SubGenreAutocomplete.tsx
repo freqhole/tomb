@@ -9,8 +9,8 @@ export interface SubGenreAutocompleteProps {
   value?: string[];
   /** parent genre name (required - sub-genres belong to a genre) */
   genre?: string;
-  /** callback when sub-genres are selected */
-  onSelect: (subGenres: string[]) => void;
+  /** callback when sub-genres are selected - returns (names, ids) */
+  onSelect: (subGenres: string[], subGenreIds: string[]) => void;
   /** label for the input */
   label?: string;
   /** placeholder text */
@@ -26,6 +26,7 @@ export interface SubGenreAutocompleteProps {
 interface SubGenreOption {
   value: string;
   label: string;
+  id?: string;
 }
 
 export function SubGenreAutocomplete(props: SubGenreAutocompleteProps) {
@@ -33,6 +34,7 @@ export function SubGenreAutocomplete(props: SubGenreAutocompleteProps) {
     undefined,
   );
   const [localValue, setLocalValue] = createSignal<SubGenreOption[]>([]);
+  const [isOpen, setIsOpen] = createSignal(false);
 
   // sync with external value changes - convert strings to options
   createEffect(() => {
@@ -40,6 +42,7 @@ export function SubGenreAutocomplete(props: SubGenreAutocompleteProps) {
       const options = props.value.map((val) => ({
         value: val,
         label: val,
+        id: undefined,
       }));
       setLocalValue(options);
     } else {
@@ -78,6 +81,7 @@ export function SubGenreAutocomplete(props: SubGenreAutocompleteProps) {
       results.push({
         value: input,
         label: `add "${input}"`,
+        id: undefined,
       });
     }
 
@@ -87,19 +91,35 @@ export function SubGenreAutocomplete(props: SubGenreAutocompleteProps) {
   const handleRemove = (value: string) => {
     const newOptions = localValue().filter((opt) => opt.value !== value);
     setLocalValue(newOptions);
-    props.onSelect(newOptions.map((opt) => opt.value));
+    props.onSelect(
+      newOptions.map((opt) => opt.value),
+      newOptions.map((opt) => opt.id).filter((id): id is string => !!id),
+    );
   };
 
   return (
     <Combobox<SubGenreOption>
       multiple
+      open={isOpen()}
+      onOpenChange={setIsOpen}
       value={localValue()}
       onChange={(options) => {
         setLocalValue(options);
-        props.onSelect(options.map((opt) => opt.value));
+        props.onSelect(
+          options.map((opt) => opt.value),
+          options.map((opt) => opt.id).filter((id): id is string => !!id),
+        );
+        // close dropdown after selection
+        setIsOpen(false);
+        // clear search input
+        setSearchInput(undefined);
       }}
       onInputChange={(value) => {
         setSearchInput(value.trim().length > 0 ? value : undefined);
+        // open dropdown when typing
+        if (value.trim().length > 0) {
+          setIsOpen(true);
+        }
       }}
       options={options()}
       optionValue="value"

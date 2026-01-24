@@ -20,7 +20,9 @@ interface UpdateAlbumData {
   album_type?: string;
   release_date?: string;
   label?: string;
+  genre_id?: string;
   genre?: string;
+  sub_genre_ids?: string[];
   sub_genres?: string[];
   image?: File;
 }
@@ -134,7 +136,9 @@ export function useUpdateAlbumMutation() {
         album_type: data.album_type ?? null,
         release_date: data.release_date ?? null,
         label: data.label ?? null,
+        genre_id: data.genre_id ?? null,
         genre: data.genre ?? null,
+        sub_genre_ids: data.sub_genre_ids ?? null,
         sub_genres: data.sub_genres ?? null,
         updated_by: null,
       };

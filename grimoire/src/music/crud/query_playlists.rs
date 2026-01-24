@@ -260,6 +260,8 @@ impl PlaylistSongViewRow {
                 release_date_precision: self.album_release_date_precision,
                 label: self.album_label,
                 genre_id: self.album_genre_id,
+                genre: None,
+                sub_genres: None,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),

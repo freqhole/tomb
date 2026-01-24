@@ -68,8 +68,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     };
 
     // verify album exists (including deleted ones)
-    let existing_album = match sqlx::query_as!(
-        Album,
+    let existing_album = match sqlx::query!(
         r#"SELECT
             id as "id!",
             title as "title!",
@@ -93,7 +92,25 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     .fetch_optional(&pool)
     .await
     {
-        Ok(Some(album)) => album,
+        Ok(Some(row)) => Album {
+            id: row.id,
+            title: row.title,
+            album_type: row.album_type,
+            release_date: row.release_date,
+            release_date_precision: row.release_date_precision,
+            label: row.label,
+            genre_id: row.genre_id,
+            genre: None,
+            sub_genres: None,
+            song_count: row.song_count,
+            total_duration: row.total_duration,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            deleted_at: row.deleted_at,
+            deleted_by: row.deleted_by,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+        },
         Ok(None) => {
             return GrimoireResponse::failure(
                 "Album not found",
@@ -154,8 +171,37 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         None
     };
 
-    // handle genre if provided
-    let genre = if let Some(genre_name) = req.genre {
+    // handle genre if provided (prefer ID, fall back to name)
+    let genre = if let Some(genre_id) = req.genre_id {
+        // use provided genre_id directly
+        match sqlx::query_as!(
+            crate::music::entities::genres::Genre,
+            r#"SELECT
+                id as "id!",
+                name as "name!",
+                created_at as "created_at!"
+            FROM genrez
+            WHERE id = ?"#,
+            genre_id
+        )
+        .fetch_optional(&pool)
+        .await
+        {
+            Ok(Some(g)) => Some(g),
+            Ok(None) => {
+                return GrimoireResponse::failure(
+                    "Genre not found",
+                    vec![ErrorDetail::new(
+                        "genre_not_found",
+                        "Genre Not Found",
+                        &format!("genre with id '{}' does not exist", genre_id),
+                    )],
+                )
+            }
+            Err(e) => return GrimoireResponse::failure("Failed to query genre", vec![e.into()]),
+        }
+    } else if let Some(genre_name) = req.genre {
+        // fall back to find-or-create by name
         match find_or_create_genre(genre_name).await {
             GrimoireResponse {
                 success: true,
@@ -170,11 +216,54 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         None
     };
 
-    // handle sub-genres if provided
-    let sub_genres = if let Some(sub_genre_names) = req.sub_genres {
+    // handle sub-genres if provided (prefer IDs, fall back to names)
+    let sub_genres = if let Some(sub_genre_ids) = req.sub_genre_ids {
+        if sub_genre_ids.is_empty() {
+            Vec::new()
+        } else {
+            // use provided sub-genre IDs directly
+            let mut fetched_sub_genres: Vec<SubGenre> = Vec::new();
+            for sub_genre_id in sub_genre_ids {
+                match sqlx::query_as!(
+                    SubGenre,
+                    r#"SELECT
+                        id as "id!",
+                        name as "name!",
+                        parent_genre_id,
+                        created_at as "created_at!"
+                    FROM sub_genrez
+                    WHERE id = ?"#,
+                    sub_genre_id
+                )
+                .fetch_optional(&pool)
+                .await
+                {
+                    Ok(Some(sg)) => fetched_sub_genres.push(sg),
+                    Ok(None) => {
+                        return GrimoireResponse::failure(
+                            "Sub-genre not found",
+                            vec![ErrorDetail::new(
+                                "sub_genre_not_found",
+                                "Sub-genre Not Found",
+                                &format!("sub-genre with id '{}' does not exist", sub_genre_id),
+                            )],
+                        )
+                    }
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "Failed to query sub-genre",
+                            vec![e.into()],
+                        )
+                    }
+                }
+            }
+            fetched_sub_genres
+        }
+    } else if let Some(sub_genre_names) = req.sub_genres {
         if sub_genre_names.is_empty() {
             Vec::new()
         } else {
+            // fall back to find-or-create by name
             // validate that genre is set (either in request or existing album)
             let parent_genre_id = if let Some(ref g) = genre {
                 g.id.clone()
@@ -191,7 +280,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 );
             };
 
-            let mut created_sub_genres = Vec::new();
+            let mut created_sub_genres: Vec<SubGenre> = Vec::new();
             for sub_genre_name in sub_genre_names {
                 // check if sub-genre exists
                 let existing = sqlx::query_as!(
@@ -529,8 +618,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     let genre_id_value = genre.as_ref().map(|g| g.id.clone());
 
     // update the album record (either the new one or existing one)
-    let final_album = match sqlx::query_as!(
-        Album,
+    let _final_album = match sqlx::query!(
         r#"UPDATE albumz
         SET title = COALESCE(?, title),
             album_type = COALESCE(?, album_type),
@@ -540,23 +628,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             genre_id = COALESCE(?, genre_id),
             updated_by = COALESCE(?, updated_by),
             updated_at = unixepoch()
-        WHERE id = ?
-        RETURNING
-            id as "id!",
-            title as "title!",
-            album_type as "album_type!",
-            release_date,
-            release_date_precision,
-            label,
-            genre_id,
-            song_count as "song_count!",
-            total_duration as "total_duration!",
-            created_at as "created_at!",
-            updated_at as "updated_at!",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by"#,
+        WHERE id = ?"#,
         req.title,
         req.album_type,
         release_date_value,
@@ -566,7 +638,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         req.updated_by,
         new_album_id
     )
-    .fetch_one(&pool)
+    .execute(&pool)
     .await
     {
         Ok(album) => album,
@@ -617,11 +689,12 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .execute(&pool)
         .await
         {
-            return GrimoireResponse::failure("Failed to update song years", vec![e.into()]);
+            return GrimoireResponse::failure("failed to update song years", vec![e.into()]);
         }
     }
 
-    GrimoireResponse::success("Album updated successfully", final_album)
+    // re-fetch the album with all related data (genre name and sub_genres)
+    super::get_album(&new_album_id).await
 }
 
 #[cfg(test)]

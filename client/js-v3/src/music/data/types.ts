@@ -53,6 +53,9 @@ export interface AlbumSummary {
   year?: number;
   release_date?: string;
   label?: string;
+  genre_id?: string;
+  genre?: string;
+  sub_genres?: string[];
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];

@@ -570,8 +570,7 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
     .await?;
 
     if let Some(album_id) = album_id {
-        let album = sqlx::query_as!(
-            Album,
+        let album = sqlx::query!(
             r#"SELECT
                 id as "id!",
                 title as "title!",
@@ -594,7 +593,25 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
         .fetch_optional(&pool)
         .await?;
 
-        Ok(album)
+        Ok(album.map(|row| Album {
+            id: row.id,
+            title: row.title,
+            album_type: row.album_type,
+            release_date: row.release_date,
+            release_date_precision: row.release_date_precision,
+            label: row.label,
+            genre_id: row.genre_id,
+            genre: None,
+            sub_genres: None,
+            song_count: row.song_count,
+            total_duration: row.total_duration,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            deleted_at: row.deleted_at,
+            deleted_by: row.deleted_by,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+        }))
     } else {
         Ok(None)
     }
@@ -697,8 +714,7 @@ pub async fn find_or_create_album_for_artist(
     let pool = database::connect().await?;
 
     // Look for existing album by this specific artist with the same title
-    let existing = sqlx::query_as!(
-        Album,
+    let existing = sqlx::query!(
         r#"SELECT
             al.id as "id!",
             al.title as "title!",
@@ -725,8 +741,26 @@ pub async fn find_or_create_album_for_artist(
     .fetch_optional(&pool)
     .await?;
 
-    if let Some(album) = existing {
-        Ok((album, false))
+    if let Some(row) = existing {
+        Ok((Album {
+            id: row.id,
+            title: row.title,
+            album_type: row.album_type,
+            release_date: row.release_date,
+            release_date_precision: row.release_date_precision,
+            label: row.label,
+            genre_id: row.genre_id,
+            genre: None,
+            sub_genres: None,
+            song_count: row.song_count,
+            total_duration: row.total_duration,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            deleted_at: row.deleted_at,
+            deleted_by: row.deleted_by,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+        }, false))
     } else {
         // Create new album for this artist
         let create_req = CreateAlbumRequest {

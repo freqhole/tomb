@@ -14,6 +14,8 @@ pub struct Album {
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
     pub genre_id: Option<String>,
+    pub genre: Option<String>,
+    pub sub_genres: Option<Vec<String>>,
     pub song_count: i64,
     pub total_duration: i64,
     pub created_at: i64,         // unix timestamp UTC
@@ -47,7 +49,11 @@ pub struct UpdateAlbumRequest {
     pub album_type: Option<String>,
     pub release_date: Option<String>, // flexible: "2023", "2023-06", "2023-06-15"
     pub label: Option<String>,
+    /// genre id (preferred) or name (will find or create)
+    pub genre_id: Option<String>,
     pub genre: Option<String>,
+    /// sub-genre ids (preferred) or names (will find or create)
+    pub sub_genre_ids: Option<Vec<String>>,
     pub sub_genres: Option<Vec<String>>,
     pub updated_by: Option<String>,
 }

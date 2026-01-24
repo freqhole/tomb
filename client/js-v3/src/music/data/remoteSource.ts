@@ -169,7 +169,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const apiParams = this.buildApiParams(params);
     const result = await apiClient.music.queryAlbums(this.baseUrl, apiParams);
 
+    console.log("getAlbums result:", { success: result.success, itemCount: result.success ? result.data.items.length : 0, error: !result.success ? result.error : null });
+
     if (!result.success) {
+      console.error("getAlbums failed:", result.error);
       throw new Error("failed to query albums");
     }
 
@@ -184,6 +187,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
         year: undefined, // TODO: extract year from release_date if present
         release_date: item.album.release_date || undefined,
         label: item.album.label || undefined,
+        genre_id: item.album.genre_id || undefined,
+        genre: item.album.genre || undefined,
+        sub_genres: item.album.sub_genres || undefined,
         song_count: item.album.song_count,
         total_duration: item.album.total_duration,
         images:

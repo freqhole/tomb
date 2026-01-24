@@ -158,6 +158,8 @@ pub struct SongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_genre_name: Option<String>,
+    album_sub_genres: Option<String>, // JSON array from view
     album_tags: Option<String>, // JSON array of tag names from view
     // User context fields from view joins
     favorite_user_id: Option<String>,
@@ -181,6 +183,11 @@ impl SongViewRow {
         // parse album tags JSON array
         let album_tags = self
             .album_tags
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
+
+        // parse album sub_genres JSON array
+        let album_sub_genres = self
+            .album_sub_genres
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
 
         let song = Song {
@@ -231,6 +238,8 @@ impl SongViewRow {
                 release_date_precision: self.album_release_date_precision,
                 label: self.album_label,
                 genre_id: self.album_genre_id,
+                genre: self.album_genre_name,
+                sub_genres: album_sub_genres,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -383,6 +392,8 @@ pub struct AlbumViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_genre_name: Option<String>,
+    album_sub_genres: Option<String>, // JSON array from view
     album_images: Option<String>, // JSON array from view
     album_tags: Option<String>,   // JSON array of tag names from view
     artist_id: Option<String>,
@@ -433,6 +444,21 @@ impl AlbumViewRow {
             }
         });
 
+        // parse album sub_genres JSON array
+        let album_sub_genres = self.album_sub_genres.and_then(|json_str| {
+            match serde_json::from_str::<Vec<String>>(&json_str) {
+                Ok(sub_genres) => Some(sub_genres),
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to parse album sub_genres JSON: {} - error: {}",
+                        json_str,
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
         let album = Album {
             id: self.album_id,
             title: self.album_title,
@@ -441,6 +467,8 @@ impl AlbumViewRow {
             release_date_precision: self.album_release_date_precision,
             label: self.album_label,
             genre_id: self.album_genre_id,
+            genre: self.album_genre_name,
+            sub_genres: album_sub_genres,
             song_count: self.album_song_count.unwrap_or(0),
             total_duration: self.album_total_duration.unwrap_or(0),
             created_at: self.album_created_at,

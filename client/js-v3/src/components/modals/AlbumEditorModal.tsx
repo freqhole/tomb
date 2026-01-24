@@ -32,7 +32,9 @@ interface FormData {
   artist_id: string | undefined;
   artist_name: string;
   album_type: string;
+  genre_id: string | undefined;
   genre: string;
+  sub_genre_ids: string[];
   sub_genres: string[];
   year: number | null;
   label: string;
@@ -49,7 +51,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     artist_id: undefined,
     artist_name: "",
     album_type: "album",
+    genre_id: undefined,
     genre: "",
+    sub_genre_ids: [],
     sub_genres: [],
     year: null,
     label: "",
@@ -72,8 +76,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         artist_id: firstSong.artist_id,
         artist_name: firstSong.artist_name || "",
         album_type: album.album_type || "album",
-        genre: "", // TODO: get from album entity when available
-        sub_genres: [], // TODO: get from album entity when available
+        genre_id: album.genre_id,
+        genre: album.genre || "",
+        sub_genre_ids: [], // sub_genre_ids come from autocomplete selection
+        sub_genres: album.sub_genres || [],
         year: album.year || null,
         label: album.label || "",
         image_file: null,
@@ -106,7 +112,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.artist_id !== initial.artist_id ||
       current.artist_name !== initial.artist_name ||
       current.album_type !== initial.album_type ||
+      current.genre_id !== initial.genre_id ||
       current.genre !== initial.genre ||
+      JSON.stringify(current.sub_genre_ids) !==
+        JSON.stringify(initial.sub_genre_ids) ||
       JSON.stringify(current.sub_genres) !==
         JSON.stringify(initial.sub_genres) ||
       current.year !== initial.year ||
@@ -133,7 +142,14 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             : undefined,
         album_type:
           data.album_type !== initial?.album_type ? data.album_type : undefined,
+        genre_id:
+          data.genre_id !== initial?.genre_id ? data.genre_id : undefined,
         genre: data.genre !== initial?.genre ? data.genre : undefined,
+        sub_genre_ids:
+          JSON.stringify(data.sub_genre_ids) !==
+          JSON.stringify(initial?.sub_genre_ids)
+            ? data.sub_genre_ids
+            : undefined,
         sub_genres:
           JSON.stringify(data.sub_genres) !==
           JSON.stringify(initial?.sub_genres)
@@ -323,6 +339,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 onSelect={(selection) =>
                   setFormData((prev) => ({
                     ...prev,
+                    genre_id: selection.id,
                     genre: selection.name,
                   }))
                 }
@@ -352,9 +369,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 label="sub-genres"
                 value={formData().sub_genres}
                 genre={formData().genre}
-                onSelect={(subGenres) =>
+                onSelect={(subGenres, subGenreIds) =>
                   setFormData((prev) => ({
                     ...prev,
+                    sub_genre_ids: subGenreIds,
                     sub_genres: subGenres,
                   }))
                 }

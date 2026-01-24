@@ -3,7 +3,16 @@ import * as s from './schema';
 import { z } from 'zod';
 
 export const routes = {
+  app: {
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
+  },
   music: {
+    delete_artist: { method: 'DELETE', path: '/api/artists/{id}', req: s.DeleteArtistRequestSchema, resp: s.DeleteArtistResponseSchema },
+    get_artist: { method: 'GET', path: '/api/artists/{id}', req: s.GetArtistRequestSchema, resp: s.ArtistSchema },
+    query_artists: { method: 'POST', path: '/api/artists/query', req: s.QueryParamsSchema, resp: s.ArtistsQueryResultSchema },
+    create_artist: { method: 'POST', path: '/api/music/artists', req: s.CreateArtistRequestSchema, resp: s.ArtistSchema },
+    update_artist: { method: 'POST', path: '/api/artists/update', req: s.UpdateArtistRequestSchema, resp: s.ArtistSchema },
     set_rating: { method: 'POST', path: '/api/ratings/set', req: s.SetRatingRequestSchema, resp: s.SetRatingResponseSchema },
     remove_rating: { method: 'POST', path: '/api/ratings/remove', req: s.RemoveRatingRequestSchema, resp: s.RemoveRatingResponseSchema },
     get_rating_stats: { method: 'POST', path: '/api/ratings/stats', req: s.GetRatingStatsRequestSchema, resp: s.RatingStatsSchema },
@@ -64,11 +73,6 @@ export const routes = {
     replace_albums_tags: { method: 'POST', path: '/api/tags/albums/replace', req: s.ReplaceAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema },
     list_tags: { method: 'GET', path: '/api/tags/list', req: null, resp: s.TagSchema.array() },
     query_tags: { method: 'POST', path: '/api/tags/query', req: s.QueryTagsRequestSchema, resp: s.TagSchema.array() },
-    delete_artist: { method: 'DELETE', path: '/api/artists/{id}', req: s.DeleteArtistRequestSchema, resp: s.DeleteArtistResponseSchema },
-    get_artist: { method: 'GET', path: '/api/artists/{id}', req: s.GetArtistRequestSchema, resp: s.ArtistSchema },
-    query_artists: { method: 'POST', path: '/api/artists/query', req: s.QueryParamsSchema, resp: s.ArtistsQueryResultSchema },
-    create_artist: { method: 'POST', path: '/api/music/artists', req: s.CreateArtistRequestSchema, resp: s.ArtistSchema },
-    update_artist: { method: 'POST', path: '/api/artists/update', req: s.UpdateArtistRequestSchema, resp: s.ArtistSchema },
   },
   auth: {
     regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
@@ -80,9 +84,5 @@ export const routes = {
     login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
     login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
     register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
-  },
-  app: {
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
   },
 };
