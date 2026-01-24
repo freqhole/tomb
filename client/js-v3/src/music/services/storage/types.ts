@@ -3,6 +3,12 @@
 // source types for songs
 export type MusicSourceType = "local" | "downloaded" | "remote";
 
+// image metadata with primary indicator
+export interface ImageMetadata {
+  blob_id: string;
+  is_primary: number; // 0 or 1 from SQLite
+}
+
 // ===== ARTISTS TABLE =====
 export interface Artist {
   artist_id: string; // uuid
@@ -64,6 +70,7 @@ export interface Song {
   user_rating?: number; // user's rating (1-5)
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
   album_tags?: string[]; // tags applied to the album this song belongs to
+  album_images?: ImageMetadata[]; // images associated with the album this song belongs to
 
   // source information
   source_type: MusicSourceType;
