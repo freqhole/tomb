@@ -155,13 +155,10 @@ export function AlbumDetailView() {
 
               {/* album info */}
               <div class="flex flex-col justify-center gap-2 min-w-0">
-                <div class="text-xs uppercase text-[var(--color-text-tertiary)] font-medium tracking-wide">
-                  album
-                </div>
-                <h1 class="text-4xl font-bold text-[var(--color-text-primary)] truncate">
+                <h1 class="text-5xl font-bold text-[var(--color-text-primary)] truncate">
                   {info().title}
                 </h1>
-                <div class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                <div class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] text-xl">
                   <button
                     onClick={handleArtistClick}
                     class="hover:text-[var(--color-text-primary)] hover:underline"

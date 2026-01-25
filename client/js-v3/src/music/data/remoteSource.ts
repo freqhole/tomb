@@ -50,13 +50,19 @@ function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): S
     album_title: album?.title || "unknown album",
     thumbnail_blob_id: song.thumbnail_blob_id || null,
     album_added_at: song.created_at, // use song's created_at as proxy
-    album_primary_genre_id: item.genre?.id || null,
+    album_primary_genre_id: album?.genre_id || item.genre?.id || null,
+    album_primary_genre_name: album?.genre || item.genre?.name || null,
 
     // user-specific metadata (from API response top-level)
     is_favorite: item.is_favorite || false,
     user_rating: item.rating || undefined,
     album_is_favorite: item.album_is_favorite ?? false,
     album_tags: item.album_tags || undefined,
+    album_sub_genres: album?.sub_genres || undefined,
+    album_images: item.images?.map((img: any) => ({
+      blob_id: img.blob_id,
+      is_primary: img.is_primary ? 1 : 0,
+    })) || undefined,
 
     // remote source type
     source_type: "remote" as const,
@@ -251,7 +257,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         bio: item.artist.bio,
         album_count: item.album_count,
         song_count: item.song_count,
-        total_duration: item.total_duration || 0,
+        total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
         images:
           item.images?.map((img) => ({
             blob_id: img.blob_id,

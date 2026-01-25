@@ -1,6 +1,7 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
+import * as api from "freqhole-api-client";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
@@ -14,12 +15,13 @@ import {
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
 import { getCurrentRemote, getDataSource } from "../data";
+import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
-import { getPrimaryImageUrl } from "../utils/images";
+import { getPrimaryImageUrl, getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -134,6 +136,11 @@ export function ArtistsView(props: ArtistsViewProps) {
       thumbnail_blob_id: song.thumbnail_blob_id,
       is_favorite: song.is_favorite,
       album_is_favorite: song.album_is_favorite,
+      album_tags: song.album_tags,
+      album_primary_genre_id: song.album_primary_genre_id,
+      album_primary_genre_name: song.album_primary_genre_name,
+      album_sub_genres: song.album_sub_genres,
+      album_images: song.album_images,
     }));
   });
 
@@ -369,6 +376,42 @@ export function ArtistsView(props: ArtistsViewProps) {
     await playSong(songId);
   };
 
+  // edit artist
+  const handleEditArtist = () => {
+    const artist = selectedArtist();
+    if (artist) {
+      showArtistEditor({ artistId: artist.artist_id });
+    }
+  };
+
+  // show artist image carousel
+  const handleArtistImageClick = async () => {
+    const artist = selectedArtist();
+    if (!artist) return;
+
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) return;
+      
+      const result = await api.music.getArtistImages(remote.base_url, { id: artist.artist_id });
+      if (!result.success) {
+        console.error("failed to fetch artist images");
+        return;
+      }
+      
+      const imageUrls = result.data.map(id => getBlobImageUrl(id)!).filter(Boolean);
+      
+      if (imageUrls.length > 0) {
+        showImageCarousel({
+          images: imageUrls,
+          title: `${artist.name} images`,
+        });
+      }
+    } catch (error) {
+      console.error("failed to fetch artist images:", error);
+    }
+  };
+
   // build context menu actions for each artist
   const getContextMenuActions = (item: ListItem, index: number) => {
     const artist = sortedArtists().find((a) => a.artist_id === item.id);
@@ -512,6 +555,8 @@ export function ArtistsView(props: ArtistsViewProps) {
             // find the full song data from artistSongs
             return artistSongs().find((s) => s.id === songId);
           }}
+          onEditArtist={handleEditArtist}
+          onImageClick={handleArtistImageClick}
         />
       )}
     </Show>

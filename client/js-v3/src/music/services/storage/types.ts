@@ -65,12 +65,14 @@ export interface Song {
   // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
   album_added_at: number; // earliest added_at of any song in this album
   album_primary_genre_id: string | null; // most common genre for this album
+  album_primary_genre_name?: string | null; // genre name for display
 
   // user-specific metadata (from current authenticated user)
   is_favorite?: boolean; // whether user has favorited this song
   user_rating?: number; // user's rating (1-5)
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
   album_tags?: string[]; // tags applied to the album this song belongs to
+  album_sub_genres?: string[]; // sub-genres for the album this song belongs to
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to
 
   // source information

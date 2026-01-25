@@ -5,7 +5,7 @@ import {
   useArtistContextMenu,
   useSongContextMenu,
 } from "../../music/services/contextMenu";
-import { getBlobImageUrl } from "../../music/utils/images";
+import { getBlobImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
 import { AlbumSection, type AlbumSectionSong } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
 import {
@@ -15,14 +15,19 @@ import {
   StatsGrid,
 } from "../cards/StatsCard";
 import { ContextMenu } from "../overlays/ContextMenu";
+import { Icon, IconNames } from "../icons/registry";
+import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
   name: string;
+  bio?: string | null;
   song_count: number;
   album_count: number;
   total_duration: number;
+  images?: Array<{ blob_id: string; is_primary: number }>;
+  is_favorite?: boolean;
 }
 
 export interface ArtistDetailPanelSong {
@@ -38,6 +43,11 @@ export interface ArtistDetailPanelSong {
   thumbnail_blob_id: string | null;
   is_favorite?: boolean;
   album_is_favorite?: boolean;
+  album_images?: Array<{ blob_id: string; is_primary: number }>;
+  album_tags?: string[];
+  album_primary_genre_id?: string | null;
+  album_primary_genre_name?: string | null;
+  album_sub_genres?: string[];
 }
 
 interface AlbumGroup {
@@ -73,6 +83,10 @@ export interface ArtistDetailPanelProps {
   onSongDoubleClick?: (songId: string, albumId: string) => void;
   /** callback to get full song data for context menu (needed to convert AlbumSectionSong to full Song) */
   getSongData?: (songId: string) => any;
+  /** edit artist handler */
+  onEditArtist?: () => void;
+  /** click artist image handler (for carousel) */
+  onImageClick?: () => void;
   /** additional css classes */
   class?: string;
 }
@@ -84,13 +98,18 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
     props.songs.forEach((song) => {
       if (!groups.has(song.album_id)) {
+        // prefer album's own images, fallback to song thumbnail
+        const artworkUrl = song.album_images && song.album_images.length > 0
+          ? getPrimaryImageUrl(song.album_images)
+          : getBlobImageUrl(song.thumbnail_blob_id);
+
         groups.set(song.album_id, {
           albumId: song.album_id,
           albumTitle: song.album_title,
           year: song.year,
           songs: [],
           totalDuration: 0,
-          artworkUrl: getBlobImageUrl(song.thumbnail_blob_id),
+          artworkUrl,
           isFavorite: song.album_is_favorite ?? false,
         });
       }
@@ -126,15 +145,164 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
     return sortedGroups;
   });
 
+  // collect unique genre names from all albums
+  const artistGenres = createMemo(() => {
+    const genreSet = new Set<string>();
+    props.songs.forEach(song => {
+      // prefer genre name, fallback to ID
+      if (song.album_primary_genre_name) {
+        genreSet.add(song.album_primary_genre_name);
+      } else if (song.album_primary_genre_id) {
+        genreSet.add(song.album_primary_genre_id);
+      }
+      if (song.album_sub_genres) {
+        song.album_sub_genres.forEach(sg => genreSet.add(sg));
+      }
+    });
+    return Array.from(genreSet).sort();
+  });
+
+  // collect unique tags from all albums
+  const artistTags = createMemo(() => {
+    const tagSet = new Set<string>();
+    props.songs.forEach(song => {
+      if (song.album_tags) {
+        song.album_tags.forEach(tag => tagSet.add(tag));
+      }
+    });
+    return Array.from(tagSet).sort();
+  });
+
+  // get artist image URL
+  const artistImageUrl = createMemo(() => {
+    if (!props.artist.images || props.artist.images.length === 0) return null;
+    
+    // get primary image or first image
+    const primaryImage = props.artist.images.find(img => img.is_primary) || props.artist.images[0];
+    return getBlobImageUrl(primaryImage.blob_id);
+  });
+
+  // create artist abbreviation (up to 3 letters from first words)
+  const artistAbbreviation = createMemo(() => {
+    const words = props.artist.name.split(" ").filter(w => w.length > 0);
+    const letters = words.slice(0, 3).map(w => w[0].toUpperCase());
+    return letters.join("");
+  });
+
+  // context menu for artist
+  const artistContextMenuActions = createMemo(() => {
+    return useArtistContextMenu(
+      {
+        id: props.artist.artist_id,
+        name: props.artist.name,
+        song_count: props.artist.song_count,
+      },
+      {
+        showPlayActions: false, // we have buttons for this
+        onPlayAll: props.onPlayAll,
+        onShuffle: props.onShuffle,
+        onAddToQueue: props.onAddToQueue,
+        isFavorite: props.artist.is_favorite ?? false,
+      },
+    );
+  });
+
   return (
     <div class={`flex flex-col h-full overflow-y-auto ${props.class || ""}`}>
-      {/* artist header with stats */}
-      <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-border-default)] p-6">
-        <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-          <MarqueeText text={props.artist.name} hoverOnly={true} />
-        </h2>
+      {/* artist header with image, info, and actions */}
+      <div class="p-6 space-y-6">
+        <div class="flex gap-6">
+          {/* artist avatar */}
+          <ContextMenu actions={artistContextMenuActions()}>
+            <div 
+              class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+              onClick={props.onImageClick}
+            >
+              <Show when={artistImageUrl()} fallback={
+                <span class="text-6xl text-[var(--color-text-tertiary)]">
+                  {artistAbbreviation()}
+                </span>
+              }>
+                <img
+                  src={artistImageUrl()!}
+                  alt={props.artist.name}
+                  class="w-full h-full object-cover"
+                />
+              </Show>
+            </div>
+          </ContextMenu>
 
-        <StatsGrid columns={3} gap="md" class="mb-6">
+          {/* artist info */}
+          <div class="flex flex-col justify-center gap-2 min-w-0">
+            <h1 class="text-5xl font-bold text-[var(--color-text-primary)]">
+              <MarqueeText text={props.artist.name} hoverOnly={true} />
+            </h1>
+
+            {/* bio */}
+            <Show when={props.artist.bio}>
+              <p class="text-sm text-[var(--color-text-secondary)] line-clamp-3 max-w-2xl">
+                {props.artist.bio}
+              </p>
+            </Show>
+
+            {/* genres and tags */}
+            <div class="flex flex-wrap gap-2 items-center text-sm">
+              <Show when={artistGenres().length > 0}>
+                <div class="flex flex-wrap gap-1.5">
+                  <For each={artistGenres()}>
+                    {(genreId) => (
+                      <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
+                        {genreId}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={artistTags().length > 0}>
+                <div class="flex flex-wrap gap-1.5">
+                  <For each={artistTags()}>
+                    {(tag) => (
+                      <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                        {tag}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+
+            {/* action buttons */}
+            <div class="mt-4 flex items-center gap-3">
+              <Button variant="primary" onClick={props.onPlayAll}>
+                play all
+              </Button>
+              <Button variant="secondary" onClick={props.onShuffle}>
+                shuffle
+              </Button>
+              <Button variant="ghost" onClick={props.onAddToQueue}>
+                add to queue
+              </Button>
+              <Show when={props.onEditArtist}>
+                <button
+                  onClick={props.onEditArtist}
+                  class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                  title="edit artist info"
+                  aria-label="edit artist info"
+                >
+                  <Icon name={IconNames.edit} size={20} />
+                </button>
+              </Show>
+              <FavoriteToggle
+                targetType="artist"
+                targetId={props.artist.artist_id}
+                isFavorite={props.artist.is_favorite ?? false}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* stats cards */}
+        <StatsGrid columns={5} gap="sm">
           <StatsCard
             label="songs"
             value={formatNumber(props.artist.song_count)}
@@ -150,29 +318,25 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             value={formatDuration(props.artist.total_duration)}
             icon="recent"
           />
+          <Show when={artistGenres().length > 0}>
+            <StatsCard
+              label="genres"
+              value={formatNumber(artistGenres().length)}
+              icon="music"
+            />
+          </Show>
+          <Show when={artistTags().length > 0}>
+            <StatsCard
+              label="tags"
+              value={formatNumber(artistTags().length)}
+              icon="music"
+            />
+          </Show>
         </StatsGrid>
-
-        {/* action buttons */}
-        <div class="flex gap-3">
-          <Button variant="primary" onClick={props.onPlayAll}>
-            play all
-          </Button>
-          <Button variant="secondary" onClick={props.onShuffle}>
-            shuffle
-          </Button>
-          <Button variant="ghost" onClick={props.onAddToQueue}>
-            add to queue
-          </Button>
-        </div>
       </div>
 
-      {/* albums with songs */}
+      {/* albums list with songs */}
       <div class="flex-1 px-6 py-4">
-        <div class="mb-4">
-          <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-            albums
-          </h3>
-        </div>
         <Show
           when={albumGroups().length > 0}
           fallback={

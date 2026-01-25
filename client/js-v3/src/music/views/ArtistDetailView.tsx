@@ -1,50 +1,16 @@
 // artist detail view - shows artist info with songs grouped by album
 import { useNavigate, useParams } from "@solidjs/router";
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
-import {
-  AlbumSection,
-  type AlbumSectionSong,
-} from "../../components/albums/AlbumSection";
-import { Button } from "../../components/buttons/Button";
-import { Icon, IconNames } from "../../components/icons/registry";
-import { ContextMenu } from "../../components/overlays/ContextMenu";
-import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
-import { getCurrentRemote, getDataSource } from "../data";
-import type { AlbumSummary } from "../data/types";
+import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
+import { getCurrentRemote } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import {
-  useAlbumContextMenu,
-  useArtistContextMenu,
-  useSongContextMenu,
-} from "../services/contextMenu";
-import type { Song } from "../services/storage/types";
-import { getBlobImageUrl, getPrimaryImageUrl } from "../utils/images";
+import { getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import * as api from "freqhole-api-client";
-
-// format album duration to human readable
-function formatAlbumDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m`;
-}
-
-interface AlbumGroup {
-  albumId: string;
-  albumTitle: string;
-  year: number | null;
-  songs: AlbumSectionSong[];
-  totalDuration: number;
-  artworkUrl: string | null;
-  isFavorite: boolean;
-}
 
 export function ArtistDetailView() {
   const params = useParams<{ id: string }>();
@@ -63,78 +29,24 @@ export function ArtistDetailView() {
     return result.items;
   });
 
-  // for remote sources, extract artist info from first song
-  // for local sources, use song metadata
-  const artistInfo = createMemo(() => {
+  // artist data for panel
+  const artistData = createMemo(() => {
+    const artist = artistQuery.data;
     const songList = songs();
-    if (songList.length === 0) return null;
+    
+    if (!artist || songList.length === 0) return null;
 
-    const firstSong = songList[0];
     return {
-      artist_id: firstSong.artist_id,
-      name: firstSong.artist_name,
+      artist_id: artist.artist_id,
+      name: artist.name,
+      bio: artist.bio,
+      song_count: songList.length,
+      album_count: new Set(songList.map(s => s.album_id)).size,
+      total_duration: songList.reduce((sum, song) => sum + song.duration_seconds, 0),
+      images: artist.images,
+      is_favorite: artist.is_favorite,
     };
   });
-
-  // group songs by album
-  const albumGroups = createMemo((): AlbumGroup[] => {
-    const songList = songs();
-    if (songList.length === 0) return [];
-
-    const groups = new Map<string, AlbumGroup>();
-
-    songList.forEach((song) => {
-      if (!groups.has(song.album_id)) {
-        // prefer album's own images, fallback to song thumbnail
-        const artworkUrl = song.album_images && song.album_images.length > 0
-          ? getPrimaryImageUrl(song.album_images)
-          : getBlobImageUrl(song.thumbnail_blob_id);
-
-        groups.set(song.album_id, {
-          albumId: song.album_id,
-          albumTitle: song.album_title,
-          year: song.year,
-          songs: [],
-          totalDuration: 0,
-          artworkUrl,
-          isFavorite: song.album_is_favorite ?? false,
-        });
-      }
-
-      const group = groups.get(song.album_id)!;
-      group.songs.push({
-        id: song.id,
-        sha256: song.sha256,
-        title: song.title,
-        trackNumber: song.track_number,
-        discNumber: song.disc_number,
-        duration: song.duration_seconds,
-        isFavorite: song.is_favorite,
-      });
-      group.totalDuration += song.duration_seconds;
-    });
-
-    // sort albums by title
-    const sortedGroups = Array.from(groups.values()).sort((a, b) =>
-      a.albumTitle.localeCompare(b.albumTitle),
-    );
-
-    // songs are already sorted by disc/track when we convert them
-    sortedGroups.forEach((group) => {
-      group.songs.sort((a, b) => {
-        if (a.discNumber !== b.discNumber) {
-          return a.discNumber - b.discNumber;
-        }
-        return a.trackNumber - b.trackNumber;
-      });
-    });
-
-    return sortedGroups;
-  });
-
-  const totalSongs = () => songs().length ?? 0;
-  const totalDuration = () =>
-    songs().reduce((sum, song) => sum + song.duration_seconds, 0) ?? 0;
 
   // play all artist songs
   const handlePlayArtist = async () => {
@@ -164,33 +76,8 @@ export function ArtistDetailView() {
     await setQueue([...currentQueue, ...songList]);
   };
 
-  // context menu for artist avatar
-  const artistContextMenuActions = createMemo(() => {
-    const info = artistInfo();
-    if (!info) return [];
-
-    return useArtistContextMenu(
-      {
-        id: info.artist_id,
-        name: info.name,
-        song_count: totalSongs(),
-      },
-      {
-        showPlayActions: false, // we have buttons for this
-        onPlayAll: handlePlayArtist,
-        onShuffle: handleShuffleArtist,
-        onAddToQueue: handleAddArtistToQueue,
-        isFavorite: artistQuery.data?.is_favorite ?? false,
-      },
-    );
-  });
-
   // play specific album
   const handlePlayAlbum = async (albumId: string) => {
-    const album = albumGroups().find((g) => g.albumId === albumId);
-    if (!album || album.songs.length === 0) return;
-
-    // get actual Song objects for queue
     const albumSongs = songs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(albumSongs);
 
@@ -207,52 +94,36 @@ export function ArtistDetailView() {
     await setQueue([...currentQueue, ...sortedSongs]);
   };
 
-  const handleSongDoubleClick = async (
-    song: AlbumSectionSong,
-    albumId: string,
-  ) => {
+  const handleSongDoubleClick = async (songId: string, albumId: string) => {
     // set queue to all album songs and play the clicked one
     const albumSongs = songs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(albumSongs);
 
     await setQueue(sortedSongs);
-    await playSong(song.id);
+    await playSong(songId);
   };
 
   const handleAlbumClick = (albumId: string) => {
     navigate(buildRoute(`/albums/${albumId}`));
   };
 
-  // get artist image URL
-  const artistImageUrl = createMemo(() => {
-    const artist = artistQuery.data;
-    if (!artist?.images || artist.images.length === 0) return null;
-    
-    // get primary image or first image
-    const primaryImage = artist.images.find(img => img.is_primary) || artist.images[0];
-    return getBlobImageUrl(primaryImage.blob_id);
-  });
-
-  // create artist abbreviation (up to 3 letters from first words)
-  const artistAbbreviation = createMemo(() => {
-    const info = artistInfo();
-    if (!info) return "";
-    
-    const words = info.name.split(" ").filter(w => w.length > 0);
-    const letters = words.slice(0, 3).map(w => w[0].toUpperCase());
-    return letters.join("");
-  });
+  const handleEditArtist = () => {
+    const artist = artistData();
+    if (artist) {
+      showArtistEditor({ artistId: artist.artist_id });
+    }
+  };
 
   // handle artist image click - show all artist images in carousel
   const handleArtistImageClick = async () => {
-    const info = artistInfo();
-    if (!info) return;
+    const artist = artistData();
+    if (!artist) return;
 
     try {
       const remote = getCurrentRemote();
       if (!remote) return;
       
-      const result = await api.music.getArtistImages(remote.base_url, { id: info.artist_id });
+      const result = await api.music.getArtistImages(remote.base_url, { id: artist.artist_id });
       if (!result.success) {
         console.error("failed to fetch artist images");
         return;
@@ -263,7 +134,7 @@ export function ArtistDetailView() {
       if (imageUrls.length > 0) {
         showImageCarousel({
           images: imageUrls,
-          title: `${info.name} images`,
+          title: `${artist.name} images`,
         });
       }
     } catch (error) {
@@ -273,122 +144,22 @@ export function ArtistDetailView() {
 
   return (
     <div class="flex flex-col h-full">
-      <Show when={artistInfo()} fallback={<div class="p-4">loading...</div>}>
-        {(info) => (
-          <>
-            {/* header with artist info */}
-            <div class="flex gap-6 p-6">
-              {/* artist avatar */}
-              <ContextMenu actions={artistContextMenuActions()}>
-                <div 
-                  class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
-                  onClick={handleArtistImageClick}
-                >
-                  <Show when={artistImageUrl()} fallback={
-                    <span class="text-6xl text-[var(--color-text-tertiary)]">
-                      {artistAbbreviation()}
-                    </span>
-                  }>
-                    <img
-                      src={artistImageUrl()!}
-                      alt={info().name}
-                      class="w-full h-full object-cover"
-                    />
-                  </Show>
-                </div>
-              </ContextMenu>
-
-              {/* artist info */}
-              <div class="flex flex-col justify-center gap-2 min-w-0">
-                <div class="text-xs uppercase text-[var(--color-text-tertiary)] font-medium tracking-wide">
-                  artist
-                </div>
-                <h1 class="text-4xl font-bold text-[var(--color-text-primary)] truncate">
-                  {info().name}
-                </h1>
-                <div class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-                  <span>
-                    {albumGroups().length}{" "}
-                    {albumGroups().length === 1 ? "album" : "albums"}
-                  </span>
-                  <span>•</span>
-                  <span>
-                    {totalSongs()} {totalSongs() === 1 ? "song" : "songs"}
-                  </span>
-                  <span>•</span>
-                  <span>{formatAlbumDuration(totalDuration())}</span>
-                </div>
-
-                {/* play button, edit button, and favorite toggle */}
-                <div class="mt-4 flex items-center gap-3">
-                  <Button variant="primary" onClick={handlePlayArtist}>
-                    play all
-                  </Button>
-                  <button
-                    onClick={() =>
-                      showArtistEditor({ artistId: info().artist_id })
-                    }
-                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                    title="edit artist info"
-                  >
-                    <Icon name={IconNames.edit} />
-                  </button>
-                  <FavoriteToggle
-                    targetType="artist"
-                    targetId={info().artist_id}
-                    isFavorite={artistQuery.data?.is_favorite ?? false}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* albums list with songs */}
-            <div class="flex-1 overflow-auto">
-              <div class="p-6 space-y-6">
-                <For each={albumGroups()}>
-                  {(album) => (
-                    <AlbumSection
-                      albumId={album.albumId}
-                      albumTitle={album.albumTitle}
-                      year={album.year}
-                      songs={album.songs}
-                      totalDuration={album.totalDuration}
-                      artworkUrl={album.artworkUrl}
-                      isFavorite={album.isFavorite}
-                      onAlbumClick={handleAlbumClick}
-                      onPlayAlbum={() => handlePlayAlbum(album.albumId)}
-                      onAddToQueue={() => handleAddAlbumToQueue(album.albumId)}
-                      onSongDoubleClick={(song) =>
-                        handleSongDoubleClick(song, album.albumId)
-                      }
-                      getAlbumContextMenuActions={() =>
-                        useAlbumContextMenu(
-                          {
-                            id: album.albumId,
-                            title: album.albumTitle,
-                            song_count: album.songs.length,
-                          },
-                          {
-                            showPlayActions: true,
-                            isFavorite: false, // album-level favorites not yet implemented on frontend
-                          },
-                        )
-                      }
-                      getSongContextMenuActions={(song) => {
-                        // find full song data
-                        const fullSong = songs().find((s) => s.id === song.id);
-                        if (!fullSong) return [];
-                        return useSongContextMenu(fullSong, {
-                          showPlayActions: true,
-                          isFavorite: fullSong.is_favorite ?? false,
-                        });
-                      }}
-                    />
-                  )}
-                </For>
-              </div>
-            </div>
-          </>
+      <Show when={artistData()} fallback={<div class="p-4">loading...</div>}>
+        {(artist) => (
+          <ArtistDetailPanel
+            artist={artist()}
+            songs={songs()}
+            onPlayAll={handlePlayArtist}
+            onShuffle={handleShuffleArtist}
+            onAddToQueue={handleAddArtistToQueue}
+            onAlbumClick={handleAlbumClick}
+            onPlayAlbum={handlePlayAlbum}
+            onAddAlbumToQueue={handleAddAlbumToQueue}
+            onSongDoubleClick={handleSongDoubleClick}
+            getSongData={(songId) => songs().find(s => s.id === songId)}
+            onEditArtist={handleEditArtist}
+            onImageClick={handleArtistImageClick}
+          />
         )}
       </Show>
     </div>
