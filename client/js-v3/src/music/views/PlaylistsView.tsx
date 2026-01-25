@@ -20,6 +20,7 @@ import { appState, setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
 import { ConfirmDialog } from "../../components/dialogs/ConfirmDialog";
+import { ImageCarouselModal } from "../../components/modals/ImageCarouselModal";
 import { toast } from "../../components/feedback/Toast";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
@@ -105,6 +106,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [editDescription, setEditDescription] = createSignal("");
   const [uploadingImage, setUploadingImage] = createSignal(false);
   const [uploadProgress, setUploadProgress] = createSignal(0);
+  const [showImageCarousel, setShowImageCarousel] = createSignal(false);
+  const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
+  const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
   const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
     null,
@@ -422,6 +426,48 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       return `${hours} hr ${minutes} min`;
     }
     return `${minutes} min`;
+  };
+
+  // open image carousel with all playlist and song images
+  const handleOpenImageCarousel = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    const songs = playlistSongs();
+    const remote = getCurrentRemote();
+    const baseUrl = remote.base_url;
+    const images: string[] = [];
+
+    // add playlist thumbnail
+    if (playlist.thumbnail_blob_id) {
+      images.push(`${baseUrl}/api/blobs/${playlist.thumbnail_blob_id}`);
+    }
+
+    // collect all unique images from songs (album cover, album images)
+    const imageSet = new Set<string>();
+    for (const song of songs) {
+      // album cover (thumbnail_blob_id is the denormalized primary image)
+      if (song.thumbnail_blob_id) {
+        imageSet.add(`${baseUrl}/api/blobs/${song.thumbnail_blob_id}`);
+      }
+      // album images
+      if (song.album_images) {
+        for (const img of song.album_images) {
+          imageSet.add(`${baseUrl}/api/blobs/${img.blob_id}`);
+        }
+      }
+    }
+
+    images.push(...Array.from(imageSet));
+
+    if (images.length === 0) {
+      toast.info("no images available for this playlist");
+      return;
+    }
+
+    setCarouselImages(images);
+    setCarouselInitialIndex(0);
+    setShowImageCarousel(true);
   };
 
   // play all songs in selected playlist
@@ -1199,6 +1245,18 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <Button variant="primary" onClick={handlePlayAll}>
                                 play all
                               </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={handleAddToQueue}
+                              >
+                                + add to queue
+                              </Button>
+                              <IconButton
+                                icon="library"
+                                size="default"
+                                onClick={handleOpenImageCarousel}
+                                aria-label="view all images"
+                              />
                               <FavoriteToggle
                                 targetType="playlist"
                                 targetId={selectedPlaylist()?.playlist_id || ""}
@@ -1206,12 +1264,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   selectedPlaylist()?.is_favorite ?? false
                                 }
                               />
-                              <Button
-                                variant="secondary"
-                                onClick={handleAddToQueue}
-                              >
-                                + add to queue
-                              </Button>
                               <Show when={isViewingRemote()}>
                                 <Show
                                   when={syncStatus()}
@@ -1457,6 +1509,15 @@ export function PlaylistsView(props: PlaylistsViewProps) {
           </Show>
         </Show>
       </div>
+
+      {/* image carousel modal */}
+      <Show when={showImageCarousel()}>
+        <ImageCarouselModal
+          images={carouselImages()}
+          initialIndex={carouselInitialIndex()}
+          onClose={() => setShowImageCarousel(false)}
+        />
+      </Show>
 
       {/* delete confirmation dialog */}
       <ConfirmDialog
