@@ -386,3 +386,63 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
 
     GrimoireResponse::success("Artist updated successfully", updated)
 }
+
+/// get all image blob IDs for an artist and its related entities
+/// excludes waveform type blobs, returns only thumbnail/original images
+pub async fn get_artist_images(artist_id: &str) -> GrimoireResponse<Vec<String>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // fetch all image blob IDs:
+    // 1. artist images from artist_imagez
+    // 2. album images from album_imagez for albums by this artist
+    // 3. song thumbnails from songs linked to this artist
+    let image_blob_ids = match sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT mb.id as "id!"
+        FROM media_blobz mb
+        WHERE mb.id IN (
+            -- artist images
+            SELECT media_blob_id FROM artist_imagez WHERE artist_id = ?
+            UNION
+            -- album images for albums by this artist (via artist_albumz)
+            SELECT ai.media_blob_id 
+            FROM album_imagez ai
+            JOIN artist_albumz aa ON ai.album_id = aa.album_id
+            WHERE aa.artist_id = ?
+            UNION
+            -- song thumbnails for songs by this artist (via artist_songz)
+            SELECT s.thumbnail_blob_id
+            FROM songz s
+            JOIN artist_songz asz ON s.id = asz.song_id
+            WHERE asz.artist_id = ? AND s.deleted_at IS NULL AND s.thumbnail_blob_id IS NOT NULL
+        )
+        AND mb.blob_type != 'waveform'
+        AND mb.deleted_at IS NULL
+        ORDER BY mb.created_at DESC
+        "#,
+        artist_id,
+        artist_id,
+        artist_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch artist images",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    GrimoireResponse::success("Artist images retrieved successfully", image_blob_ids)
+}

@@ -65,3 +65,25 @@ export function hideAlbumEditor() {
 export function useAlbumEditorState() {
   return albumEditorState;
 }
+
+// image carousel
+interface ImageCarouselOptions {
+  images: string[];
+  initialIndex?: number;
+  title?: string;
+}
+
+const [imageCarouselState, setImageCarouselState] =
+  createSignal<ImageCarouselOptions | null>(null);
+
+export function showImageCarousel(options: ImageCarouselOptions) {
+  setImageCarouselState(options);
+}
+
+export function hideImageCarousel() {
+  setImageCarouselState(null);
+}
+
+export function useImageCarouselState() {
+  return imageCarouselState;
+}

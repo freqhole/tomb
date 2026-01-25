@@ -9,7 +9,7 @@ use grimoire::music::crud::{
     delete_album, get_album, query_albums, AlbumsQueryResult, DeleteAlbumRequest,
     DeleteAlbumResponse, QueryParams,
 };
-use grimoire::music::entities::albums::{update_album, Album, UpdateAlbumRequest};
+use grimoire::music::entities::albums::{get_album_images, update_album, Album, UpdateAlbumRequest};
 use grimoire::response::GrimoireResponse;
 use inventory;
 
@@ -60,6 +60,17 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdateAlbumRequest",
         response_type: "Album",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_album_images",
+        path: "/api/albums/{id}/images",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<String>",
     }
 }
 
@@ -176,6 +187,23 @@ pub async fn update_album_handler(
     );
 
     let response = update_album(req).await;
+
+    response
+        .data
+        .ok_or_else(|| ApiError::Internal(response.message))
+        .map(Json)
+}
+
+/// Get all image blob IDs for an album and its songs
+///
+/// GET /api/albums/{id}/images
+pub async fn get_album_images_handler(
+    State(_state): State<AppState>,
+    Path(album_id): Path<String>,
+) -> Result<Json<Vec<String>>, ApiError> {
+    tracing::debug!("get_album_images: id={}", album_id);
+
+    let response = get_album_images(&album_id).await;
 
     response
         .data

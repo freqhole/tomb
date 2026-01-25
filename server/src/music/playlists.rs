@@ -13,10 +13,10 @@ use grimoire::music::crud::{
 };
 use grimoire::music::entities::playlists::{
     add_songs_to_playlist, compute_playlist_etag, create_playlist, delete_playlist, get_playlist,
-    remove_playlist_thumbnail, remove_songs_from_playlist, update_playlist, update_songs_position,
-    AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
-    RemovePlaylistThumbnailRequest, RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest,
-    UpdatePlaylistRequest,
+    get_playlist_images, remove_playlist_thumbnail, remove_songs_from_playlist, update_playlist,
+    update_songs_position, AddSongsToPlaylistRequest, CreatePlaylistRequest,
+    DeletePlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
+    RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 use grimoire::EmptyResponse;
 
@@ -367,5 +367,30 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "RemovePlaylistThumbnailRequest",
         response_type: "Playlist",
+    }
+}
+
+/// get all image blob IDs for a playlist and its related entities
+pub async fn get_playlist_images_handler(
+    Path(playlist_id): Path<String>,
+) -> Result<Json<Vec<String>>, ApiError> {
+    tracing::debug!("get_playlist_images: id={}", playlist_id);
+
+    let response = get_playlist_images(&playlist_id).await;
+
+    response
+        .data
+        .ok_or_else(|| ApiError::Internal(response.message))
+        .map(Json)
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_playlist_images",
+        path: "/api/playlists/{id}/images",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<String>",
     }
 }

@@ -73,6 +73,10 @@ pub fn build_router() -> Router<AppState> {
             post(music::playlists::remove_thumbnail_handler),
         )
         .route(
+            routes["music"]["get_playlist_images"].path,
+            get(music::playlists::get_playlist_images_handler),
+        )
+        .route(
             routes["music"]["query_playlist_songs"].path,
             post(music::playlists::query_playlist_songs_handler),
         )
@@ -120,8 +124,16 @@ pub fn build_router() -> Router<AppState> {
             post(music::artists::update_artist_handler),
         )
         .route(
+            routes["music"]["get_artist_images"].path,
+            get(music::artists::get_artist_images_handler),
+        )
+        .route(
             routes["music"]["update_album"].path,
             post(music::albums::update_album_handler),
+        )
+        .route(
+            routes["music"]["get_album_images"].path,
+            get(music::albums::get_album_images_handler),
         )
         // songs routes
         .route(

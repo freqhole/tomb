@@ -111,6 +111,24 @@ export function updateArtist(
   );
 }
 
+export function getArtistImages(
+  baseUrl: string,
+  params: { id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "get_artist_images",
+    routes.music.get_artist_images.resp,
+    routes.music.get_artist_images.req,
+    routes.music.get_artist_images.method,
+    routes.music.get_artist_images.path,
+    params,
+    apiKey,
+  );
+}
+
 // albums
 export function queryAlbums(
   baseUrl: string,
@@ -179,6 +197,24 @@ export function updateAlbum(
     UpdateAlbumRequestPartialSchema,
     routes.music.update_album.method,
     routes.music.update_album.path,
+    params,
+    apiKey,
+  );
+}
+
+export function getAlbumImages(
+  baseUrl: string,
+  params: { id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "get_album_images",
+    routes.music.get_album_images.resp,
+    routes.music.get_album_images.req,
+    routes.music.get_album_images.method,
+    routes.music.get_album_images.path,
     params,
     apiKey,
   );
@@ -378,6 +414,24 @@ export function deletePlaylist(
     routes.music.delete_playlist.req,
     routes.music.delete_playlist.method,
     routes.music.delete_playlist.path,
+    params,
+    apiKey,
+  );
+}
+
+export function getPlaylistImages(
+  baseUrl: string,
+  params: { id: string },
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "get_playlist_images",
+    routes.music.get_playlist_images.resp,
+    routes.music.get_playlist_images.req,
+    routes.music.get_playlist_images.method,
+    routes.music.get_playlist_images.path,
     params,
     apiKey,
   );

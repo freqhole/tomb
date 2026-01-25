@@ -9,6 +9,7 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
+import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import {
   getDataSource,
   initializeDataSource,
@@ -18,9 +19,11 @@ import {
   hideAlbumEditor,
   hideArtistEditor,
   hideSongEditor,
+  hideImageCarousel,
   useAlbumEditorState,
   useArtistEditorState,
   useSongEditorState,
+  useImageCarouselState,
 } from "../music/modals";
 import { queryKeys } from "../music/queries/queryKeys";
 import { playSong } from "../music/services/audio/player";
@@ -222,6 +225,17 @@ export function App() {
               hideAlbumEditor();
             }}
             disableNestedModals={state().disableNestedModals}
+          />
+        )}
+      </Show>
+
+      <Show when={useImageCarouselState()()}>
+        {(state) => (
+          <ImageCarouselModal
+            images={state().images}
+            initialIndex={state().initialIndex}
+            title={state().title}
+            onClose={hideImageCarousel}
           />
         )}
       </Show>

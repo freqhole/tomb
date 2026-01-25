@@ -10,7 +10,8 @@ use grimoire::music::crud::{
     DeleteArtistResponse, QueryParams,
 };
 use grimoire::music::entities::artists::{
-    create_artist, update_artist, Artist, CreateArtistRequest, UpdateArtistRequest,
+    create_artist, get_artist_images, update_artist, Artist, CreateArtistRequest,
+    UpdateArtistRequest,
 };
 use grimoire::response::GrimoireResponse;
 use inventory;
@@ -85,6 +86,17 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdateArtistRequest",
         response_type: "Artist",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_artist_images",
+        path: "/api/artists/{id}/images",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<String>",
     }
 }
 
@@ -199,6 +211,23 @@ pub async fn update_artist_handler(
     tracing::debug!("update_artist: id={}, name={:?}", req.artist_id, req.name);
 
     let response = update_artist(req).await;
+
+    response
+        .data
+        .ok_or_else(|| ApiError::Internal(response.message))
+        .map(Json)
+}
+
+/// Get all image blob IDs for an artist and its related entities
+///
+/// GET /api/artists/{id}/images
+pub async fn get_artist_images_handler(
+    State(_state): State<AppState>,
+    Path(artist_id): Path<String>,
+) -> Result<Json<Vec<String>>, ApiError> {
+    tracing::debug!("get_artist_images: id={}", artist_id);
+
+    let response = get_artist_images(&artist_id).await;
 
     response
         .data

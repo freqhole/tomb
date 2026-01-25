@@ -114,6 +114,10 @@ fn schema_ref(rust_type: &str) -> String {
     let clean = rust_type.split("::").last().unwrap_or(rust_type);
 
     if let Some(inner) = clean.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        // special case: Vec<String> should be z.string().array()
+        if inner == "String" {
+            return "z.string().array()".to_string();
+        }
         return format!("s.{}Schema.array()", inner);
     }
 

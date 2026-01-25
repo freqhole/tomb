@@ -344,7 +344,82 @@ pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireRe
 
     GrimoireResponse::success("Playlist deleted successfully", ())
 }
+/// get all image blob IDs for a playlist and its related entities
+/// includes: playlist images, and all artist/album/song images from playlist songs
+/// excludes waveform type blobs
+pub async fn get_playlist_images(playlist_id: &str) -> GrimoireResponse<Vec<String>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
+    // fetch all image blob IDs:
+    // 1. playlist images from playlist_imagez
+    // 2. artist images for artists of songs in playlist (via artist_songz)
+    // 3. album images for albums of songs in playlist (via album_songz)
+    // 4. song thumbnails for songs in playlist
+    let image_blob_ids = match sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT mb.id as "id!"
+        FROM media_blobz mb
+        WHERE mb.id IN (
+            -- playlist images
+            SELECT media_blob_id FROM playlist_imagez WHERE playlist_id = ?
+            UNION
+            -- artist images for songs in playlist (via artist_songz)
+            SELECT ai.media_blob_id
+            FROM artist_imagez ai
+            WHERE ai.artist_id IN (
+                SELECT DISTINCT asz.artist_id
+                FROM playlist_songz ps
+                JOIN artist_songz asz ON ps.song_id = asz.song_id
+                WHERE ps.playlist_id = ?
+            )
+            UNION
+            -- album images for songs in playlist (via album_songz)
+            SELECT ali.media_blob_id
+            FROM album_imagez ali
+            WHERE ali.album_id IN (
+                SELECT DISTINCT absz.album_id
+                FROM playlist_songz ps
+                JOIN album_songz absz ON ps.song_id = absz.song_id
+                WHERE ps.playlist_id = ?
+            )
+            UNION
+            -- song thumbnails in playlist
+            SELECT s.thumbnail_blob_id
+            FROM playlist_songz ps
+            JOIN songz s ON ps.song_id = s.id
+            WHERE ps.playlist_id = ? AND s.deleted_at IS NULL AND s.thumbnail_blob_id IS NOT NULL
+        )
+        AND mb.blob_type != 'waveform'
+        AND mb.deleted_at IS NULL
+        ORDER BY mb.created_at DESC
+        "#,
+        playlist_id,
+        playlist_id,
+        playlist_id,
+        playlist_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch playlist images",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    GrimoireResponse::success("Playlist images retrieved successfully", image_blob_ids)
+}
 /// add songs to a playlist
 pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> GrimoireResponse<()> {
     let pool = match database::connect().await {

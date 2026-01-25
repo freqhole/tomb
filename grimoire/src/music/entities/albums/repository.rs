@@ -332,3 +332,55 @@ pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireRespo
 
     GrimoireResponse::success("Album deleted successfully", ())
 }
+
+/// get all image blob IDs for an album and its songs
+/// excludes waveform type blobs, returns only thumbnail/original images
+pub async fn get_album_images(album_id: &str) -> GrimoireResponse<Vec<String>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // fetch all image blob IDs:
+    // 1. album images from album_imagez
+    // 2. song thumbnails from songz for this album
+    let image_blob_ids = match sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT mb.id as "id!"
+        FROM media_blobz mb
+        WHERE mb.id IN (
+            -- album images
+            SELECT media_blob_id FROM album_imagez WHERE album_id = ?
+            UNION
+            -- song thumbnails for this album
+            SELECT s.thumbnail_blob_id
+            FROM songz s
+            JOIN album_songz asz ON s.id = asz.song_id
+            WHERE asz.album_id = ? AND s.deleted_at IS NULL AND s.thumbnail_blob_id IS NOT NULL
+        )
+        AND mb.blob_type != 'waveform'
+        AND mb.deleted_at IS NULL
+        ORDER BY mb.created_at DESC
+        "#,
+        album_id,
+        album_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to fetch album images",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    GrimoireResponse::success("Album images retrieved successfully", image_blob_ids)
+}

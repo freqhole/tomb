@@ -12,7 +12,7 @@ import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { AlbumSummary } from "../data/types";
-import { showArtistEditor } from "../modals";
+import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import {
@@ -24,6 +24,7 @@ import type { Song } from "../services/storage/types";
 import { getBlobImageUrl, getPrimaryImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
+import * as api from "freqhole-api-client";
 
 // format album duration to human readable
 function formatAlbumDuration(seconds: number): string {
@@ -232,6 +233,44 @@ export function ArtistDetailView() {
     return getBlobImageUrl(primaryImage.blob_id);
   });
 
+  // create artist abbreviation (up to 3 letters from first words)
+  const artistAbbreviation = createMemo(() => {
+    const info = artistInfo();
+    if (!info) return "";
+    
+    const words = info.name.split(" ").filter(w => w.length > 0);
+    const letters = words.slice(0, 3).map(w => w[0].toUpperCase());
+    return letters.join("");
+  });
+
+  // handle artist image click - show all artist images in carousel
+  const handleArtistImageClick = async () => {
+    const info = artistInfo();
+    if (!info) return;
+
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) return;
+      
+      const result = await api.music.getArtistImages(remote.base_url, { id: info.artist_id });
+      if (!result.success) {
+        console.error("failed to fetch artist images");
+        return;
+      }
+      
+      const imageUrls = result.data.map(id => getBlobImageUrl(id)!).filter(Boolean);
+      
+      if (imageUrls.length > 0) {
+        showImageCarousel({
+          images: imageUrls,
+          title: `${info.name} images`,
+        });
+      }
+    } catch (error) {
+      console.error("failed to fetch artist images:", error);
+    }
+  };
+
   return (
     <div class="flex flex-col h-full">
       <Show when={artistInfo()} fallback={<div class="p-4">loading...</div>}>
@@ -241,10 +280,13 @@ export function ArtistDetailView() {
             <div class="flex gap-6 p-6">
               {/* artist avatar */}
               <ContextMenu actions={artistContextMenuActions()}>
-                <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden">
+                <div 
+                  class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                  onClick={handleArtistImageClick}
+                >
                   <Show when={artistImageUrl()} fallback={
                     <span class="text-6xl text-[var(--color-text-tertiary)]">
-                      {info().name[0].toUpperCase()}
+                      {artistAbbreviation()}
                     </span>
                   }>
                     <img
