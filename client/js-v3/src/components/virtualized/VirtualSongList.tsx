@@ -12,7 +12,7 @@ import {
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
-import { StarRatingCompact } from "../ratings/StarRatingCompact";
+import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import { useScrollRestore } from "../../utils/scrollRestore";
 
@@ -472,12 +472,11 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {/* rating */}
                 <Show when={showRating()}>
                   <div class="px-3 flex items-center justify-center">
-                    <StarRatingCompact
+                    <Rating
                       rating={song().userRating}
                       size="sm"
                       onRatingChange={(newRating) => {
-                        console.log("TODO: wire up rating change", song().id, newRating);
-                        // props.onRatingChange?.(song(), newRating);
+                        props.onRatingChange?.(song(), newRating);
                       }}
                     />
                   </div>

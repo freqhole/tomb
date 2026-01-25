@@ -83,19 +83,21 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 
 // update queue
 async function setQueue(songs: Song[]): Promise<void> {
-  // unwrap songs and any array properties that might be proxies
+  // unwrap proxy arrays before storing in IndexedDB
   const plainSongs = songs.map((song) => {
-    const plain = { ...song };
-    // unwrap album_tags array if present (TanStack Query wraps arrays in proxies)
-    if (song.album_tags) {
-      plain.album_tags = [...song.album_tags];
+    const plain: Song = { ...song };
+    if (song.album_tags) plain.album_tags = [...song.album_tags];
+    if (song.images) plain.images = song.images.map(img => ({ ...img }));
+    if (song.album_sub_genres) plain.album_sub_genres = [...song.album_sub_genres];
+    if (song.album_images) plain.album_images = song.album_images.map(img => ({ ...img }));
+    if (song.album) {
+      plain.album = { ...song.album };
+      if (plain.album.sub_genres) plain.album.sub_genres = [...plain.album.sub_genres];
     }
     return plain;
   });
+  
   await updateAppState({ queue: plainSongs });
-
-  // clear in-progress cache tracking when queue changes
-  // this prevents caching songs that are no longer in the queue
   clearInProgressTracking();
 }
 

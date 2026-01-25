@@ -76,7 +76,7 @@ pub async fn handle_command(action: RatingsAction) -> CommandOutput<serde_json::
             };
 
             let request = SetRatingRequest {
-                user_id: user_id.clone(),
+                user_id: Some(user_id.clone()),
                 target_type: rating_target,
                 target_id: target_id.clone(),
                 rating,

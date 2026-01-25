@@ -60,6 +60,7 @@ export interface AlbumSummary {
   total_duration: number;
   images?: ImageMetadata[];
   is_favorite?: boolean;
+  user_rating?: number;
   tags?: string[];
 }
 
@@ -73,6 +74,7 @@ export interface ArtistSummary {
   total_duration: number;
   images?: ImageMetadata[];
   is_favorite?: boolean;
+  user_rating?: number;
 }
 
 // genre summary data for lists

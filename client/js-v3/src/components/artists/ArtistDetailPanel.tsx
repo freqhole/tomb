@@ -17,6 +17,7 @@ import {
 import { ContextMenu } from "../overlays/ContextMenu";
 import { Icon, IconNames } from "../icons/registry";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface ArtistDetailPanelArtist {
@@ -28,6 +29,7 @@ export interface ArtistDetailPanelArtist {
   total_duration: number;
   images?: Array<{ blob_id: string; is_primary: number }>;
   is_favorite?: boolean;
+  user_rating?: number;
 }
 
 export interface ArtistDetailPanelSong {
@@ -42,7 +44,9 @@ export interface ArtistDetailPanelSong {
   year: number | null;
   thumbnail_blob_id: string | null;
   is_favorite?: boolean;
+  user_rating?: number;
   album_is_favorite?: boolean;
+  album_rating?: number;
   album_images?: Array<{ blob_id: string; is_primary: number }>;
   album_tags?: string[];
   album_primary_genre_id?: string | null;
@@ -58,6 +62,10 @@ interface AlbumGroup {
   totalDuration: number;
   artworkUrl: string | null;
   isFavorite: boolean;
+  rating?: number;
+  genre?: string | null;
+  subGenres?: string[];
+  tags?: string[];
 }
 
 export interface ArtistDetailPanelProps {
@@ -83,6 +91,12 @@ export interface ArtistDetailPanelProps {
   onSongDoubleClick?: (songId: string, albumId: string) => void;
   /** callback to get full song data for context menu (needed to convert AlbumSectionSong to full Song) */
   getSongData?: (songId: string) => any;
+  /** rating change handler */
+  onRatingChange?: (rating: number) => void;
+  /** song rating change handler */
+  onSongRatingChange?: (songId: string, rating: number) => void;
+  /** album rating change handler */
+  onAlbumRatingChange?: (albumId: string, rating: number) => void;
   /** edit artist handler */
   onEditArtist?: () => void;
   /** click artist image handler (for carousel) */
@@ -94,17 +108,30 @@ export interface ArtistDetailPanelProps {
 }
 
 export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
+  console.log('[ArtistDetailPanel] received props.songs:', props.songs);
+  console.log('[ArtistDetailPanel] props.songs type:', typeof props.songs, Array.isArray(props.songs));
+  console.log('[ArtistDetailPanel] first song full object:', props.songs[0]);
+  console.log('[ArtistDetailPanel] first song keys:', props.songs[0] ? Object.keys(props.songs[0]) : 'none');
+  
   // group songs by album
   const albumGroups = createMemo((): AlbumGroup[] => {
+    console.log('[ArtistDetailPanel] processing songs:', props.songs.length);
+    if (props.songs.length > 0) {
+      console.log('[ArtistDetailPanel] first song data:', {
+        user_rating: props.songs[0].user_rating,
+        album_rating: props.songs[0].album_rating
+      });
+    }
     const groups = new Map<string, AlbumGroup>();
 
-    props.songs.forEach((song) => {
+    props.songs.forEach((song, index) => {
       if (!groups.has(song.album_id)) {
         // prefer album's own images, fallback to song thumbnail
         const artworkUrl = song.album_images && song.album_images.length > 0
           ? getPrimaryImageUrl(song.album_images)
           : getBlobImageUrl(song.thumbnail_blob_id);
 
+        console.log(`[ArtistDetailPanel] creating new album group for "${song.album_title}" - song[${index}] album_rating:`, song.album_rating);
         groups.set(song.album_id, {
           albumId: song.album_id,
           albumTitle: song.album_title,
@@ -113,7 +140,16 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           totalDuration: 0,
           artworkUrl,
           isFavorite: song.album_is_favorite ?? false,
+          rating: song.album_rating,
+          genre: song.album_primary_genre_name,
+          subGenres: song.album_sub_genres,
+          tags: song.album_tags,
         });
+        console.log(`[ArtistDetailPanel] created album group with rating:`, groups.get(song.album_id)!.rating);
+      } else if (song.album_rating !== undefined && groups.get(song.album_id)!.rating === undefined) {
+        // update album rating if this song has one and the group doesn't yet
+        console.log(`[ArtistDetailPanel] updating album "${song.album_title}" rating from song[${index}]:`, song.album_rating);
+        groups.get(song.album_id)!.rating = song.album_rating;
       }
 
       const group = groups.get(song.album_id)!;
@@ -125,6 +161,8 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         discNumber: song.disc_number,
         duration: song.duration_seconds,
         isFavorite: song.is_favorite,
+        rating: song.user_rating,
+        album_rating: song.album_rating,
       });
       group.totalDuration += song.duration_seconds;
     });
@@ -305,6 +343,11 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 targetId={props.artist.artist_id}
                 isFavorite={props.artist.is_favorite ?? false}
               />
+              <Rating
+                rating={props.artist.user_rating ?? 0}
+                size="md"
+                onRatingChange={props.onRatingChange}
+              />
             </div>
           </div>
         </div>
@@ -364,6 +407,11 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   totalDuration={album.totalDuration}
                   artworkUrl={album.artworkUrl}
                   isFavorite={album.isFavorite}
+                  rating={album.rating}
+                  genre={album.genre}
+                  subGenres={album.subGenres}
+                  tags={album.tags}
+                  onRatingChange={(rating) => props.onAlbumRatingChange?.(album.albumId, rating)}
                   playingSongId={props.playingSongId}
                   onAlbumClick={props.onAlbumClick}
                   onPlayAlbum={() => props.onPlayAlbum?.(album.albumId)}
@@ -371,6 +419,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   onSongDoubleClick={(song) =>
                     props.onSongDoubleClick?.(song.id, album.albumId)
                   }
+                  onSongRatingChange={(songId, rating) => props.onSongRatingChange?.(songId, rating)}
                   getAlbumContextMenuActions={() => {
                     // get favorite status from any song in the album
                     const firstSongData = album.songs[0]

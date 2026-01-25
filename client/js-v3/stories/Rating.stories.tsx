@@ -1,11 +1,11 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { StarRatingCompact } from "../src/components/ratings/StarRatingCompact";
+import { Rating } from "../src/components/ratings/Rating";
 import { formatDuration, mockSongs } from "./mockData";
 
 const meta = {
-  title: "Components/Forms/Star Rating Compact",
-  component: StarRatingCompact,
+  title: "Components/Forms/Rating",
+  component: Rating,
   tags: ["autodocs"],
   argTypes: {
     rating: {
@@ -26,7 +26,7 @@ const meta = {
       description: "uses alternate colors for selected rows",
     },
   },
-} satisfies Meta<typeof StarRatingCompact>;
+} satisfies Meta<typeof Rating>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -38,7 +38,7 @@ export const Default: Story = {
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
         <div class="space-y-4">
-          <StarRatingCompact
+          <Rating
             rating={rating()}
             onRatingChange={(newRating) => {
               setRating(newRating);
@@ -68,7 +68,7 @@ export const Sizes: Story = {
         <div class="space-y-6">
           <div>
             <div class="caption mb-2">small</div>
-            <StarRatingCompact
+            <Rating
               size="sm"
               rating={ratings().sm}
               onRatingChange={(v) => setRatings({ ...ratings(), sm: v })}
@@ -76,7 +76,7 @@ export const Sizes: Story = {
           </div>
           <div>
             <div class="caption mb-2">medium (default)</div>
-            <StarRatingCompact
+            <Rating
               size="md"
               rating={ratings().md}
               onRatingChange={(v) => setRatings({ ...ratings(), md: v })}
@@ -84,7 +84,7 @@ export const Sizes: Story = {
           </div>
           <div>
             <div class="caption mb-2">large</div>
-            <StarRatingCompact
+            <Rating
               size="lg"
               rating={ratings().lg}
               onRatingChange={(v) => setRatings({ ...ratings(), lg: v })}
@@ -103,27 +103,27 @@ export const AllRatings: Story = {
       <div class="space-y-4">
         <div>
           <div class="caption mb-2">unrated (0)</div>
-          <StarRatingCompact rating={0} />
+          <Rating rating={0} />
         </div>
         <div>
           <div class="caption mb-2">1 star</div>
-          <StarRatingCompact rating={1} />
+          <Rating rating={1} />
         </div>
         <div>
           <div class="caption mb-2">2 stars</div>
-          <StarRatingCompact rating={2} />
+          <Rating rating={2} />
         </div>
         <div>
           <div class="caption mb-2">3 stars</div>
-          <StarRatingCompact rating={3} />
+          <Rating rating={3} />
         </div>
         <div>
           <div class="caption mb-2">4 stars</div>
-          <StarRatingCompact rating={4} />
+          <Rating rating={4} />
         </div>
         <div>
           <div class="caption mb-2">5 stars</div>
-          <StarRatingCompact rating={5} />
+          <Rating rating={5} />
         </div>
       </div>
     </div>
@@ -140,7 +140,7 @@ export const States: Story = {
         <div class="space-y-6">
           <div>
             <div class="caption mb-2">interactive</div>
-            <StarRatingCompact
+            <Rating
               rating={rating()}
               onRatingChange={(v) => setRating(v)}
             />
@@ -148,20 +148,20 @@ export const States: Story = {
 
           <div>
             <div class="caption mb-2">disabled</div>
-            <StarRatingCompact rating={3} disabled={true} />
+            <Rating rating={3} disabled={true} />
           </div>
 
           <div>
             <div class="caption mb-2">selected row variant</div>
             <div class="bg-[var(--color-bg-hover)] p-2 inline-block rounded">
-              <StarRatingCompact rating={4} selected={true} />
+              <Rating rating={4} selected={true} />
             </div>
           </div>
 
           <div>
             <div class="caption mb-2">normal row variant</div>
             <div class="bg-[var(--color-bg-primary)] p-2 inline-block rounded">
-              <StarRatingCompact rating={4} selected={false} />
+              <Rating rating={4} selected={false} />
             </div>
           </div>
         </div>
@@ -200,7 +200,7 @@ export const InSongList: Story = {
                 <div class="body-xs text-[var(--color-text-tertiary)]">
                   {song.artist}
                 </div>
-                <StarRatingCompact
+                <Rating
                   size="sm"
                   rating={ratings()[song.id]}
                   onRatingChange={(v) => updateRating(song.id, v)}
@@ -228,15 +228,15 @@ export const HoverStates: Story = {
           </div>
           <div class="flex gap-8 items-center">
             <div class="text-center">
-              <StarRatingCompact rating={0} onRatingChange={() => {}} />
+              <Rating rating={0} onRatingChange={() => {}} />
               <div class="caption mt-2">unrated</div>
             </div>
             <div class="text-center">
-              <StarRatingCompact rating={3} onRatingChange={() => {}} />
+              <Rating rating={3} onRatingChange={() => {}} />
               <div class="caption mt-2">3 stars</div>
             </div>
             <div class="text-center">
-              <StarRatingCompact rating={5} onRatingChange={() => {}} />
+              <Rating rating={5} onRatingChange={() => {}} />
               <div class="caption mt-2">5 stars</div>
             </div>
           </div>
@@ -246,11 +246,11 @@ export const HoverStates: Story = {
           <div class="caption mb-2">disabled has no hover effect</div>
           <div class="flex gap-8 items-center">
             <div class="text-center">
-              <StarRatingCompact rating={0} disabled={true} />
+              <Rating rating={0} disabled={true} />
               <div class="caption mt-2">disabled 0</div>
             </div>
             <div class="text-center">
-              <StarRatingCompact rating={3} disabled={true} />
+              <Rating rating={3} disabled={true} />
               <div class="caption mt-2">disabled 3</div>
             </div>
           </div>
@@ -278,7 +278,7 @@ export const CyclingBehavior: Story = {
             <div class="caption mb-2">
               click to cycle: 0 → 1 → 2 → 3 → 4 → 5 → 0
             </div>
-            <StarRatingCompact
+            <Rating
               rating={rating()}
               onRatingChange={handleRatingChange}
             />
@@ -327,7 +327,7 @@ export const AllCombinations: Story = {
           <div class="caption">sm</div>
           {[0, 1, 2, 3, 4, 5].map((r) => (
             <div class="flex justify-center">
-              <StarRatingCompact
+              <Rating
                 size="sm"
                 rating={r === 3 ? interactive() : r}
                 onRatingChange={r === 3 ? setInteractive : undefined}
@@ -339,7 +339,7 @@ export const AllCombinations: Story = {
           <div class="caption">md</div>
           {[0, 1, 2, 3, 4, 5].map((r) => (
             <div class="flex justify-center">
-              <StarRatingCompact size="md" rating={r} />
+              <Rating size="md" rating={r} />
             </div>
           ))}
 
@@ -347,7 +347,7 @@ export const AllCombinations: Story = {
           <div class="caption">lg</div>
           {[0, 1, 2, 3, 4, 5].map((r) => (
             <div class="flex justify-center">
-              <StarRatingCompact size="lg" rating={r} />
+              <Rating size="lg" rating={r} />
             </div>
           ))}
         </div>
@@ -382,7 +382,7 @@ export const WithFavoriteHeart: Story = {
                 <div class="flex-1 body-small text-[var(--color-text-primary)]">
                   {song.title}
                 </div>
-                <StarRatingCompact
+                <Rating
                   size="sm"
                   rating={song.rating}
                   onRatingChange={(v) => updateRating(song.id, v)}

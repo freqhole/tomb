@@ -317,6 +317,7 @@ impl PlaylistSongViewRow {
             artist_total_album_count: None,
             artist_total_duration: None,
             album_is_favorite: None,
+            album_rating: None,
             album_tags,
         };
 

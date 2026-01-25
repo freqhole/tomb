@@ -17,6 +17,7 @@ import {
 import { getCurrentRemote, getDataSource } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
+import { useSetRatingMutation } from "../queries/ratings";
 import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { querySongsWithDetails } from "../services/storage/db";
@@ -103,6 +104,9 @@ export function ArtistsView(props: ArtistsViewProps) {
     },
   });
 
+  // rating mutation
+  const setRatingMutation = useSetRatingMutation();
+
   // reset virtual list when query param changes
   createEffect(() => {
     const q = searchParams.q;
@@ -159,7 +163,9 @@ export function ArtistsView(props: ArtistsViewProps) {
       year: song.year,
       thumbnail_blob_id: song.thumbnail_blob_id,
       is_favorite: song.is_favorite,
+      user_rating: song.user_rating,
       album_is_favorite: song.album_is_favorite,
+      album_rating: song.album_rating,
       album_tags: song.album_tags,
       album_primary_genre_id: song.album_primary_genre_id,
       album_primary_genre_name: song.album_primary_genre_name,
@@ -408,6 +414,36 @@ export function ArtistsView(props: ArtistsViewProps) {
     }
   };
 
+  // handle rating change
+  const handleRatingChange = (rating: number) => {
+    const artist = selectedArtist();
+    if (artist) {
+      setRatingMutation.mutate({
+        targetType: "artist",
+        targetId: artist.artist_id,
+        rating,
+      });
+    }
+  };
+
+  // handle song rating change
+  const handleSongRatingChange = (songId: string, rating: number) => {
+    setRatingMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      rating,
+    });
+  };
+
+  // handle album rating change
+  const handleAlbumRatingChange = (albumId: string, rating: number) => {
+    setRatingMutation.mutate({
+      targetType: "album",
+      targetId: albumId,
+      rating,
+    });
+  };
+
   // show artist image carousel
   const handleArtistImageClick = async () => {
     const artist = selectedArtist();
@@ -596,6 +632,9 @@ export function ArtistsView(props: ArtistsViewProps) {
             return artistSongs().find((s) => s.id === songId);
           }}
           onEditArtist={handleEditArtist}
+          onRatingChange={handleRatingChange}
+          onSongRatingChange={handleSongRatingChange}
+          onAlbumRatingChange={handleAlbumRatingChange}
           onImageClick={handleArtistImageClick}
           onGenreClick={handleGenreClick}
         />

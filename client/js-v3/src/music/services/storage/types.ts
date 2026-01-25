@@ -71,6 +71,7 @@ export interface Song {
   is_favorite?: boolean; // whether user has favorited this song
   user_rating?: number; // user's rating (1-5)
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
+  album_rating?: number; // user's rating for the album this song belongs to (1-5)
   album_tags?: string[]; // tags applied to the album this song belongs to
   album_sub_genres?: string[]; // sub-genres for the album this song belongs to
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to

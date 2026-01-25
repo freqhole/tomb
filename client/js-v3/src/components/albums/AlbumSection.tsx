@@ -2,6 +2,7 @@
 import { For, type JSX } from "solid-js";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { Rating } from "../ratings/Rating";
 import { SongRow } from "../songs/SongRow";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -13,6 +14,8 @@ export interface AlbumSectionSong {
   discNumber: number;
   duration: number;
   isFavorite?: boolean;
+  rating?: number;
+  album_rating?: number;
 }
 
 export interface AlbumSectionProps {
@@ -32,6 +35,16 @@ export interface AlbumSectionProps {
   playingSongId?: string;
   /** album favorite status */
   isFavorite?: boolean;
+  /** album user rating */
+  rating?: number;
+  /** album primary genre */
+  genre?: string | null;
+  /** album sub-genres */
+  subGenres?: string[];
+  /** album tags */
+  tags?: string[];
+  /** rating change handler */
+  onRatingChange?: (rating: number) => void;
   /** click handler for album (navigates to album detail) */
   onAlbumClick?: (albumId: string) => void;
   /** play album handler */
@@ -40,6 +53,8 @@ export interface AlbumSectionProps {
   onAddToQueue?: () => void;
   /** song double click handler (plays song) */
   onSongDoubleClick?: (song: AlbumSectionSong) => void;
+  /** song rating change handler */
+  onSongRatingChange?: (songId: string, rating: number) => void;
   /** callback to get context menu actions for album header */
   getAlbumContextMenuActions?: () => MenuAction[];
   /** callback to get context menu actions for a song */
@@ -67,6 +82,8 @@ function formatAlbumDuration(seconds: number): string {
 }
 
 export function AlbumSection(props: AlbumSectionProps): JSX.Element {
+  console.log('[AlbumSection]', props.albumTitle, '- rating:', props.rating, '- songs[0].rating:', props.songs[0]?.rating);
+  
   const totalDuration = () =>
     props.totalDuration ??
     props.songs.reduce((sum, song) => sum + song.duration, 0);
@@ -104,6 +121,24 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
         <div class="text-sm text-[var(--color-text-secondary)]">
           {props.songs.length} tracks · {formatAlbumDuration(totalDuration())}
           {props.year && ` · ${props.year}`}
+        </div>
+        {/* genres and tags */}
+        <div class="text-xs text-[var(--color-text-tertiary)] mt-1 flex flex-wrap gap-1">
+          {props.genre && (
+            <span class="px-2 py-0.5 bg-[var(--color-bg-primary)] rounded">
+              {props.genre}
+            </span>
+          )}
+          {props.subGenres?.map((sg) => (
+            <span class="px-2 py-0.5 bg-[var(--color-bg-primary)] rounded opacity-75">
+              {sg}
+            </span>
+          ))}
+          {props.tags?.map((tag) => (
+            <span class="px-2 py-0.5 bg-[var(--color-bg-hover)] rounded">
+              #{tag}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -149,6 +184,11 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
           isFavorite={props.isFavorite ?? false}
           size="md"
         />
+        <Rating
+          rating={props.rating ?? 0}
+          size="md"
+          onRatingChange={props.onRatingChange}
+        />
       </div>
     </div>
   );
@@ -187,6 +227,8 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
                     : undefined
                 }
                 isFavorite={song.isFavorite}
+                rating={song.rating ?? 0}
+                onRatingChange={(rating) => props.onSongRatingChange?.(song.id, rating)}
                 songId={song.id}
                 sha256={song.sha256}
               />

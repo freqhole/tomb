@@ -15,6 +15,7 @@ import {
 import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
 import { useToggleFavoriteMutation } from "../queries/favorites";
+import { useSetRatingMutation } from "../queries/ratings";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
 import { useTagsQuery } from "../queries/tags";
 import { useSongContextMenu } from "../services/contextMenu";
@@ -52,6 +53,9 @@ export function SongsView(props: SongsViewProps) {
 
   // favorites mutation
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // rating mutation
+  const setRatingMutation = useSetRatingMutation();
 
   // infinite query hook
   const songsQuery = useSongsInfiniteQuery({
@@ -197,6 +201,18 @@ export function SongsView(props: SongsViewProps) {
     });
   };
 
+  // handle rating change
+  const handleRatingChange = (virtualSong: VirtualSong, rating: number) => {
+    const song = allSongs().find((s) => s.id === virtualSong.id);
+    if (!song) return;
+
+    setRatingMutation.mutate({
+      targetType: "song",
+      targetId: song.id,
+      rating,
+    });
+  };
+
   // handle sort changes - this triggers query refetch via key change
   const handleSortChange = (field: SortField, direction: SortDirection) => {
     // if direction is null, reset to default sort
@@ -291,8 +307,10 @@ export function SongsView(props: SongsViewProps) {
               getContextMenuActions={getContextMenuActions}
               onNearEnd={loadMore}
               showFavorites={true}
+              showRating={true}
               showTags={true}
               onFavoriteToggle={handleFavoriteToggle}
+              onRatingChange={handleRatingChange}
             />
             {songsQuery.isFetchingNextPage && (
               <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">

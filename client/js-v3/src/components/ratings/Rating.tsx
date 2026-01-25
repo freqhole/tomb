@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 
-export interface StarRatingCompactProps {
+export interface RatingProps {
   rating?: number | null;
   onRatingChange?: (rating: number) => void;
   disabled?: boolean;
@@ -11,16 +11,17 @@ export interface StarRatingCompactProps {
 
 // compact rating component with 5 vertical bars
 // click cycles through 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 0
-export function StarRatingCompact(props: StarRatingCompactProps) {
+export function Rating(props: RatingProps) {
   const [isUpdating, setIsUpdating] = createSignal(false);
   const [localRating, setLocalRating] = createSignal(props.rating ?? 0);
-  const [hasInitialized, setHasInitialized] = createSignal(false);
 
-  // only sync props to local state on first load, not during user interactions
+  // sync props to local state whenever rating changes from parent
   createEffect(() => {
-    if (!hasInitialized()) {
-      setLocalRating(props.rating ?? 0);
-      setHasInitialized(true);
+    const propRating = props.rating ?? 0;
+    // only update if we're not in the middle of updating
+    // and the prop value is different from local state
+    if (!isUpdating() && propRating !== localRating()) {
+      setLocalRating(propRating);
     }
   });
 

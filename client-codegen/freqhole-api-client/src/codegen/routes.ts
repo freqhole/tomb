@@ -3,17 +3,6 @@ import * as s from './schema';
 import { z } from 'zod';
 
 export const routes = {
-  auth: {
-    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
-    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
-    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema },
-    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema },
-    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any() },
-    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any() },
-    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
-    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
-    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
-  },
   music: {
     search_musicbrainz_releases: { method: 'POST', path: '/api/musicbrainz/search/releases', req: s.SearchReleasesRequestSchema, resp: z.any() },
     get_musicbrainz_release: { method: 'POST', path: '/api/musicbrainz/release', req: s.GetReleaseRequestSchema, resp: z.any() },
@@ -83,6 +72,17 @@ export const routes = {
     blob_metadata: { method: 'GET', path: '/api/blobs/{id}/metadata', req: null, resp: s.BlobMetadataResponseSchema },
     get_job_status: { method: 'POST', path: '/api/jobs/status', req: s.GetJobRequestSchema, resp: s.JobSchema },
     list_jobs: { method: 'POST', path: '/api/jobs/list', req: s.ListJobsRequestSchema, resp: s.JobSchema.array() },
+  },
+  auth: {
+    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
+    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
+    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema },
+    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema },
+    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any() },
+    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any() },
+    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any() },
+    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any() },
+    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any() },
   },
   app: {
     health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },

@@ -4,6 +4,7 @@ import type { FavoriteTarget } from "../../music/queries/favorites";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 
 export interface SongRowProps {
@@ -35,12 +36,16 @@ export interface SongRowProps {
   contextMenuActions?: MenuAction[];
   /** whether song is favorited */
   isFavorite?: boolean;
+  /** song rating (0-5) */
+  rating?: number;
   /** song id for favorite toggle */
   songId?: string;
   /** sha256 for favorite toggle (for queue updates) */
   sha256?: string;
   /** callback after favorite toggle */
   onFavoriteToggle?: (isFavorite: boolean) => void;
+  /** callback after rating change */
+  onRatingChange?: (rating: number) => void;
 }
 
 export function SongRow(props: SongRowProps): JSX.Element {
@@ -119,6 +124,17 @@ export function SongRow(props: SongRowProps): JSX.Element {
             size="sm"
             readonly={!props.songId}
             onToggleSuccess={props.onFavoriteToggle}
+          />
+        </div>
+      </Show>
+
+      {/* rating */}
+      <Show when={props.onRatingChange && props.songId}>
+        <div class="flex-shrink-0">
+          <Rating
+            rating={props.rating ?? 0}
+            size="sm"
+            onRatingChange={props.onRatingChange}
           />
         </div>
       </Show>

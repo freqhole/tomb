@@ -896,6 +896,7 @@ export const PlaylistSongResultSchema = z.object({
   artist_total_album_count: z.number().nullable(),
   artist_total_duration: z.number().nullable(),
   album_is_favorite: z.boolean().nullable(),
+  album_rating: z.number().nullable(),
   album_tags: z.array(z.string()).nullable()
 }),
   position: z.number(),
@@ -995,6 +996,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   artist_total_album_count: z.number().nullable(),
   artist_total_duration: z.number().nullable(),
   album_is_favorite: z.boolean().nullable(),
+  album_rating: z.number().nullable(),
   album_tags: z.array(z.string()).nullable()
 }),
   position: z.number(),
@@ -1127,7 +1129,7 @@ export const RemovePlaylistThumbnailRequestSchema = z.object({
 export type RemovePlaylistThumbnailRequest = z.infer<typeof RemovePlaylistThumbnailRequestSchema>;
 
 export const RemoveRatingRequestSchema = z.object({
-  user_id: z.string(),
+  user_id: z.string().nullable(),
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   target_id: z.string()
 });
@@ -1322,7 +1324,7 @@ export const SetFavoriteResponseSchema = z.object({
 export type SetFavoriteResponse = z.infer<typeof SetFavoriteResponseSchema>;
 
 export const SetRatingRequestSchema = z.object({
-  user_id: z.string(),
+  user_id: z.string().nullable(),
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),
   target_id: z.string(),
   rating: z.number()
@@ -1455,6 +1457,7 @@ export const SongQueryResultSchema = z.object({
   artist_total_album_count: z.number().nullable(),
   artist_total_duration: z.number().nullable(),
   album_is_favorite: z.boolean().nullable(),
+  album_rating: z.number().nullable(),
   album_tags: z.array(z.string()).nullable()
 });
 export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
@@ -1572,6 +1575,7 @@ export const SongsQueryResultSchema = z.object({
   artist_total_album_count: z.number().nullable(),
   artist_total_duration: z.number().nullable(),
   album_is_favorite: z.boolean().nullable(),
+  album_rating: z.number().nullable(),
   album_tags: z.array(z.string()).nullable()
 })),
   total_count: z.number(),

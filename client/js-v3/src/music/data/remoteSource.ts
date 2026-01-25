@@ -24,7 +24,7 @@ function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): S
 
   const sha256 = blob?.sha256 || song.media_blob_id;
 
-  return {
+  const result = {
     id: song.id,
     sha256,
     title: song.title,
@@ -55,8 +55,12 @@ function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): S
 
     // user-specific metadata (from API response top-level)
     is_favorite: item.is_favorite || false,
-    user_rating: item.rating || undefined,
+    user_rating: (() => {
+      console.log('[remoteSource] mapping rating:', { item_rating: item.rating, album_rating: item.album_rating });
+      return item.rating ?? undefined;
+    })(),
     album_is_favorite: item.album_is_favorite ?? false,
+    album_rating: item.album_rating ?? undefined,
     album_tags: item.album_tags || undefined,
     album_sub_genres: album?.sub_genres || undefined,
     album_images: item.images?.map((img: any) => ({
@@ -81,6 +85,9 @@ function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): S
     remote_sha256: song.id,
     added_at: song.created_at,
   };
+
+  console.log('[adaptSongFromAPI] returning song:', { id: result.id, user_rating: result.user_rating, album_rating: result.album_rating });
+  return result;
 }
 
 // remote data source implementation
@@ -203,6 +210,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
         is_favorite: item.is_favorite,
+        user_rating: item.rating,
         tags: item.album_tags || undefined,
       })),
       total: result.data.total_count,
@@ -264,6 +272,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
         is_favorite: item.is_favorite,
+        user_rating: item.rating,
       })),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -287,10 +296,18 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("failed to query artist songs");
     }
 
+    const mappedItems = result.data.items.map((item) =>
+      adaptSongFromAPI(item, this.baseUrl, this.remoteId),
+    );
+
+    console.log('[getArtistSongs] returning items:', mappedItems.length, '- first item:', {
+      id: mappedItems[0]?.id,
+      user_rating: mappedItems[0]?.user_rating,
+      album_rating: mappedItems[0]?.album_rating
+    });
+
     return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
-      ),
+      items: mappedItems,
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,

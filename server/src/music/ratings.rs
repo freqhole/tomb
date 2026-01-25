@@ -1,6 +1,7 @@
 //! Ratings API handlers
 
 use axum::{extract::State, Json};
+use axum::extract::Extension;
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{
     GetRatingStatsRequest, RatingStats, RemoveRatingRequest, RemoveRatingResponse,
@@ -10,7 +11,7 @@ use grimoire::response::GrimoireResponse;
 use grimoire::users::{RatingsService, SetRatingRequest};
 use inventory;
 
-use crate::{error::ApiError, AppState};
+use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
 
 // ============================================================================
 // Route Registration
@@ -58,15 +59,38 @@ inventory::submit! {
 /// POST /api/ratings/set
 pub async fn set_rating_handler(
     State(_state): State<AppState>,
-    Json(request): Json<SetRatingRequest>,
+    Extension(auth_user): Extension<AuthenticatedUser>,
+    Json(mut request): Json<SetRatingRequest>,
 ) -> Result<Json<SetRatingResponse>, ApiError> {
+    // determine the target user_id
+    let target_user_id = match &request.user_id {
+        Some(uid) => {
+            // user_id was provided - check if it's different from authenticated user
+            if uid != &auth_user.user_id {
+                // trying to set rating for a different user - must be admin
+                if !auth_user.role.is_admin() {
+                    return Err(ApiError::Forbidden);
+                }
+            }
+            uid.clone()
+        }
+        None => {
+            // no user_id provided - use authenticated user
+            auth_user.user_id.clone()
+        }
+    };
+
     tracing::debug!(
-        "set_rating: user_id={}, target_type={:?}, target_id={}, rating={}",
-        request.user_id,
+        "set_rating: user_id={}, target_type={:?}, target_id={}, rating={}, requesting_user={}",
+        target_user_id,
         request.target_type,
         request.target_id,
-        request.rating
+        request.rating,
+        auth_user.user_id
     );
+
+    // set the resolved user_id in the request
+    request.user_id = Some(target_user_id);
 
     let ratings_service = RatingsService::new();
 
@@ -84,19 +108,39 @@ pub async fn set_rating_handler(
 /// POST /api/ratings/remove
 pub async fn remove_rating_handler(
     State(_state): State<AppState>,
+    Extension(auth_user): Extension<AuthenticatedUser>,
     Json(request): Json<RemoveRatingRequest>,
 ) -> Result<Json<RemoveRatingResponse>, ApiError> {
+    // determine the target user_id
+    let target_user_id = match &request.user_id {
+        Some(uid) => {
+            // user_id was provided - check if it's different from authenticated user
+            if uid != &auth_user.user_id {
+                // trying to remove rating for a different user - must be admin
+                if !auth_user.role.is_admin() {
+                    return Err(ApiError::Forbidden);
+                }
+            }
+            uid.clone()
+        }
+        None => {
+            // no user_id provided - use authenticated user
+            auth_user.user_id.clone()
+        }
+    };
+
     tracing::debug!(
-        "remove_rating: user_id={}, target_type={}, target_id={}",
-        request.user_id,
+        "remove_rating: user_id={}, target_type={}, target_id={}, requesting_user={}",
+        target_user_id,
         request.target_type,
-        request.target_id
+        request.target_id,
+        auth_user.user_id
     );
 
     let ratings_service = RatingsService::new();
 
     match ratings_service
-        .remove_rating(&request.user_id, request.target_type, &request.target_id)
+        .remove_rating(&target_user_id, request.target_type, &request.target_id)
         .await
     {
         Ok(_) => Ok(Json(RemoveRatingResponse {

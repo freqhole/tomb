@@ -6,6 +6,7 @@ import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { getCurrentRemote } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
+import { useSetRatingMutation } from "../queries/ratings";
 import { playSong } from "../services/audio/player";
 import { getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
@@ -19,14 +20,32 @@ export function ArtistDetailView() {
   // fetch artist entity to get favorite status and metadata
   const artistQuery = useArtistQuery(() => params.id);
 
+  // rating mutation
+  const setRatingMutation = useSetRatingMutation();
+
   // fetch artist songs using tanstack query (works with local + remote)
   const artistSongsQuery = useArtistSongsQuery(() => params.id);
 
   // map to song array
   const songs = createMemo(() => {
     const result = artistSongsQuery.data;
-    if (!result || result.items.length === 0) return [];
-    return result.items;
+    if (!result || result.items.length === 0) {
+      console.log('[ArtistDetailView] songs memo - no data');
+      return [];
+    }
+    console.log('[ArtistDetailView] songs memo - processing items');
+    console.log('[ArtistDetailView] songs memo - result.items[0] keys:', Object.keys(result.items[0]));
+    console.log('[ArtistDetailView] songs memo - result.items[0].user_rating:', result.items[0].user_rating);
+    console.log('[ArtistDetailView] songs memo - result.items[0].album_rating:', result.items[0].album_rating);
+    
+    // check if data is being transformed
+    const mappedSongs = result.items;
+    console.log('[ArtistDetailView] songs memo - returning array length:', mappedSongs.length);
+    console.log('[ArtistDetailView] songs memo - mappedSongs[0] === result.items[0]:', mappedSongs[0] === result.items[0]);
+    console.log('[ArtistDetailView] songs memo - mappedSongs[0].user_rating:', mappedSongs[0].user_rating);
+    console.log('[ArtistDetailView] songs memo - mappedSongs[0].album_rating:', mappedSongs[0].album_rating);
+    
+    return mappedSongs;
   });
 
   // artist data for panel
@@ -114,6 +133,31 @@ export function ArtistDetailView() {
     }
   };
 
+  // handle rating change
+  const handleRatingChange = (rating: number) => {
+    setRatingMutation.mutate({
+      targetType: "artist",
+      targetId: params.id,
+      rating,
+    });
+  };
+
+  // handle song rating change
+  const handleSongRatingChange = (songId: string, rating: number) => {    console.log('[ArtistDetailView] handleSongRatingChange called:', { songId, rating });    setRatingMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      rating,
+    });
+  };
+
+  // handle album rating change
+  const handleAlbumRatingChange = (albumId: string, rating: number) => {    console.log('[ArtistDetailView] handleAlbumRatingChange called:', { albumId, rating });    setRatingMutation.mutate({
+      targetType: "album",
+      targetId: albumId,
+      rating,
+    });
+  };
+
   // handle artist image click - show all artist images in carousel
   const handleArtistImageClick = async () => {
     const artist = artistData();
@@ -150,10 +194,22 @@ export function ArtistDetailView() {
   return (
     <div class="flex flex-col h-full">
       <Show when={artistData()} fallback={<div class="p-4">loading...</div>}>
-        {(artist) => (
+        {(artist) => {
+          const songList = songs();
+          console.log('[ArtistDetailView] about to render ArtistDetailPanel');
+          console.log('[ArtistDetailView] songList length:', songList.length);
+          if (songList.length > 0) {
+            console.log('[ArtistDetailView] songList[0] full object:', songList[0]);
+            console.log('[ArtistDetailView] songList[0] keys:', Object.keys(songList[0]));
+            console.log('[ArtistDetailView] songList[0].user_rating:', songList[0].user_rating);
+            console.log('[ArtistDetailView] songList[0].album_rating:', songList[0].album_rating);
+            console.log('[ArtistDetailView] songList[0].album_tags:', songList[0].album_tags);
+            console.log('[ArtistDetailView] songList[0].album_sub_genres:', songList[0].album_sub_genres);
+          }
+          return (
           <ArtistDetailPanel
             artist={artist()}
-            songs={songs()}
+            songs={songList}
             onPlayAll={handlePlayArtist}
             onShuffle={handleShuffleArtist}
             onAddToQueue={handleAddArtistToQueue}
@@ -163,10 +219,14 @@ export function ArtistDetailView() {
             onSongDoubleClick={handleSongDoubleClick}
             getSongData={(songId) => songs().find(s => s.id === songId)}
             onEditArtist={handleEditArtist}
+            onRatingChange={handleRatingChange}
+            onSongRatingChange={handleSongRatingChange}
+            onAlbumRatingChange={handleAlbumRatingChange}
             onImageClick={handleArtistImageClick}
             onGenreClick={handleGenreClick}
           />
-        )}
+          );
+        }}
       </Show>
     </div>
   );

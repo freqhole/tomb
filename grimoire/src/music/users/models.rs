@@ -121,9 +121,9 @@ pub struct UserRating {
 }
 
 impl UserRating {
-    /// Validate that rating is within acceptable range (1-5)
+    /// Validate that rating is within acceptable range (0-5, where 0 means remove)
     pub fn is_valid_rating(rating: i32) -> bool {
-        (1..=5).contains(&rating)
+        (0..=5).contains(&rating)
     }
 }
 
@@ -140,7 +140,7 @@ pub struct SetFavoriteRequest {
 /// Request to set a rating
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetRatingRequest {
-    pub user_id: String,
+    pub user_id: Option<String>,
     pub target_type: RatingTarget,
     pub target_id: String,
     pub rating: i32,
@@ -152,7 +152,7 @@ impl SetRatingRequest {
         if !UserRating::is_valid_rating(self.rating) {
             return Err(AuthError::InvalidRating {
                 rating: self.rating,
-                min: 1,
+                min: 0,
                 max: 5,
             });
         }

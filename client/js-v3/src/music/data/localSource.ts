@@ -90,6 +90,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       label: result.album.label ?? undefined,
       song_count: result.song_count,
       total_duration: result.total_duration,
+      is_favorite: result.album.is_favorite,
+      user_rating: result.album.user_rating,
     }));
 
     // TODO: get total count properly from database
@@ -149,6 +151,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       album_count: result.album_count,
       song_count: result.song_count,
       total_duration: result.total_duration,
+      is_favorite: result.artist.is_favorite,
+      user_rating: result.artist.user_rating,
     }));
 
     // TODO: get total count properly from database

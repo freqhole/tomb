@@ -264,6 +264,7 @@ pub struct SongQueryResult {
     pub artist_total_album_count: Option<i64>, // Total albums by this artist
     pub artist_total_duration: Option<i64>, // Total duration of artist's music
     pub album_is_favorite: Option<bool>,    // Album's favorite status
+    pub album_rating: Option<i32>,          // Album's rating (1-5)
     pub album_tags: Option<Vec<String>>,    // Tags applied to the song's album
 }
 
@@ -852,7 +853,7 @@ pub struct ListFavoritesResponse {
 /// request for removing a rating
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RemoveRatingRequest {
-    pub user_id: String,
+    pub user_id: Option<String>,
     pub target_type: RatingTarget,
     pub target_id: String,
 }

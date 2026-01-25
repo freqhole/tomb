@@ -7,10 +7,12 @@ import { Icon, IconNames } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
+import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { getCurrentRemote, getDataSource } from "../data";
 import { showAlbumEditor } from "../modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
+import { useSetRatingMutation } from "../queries/ratings";
 import { playSong } from "../services/audio/player";
 import {
   useAlbumContextMenu,
@@ -36,6 +38,18 @@ export function AlbumDetailView() {
 
   // fetch album entity to get favorite status and metadata
   const albumQuery = useAlbumQuery(() => params.id);
+
+  // rating mutation
+  const setRatingMutation = useSetRatingMutation();
+
+  // handle song rating change
+  const handleSongRatingChange = (songId: string, rating: number) => {
+    setRatingMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      rating,
+    });
+  };
 
   // fetch album songs using tanstack query (works with local + remote)
   const albumSongsQuery = useAlbumSongsQuery(() => params.id);
@@ -198,6 +212,17 @@ export function AlbumDetailView() {
                     targetId={info().album_id || params.id}
                     isFavorite={albumQuery.data?.is_favorite ?? false}
                   />
+                  <Rating
+                    rating={albumQuery.data?.user_rating ?? 0}
+                    size="md"
+                    onRatingChange={(rating) => {
+                      setRatingMutation.mutate({
+                        targetType: "album",
+                        targetId: info().album_id || params.id,
+                        rating,
+                      });
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -221,6 +246,8 @@ export function AlbumDetailView() {
                         showPlayOnHover={true}
                         contextMenuActions={getSongContextMenuActions(song)}
                         isFavorite={song.is_favorite}
+                        rating={song.user_rating}
+                        onRatingChange={(rating) => handleSongRatingChange(song.id, rating)}
                         songId={song.id}
                         sha256={song.sha256}
                       />

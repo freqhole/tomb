@@ -55,10 +55,32 @@ impl RatingsService {
         Self {}
     }
 
-    /// Set or update a rating for a user
+    /// Set or update a rating for a user (rating=0 removes the rating)
     pub async fn set_rating(&self, request: &SetRatingRequest) -> AuthResult<UserRating> {
         // Validate the rating request
         request.validate()?;
+
+        // user_id should be Some at this point (ensured by server handler)
+        let user_id = request
+            .user_id
+            .as_ref()
+            .ok_or_else(|| AuthError::AuthenticationRequired)?;
+
+        // if rating is 0, remove the rating instead
+        if request.rating == 0 {
+            self.remove_rating(user_id, request.target_type, &request.target_id)
+                .await?;
+            // return a dummy rating with 0 to indicate removal
+            return Ok(UserRating {
+                id: String::new(),
+                user_id: user_id.clone(),
+                target_type: request.target_type,
+                target_id: request.target_id.clone(),
+                rating: 0,
+                created_at: 0,
+                updated_at: 0,
+            });
+        }
 
         let pool = database::connect().await?;
         let now = OffsetDateTime::now_utc().unix_timestamp();
@@ -73,7 +95,7 @@ impl RatingsService {
             DO UPDATE SET rating = ?4, updated_at = ?6
             RETURNING id as "id!", user_id as "user_id!", target_type as "target_type!", target_id as "target_id!", rating as "rating!", created_at as "created_at!", updated_at as "updated_at!"
             "#,
-            request.user_id,
+            user_id,
             target_type_str,
             request.target_id,
             request.rating,
@@ -488,7 +510,7 @@ impl RatingsService {
         let mut count = 0;
         for (target_type, target_id, rating) in ratings {
             let request = SetRatingRequest {
-                user_id: user_id.to_string(),
+                user_id: Some(user_id.to_string()),
                 target_type,
                 target_id,
                 rating,
