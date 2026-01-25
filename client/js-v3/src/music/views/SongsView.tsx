@@ -121,6 +121,7 @@ export function SongsView(props: SongsViewProps) {
       album: "album",
       genre: "genre",
       year: "year",
+      duration: "duration",
     };
     return reverseMap[field] || "track";
   };
@@ -198,6 +199,13 @@ export function SongsView(props: SongsViewProps) {
 
   // handle sort changes - this triggers query refetch via key change
   const handleSortChange = (field: SortField, direction: SortDirection) => {
+    // if direction is null, reset to default sort
+    if (direction === null) {
+      setSortField("added_at");
+      setSortDirection("desc");
+      return;
+    }
+
     // map UI sort field to query sort field
     const fieldMap: Record<SortField, SongSortField> = {
       track: "added_at", // track sort not applicable to global view
@@ -206,7 +214,7 @@ export function SongsView(props: SongsViewProps) {
       album: "album",
       genre: "genre",
       year: "year",
-      duration: "added_at", // duration sort not supported yet
+      duration: "duration",
       favorite: "added_at", // favorite sort not supported yet
       rating: "added_at", // rating sort not supported yet
     };

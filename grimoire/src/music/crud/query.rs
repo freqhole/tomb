@@ -25,6 +25,8 @@ enum SongView {
     ArtistName,
     #[iden = "album_title"]
     AlbumTitle,
+    #[iden = "album_genre_name"]
+    AlbumGenreName,
     #[iden = "album_release_date"]
     AlbumReleaseDate,
     #[iden = "album_created_at"]
@@ -41,6 +43,8 @@ enum SongView {
     SongDiscNumber,
     #[iden = "song_track_number"]
     SongTrackNumber,
+    #[iden = "song_duration"]
+    SongDuration,
     #[iden = "favorite_user_id"]
     FavoriteUserId,
     #[iden = "rating_user_id"]
@@ -732,12 +736,23 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         Some("title") => {
             query.order_by(SongView::AlbumTitle, sort_direction);
         }
+        Some("album") => {
+            query.order_by(SongView::AlbumTitle, sort_direction);
+        }
         Some("year") => {
             query.order_by(SongView::AlbumReleaseDate, sort_direction);
             query.order_by(SongView::AlbumTitle, Order::Asc);
         }
         Some("artist") => {
             query.order_by(SongView::ArtistName, sort_direction);
+            query.order_by(SongView::AlbumTitle, Order::Asc);
+        }
+        Some("genre") => {
+            query.order_by(SongView::AlbumGenreName, sort_direction);
+            query.order_by(SongView::AlbumTitle, Order::Asc);
+        }
+        Some("duration") => {
+            query.order_by(SongView::SongDuration, sort_direction);
             query.order_by(SongView::AlbumTitle, Order::Asc);
         }
         Some("song_id") => {
