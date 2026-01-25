@@ -18,7 +18,6 @@ const meta = {
     onAlbumClick: { action: "album clicked" },
     onPlayAlbum: { action: "play album" },
     onArtistClick: { action: "artist clicked" },
-    height: { control: "number" },
     gridColumns: { control: "number" },
   },
 } satisfies Meta<typeof VirtualGenreDetail>;

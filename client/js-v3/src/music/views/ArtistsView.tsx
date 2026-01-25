@@ -1,5 +1,5 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
-import { useNavigate, useSearchParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
 import * as api from "freqhole-api-client";
 import { appState, setQueue } from "../../app/services/storage/db";
@@ -38,12 +38,14 @@ const artistSortFields = [
 
 export function ArtistsView(props: ArtistsViewProps) {
   const navigate = useNavigate();
+  const params = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
   
-  // restore selected artist from history state on mount
-  const initialArtistId = typeof window !== "undefined" 
-    ? (window.history.state?.selectedArtistId as string | null)
-    : null;
+  // restore selected artist from URL params or history state on mount
+  const initialArtistId = params.id || 
+    (typeof window !== "undefined" 
+      ? (window.history.state?.selectedArtistId as string | null)
+      : null);
     
   const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(
     initialArtistId,
@@ -54,6 +56,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   const [scrollToIndex, setScrollToIndex] = createSignal<
     ((index: number) => void) | null
   >(null);
+  const [isLocalClick, setIsLocalClick] = createSignal(false);
 
   // track query changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);
@@ -67,6 +70,27 @@ export function ArtistsView(props: ArtistsViewProps) {
         { ...currentState, selectedArtistId: artistId },
         ""
       );
+    }
+  });
+  
+  // sync URL params with selected artist
+  createEffect(() => {
+    const urlArtistId = params.id;
+    
+    if (urlArtistId && urlArtistId !== selectedArtistId()) {
+      setSelectedArtistId(urlArtistId);
+      
+      // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
+      const shouldScroll = !isLocalClick();
+      if (shouldScroll && scrollToIndex()) {
+        const artistIndex = sortedArtists().findIndex(a => a.artist_id === urlArtistId);
+        if (artistIndex >= 0) {
+          scrollToIndex()!(artistIndex);
+        }
+      }
+      
+      // reset flag after capturing its value
+      setIsLocalClick(false);
     }
   });
 
@@ -509,12 +533,23 @@ export function ArtistsView(props: ArtistsViewProps) {
           <VirtualItemList
             items={artistListItems()}
             selectedId={selectedArtistId()}
-            scrollRestoreKey="artists-list"
             onItemClick={(item) => {
-              setSelectedArtistId(item.id);
+              setIsLocalClick(true);
+              navigate(buildRoute(`/artists/${item.id}`));
               props.onArtistClick?.(item.id);
             }}
-            onVirtualizerReady={(scroll) => setScrollToIndex(() => scroll)}
+            onVirtualizerReady={(scrollFn) => {
+              setScrollToIndex(() => scrollFn);
+              
+              // only scroll if current artist matches the initial one (prevents scroll on subsequent clicks)
+              const current = selectedArtistId();
+              if (current && current === initialArtistId) {
+                const index = sortedArtists().findIndex(a => a.artist_id === current);
+                if (index >= 0) {
+                  setTimeout(() => scrollFn(index), 50);
+                }
+              }
+            }}
             getContextMenuActions={getContextMenuActions}
             height={window.innerHeight - 120}
           />

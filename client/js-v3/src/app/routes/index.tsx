@@ -71,7 +71,7 @@ export function routes(props: RoutesProps) {
         />
         <Route path="/albums/:id" component={AlbumDetailView} />
         <Route
-          path="/artists"
+          path="/artists/:id?"
           component={() => (
             <ArtistsView
               onAddMusic={props.onAddMusic}
@@ -81,7 +81,6 @@ export function routes(props: RoutesProps) {
             />
           )}
         />
-        <Route path="/artists/:id" component={ArtistDetailView} />
         <Route
           path="/genres"
           component={() => <GenresView onAddMusic={props.onAddMusic} />}
@@ -109,7 +108,7 @@ export function routes(props: RoutesProps) {
         />
         <Route path="/albums/:id" component={AlbumDetailView} />
         <Route
-          path="/artists"
+          path="/artists/:id?"
           component={() => (
             <ArtistsView
               onAddMusic={props.onAddMusic}
@@ -119,7 +118,6 @@ export function routes(props: RoutesProps) {
             />
           )}
         />
-        <Route path="/artists/:id" component={ArtistDetailView} />
         <Route
           path="/genres/:genreId?"
           component={() => <GenresView onAddMusic={props.onAddMusic} />}

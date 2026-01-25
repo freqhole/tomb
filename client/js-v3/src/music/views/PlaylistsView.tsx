@@ -37,6 +37,7 @@ import {
 import { formatRelativeTime } from "../../utils/dateTime";
 import { generateUUID } from "../../utils/uuid";
 import { pollJobUntilComplete } from "../../utils/jobs";
+import { buildRoute } from "../utils/routing";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
 import {
@@ -125,6 +126,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [downloadProgress, setDownloadProgress] =
     createSignal<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = createSignal(false);
+  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
+  const [isLocalClick, setIsLocalClick] = createSignal(false);
   
   // save selected playlist to history state when it changes
   createEffect(() => {
@@ -135,6 +138,27 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         { ...currentState, selectedPlaylistId: playlistId },
         ""
       );
+    }
+  });
+  
+  // sync URL params with selected playlist
+  createEffect(() => {
+    const urlPlaylistId = params.id;
+    
+    if (urlPlaylistId && urlPlaylistId !== selectedPlaylistId()) {
+      setSelectedPlaylistId(urlPlaylistId);
+      
+      // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
+      const shouldScroll = !isLocalClick();
+      if (shouldScroll && scrollToIndex()) {
+        const playlistIndex = playlists().findIndex(p => p.playlist_id === urlPlaylistId);
+        if (playlistIndex >= 0) {
+          scrollToIndex()!(playlistIndex);
+        }
+      }
+      
+      // reset flag after capturing its value
+      setIsLocalClick(false);
     }
   });
   const [isSyncing, setIsSyncing] = createSignal(false);
@@ -353,7 +377,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // handle playlist selection (simple click, like ArtistsView/GenresView)
   const handlePlaylistClick = (item: ListItem) => {
-    setSelectedPlaylistId(item.id);
+    setIsLocalClick(true);
+    navigate(buildRoute(`/playlists/${item.id}`));
   };
 
   // handle song double-click (play song)
@@ -1059,8 +1084,19 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                   <VirtualItemList
                     items={playlistListItems()}
                     selectedId={selectedPlaylistId()}
-                    scrollRestoreKey="playlists-list"
                     onItemClick={handlePlaylistClick}
+                    onVirtualizerReady={(scrollFn) => {
+                      setScrollToIndex(() => scrollFn);
+                      
+                      // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
+                      const current = selectedPlaylistId();
+                      if (current && current === initialPlaylistId) {
+                        const index = playlists().findIndex(p => p.playlist_id === current);
+                        if (index >= 0) {
+                          setTimeout(() => scrollFn(index), 50);
+                        }
+                      }
+                    }}
                     onEndReached={handlePlaylistsLoadMore}
                     getContextMenuActions={(item) => {
                       const playlist = playlists().find(
