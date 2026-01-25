@@ -7,6 +7,7 @@ import {
   createSignal,
   onMount,
   Show,
+  untrack,
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -18,8 +19,6 @@ import { QueueSidebar } from "../components/player/QueueSidebar";
 import {
   getCurrentRemote,
   getDataSource,
-  useLocalSource,
-  useRemoteSource,
 } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
@@ -47,6 +46,7 @@ import {
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
+import { getBlobImageUrl } from "../music/utils/images";
 import { routes } from "../music/utils/routing";
 import {
   appState,
@@ -61,11 +61,11 @@ interface AppLayoutProps {
 
 export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
-  const location = useLocation();
+  // const location = useLocation();
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
-  const toggleFavoriteMutation = useToggleFavoriteMutation();
-  const [isQueueOpen, setIsQueueOpen] = createSignal(false);
+  // const toggleFavoriteMutation = useToggleFavoriteMutation();
+  // const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
@@ -76,6 +76,25 @@ export function AppLayout(props: AppLayoutProps) {
 
   // fetch recent playlists (contextual to current data source)
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
+
+  // helper to get thumbnail URL for a song
+  const getSongThumbnailUrl = (song: Song): string | undefined => {
+    if (!song.thumbnail_blob_id) return undefined;
+    
+    const allRemotes = remotes();
+    
+    // if song has a remote_server_id, look it up in the remotes list
+    if (song.remote_server_id) {
+      const remote = allRemotes.find(r => r.remote_id === song.remote_server_id);
+      if (remote) {
+        return `${remote.base_url}/api/blobs/${song.thumbnail_blob_id}`;
+      }
+      return undefined;
+    }
+    
+    // for local songs, use current remote
+    return getBlobImageUrl(song.thumbnail_blob_id) || undefined;
+  };
 
   // load remotes and storage info on mount
   onMount(async () => {
@@ -163,13 +182,22 @@ export function AppLayout(props: AppLayoutProps) {
       );
       if (songInQueue) {
         setCurrentSongData(songInQueue);
+      } else if (state.queue.length > 0) {
+        // if queue exists but song not in it, it's stale - clear it
+        setCurrentSongData(null);
+        void setCurrentSong(null);
       } else {
-        // fallback: fetch from current data source
-        void (async () => {
-          const dataSource = getDataSource();
-          const song = await dataSource.getSongById(state.current_sha256);
-          setCurrentSongData(song || null);
-        })();
+        // queue hasn't loaded yet, try fetching
+        const dataSource = getDataSource();
+        void dataSource.getSongById(state.current_sha256).then((song) => {
+          if (song) {
+            setCurrentSongData(song);
+          } else {
+            // song not found - clear stale current_sha256
+            setCurrentSongData(null);
+            void setCurrentSong(null);
+          }
+        });
       }
     } else {
       setCurrentSongData(null);
@@ -298,9 +326,7 @@ export function AppLayout(props: AppLayoutProps) {
               title: song.title,
               artist: song.artist_name,
               duration: song.duration_seconds,
-              thumbnailUrl: song.thumbnail_blob_id
-                ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
-                : undefined,
+              thumbnailUrl: getSongThumbnailUrl(song),
               isFavorite: song.is_favorite ?? false,
             })) || []) as any[]
           }
@@ -377,9 +403,7 @@ export function AppLayout(props: AppLayoutProps) {
                   title: currentSongData()!.title,
                   artist: currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,
-                  thumbnailUrl: currentSongData()!.thumbnail_blob_id
-                    ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${currentSongData()!.thumbnail_blob_id}`
-                    : undefined,
+                  thumbnailUrl: getSongThumbnailUrl(currentSongData()!),
                   isFavorite: currentSongData()!.is_favorite || false,
                 }
               : undefined

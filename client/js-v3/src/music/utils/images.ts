@@ -4,9 +4,12 @@ import { getCurrentRemote } from "../data";
 import type { ImageMetadata } from "../data/types";
 
 /**
- * get image URL from a blob ID
+ * get image URL from a blob ID using current remote
+ * @param blobId - the blob ID to construct URL for
  */
-export function getBlobImageUrl(blobId: string | null | undefined): string | null {
+export function getBlobImageUrl(
+  blobId: string | null | undefined,
+): string | null {
   if (!blobId) return null;
 
   const remote = getCurrentRemote();

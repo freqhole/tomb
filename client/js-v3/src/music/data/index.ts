@@ -52,7 +52,7 @@ export async function useRemoteSource(
   baseUrl: string,
 ): Promise<void> {
   console.log(`switching to remote data source: ${name} (${baseUrl})`);
-  const remoteSource = new RemoteMusicDataSource(baseUrl);
+  const remoteSource = new RemoteMusicDataSource(baseUrl, remoteId);
   setActiveSource(remoteSource);
   setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
 

@@ -16,7 +16,7 @@ import type {
 } from "./types";
 
 // adapter to convert API song query result to local Song type
-function adaptSongFromAPI(item: any, baseUrl: string): Song {
+function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): Song {
   const song = item.song;
   const artist = item.artist;
   const album = item.album;
@@ -71,7 +71,7 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
     downloaded_at: null,
 
     // remote fields
-    remote_server_id: null,
+    remote_server_id: remoteServerId,
     remote_sha256: song.id,
     added_at: song.created_at,
   };
@@ -81,9 +81,11 @@ function adaptSongFromAPI(item: any, baseUrl: string): Song {
 // uses cookie-based auth - no credentials stored client-side
 export class RemoteMusicDataSource implements MusicDataSource {
   private baseUrl: string;
+  private remoteId: string;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, remoteId: string) {
     this.baseUrl = baseUrl;
+    this.remoteId = remoteId;
   }
 
   // helper to convert our QueryParams to API QueryParams
@@ -129,7 +131,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // adapt API response to our interface
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -159,7 +161,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       return null;
     }
 
-    return adaptSongFromAPI(result.data.items[0], this.baseUrl);
+    return adaptSongFromAPI(result.data.items[0], this.baseUrl, this.remoteId);
   }
 
   // albums
@@ -221,7 +223,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -280,7 +282,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -332,7 +334,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -393,7 +395,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // playlist songs have same structure as regular song queries
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item.details, this.baseUrl),
+        adaptSongFromAPI(item.details, this.baseUrl, this.remoteId),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
