@@ -121,7 +121,7 @@ export function routes(props: RoutesProps) {
         />
         <Route path="/artists/:id" component={ArtistDetailView} />
         <Route
-          path="/genres"
+          path="/genres/:genreId?"
           component={() => <GenresView onAddMusic={props.onAddMusic} />}
         />
         <Route

@@ -412,6 +412,11 @@ export function ArtistsView(props: ArtistsViewProps) {
     }
   };
 
+  // navigate to genre detail
+  const handleGenreClick = (genreId: string, genreName: string) => {
+    navigate(buildRoute(`/genres/${genreId}`));
+  };
+
   // build context menu actions for each artist
   const getContextMenuActions = (item: ListItem, index: number) => {
     const artist = sortedArtists().find((a) => a.artist_id === item.id);
@@ -557,6 +562,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           }}
           onEditArtist={handleEditArtist}
           onImageClick={handleArtistImageClick}
+          onGenreClick={handleGenreClick}
         />
       )}
     </Show>

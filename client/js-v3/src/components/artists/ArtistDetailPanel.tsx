@@ -87,6 +87,8 @@ export interface ArtistDetailPanelProps {
   onEditArtist?: () => void;
   /** click artist image handler (for carousel) */
   onImageClick?: () => void;
+  /** navigate to genre detail */
+  onGenreClick?: (genreId: string, genreName: string) => void;
   /** additional css classes */
   class?: string;
 }
@@ -145,21 +147,23 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
     return sortedGroups;
   });
 
-  // collect unique genre names from all albums
+  // collect unique genre names from all albums with their IDs
   const artistGenres = createMemo(() => {
-    const genreSet = new Set<string>();
+    const genreMap = new Map<string, { id: string | null; name: string }>();
     props.songs.forEach(song => {
       // prefer genre name, fallback to ID
-      if (song.album_primary_genre_name) {
-        genreSet.add(song.album_primary_genre_name);
-      } else if (song.album_primary_genre_id) {
-        genreSet.add(song.album_primary_genre_id);
+      const name = song.album_primary_genre_name || song.album_primary_genre_id;
+      const id = song.album_primary_genre_id;
+      if (name) {
+        genreMap.set(name, { id, name });
       }
       if (song.album_sub_genres) {
-        song.album_sub_genres.forEach(sg => genreSet.add(sg));
+        song.album_sub_genres.forEach(sg => {
+          genreMap.set(sg, { id: null, name: sg }); // sub-genres don't have IDs
+        });
       }
     });
-    return Array.from(genreSet).sort();
+    return Array.from(genreMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   });
 
   // collect unique tags from all albums
@@ -250,10 +254,14 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               <Show when={artistGenres().length > 0}>
                 <div class="flex flex-wrap gap-1.5">
                   <For each={artistGenres()}>
-                    {(genreId) => (
-                      <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
-                        {genreId}
-                      </span>
+                    {(genre) => (
+                      <button
+                        class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
+                        onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
+                        disabled={!genre.id}
+                      >
+                        {genre.name}
+                      </button>
                     )}
                   </For>
                 </div>

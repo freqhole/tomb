@@ -1,6 +1,6 @@
 // genres view - displays all genres in a two-column layout
 // genres view - displays all genres in a two-column layout with genre detail panel
-import { useNavigate, useSearchParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
@@ -36,21 +36,50 @@ const genreSortFields = [
 
 export function GenresView(props: GenresViewProps) {
   const navigate = useNavigate();
+  const params = useParams<{ genreId?: string }>();
   const [searchParams] = useSearchParams();
   
-  // restore selected genre from history state on mount
-  const initialGenreId = typeof window !== "undefined" 
-    ? (window.history.state?.selectedGenreId as string | null)
-    : null;
+  // use genre from URL params, fallback to history state
+  const initialGenreId = params.genreId || 
+    (typeof window !== "undefined" 
+      ? (window.history.state?.selectedGenreId as string | null)
+      : null);
     
   const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(
     initialGenreId,
   );
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
+  
+  // store scrollToIndex function from virtualizer
+  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
+  
+  // track if genre change is from local click (don't scroll) vs navigation (do scroll)
+  const [isLocalClick, setIsLocalClick] = createSignal(false);
 
   // track query changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);
+  
+  // update selected genre when URL param changes and scroll to it (only if from navigation)
+  createEffect(() => {
+    const urlGenreId = params.genreId;
+    
+    if (urlGenreId && urlGenreId !== selectedGenreId()) {
+      setSelectedGenreId(urlGenreId);
+      
+      // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
+      const shouldScroll = !isLocalClick();
+      if (shouldScroll && scrollToIndex()) {
+        const genreIndex = sortedGenres().findIndex(g => g.genre_id === urlGenreId);
+        if (genreIndex >= 0) {
+          scrollToIndex()!(genreIndex);
+        }
+      }
+      
+      // reset flag after capturing its value
+      setIsLocalClick(false);
+    }
+  });
   
   // save selected genre to history state when it changes
   createEffect(() => {
@@ -261,9 +290,21 @@ export function GenresView(props: GenresViewProps) {
           <VirtualItemList
             items={genreListItems()}
             selectedId={selectedGenreId()}
-            scrollRestoreKey="genres-list"
             onItemClick={(item) => {
-              setSelectedGenreId(item.id);
+              setIsLocalClick(true);
+              navigate(buildRoute(`/genres/${item.id}`));
+            }}
+            onVirtualizerReady={(scrollFn) => {
+              setScrollToIndex(() => scrollFn);
+              
+              // only scroll if current genre matches the initial one (prevents scroll on subsequent clicks)
+              const current = selectedGenreId();
+              if (current && current === initialGenreId) {
+                const index = sortedGenres().findIndex(g => g.genre_id === current);
+                if (index >= 0) {
+                  setTimeout(() => scrollFn(index), 50);
+                }
+              }
             }}
             getContextMenuActions={(item) => {
               const genre = sortedGenres().find((g) => g.genre_id === item.id);

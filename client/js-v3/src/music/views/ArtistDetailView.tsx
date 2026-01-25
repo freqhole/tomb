@@ -142,6 +142,11 @@ export function ArtistDetailView() {
     }
   };
 
+  // navigate to genre detail
+  const handleGenreClick = (genreId: string, genreName: string) => {
+    navigate(buildRoute(`/genres/${genreId}`));
+  };
+
   return (
     <div class="flex flex-col h-full">
       <Show when={artistData()} fallback={<div class="p-4">loading...</div>}>
@@ -159,6 +164,7 @@ export function ArtistDetailView() {
             getSongData={(songId) => songs().find(s => s.id === songId)}
             onEditArtist={handleEditArtist}
             onImageClick={handleArtistImageClick}
+            onGenreClick={handleGenreClick}
           />
         )}
       </Show>
