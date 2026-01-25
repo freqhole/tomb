@@ -1,6 +1,6 @@
 // virtualized genre detail component - displays albums grouped by artist with virtualized scrolling
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { getBlobImageUrl } from "../../music/utils/images";
 import { CollectionCard } from "../cards/CollectionCard";
 import { formatDuration } from "../cards/StatsCard";
@@ -47,8 +47,6 @@ export interface VirtualGenreDetailProps {
   onArtistClick?: (artistId: string) => void;
   /** callback to get context menu actions for an album */
   getAlbumContextMenuActions?: (albumId: string) => MenuAction[];
-  /** height of the scrollable area */
-  height?: number;
   /** number of columns in grid */
   gridColumns?: number;
   /** additional css classes */
@@ -59,9 +57,10 @@ export function VirtualGenreDetail(
   props: VirtualGenreDetailProps,
 ): JSX.Element {
   let scrollElementRef: HTMLDivElement | undefined;
+  const [containerHeight, setContainerHeight] = createSignal(600);
+  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
 
   const gridColumns = () => props.gridColumns ?? 5;
-  const height = () => props.height ?? 600;
 
   // group albums by artist
   const artistGroups = createMemo((): ArtistGroup[] => {
@@ -119,30 +118,74 @@ export function VirtualGenreDetail(
     return sortedArtists;
   });
 
-  // create virtualizer (one row per artist section)
-  const virtualizer = createVirtualizer({
-    get count() {
-      return artistGroups().length;
-    },
-    getScrollElement: () => scrollElementRef,
-    estimateSize: (index) => {
-      const artist = artistGroups()[index];
-      // header: 60px, albums in grid: 280px per row
-      const albumRows = Math.ceil(artist.albums.length / gridColumns());
-      return 60 + albumRows * 280 + 32; // header + album rows + spacing
-    },
-    overscan: 2,
+  // recreate virtualizer when data or height changes
+  const virtualizer = createMemo((prev) => {
+    // save scroll position before recreating
+    const scrollElement = scrollElementRef?.parentElement?.parentElement;
+    if (prev && scrollElement) {
+      setSavedScrollOffset(scrollElement.scrollTop);
+    }
+
+    // track dependencies
+    const count = artistGroups().length;
+    const h = containerHeight();
+    
+    const newVirtualizer = createVirtualizer({
+      count: count,
+      getScrollElement: () => scrollElementRef?.parentElement?.parentElement || null,
+      estimateSize: (index) => {
+        const groups = artistGroups();
+        const artist = groups[index];
+        if (!artist) return 0;
+        // header: 60px, albums in grid: 280px per row
+        const albumRows = Math.ceil(artist.albums.length / gridColumns());
+        return 60 + albumRows * 280 + 32; // header + album rows + spacing
+      },
+      overscan: 2,
+    });
+
+    // restore scroll after recreation
+    if (savedScrollOffset() > 0 && scrollElement) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (scrollElement) {
+            scrollElement.scrollTop = savedScrollOffset();
+          }
+        });
+      });
+    }
+
+    return newVirtualizer;
+  });
+
+  // measure container height on mount
+  onMount(() => {
+    const scrollElement = scrollElementRef?.parentElement?.parentElement;
+    if (!scrollElement) return;
+
+    // set initial height
+    setContainerHeight(scrollElement.clientHeight);
+
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height;
+      if (height) setContainerHeight(height);
+    });
+
+    observer.observe(scrollElement);
+    onCleanup(() => observer.disconnect());
   });
 
   return (
     <div
-      class={`flex flex-col ${props.class || ""}`}
-      style={{ height: `${height()}px` }}
+      ref={scrollElementRef!}
+      class={props.class || ""}
     >
       <div
-        ref={scrollElementRef}
-        class="flex-1 overflow-y-auto"
-        style={{ "overflow-anchor": "none" }}
+        style={{
+          height: `${virtualizer().getTotalSize()}px`,
+          width: "100%",
+          position: "relative",
+        }}
       >
         <Show
           when={artistGroups().length > 0}
@@ -154,14 +197,7 @@ export function VirtualGenreDetail(
             </div>
           }
         >
-          <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: "100%",
-              position: "relative",
-            }}
-          >
-            <For each={virtualizer.getVirtualItems()}>
+            <For each={virtualizer().getVirtualItems()}>
               {(virtualRow) => {
                 const artist = artistGroups()[virtualRow.index];
 
@@ -246,9 +282,8 @@ export function VirtualGenreDetail(
                 );
               }}
             </For>
-          </div>
-        </Show>
-      </div>
+          </Show>
+        </div>
     </div>
   );
 }

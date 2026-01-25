@@ -76,9 +76,9 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
   );
 
   return (
-    <div class={`flex flex-col h-full ${props.class || ""}`}>
+    <div class={`flex flex-col h-full overflow-y-auto ${props.class || ""}`}>
       {/* genre header with stats */}
-      <div class="z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-border-default)] p-6">
+      <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-border-default)] p-6">
         <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
           <MarqueeText text={props.genre.name} hoverOnly={true} />
         </h2>
@@ -116,15 +116,16 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
       </div>
 
       {/* virtualized artists with albums */}
-      <VirtualGenreDetail
-        songs={props.songs}
-        onAlbumClick={props.onAlbumClick}
-        onPlayAlbum={props.onPlayAlbum}
-        onArtistClick={props.onArtistClick}
-        getAlbumContextMenuActions={props.getAlbumContextMenuActions}
-        height={600}
-        gridColumns={5}
-      />
+      <div class="flex-1 px-6 py-4">
+        <VirtualGenreDetail
+          songs={props.songs}
+          onAlbumClick={props.onAlbumClick}
+          onPlayAlbum={props.onPlayAlbum}
+          onArtistClick={props.onArtistClick}
+          getAlbumContextMenuActions={props.getAlbumContextMenuActions}
+          gridColumns={5}
+        />
+      </div>
     </div>
   );
 }
