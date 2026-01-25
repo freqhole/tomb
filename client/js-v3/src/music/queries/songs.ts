@@ -90,6 +90,7 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
       return allPages.reduce((sum, page) => sum + page.items.length, 0);
     },
     initialPageParam: 0,
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000, // 5 minutes - prevent refetch on remount
     gcTime: 10 * 60 * 1000, // 10 minutes - keep data in cache
     refetchOnMount: false, // don't refetch on remount, keep accumulated pages
@@ -165,6 +166,7 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
       return lastPage.offset + lastPage.items.length;
     },
     initialPageParam: 0,
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnMount: false,
@@ -252,6 +254,7 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
       return lastPage.offset + lastPage.items.length;
     },
     initialPageParam: 0,
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnMount: false,
@@ -337,6 +340,7 @@ export function useGenresQuery(options?: UseGenresQueryOptions) {
       return lastPage.offset + lastPage.items.length;
     },
     initialPageParam: 0,
+    placeholderData: (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnMount: false,
@@ -359,7 +363,7 @@ export function useGenreSongsQuery(genreId: Accessor<string | undefined>) {
 
       return dataSource.getGenreSongs(id, { limit: 1000 });
     },
-    enabled: !!genreId(),
+    enabled: () => !!genreId(),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   }));

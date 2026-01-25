@@ -1,5 +1,6 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, JSX, onMount, onCleanup, Show } from "solid-js";
+import { useScrollRestore } from "../../utils/scrollRestore";
 import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
@@ -29,6 +30,8 @@ export interface VirtualItemListProps {
   height?: number;
   /** additional CSS classes */
   class?: string;
+  /** unique key for scroll restoration (e.g., 'artists', 'genres-list') */
+  scrollRestoreKey?: string;
 }
 
 /**
@@ -41,11 +44,22 @@ export interface VirtualItemListProps {
  */
 export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   let parentRef: HTMLDivElement | undefined;
+  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
 
   const heightStyle = () => (props.height ? `${props.height}px` : "100%");
 
+  // scroll restoration using browser history state
+  const { restoreScroll, saveScroll } = useScrollRestore(
+    props.scrollRestoreKey || "item-list",
+  );
+
   // create virtualizer instance - wrap in memo to recreate when items change
-  const rowVirtualizer = createMemo(() => {
+  const rowVirtualizer = createMemo((prev) => {
+    // save scroll position before recreating virtualizer
+    if (prev && parentRef) {
+      setSavedScrollOffset(parentRef.scrollTop);
+    }
+    
     props.items.length; // track items for reactivity
     const virtualizer = createVirtualizer({
       count: props.items.length,
@@ -53,6 +67,15 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       estimateSize: () => 80,
       overscan: 5,
     });
+
+    // restore scroll position after virtualizer is created
+    if (savedScrollOffset() > 0 && parentRef) {
+      queueMicrotask(() => {
+        if (parentRef) {
+          parentRef.scrollTop = savedScrollOffset();
+        }
+      });
+    }
 
     // expose scrollToIndex via callback
     if (props.onVirtualizerReady) {
@@ -69,7 +92,13 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   };
 
   const handleScroll = (e: Event) => {
-    if (!props.onEndReached || !parentRef) return;
+    if (!parentRef) return;
+    
+    // save scroll position to history state
+    saveScroll(parentRef);
+    
+    // check for infinite scroll trigger
+    if (!props.onEndReached) return;
 
     const target = e.target as HTMLDivElement;
     const scrollTop = target.scrollTop;
@@ -81,6 +110,13 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       props.onEndReached();
     }
   };
+
+  // restore scroll position on mount
+  onMount(() => {
+    if (parentRef) {
+      restoreScroll(parentRef);
+    }
+  });
 
   return (
     <div

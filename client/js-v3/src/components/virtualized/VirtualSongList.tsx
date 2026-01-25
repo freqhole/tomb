@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   JSX,
+  onMount,
   Show,
   untrack,
 } from "solid-js";
@@ -12,6 +13,7 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { MarqueeText } from "../text/MarqueeText";
+import { useScrollRestore } from "../../utils/scrollRestore";
 
 export interface VirtualSong {
   id: string;
@@ -86,12 +88,18 @@ export interface VirtualSongListProps {
   variant?: "default" | "playlist" | "queue" | "album" | "artist";
   /** additional css classes */
   class?: string;
+  /** unique key for scroll position restoration */
+  scrollRestoreKey?: string;
 }
 
 export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   let parentRef: HTMLDivElement | undefined;
   const height = () => props.height || 600;
   const variant = () => props.variant || "default";
+
+  // scroll restoration
+  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
+  const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "song-list");
 
   // determine which columns to show based on variant
   const showTrackNumber = () => {
@@ -139,24 +147,42 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   // track last triggered count to prevent infinite loops
   const [lastTriggeredAtCount, setLastTriggeredAtCount] = createSignal(0);
 
-  // create virtualizer instance - don't recreate, just update count reactively
-  const rowVirtualizer = createVirtualizer({
-    get count() {
-      return props.songs.length;
-    },
-    getScrollElement: () => parentRef,
-    estimateSize: () => 48,
-    overscan: 20,
-    measureElement:
-      typeof window !== "undefined" &&
-      navigator.userAgent.indexOf("Firefox") === -1
-        ? (element) => element?.getBoundingClientRect().height
-        : undefined,
+  // create virtualizer instance - preserve scroll offset across recreations
+  const rowVirtualizer = createMemo((prev) => {
+    // save current scroll position before virtualizer recreation
+    if (prev && parentRef) {
+      setSavedScrollOffset(parentRef.scrollTop);
+    }
+
+    props.songs.length; // track for reactivity
+    
+    const virtualizer = createVirtualizer({
+      count: props.songs.length,
+      getScrollElement: () => parentRef,
+      estimateSize: () => 48,
+      overscan: 20,
+      measureElement:
+        typeof window !== "undefined" &&
+        navigator.userAgent.indexOf("Firefox") === -1
+          ? (element) => element?.getBoundingClientRect().height
+          : undefined,
+    });
+
+    // restore scroll position after virtualizer is created
+    if (savedScrollOffset() > 0 && parentRef) {
+      queueMicrotask(() => {
+        if (parentRef) {
+          parentRef.scrollTop = savedScrollOffset();
+        }
+      });
+    }
+
+    return virtualizer;
   });
 
   // detect when virtualizer is rendering items near end (for infinite scroll)
   createEffect(() => {
-    const items = rowVirtualizer.getVirtualItems();
+    const items = rowVirtualizer().getVirtualItems();
     if (items.length === 0) return;
 
     const lastItem = items[items.length - 1];
@@ -238,11 +264,25 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     return cols.join(" ");
   };
 
+  const handleScroll = () => {
+    if (parentRef) {
+      saveScroll(parentRef);
+    }
+  };
+
+  // restore scroll position on mount
+  onMount(() => {
+    if (parentRef) {
+      restoreScroll(parentRef);
+    }
+  });
+
   return (
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
       style={{ height: `${height()}px` }}
+      onScroll={handleScroll}
     >
       {/* sticky header row with grid layout */}
       <div
@@ -340,13 +380,13 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
       {/* virtual list container */}
       <div
         style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
+          height: `${rowVirtualizer().getTotalSize()}px`,
           width: "100%",
           position: "relative",
           "min-width": "fit-content",
         }}
       >
-        <For each={rowVirtualizer.getVirtualItems()}>
+        <For each={rowVirtualizer().getVirtualItems()}>
           {(virtualRow) => {
             // make song access reactive so changes to song data trigger re-renders
             const song = () => props.songs[virtualRow.index];

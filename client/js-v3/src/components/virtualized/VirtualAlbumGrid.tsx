@@ -7,6 +7,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { useScrollRestore } from "../../utils/scrollRestore";
 import { CollectionCard, CollectionCardData } from "../cards/CollectionCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 
@@ -30,12 +31,20 @@ export interface VirtualAlbumGridProps {
   showGenres?: boolean;
   /** additional css classes */
   class?: string;
+  /** unique key for scroll restoration (e.g., 'albums', 'albums-rock') */
+  scrollRestoreKey?: string;
 }
 
 export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   let parentRef: HTMLDivElement | undefined;
   const [containerWidth, setContainerWidth] = createSignal(0);
+  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
   const gap = 16;
+
+  // scroll restoration using browser history state
+  const { restoreScroll, saveScroll } = useScrollRestore(
+    props.scrollRestoreKey || "album-grid",
+  );
 
   // calculate responsive columns from width
   const getColumnsForWidth = (width: number): number => {
@@ -74,6 +83,9 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     // set initial width immediately
     setContainerWidth(parentRef.clientWidth);
 
+    // restore scroll position from history state
+    restoreScroll(parentRef);
+
     let timeoutId: number;
     const observer = new ResizeObserver((entries) => {
       clearTimeout(timeoutId);
@@ -84,9 +96,21 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     });
 
     observer.observe(parentRef);
+    
+    // save scroll position periodically while scrolling
+    const handleScroll = () => {
+      if (parentRef) {
+        saveScroll(parentRef);
+      }
+    };
+    parentRef.addEventListener("scroll", handleScroll, { passive: true });
+
     onCleanup(() => {
       clearTimeout(timeoutId);
       observer.disconnect();
+      if (parentRef) {
+        parentRef.removeEventListener("scroll", handleScroll);
+      }
     });
   });
 
@@ -96,14 +120,30 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   };
 
   // recreate virtualizer when columns change for clean layout updates
-  const rowVirtualizer = createMemo(() => {
+  const rowVirtualizer = createMemo((prev) => {
+    // save scroll position before recreating virtualizer
+    if (prev && parentRef) {
+      setSavedScrollOffset(parentRef.scrollTop);
+    }
+    
     columns(); // track columns for reactivity
-    return createVirtualizer({
+    const virtualizer = createVirtualizer({
       count: getRowCount(),
       getScrollElement: () => parentRef,
       estimateSize: () => getCardHeight() + gap,
       overscan: 2,
     });
+    
+    // restore scroll position after virtualizer is created
+    if (savedScrollOffset() > 0 && parentRef) {
+      queueMicrotask(() => {
+        if (parentRef) {
+          parentRef.scrollTop = savedScrollOffset();
+        }
+      });
+    }
+    
+    return virtualizer;
   });
 
   // get albums for a specific row

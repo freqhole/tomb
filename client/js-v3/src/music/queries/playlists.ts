@@ -77,6 +77,11 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
       if (!lastPage.has_more) return undefined;
       return lastPage.offset + lastPage.limit;
     },
+    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   }));
 }
 
