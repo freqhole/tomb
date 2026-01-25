@@ -254,11 +254,11 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     cols.push("minmax(200px, 3fr)"); // title - wider
     if (showArtist()) cols.push("minmax(150px, 1.5fr)"); // artist
     if (showAlbum()) cols.push("minmax(150px, 1.5fr)"); // album
-    cols.push("minmax(100px, 1fr)"); // genre
-    cols.push("60px"); // year - narrower
-    cols.push("60px"); // duration - narrower
-    if (showFavorites()) cols.push("40px"); // favorite - narrower
-    if (showRating()) cols.push("60px"); // rating - narrower
+    cols.push("minmax(100px, 0.8fr)"); // genre - narrower
+    cols.push("70px"); // year - wider to fit "year ↕"
+    cols.push("70px"); // duration - wider to fit "time ↕"
+    if (showFavorites()) cols.push("20px"); // favorite - narrower
+    if (showRating()) cols.push("20px"); // rating - narrower
     if (showTags()) cols.push("minmax(150px, 1fr)"); // tags
 
     return cols.join(" ");
@@ -356,21 +356,11 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
         </button>
 
         <Show when={showFavorites()}>
-          <div class="px-3 py-3 text-center text-[var(--color-text-tertiary)]">
-            <svg
-              class="w-3 h-3 inline-block"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-            </svg>
-          </div>
+          <div class="px-3 py-3"></div>
         </Show>
 
         <Show when={showRating()}>
-          <div class="px-3 py-3 text-center text-[var(--color-text-tertiary)]">
-            ★
-          </div>
+          <div class="px-3 py-3"></div>
         </Show>
 
         <Show when={showTags()}>
@@ -472,7 +462,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
                 {/* favorite */}
                 <Show when={showFavorites()}>
-                  <div class="px-3 flex justify-center">
+                  <div class="px-3 flex items-center justify-center">
                     <FavoriteToggle
                       targetType="song"
                       targetId={song().id}
@@ -488,9 +478,9 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
                 {/* rating */}
                 <Show when={showRating()}>
-                  <div class="px-3 flex justify-center">
+                  <div class="px-3 flex items-center justify-center">
                     <button
-                      class={`text-sm transition-colors ${
+                      class={`flex items-center gap-0.5 transition-colors ${
                         song().userRating
                           ? "text-[var(--color-accent-500)]"
                           : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
@@ -498,7 +488,18 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                       onClick={(e) => handleRatingClick(e, song())}
                       title={`rating: ${song().userRating || 0}/5 (click to cycle)`}
                     >
-                      {song().userRating ? `★${song().userRating}` : "☆"}
+                      <svg
+                        class="w-3.5 h-3.5"
+                        fill={song().userRating ? "currentColor" : "none"}
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+                      </svg>
+                      <Show when={song().userRating}>
+                        <span class="text-xs font-medium">{song().userRating}</span>
+                      </Show>
                     </button>
                   </div>
                 </Show>
