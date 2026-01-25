@@ -484,6 +484,7 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
         r#"SELECT
             id as "id!",
             name as "name!",
+            bio,
             created_at as "created_at!",
             updated_at as "updated_at!",
             deleted_at,
@@ -540,6 +541,7 @@ pub async fn get_current_artist_for_song(song_id: &str) -> GrimoireResult<Option
             r#"SELECT
                 id as "id!",
                 name as "name!",
+                bio,
                 created_at as "created_at!",
                 updated_at as "updated_at!",
                 deleted_at,

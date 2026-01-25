@@ -9,6 +9,7 @@ use zod_gen_derive::ZodSchema;
 pub struct Artist {
     pub id: String,
     pub name: String,
+    pub bio: Option<String>,
     pub created_at: i64,         // unix timestamp UTC
     pub updated_at: i64,         // unix timestamp UTC
     pub deleted_at: Option<i64>, // unix timestamp UTC
@@ -29,5 +30,6 @@ pub struct CreateArtistRequest {
 pub struct UpdateArtistRequest {
     pub artist_id: String,
     pub name: Option<String>,
+    pub bio: Option<String>,
     pub updated_by: Option<String>,
 }

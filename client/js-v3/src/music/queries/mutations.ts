@@ -9,6 +9,7 @@ import { queryKeys } from "./queryKeys";
 interface UpdateArtistData {
   artist_id: string;
   name?: string;
+  bio?: string;
 }
 
 interface UpdateAlbumData {
@@ -39,6 +40,7 @@ export function useUpdateArtistMutation() {
       const request: apiClient.UpdateArtistRequest = {
         artist_id: data.artist_id,
         name: data.name ?? null,
+        bio: data.bio ?? null,
         updated_by: null,
       };
 

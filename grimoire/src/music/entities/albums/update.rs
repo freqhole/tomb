@@ -387,6 +387,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 r#"SELECT
                     id as "id!",
                     name as "name!",
+                    bio,
                     created_at as "created_at!",
                     updated_at as "updated_at!",
                     deleted_at,
@@ -442,6 +443,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 r#"SELECT
                     id as "id!",
                     name as "name!",
+                    bio,
                     created_at as "created_at!",
                     updated_at as "updated_at!",
                     deleted_at,
@@ -474,6 +476,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 crate::music::entities::Artist {
                     id: deleted.id,
                     name: deleted.name,
+                    bio: deleted.bio,
                     created_at: deleted.created_at,
                     updated_at: deleted.updated_at,
                     deleted_at: None,

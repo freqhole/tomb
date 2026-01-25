@@ -13,6 +13,7 @@ export interface ImageMetadata {
 export interface Artist {
   artist_id: string; // uuid
   name: string;
+  bio?: string | null;
   created_at: number;
   updated_at: number;
   // user-specific fields (from query views)

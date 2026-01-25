@@ -248,6 +248,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       items: result.data.items.map((item) => ({
         artist_id: item.artist.id,
         name: item.artist.name,
+        bio: item.artist.bio,
         album_count: item.album_count,
         song_count: item.song_count,
         total_duration: item.total_duration || 0,

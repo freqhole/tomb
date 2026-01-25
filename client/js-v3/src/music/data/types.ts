@@ -67,6 +67,7 @@ export interface AlbumSummary {
 export interface ArtistSummary {
   artist_id: string;
   name: string;
+  bio?: string | null;
   album_count: number;
   song_count: number;
   total_duration: number;

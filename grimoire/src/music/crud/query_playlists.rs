@@ -240,6 +240,7 @@ impl PlaylistSongViewRow {
             Some(Artist {
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
+                bio: None,
                 created_at: self.artist_created_at.unwrap_or(0),
                 updated_at: self.artist_updated_at.unwrap_or(0),
                 deleted_at: self.artist_deleted_at,

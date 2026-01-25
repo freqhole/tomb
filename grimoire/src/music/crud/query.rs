@@ -75,6 +75,8 @@ enum ArtistView {
     ArtistId,
     #[iden = "artist_name"]
     ArtistName,
+    #[iden = "artist_bio"]
+    ArtistBio,
     #[iden = "artist_created_at"]
     ArtistCreatedAt,
     #[iden = "song_count"]
@@ -218,6 +220,7 @@ impl SongViewRow {
             Some(Artist {
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
+                bio: None,
                 created_at: self.artist_created_at.unwrap_or(0),
                 updated_at: self.artist_updated_at.unwrap_or(0),
                 deleted_at: self.artist_deleted_at,
@@ -306,6 +309,7 @@ impl SongViewRow {
 pub struct ArtistViewRow {
     artist_id: String,
     artist_name: String,
+    artist_bio: Option<String>,
     artist_created_at: i64,
     artist_updated_at: i64,
     artist_deleted_at: Option<i64>,
@@ -334,6 +338,7 @@ impl ArtistViewRow {
         let artist = Artist {
             id: self.artist_id,
             name: self.artist_name,
+            bio: self.artist_bio,
             created_at: self.artist_created_at,
             updated_at: self.artist_updated_at,
             deleted_at: self.artist_deleted_at,
@@ -483,6 +488,7 @@ impl AlbumViewRow {
             Some(Artist {
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
+                bio: None,
                 created_at: self.artist_created_at.unwrap_or(0),
                 updated_at: self.artist_updated_at.unwrap_or(0),
                 deleted_at: None,
@@ -767,6 +773,8 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
     query.limit(limit as u64).offset(offset as u64);
 
     let (sql, values) = query.build(SqliteQueryBuilder);
+    tracing::info!("query_songs SQL: {}", sql);
+    tracing::debug!("query_songs values: {:?}", values);
 
     let mut sqlx_query = sqlx::query_as::<_, SongViewRow>(&sql);
     for value in values.0 {
@@ -794,7 +802,11 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
 
     let rows = match sqlx_query.fetch_all(&pool).await {
         Ok(rows) => rows,
-        Err(err) => return GrimoireResponse::failure("Failed to query songs", vec![err.into()]),
+        Err(err) => {
+            tracing::error!("query_songs fetch error: {:?}", err);
+            tracing::error!("query_songs SQL was: {}", sql);
+            return GrimoireResponse::failure("Failed to query songs", vec![err.into()]);
+        }
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
@@ -926,10 +938,14 @@ pub async fn query_artists(
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(ArtistView::Table);
 
-    // Artist-specific search filter
+    // Artist-specific search filter (search name and bio)
     if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
         let pattern = format!("%{}%", search_term);
-        query.cond_where(Expr::col(ArtistView::ArtistName).like(pattern));
+        query.cond_where(
+            Cond::any()
+                .add(Expr::col(ArtistView::ArtistName).like(pattern.clone()))
+                .add(Expr::col(ArtistView::ArtistBio).like(pattern)),
+        );
     }
 
     // Handle artist_id filter for querying specific artist
@@ -980,6 +996,8 @@ pub async fn query_artists(
     query.limit(limit as u64).offset(offset as u64);
 
     let (sql, values) = query.build(SqliteQueryBuilder);
+    tracing::info!("query_artists SQL: {}", sql);
+    tracing::debug!("query_artists values: {:?}", values);
 
     let mut sqlx_query = sqlx::query_as::<_, ArtistViewRow>(&sql);
     for value in values.0 {
@@ -999,7 +1017,11 @@ pub async fn query_artists(
 
     let rows = match sqlx_query.fetch_all(&pool).await {
         Ok(rows) => rows,
-        Err(err) => return GrimoireResponse::failure("Failed to query artists", vec![err.into()]),
+        Err(err) => {
+            tracing::error!("query_artists fetch error: {:?}", err);
+            tracing::error!("query_artists SQL was: {}", sql);
+            return GrimoireResponse::failure("Failed to query artists", vec![err.into()]);
+        }
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());

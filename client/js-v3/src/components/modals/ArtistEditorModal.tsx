@@ -29,6 +29,7 @@ interface ArtistEditorModalProps {
 
 interface FormData {
   name: string;
+  bio: string;
   uploaded_blob_id: string | null;
 }
 
@@ -39,6 +40,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
   const [formData, setFormData] = createSignal<FormData>({
     name: "",
+    bio: "",
     uploaded_blob_id: null,
   });
 
@@ -55,6 +57,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     if (artist && !initialData()) {
       const data: FormData = {
         name: artist.name,
+        bio: artist.bio || "",
         uploaded_blob_id: null,
       };
       setFormData(data);
@@ -76,7 +79,9 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     const initial = initialData();
     if (!initial) return false;
 
-    return current.name !== initial.name || current.uploaded_blob_id !== null;
+    return current.name !== initial.name || 
+           current.bio !== initial.bio || 
+           current.uploaded_blob_id !== null;
   });
 
   const handleSave = async () => {
@@ -89,6 +94,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       await updateMutation.mutateAsync({
         artist_id: props.artistId,
         name: data.name !== initial?.name ? data.name : undefined,
+        bio: data.bio !== initial?.bio ? data.bio : undefined,
       });
 
       props.onSave?.();
@@ -263,6 +269,35 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
                 }
                 placeholder="artist name"
                 class="w-full"
+              />
+            </div>
+
+            {/* artist bio */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  biography
+                </label>
+                <Show when={formData().bio !== initialData()?.bio}>
+                  <button
+                    onClick={() => handleResetField("bio")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
+              </div>
+              <textarea
+                value={formData().bio}
+                onInput={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    bio: e.currentTarget.value,
+                  }))
+                }
+                placeholder="artist biography..."
+                class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
+                rows={5}
               />
             </div>
 

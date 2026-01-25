@@ -23,7 +23,7 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResponse<Artist>
         Artist,
         r#"INSERT INTO artistz (name, created_by, updated_by)
          VALUES (?, ?, ?)
-         RETURNING id as "id!", name as "name!",
+         RETURNING id as "id!", name as "name!", bio,
                    created_at as "created_at!", updated_at as "updated_at!",
                    deleted_at, deleted_by, created_by, updated_by"#,
         req.name,
@@ -61,7 +61,7 @@ pub async fn list_artists(
 
     let artists = match sqlx::query_as!(
         Artist,
-        r#"SELECT id as "id!", name as "name!",
+        r#"SELECT id as "id!", name as "name!", bio,
                   created_at as "created_at!", updated_at as "updated_at!",
                   deleted_at, deleted_by, created_by, updated_by
            FROM artistz
@@ -97,7 +97,7 @@ pub async fn get_artist(id: &str) -> GrimoireResponse<Artist> {
 
     let artist_opt = match sqlx::query_as!(
         Artist,
-        r#"SELECT id as "id!", name as "name!",
+        r#"SELECT id as "id!", name as "name!", bio,
                   created_at as "created_at!", updated_at as "updated_at!",
                   deleted_at, deleted_by, created_by, updated_by
            FROM artistz
@@ -309,6 +309,7 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
         r#"SELECT
                 id as "id!",
                 name as "name!",
+                bio,
                 created_at as "created_at!",
                 updated_at as "updated_at!",
                 deleted_at,
@@ -359,12 +360,14 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
         Artist,
         r#"UPDATE artistz
             SET name = COALESCE(?, name),
+                bio = COALESCE(?, bio),
                 updated_by = COALESCE(?, updated_by),
                 updated_at = unixepoch()
             WHERE id = ?
             RETURNING
                 id as "id!",
                 name as "name!",
+                bio,
                 created_at as "created_at!",
                 updated_at as "updated_at!",
                 deleted_at,
@@ -372,6 +375,7 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
                 created_by,
                 updated_by"#,
         req.name,
+        req.bio,
         req.updated_by,
         req.artist_id
     )

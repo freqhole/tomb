@@ -58,6 +58,7 @@ export const AlbumQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -121,6 +122,7 @@ export const AlbumsQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -166,6 +168,7 @@ export type ApiKeyStatusResponse = z.infer<typeof ApiKeyStatusResponseSchema>;
 export const ArtistSchema = z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -179,6 +182,7 @@ export const ArtistQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -218,6 +222,7 @@ export const ArtistsQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -828,6 +833,7 @@ export const PlaylistSongResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -926,6 +932,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -1385,6 +1392,7 @@ export const SongQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -1501,6 +1509,7 @@ export const SongsQueryResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
@@ -1718,6 +1727,7 @@ export type UpdateAlbumRequest = z.infer<typeof UpdateAlbumRequestSchema>;
 export const UpdateArtistRequestSchema = z.object({
   artist_id: z.string(),
   name: z.string().nullable(),
+  bio: z.string().nullable(),
   updated_by: z.string().nullable()
 });
 export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
@@ -1795,6 +1805,7 @@ export const UpdateSongsResultSchema = z.object({
   artist: z.object({
   id: z.string(),
   name: z.string(),
+  bio: z.string().nullable(),
   created_at: z.number(),
   updated_at: z.number(),
   deleted_at: z.number().nullable(),
