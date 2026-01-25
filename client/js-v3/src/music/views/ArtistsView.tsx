@@ -146,32 +146,11 @@ export function ArtistsView(props: ArtistsViewProps) {
   // fetch songs for selected artist using tanstack query
   const artistSongsQuery = useArtistSongsQuery(() => selectedArtistId());
 
-  // map to expected format for detail panel
+  // songs for detail panel - just pass through query results
   const artistSongs = createMemo(() => {
     const result = artistSongsQuery.data;
     if (!result || result.items.length === 0) return [];
-
-    return result.items.map((song) => ({
-      id: song.id,
-      sha256: song.sha256,
-      title: song.title,
-      album_id: song.album_id,
-      album_title: song.album_title,
-      track_number: song.track_number,
-      disc_number: song.disc_number,
-      duration_seconds: song.duration_seconds,
-      year: song.year,
-      thumbnail_blob_id: song.thumbnail_blob_id,
-      is_favorite: song.is_favorite,
-      user_rating: song.user_rating,
-      album_is_favorite: song.album_is_favorite,
-      album_rating: song.album_rating,
-      album_tags: song.album_tags,
-      album_primary_genre_id: song.album_primary_genre_id,
-      album_primary_genre_name: song.album_primary_genre_name,
-      album_sub_genres: song.album_sub_genres,
-      album_images: song.album_images,
-    }));
+    return result.items;
   });
 
   // sort artists

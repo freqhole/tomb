@@ -5,6 +5,7 @@ import {
   useArtistContextMenu,
   useSongContextMenu,
 } from "../../music/services/contextMenu";
+import type { Song } from "../../music/services/storage/types";
 import { getBlobImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
 import { AlbumSection, type AlbumSectionSong } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -32,28 +33,6 @@ export interface ArtistDetailPanelArtist {
   user_rating?: number;
 }
 
-export interface ArtistDetailPanelSong {
-  id: string;
-  sha256: string;
-  title: string;
-  album_id: string;
-  album_title: string;
-  track_number: number;
-  disc_number: number;
-  duration_seconds: number;
-  year: number | null;
-  thumbnail_blob_id: string | null;
-  is_favorite?: boolean;
-  user_rating?: number;
-  album_is_favorite?: boolean;
-  album_rating?: number;
-  album_images?: Array<{ blob_id: string; is_primary: number }>;
-  album_tags?: string[];
-  album_primary_genre_id?: string | null;
-  album_primary_genre_name?: string | null;
-  album_sub_genres?: string[];
-}
-
 interface AlbumGroup {
   albumId: string;
   albumTitle: string;
@@ -72,7 +51,7 @@ export interface ArtistDetailPanelProps {
   /** artist info */
   artist: ArtistDetailPanelArtist;
   /** all songs by this artist */
-  songs: ArtistDetailPanelSong[];
+  songs: Song[];
   /** currently playing song id */
   playingSongId?: string;
   /** play all songs handler */
