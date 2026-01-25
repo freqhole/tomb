@@ -301,11 +301,6 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
       }
 
       const result = await dataSource.getArtistSongs(id, { limit: 1000 });
-      console.log('[useArtistSongsQuery] queryFn result - first item:', result.items[0] ? {
-        id: result.items[0].id,
-        user_rating: result.items[0].user_rating,
-        album_rating: result.items[0].album_rating
-      } : 'no items');
       return result;
     },
     enabled: () => !!artistId(),

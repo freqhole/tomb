@@ -55,10 +55,7 @@ function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): S
 
     // user-specific metadata (from API response top-level)
     is_favorite: item.is_favorite || false,
-    user_rating: (() => {
-      console.log('[remoteSource] mapping rating:', { item_rating: item.rating, album_rating: item.album_rating });
-      return item.rating ?? undefined;
-    })(),
+    user_rating: item.rating ?? undefined,
     album_is_favorite: item.album_is_favorite ?? false,
     album_rating: item.album_rating ?? undefined,
     album_tags: item.album_tags || undefined,
@@ -86,7 +83,6 @@ function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): S
     added_at: song.created_at,
   };
 
-  console.log('[adaptSongFromAPI] returning song:', { id: result.id, user_rating: result.user_rating, album_rating: result.album_rating });
   return result;
 }
 
@@ -299,12 +295,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const mappedItems = result.data.items.map((item) =>
       adaptSongFromAPI(item, this.baseUrl, this.remoteId),
     );
-
-    console.log('[getArtistSongs] returning items:', mappedItems.length, '- first item:', {
-      id: mappedItems[0]?.id,
-      user_rating: mappedItems[0]?.user_rating,
-      album_rating: mappedItems[0]?.album_rating
-    });
 
     return {
       items: mappedItems,

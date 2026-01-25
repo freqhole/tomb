@@ -82,8 +82,6 @@ function formatAlbumDuration(seconds: number): string {
 }
 
 export function AlbumSection(props: AlbumSectionProps): JSX.Element {
-  console.log('[AlbumSection]', props.albumTitle, '- rating:', props.rating, '- songs[0].rating:', props.songs[0]?.rating);
-  
   const totalDuration = () =>
     props.totalDuration ??
     props.songs.reduce((sum, song) => sum + song.duration, 0);

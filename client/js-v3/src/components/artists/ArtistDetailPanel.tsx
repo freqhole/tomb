@@ -108,20 +108,8 @@ export interface ArtistDetailPanelProps {
 }
 
 export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
-  console.log('[ArtistDetailPanel] received props.songs:', props.songs);
-  console.log('[ArtistDetailPanel] props.songs type:', typeof props.songs, Array.isArray(props.songs));
-  console.log('[ArtistDetailPanel] first song full object:', props.songs[0]);
-  console.log('[ArtistDetailPanel] first song keys:', props.songs[0] ? Object.keys(props.songs[0]) : 'none');
-  
   // group songs by album
   const albumGroups = createMemo((): AlbumGroup[] => {
-    console.log('[ArtistDetailPanel] processing songs:', props.songs.length);
-    if (props.songs.length > 0) {
-      console.log('[ArtistDetailPanel] first song data:', {
-        user_rating: props.songs[0].user_rating,
-        album_rating: props.songs[0].album_rating
-      });
-    }
     const groups = new Map<string, AlbumGroup>();
 
     props.songs.forEach((song, index) => {
@@ -131,7 +119,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           ? getPrimaryImageUrl(song.album_images)
           : getBlobImageUrl(song.thumbnail_blob_id);
 
-        console.log(`[ArtistDetailPanel] creating new album group for "${song.album_title}" - song[${index}] album_rating:`, song.album_rating);
         groups.set(song.album_id, {
           albumId: song.album_id,
           albumTitle: song.album_title,
@@ -145,10 +132,8 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           subGenres: song.album_sub_genres,
           tags: song.album_tags,
         });
-        console.log(`[ArtistDetailPanel] created album group with rating:`, groups.get(song.album_id)!.rating);
       } else if (song.album_rating !== undefined && groups.get(song.album_id)!.rating === undefined) {
         // update album rating if this song has one and the group doesn't yet
-        console.log(`[ArtistDetailPanel] updating album "${song.album_title}" rating from song[${index}]:`, song.album_rating);
         groups.get(song.album_id)!.rating = song.album_rating;
       }
 

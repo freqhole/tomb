@@ -29,23 +29,8 @@ export function ArtistDetailView() {
   // map to song array
   const songs = createMemo(() => {
     const result = artistSongsQuery.data;
-    if (!result || result.items.length === 0) {
-      console.log('[ArtistDetailView] songs memo - no data');
-      return [];
-    }
-    console.log('[ArtistDetailView] songs memo - processing items');
-    console.log('[ArtistDetailView] songs memo - result.items[0] keys:', Object.keys(result.items[0]));
-    console.log('[ArtistDetailView] songs memo - result.items[0].user_rating:', result.items[0].user_rating);
-    console.log('[ArtistDetailView] songs memo - result.items[0].album_rating:', result.items[0].album_rating);
-    
-    // check if data is being transformed
-    const mappedSongs = result.items;
-    console.log('[ArtistDetailView] songs memo - returning array length:', mappedSongs.length);
-    console.log('[ArtistDetailView] songs memo - mappedSongs[0] === result.items[0]:', mappedSongs[0] === result.items[0]);
-    console.log('[ArtistDetailView] songs memo - mappedSongs[0].user_rating:', mappedSongs[0].user_rating);
-    console.log('[ArtistDetailView] songs memo - mappedSongs[0].album_rating:', mappedSongs[0].album_rating);
-    
-    return mappedSongs;
+    if (!result || result.items.length === 0) return [];
+    return result.items;
   });
 
   // artist data for panel
@@ -196,35 +181,25 @@ export function ArtistDetailView() {
       <Show when={artistData()} fallback={<div class="p-4">loading...</div>}>
         {(artist) => {
           const songList = songs();
-          console.log('[ArtistDetailView] about to render ArtistDetailPanel');
-          console.log('[ArtistDetailView] songList length:', songList.length);
-          if (songList.length > 0) {
-            console.log('[ArtistDetailView] songList[0] full object:', songList[0]);
-            console.log('[ArtistDetailView] songList[0] keys:', Object.keys(songList[0]));
-            console.log('[ArtistDetailView] songList[0].user_rating:', songList[0].user_rating);
-            console.log('[ArtistDetailView] songList[0].album_rating:', songList[0].album_rating);
-            console.log('[ArtistDetailView] songList[0].album_tags:', songList[0].album_tags);
-            console.log('[ArtistDetailView] songList[0].album_sub_genres:', songList[0].album_sub_genres);
-          }
           return (
-          <ArtistDetailPanel
-            artist={artist()}
-            songs={songList}
-            onPlayAll={handlePlayArtist}
-            onShuffle={handleShuffleArtist}
-            onAddToQueue={handleAddArtistToQueue}
-            onAlbumClick={handleAlbumClick}
-            onPlayAlbum={handlePlayAlbum}
-            onAddAlbumToQueue={handleAddAlbumToQueue}
-            onSongDoubleClick={handleSongDoubleClick}
-            getSongData={(songId) => songs().find(s => s.id === songId)}
-            onEditArtist={handleEditArtist}
-            onRatingChange={handleRatingChange}
-            onSongRatingChange={handleSongRatingChange}
-            onAlbumRatingChange={handleAlbumRatingChange}
-            onImageClick={handleArtistImageClick}
-            onGenreClick={handleGenreClick}
-          />
+            <ArtistDetailPanel
+              artist={artist()}
+              songs={songList}
+              onPlayAll={handlePlayArtist}
+              onShuffle={handleShuffleArtist}
+              onAddToQueue={handleAddArtistToQueue}
+              onAlbumClick={handleAlbumClick}
+              onPlayAlbum={handlePlayAlbum}
+              onAddAlbumToQueue={handleAddAlbumToQueue}
+              onSongDoubleClick={handleSongDoubleClick}
+              getSongData={(songId) => songs().find(s => s.id === songId)}
+              onEditArtist={handleEditArtist}
+              onRatingChange={handleRatingChange}
+              onSongRatingChange={handleSongRatingChange}
+              onAlbumRatingChange={handleAlbumRatingChange}
+              onImageClick={handleArtistImageClick}
+              onGenreClick={handleGenreClick}
+            />
           );
         }}
       </Show>
