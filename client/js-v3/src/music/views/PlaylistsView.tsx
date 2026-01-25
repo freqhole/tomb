@@ -89,9 +89,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [isResetting, setIsResetting] = createSignal(false);
   const navigate = useNavigate();
 
+  // restore selected playlist from history state on mount, fallback to params.id
+  const initialPlaylistId = typeof window !== "undefined" 
+    ? (window.history.state?.selectedPlaylistId as string | null) || params.id || null
+    : params.id || null;
+
   const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<
     string | null
-  >(params.id || null);
+  >(initialPlaylistId);
   const [search, setSearch] = createSignal<string>();
   const [lastClickedId, setLastClickedId] = createSignal<string | null>(null);
   const [clickTimeout, setClickTimeout] = createSignal<number | null>(null);
@@ -116,6 +121,18 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [downloadProgress, setDownloadProgress] =
     createSignal<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = createSignal(false);
+  
+  // save selected playlist to history state when it changes
+  createEffect(() => {
+    const playlistId = selectedPlaylistId();
+    if (playlistId && typeof window !== "undefined") {
+      const currentState = window.history.state || {};
+      window.history.replaceState(
+        { ...currentState, selectedPlaylistId: playlistId },
+        ""
+      );
+    }
+  });
   const [isSyncing, setIsSyncing] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
@@ -996,6 +1013,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                   <VirtualItemList
                     items={playlistListItems()}
                     selectedId={selectedPlaylistId()}
+                    scrollRestoreKey="playlists-list"
                     onItemClick={handlePlaylistClick}
                     onEndReached={handlePlaylistsLoadMore}
                     getContextMenuActions={(item) => {

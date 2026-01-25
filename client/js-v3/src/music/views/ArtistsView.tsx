@@ -37,8 +37,14 @@ const artistSortFields = [
 export function ArtistsView(props: ArtistsViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  // restore selected artist from history state on mount
+  const initialArtistId = typeof window !== "undefined" 
+    ? (window.history.state?.selectedArtistId as string | null)
+    : null;
+    
   const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(
-    null,
+    initialArtistId,
   );
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
@@ -49,6 +55,18 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // track query changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);
+  
+  // save selected artist to history state when it changes
+  createEffect(() => {
+    const artistId = selectedArtistId();
+    if (artistId && typeof window !== "undefined") {
+      const currentState = window.history.state || {};
+      window.history.replaceState(
+        { ...currentState, selectedArtistId: artistId },
+        ""
+      );
+    }
+  });
 
   // fetch artists using tanstack query (works with local + remote)
   const artistsQuery = useArtistsQuery({
@@ -443,6 +461,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           <VirtualItemList
             items={artistListItems()}
             selectedId={selectedArtistId()}
+            scrollRestoreKey="artists-list"
             onItemClick={(item) => {
               setSelectedArtistId(item.id);
               props.onArtistClick?.(item.id);

@@ -83,8 +83,14 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     // set initial width immediately
     setContainerWidth(parentRef.clientWidth);
 
-    // restore scroll position from history state
-    restoreScroll(parentRef);
+    // restore scroll position from history state (use double RAF to ensure virtualizer is ready)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (parentRef) {
+          restoreScroll(parentRef);
+        }
+      });
+    });
 
     let timeoutId: number;
     const observer = new ResizeObserver((entries) => {

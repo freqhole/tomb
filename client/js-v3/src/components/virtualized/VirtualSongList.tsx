@@ -273,7 +273,14 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   // restore scroll position on mount
   onMount(() => {
     if (parentRef) {
-      restoreScroll(parentRef);
+      // use double RAF to ensure virtualizer has calculated sizes and rendered
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (parentRef) {
+            restoreScroll(parentRef);
+          }
+        });
+      });
     }
   });
 

@@ -22,6 +22,7 @@ interface ScrollState {
 export function useScrollRestore(viewKey: string) {
   let scrollContainer: HTMLElement | null = null;
   let savedOffset = 0;
+  let throttleTimeout: number | null = null;
 
   // get current scroll state from history
   const getScrollState = (): ScrollState => {
@@ -43,12 +44,19 @@ export function useScrollRestore(viewKey: string) {
     );
   };
 
-  // save scroll position to history state
+  // save scroll position to history state (throttled)
   const saveScroll = (container: HTMLElement | null) => {
     if (container) {
       scrollContainer = container;
       savedOffset = container.scrollTop;
-      updateScrollState(savedOffset);
+      
+      // throttle history updates to every 100ms to prevent IPC flooding
+      if (throttleTimeout === null) {
+        throttleTimeout = setTimeout(() => {
+          updateScrollState(savedOffset);
+          throttleTimeout = null;
+        }, 100) as unknown as number;
+      }
     }
   };
 
@@ -61,12 +69,7 @@ export function useScrollRestore(viewKey: string) {
     const savedPosition = scrollPositions[viewKey];
 
     if (savedPosition !== undefined && savedPosition > 0) {
-      // use queueMicrotask to ensure DOM is ready
-      queueMicrotask(() => {
-        if (container) {
-          container.scrollTop = savedPosition;
-        }
-      });
+      container.scrollTop = savedPosition;
     }
   };
 
@@ -74,7 +77,12 @@ export function useScrollRestore(viewKey: string) {
   onMount(() => {
     const handleBeforeUnload = () => {
       if (scrollContainer) {
-        saveScroll(scrollContainer);
+        // clear throttle and save immediately
+        if (throttleTimeout !== null) {
+          clearTimeout(throttleTimeout);
+          throttleTimeout = null;
+        }
+        updateScrollState(scrollContainer.scrollTop);
       }
     };
 
@@ -89,9 +97,13 @@ export function useScrollRestore(viewKey: string) {
     window.addEventListener("popstate", handlePopState);
 
     onCleanup(() => {
-      // save scroll position when component unmounts
+      // save scroll position when component unmounts (flush immediately)
       if (scrollContainer) {
-        saveScroll(scrollContainer);
+        if (throttleTimeout !== null) {
+          clearTimeout(throttleTimeout);
+          throttleTimeout = null;
+        }
+        updateScrollState(scrollContainer.scrollTop);
       }
 
       window.removeEventListener("beforeunload", handleBeforeUnload);

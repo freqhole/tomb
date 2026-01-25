@@ -37,14 +37,32 @@ const genreSortFields = [
 export function GenresView(props: GenresViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  // restore selected genre from history state on mount
+  const initialGenreId = typeof window !== "undefined" 
+    ? (window.history.state?.selectedGenreId as string | null)
+    : null;
+    
   const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(
-    null,
+    initialGenreId,
   );
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
 
   // track query changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);
+  
+  // save selected genre to history state when it changes
+  createEffect(() => {
+    const genreId = selectedGenreId();
+    if (genreId && typeof window !== "undefined") {
+      const currentState = window.history.state || {};
+      window.history.replaceState(
+        { ...currentState, selectedGenreId: genreId },
+        ""
+      );
+    }
+  });
 
   // fetch genres using tanstack query (works with local + remote)
   const genresQuery = useGenresQuery({
@@ -243,6 +261,7 @@ export function GenresView(props: GenresViewProps) {
           <VirtualItemList
             items={genreListItems()}
             selectedId={selectedGenreId()}
+            scrollRestoreKey="genres-list"
             onItemClick={(item) => {
               setSelectedGenreId(item.id);
             }}
