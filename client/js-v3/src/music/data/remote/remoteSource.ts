@@ -13,7 +13,7 @@ import type {
   SearchResponse,
   Song,
   SuggestionsResponse,
-} from "./types";
+} from "../types";
 
 // adapter to convert API song query result to local Song type
 function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): Song {

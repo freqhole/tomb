@@ -21,10 +21,8 @@ import { TopNav } from "../src/components/navigation/TopNav";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
-import {
-  VirtualSong,
-  VirtualSongList,
-} from "../src/components/virtualized/VirtualSongList";
+import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
+import type { Song as DomainSong } from "../src/music/data/types";
 import { createIsMobile } from "../src/utils/isMobile";
 import {
   generateBulkAlbums,
@@ -761,15 +759,7 @@ export const FullAppDemo: Story = {
         </div>
         <div class="mt-6">
           <VirtualSongList
-            songs={mockSongs.map((s) => ({
-              id: s.id,
-              title: s.title,
-              artist: s.artist,
-              album: s.album,
-              duration: formatDuration(s.durationSeconds),
-              userIsFavorite: s.isFavorite,
-              userRating: s.rating,
-            }))}
+            songs={generateBulkSongs(mockSongs.length) as DomainSong[]}
             height={window.innerHeight - 240}
             onSongClick={(song) => {
               const matchingSong = mockSongs.find((s) => s.id === song.id);

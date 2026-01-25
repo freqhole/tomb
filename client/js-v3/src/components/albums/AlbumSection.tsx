@@ -1,22 +1,12 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
+import type { Song } from "../../music/data/types";
+import { formatDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { Rating } from "../ratings/Rating";
 import { SongRow } from "../songs/SongRow";
 import { MarqueeText } from "../text/MarqueeText";
-
-export interface AlbumSectionSong {
-  id: string;
-  sha256?: string;
-  title: string;
-  trackNumber: number;
-  discNumber: number;
-  duration: number;
-  isFavorite?: boolean;
-  rating?: number;
-  album_rating?: number;
-}
 
 export interface AlbumSectionProps {
   /** album id */
@@ -26,7 +16,7 @@ export interface AlbumSectionProps {
   /** album year */
   year?: number | null;
   /** array of songs in this album */
-  songs: AlbumSectionSong[];
+  songs: Song[];
   /** total duration in seconds */
   totalDuration?: number;
   /** album artwork url */
@@ -52,23 +42,15 @@ export interface AlbumSectionProps {
   /** add album to queue handler */
   onAddToQueue?: () => void;
   /** song double click handler (plays song) */
-  onSongDoubleClick?: (song: AlbumSectionSong) => void;
+  onSongDoubleClick?: (song: Song) => void;
   /** song rating change handler */
   onSongRatingChange?: (songId: string, rating: number) => void;
   /** callback to get context menu actions for album header */
   getAlbumContextMenuActions?: () => MenuAction[];
   /** callback to get context menu actions for a song */
-  getSongContextMenuActions?: (song: AlbumSectionSong) => MenuAction[];
+  getSongContextMenuActions?: (song: Song) => MenuAction[];
   /** additional css classes */
   class?: string;
-}
-
-// format seconds to MM:SS
-function formatDuration(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "0:00";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 // format album duration to human readable
@@ -84,7 +66,7 @@ function formatAlbumDuration(seconds: number): string {
 export function AlbumSection(props: AlbumSectionProps): JSX.Element {
   const totalDuration = () =>
     props.totalDuration ??
-    props.songs.reduce((sum, song) => sum + song.duration, 0);
+    props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
 
   const handleAlbumClick = () => {
     props.onAlbumClick?.(props.albumId);
@@ -207,15 +189,15 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
         <For each={props.songs}>
           {(song) => {
             const trackDisplay =
-              song.discNumber > 1
-                ? `${song.discNumber}-${song.trackNumber}`
-                : song.trackNumber;
+              song.disc_number > 1
+                ? `${song.disc_number}-${song.track_number}`
+                : song.track_number;
 
             return (
               <SongRow
                 title={song.title}
                 trackNumber={trackDisplay}
-                duration={formatDuration(song.duration)}
+                duration={formatDuration(song.duration_seconds)}
                 isPlaying={props.playingSongId === song.id}
                 onDoubleClick={() => props.onSongDoubleClick?.(song)}
                 showPlayOnHover={true}
@@ -224,8 +206,8 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
                     ? props.getSongContextMenuActions(song)
                     : undefined
                 }
-                isFavorite={song.isFavorite}
-                rating={song.rating ?? 0}
+                isFavorite={song.is_favorite}
+                rating={song.user_rating ?? 0}
                 onRatingChange={(rating) => props.onSongRatingChange?.(song.id, rating)}
                 songId={song.id}
                 sha256={song.sha256}

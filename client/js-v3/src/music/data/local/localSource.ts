@@ -1,5 +1,5 @@
 // local data source implementation - queries indexeddb directly
-import { generateUUID } from "../../utils/uuid";
+import { generateUUID } from "../../../utils/uuid";
 import {
   getSongById,
   initMusicDB,
@@ -7,11 +7,11 @@ import {
   queryArtists,
   queryGenres,
   querySongsWithDetails,
-} from "../services/storage/db";
+} from "../../services/storage/db";
 import {
   deletePlaylist as deletePlaylistFromDB,
   updatePlaylistSongs,
-} from "../services/storage/playlists";
+} from "../../services/storage/playlists";
 import {
   STORE_ALBUMS,
   STORE_PLAYLIST_SONGS,
@@ -20,8 +20,8 @@ import {
   type Playlist,
   type PlaylistSong,
   type Song,
-} from "../services/storage/types";
-import { sortSongsByArtist, sortSongsCanonical } from "../utils/songSort";
+} from "../../services/storage/types";
+import { sortSongsByArtist, sortSongsCanonical } from "../../utils/songSort";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -30,7 +30,7 @@ import type {
   PaginatedResponse,
   PlaylistSummary,
   QueryParams,
-} from "./types";
+} from "../types";
 
 // local data source implementation
 export class LocalMusicDataSource implements MusicDataSource {

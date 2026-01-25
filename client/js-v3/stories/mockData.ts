@@ -136,16 +136,26 @@ export function formatDuration(seconds: number): string {
 // helper to generate bulk songs using shared artist/album/genre names
 export function generateBulkSongs(count: number): Array<{
   id: string;
+  sha256: string;
   title: string;
-  artist: string;
-  album: string;
-  duration: string;
-  year: number;
-  discNumber: number;
-  trackNumber: number;
-  userIsFavorite: boolean;
-  userRating: number | null;
-  tags: string[];
+  artist_name: string;
+  artist_id: string;
+  album_title: string;
+  album_id: string;
+  album_primary_genre_name: string | null;
+  album_primary_genre_id: string | null;
+  duration_seconds: number;
+  year: number | null;
+  disc_number: number;
+  track_number: number;
+  thumbnail_blob_id: string | null;
+  is_favorite: boolean;
+  user_rating: number | null;
+  album_rating: number | null;
+  album_tags: string[];
+  album_is_favorite: boolean;
+  album_images: any[];
+  album_sub_genres: string[];
 }> {
   const artistNames = mockArtists.map((a) => a.name);
   const albumNames = mockAlbums.map((a) => a.title);
@@ -173,23 +183,32 @@ export function generateBulkSongs(count: number): Array<{
 
     results.push({
       id: `song-${i}`,
+      sha256: `sha256-${i}`,
       title: `${albumNames[albumIndex % albumNames.length]} - Track ${trackNumber}`,
-      artist: artistNames[albumIndex % artistNames.length],
-      album: albumNames[albumIndex % albumNames.length],
-      duration: formatDuration(durationSeconds),
+      artist_name: artistNames[albumIndex % artistNames.length],
+      artist_id: `artist-${albumIndex % artistNames.length}`,
+      album_title: albumNames[albumIndex % albumNames.length],
+      album_id: `album-${albumIndex}`,
+      album_primary_genre_name: genreNames[Math.floor(Math.random() * genreNames.length)],
+      album_primary_genre_id: `genre-${Math.floor(Math.random() * genreNames.length)}`,
+      duration_seconds: durationSeconds,
       year: 1970 + Math.floor(Math.random() * 50),
-      discNumber,
-      trackNumber,
-      userIsFavorite: Math.random() > 0.7,
-      userRating:
-        Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : null,
-      tags:
+      disc_number: discNumber,
+      track_number: trackNumber,
+      thumbnail_blob_id: null,
+      is_favorite: Math.random() > 0.7,
+      user_rating: Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : null,
+      album_rating: Math.random() > 0.6 ? Math.floor(Math.random() * 5) + 1 : null,
+      album_tags:
         Math.random() > 0.3
           ? [
               genreNames[Math.floor(Math.random() * genreNames.length)],
               genreNames[Math.floor(Math.random() * genreNames.length)],
             ].filter((v, i, a) => a.indexOf(v) === i)
           : [],
+      album_is_favorite: Math.random() > 0.8,
+      album_images: [],
+      album_sub_genres: [],
     });
   }
 

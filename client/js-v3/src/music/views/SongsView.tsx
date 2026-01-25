@@ -10,9 +10,7 @@ import {
   VirtualSongList,
   type SortDirection,
   type SortField,
-  type VirtualSong,
 } from "../../components/virtualized/VirtualSongList";
-import { getCurrentRemote } from "../data";
 import type { Song } from "../data/types";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSetRatingMutation } from "../queries/ratings";
@@ -24,14 +22,6 @@ export interface SongsViewProps {
   onAddMusic: () => void;
   onSongClick?: (song: Song) => void;
   onSongDoubleClick?: (song: Song) => void;
-}
-
-// format seconds to MM:SS
-function formatDuration(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "0:00";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 export function SongsView(props: SongsViewProps) {
@@ -136,62 +126,33 @@ export function SongsView(props: SongsViewProps) {
     return pages.flatMap((page) => page.items);
   };
 
-  // convert to virtual song list format - memoized to prevent unnecessary recreations
-  const virtualSongs = createMemo((): VirtualSong[] => {
-    return allSongs().map((song) => ({
-      id: song.id,
-      sha256: song.sha256,
-      title: song.title,
-      artist: song.artist_name,
-      album: song.album_title,
-      genre: song.album_primary_genre_name ?? undefined,
-      duration: formatDuration(song.duration_seconds),
-      year: song.year ?? undefined,
-      trackNumber: song.track_number,
-      discNumber: song.disc_number,
-      thumbnailUrl: song.thumbnail_blob_id
-        ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
-        : null,
-      userIsFavorite: song.is_favorite || false,
-      userRating: song.user_rating || 0,
-      tags: song.album_tags ?? undefined,
-    }));
-  });
-
   // trigger loading next page - tanstack query handles deduplication
   const loadMore = () => {
     if (!songsQuery.hasNextPage || songsQuery.isFetchingNextPage) return;
     songsQuery.fetchNextPage();
   };
 
-  const handleSongClick = (virtualSong: VirtualSong) => {
-    const song = allSongs().find((s) => s.id === virtualSong.id);
-    if (song) props.onSongClick?.(song);
+  const handleSongClick = (song: Song) => {
+    props.onSongClick?.(song);
   };
 
-  const handleSongDoubleClick = (virtualSong: VirtualSong) => {
-    const song = allSongs().find((s) => s.id === virtualSong.id);
-    if (song) props.onSongDoubleClick?.(song);
+  const handleSongDoubleClick = (song: Song) => {
+    props.onSongDoubleClick?.(song);
   };
 
   // build context menu actions for each song
-  const getContextMenuActions = (virtualSong: VirtualSong, index: number) => {
-    const song = allSongs().find((s) => s.id === virtualSong.id);
-    if (!song) return [];
+  const getContextMenuActions = (song: Song, index: number) => {
     return useSongContextMenu(song, {
       showPlayActions: true,
-      isFavorite: virtualSong.userIsFavorite,
+      isFavorite: song.is_favorite,
     });
   };
 
   // handle favorite toggle
   const handleFavoriteToggle = (
-    virtualSong: VirtualSong,
+    song: Song,
     isFavorite: boolean,
   ) => {
-    const song = allSongs().find((s) => s.id === virtualSong.id);
-    if (!song) return;
-
     // mutation handles optimistic update automatically
     toggleFavoriteMutation.mutate({
       targetType: "song",
@@ -202,10 +163,7 @@ export function SongsView(props: SongsViewProps) {
   };
 
   // handle rating change
-  const handleRatingChange = (virtualSong: VirtualSong, rating: number) => {
-    const song = allSongs().find((s) => s.id === virtualSong.id);
-    if (!song) return;
-
+  const handleRatingChange = (song: Song, rating: number) => {
     setRatingMutation.mutate({
       targetType: "song",
       targetId: song.id,
@@ -250,7 +208,7 @@ export function SongsView(props: SongsViewProps) {
             <p class="text-sm text-[var(--color-text-secondary)]">
               {songsQuery.isLoading
                 ? "loading..."
-                : `${virtualSongs().length} ${virtualSongs().length === 1 ? "song" : "songs"}`}
+                : `${allSongs().length} ${allSongs().length === 1 ? "song" : "songs"}`}
             </p>
           </div>
           <Button variant="primary" onClick={props.onAddMusic}>
@@ -273,7 +231,7 @@ export function SongsView(props: SongsViewProps) {
 
       {/* song list */}
       <div class="flex-1 overflow-hidden">
-        {virtualSongs().length === 0 && !songsQuery.isLoading ? (
+        {allSongs().length === 0 && !songsQuery.isLoading ? (
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
             <div class="text-center max-w-md">
               <p class="text-lg text-[var(--color-text-secondary)] mb-2">
@@ -295,7 +253,7 @@ export function SongsView(props: SongsViewProps) {
         ) : (
           <>
             <VirtualSongList
-              songs={virtualSongs()}
+              songs={allSongs()}
               height={window.innerHeight - 120}
               sortState={{
                 field: uiSortField(),
@@ -317,7 +275,7 @@ export function SongsView(props: SongsViewProps) {
                 loading more songs...
               </div>
             )}
-            {!songsQuery.hasNextPage && virtualSongs().length > 0 && (
+            {!songsQuery.hasNextPage && allSongs().length > 0 && (
               <div class="p-4 text-center text-[var(--color-text-tertiary)] text-sm">
                 end of list
               </div>

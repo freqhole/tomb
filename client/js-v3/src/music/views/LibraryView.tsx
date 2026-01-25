@@ -1,9 +1,6 @@
 import { createResource, Show } from "solid-js";
 import { Button } from "../../components/buttons/Button";
-import {
-  VirtualSongList,
-  type VirtualSong,
-} from "../../components/virtualized/VirtualSongList";
+import { VirtualSongList } from "../../components/virtualized/VirtualSongList";
 import { getDataSource } from "../data";
 import { songsVersion } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
@@ -12,14 +9,6 @@ export interface LibraryViewProps {
   onAddMusic: () => void;
   onSongClick?: (song: Song) => void;
   onSongDoubleClick?: (song: Song) => void;
-}
-
-// format seconds to MM:SS
-function formatDuration(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "0:00";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 export function LibraryView(props: LibraryViewProps) {
@@ -33,36 +22,15 @@ export function LibraryView(props: LibraryViewProps) {
     });
   });
 
-  // convert storage songs to virtual song list format
-  const virtualSongs = () => {
-    const data = songsData();
-    if (!data) return [];
+  const songs = () => songsData()?.items ?? [];
 
-    return data.items.map((song) => ({
-      id: song.id,
-      sha256: song.sha256,
-      title: song.title,
-      artist: song.artist_name,
-      album: song.album_title,
-      duration: formatDuration(song.duration_seconds),
-      userIsFavorite: song.is_favorite ?? false,
-      userRating: song.user_rating ?? 0,
-    }));
+  const handleSongClick = (song: Song) => {
+    props.onSongClick?.(song);
   };
 
-  const handleSongClick = (virtualSong: VirtualSong) => {
-    // find the actual song by id
-    const song = songsData()?.items.find((s) => s.id === virtualSong.id);
-    if (song) props.onSongClick?.(song);
-  };
-
-  const handleSongDoubleClick = (virtualSong: VirtualSong) => {
-    // find the actual song by id
-    const song = songsData()?.items.find((s) => s.sha256 === virtualSong.id);
-    if (song) {
-      props.onSongDoubleClick?.(song);
-      console.log("play song:", song.title);
-    }
+  const handleSongDoubleClick = (song: Song) => {
+    props.onSongDoubleClick?.(song);
+    console.log("play song:", song.title);
   };
 
   return (
@@ -86,7 +54,7 @@ export function LibraryView(props: LibraryViewProps) {
       {/* song list */}
       <div class="flex-1 overflow-hidden">
         <Show
-          when={virtualSongs().length > 0}
+          when={songs().length > 0}
           fallback={
             <div class="flex items-center justify-center h-full">
               <p class="text-[var(--color-text-secondary)]">no songs yet</p>
@@ -94,7 +62,7 @@ export function LibraryView(props: LibraryViewProps) {
           }
         >
           <VirtualSongList
-            songs={virtualSongs()}
+            songs={songs()}
             height={window.innerHeight - 120}
             onSongClick={handleSongClick}
             onSongDoubleClick={handleSongDoubleClick}

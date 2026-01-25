@@ -9,8 +9,8 @@ import {
   getRemoteById,
   setActiveRemote,
 } from "../services/remotes/remoteManager";
-import { LocalMusicDataSource, localDataSource } from "./localSource";
-import { RemoteMusicDataSource } from "./remoteSource";
+import { LocalMusicDataSource, localDataSource } from "./local/localSource";
+import { RemoteMusicDataSource } from "./remote/remoteSource";
 import type { MusicDataSource } from "./types";
 
 // active data source (default to local)

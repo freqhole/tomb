@@ -7,7 +7,7 @@ import {
 } from "../../music/services/contextMenu";
 import type { Song } from "../../music/services/storage/types";
 import { getBlobImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
-import { AlbumSection, type AlbumSectionSong } from "../albums/AlbumSection";
+import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
 import {
   formatDuration,
@@ -37,7 +37,7 @@ interface AlbumGroup {
   albumId: string;
   albumTitle: string;
   year: number | null;
-  songs: AlbumSectionSong[];
+  songs: Song[];
   totalDuration: number;
   artworkUrl: string | null;
   isFavorite: boolean;
@@ -117,17 +117,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       }
 
       const group = groups.get(song.album_id)!;
-      group.songs.push({
-        id: song.id,
-        sha256: song.sha256,
-        title: song.title,
-        trackNumber: song.track_number,
-        discNumber: song.disc_number,
-        duration: song.duration_seconds,
-        isFavorite: song.is_favorite,
-        rating: song.user_rating,
-        album_rating: song.album_rating,
-      });
+      group.songs.push(song);
       group.totalDuration += song.duration_seconds;
     });
 
@@ -139,10 +129,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
     // sort songs within each album by disc/track
     sortedGroups.forEach((group) => {
       group.songs.sort((a, b) => {
-        if (a.discNumber !== b.discNumber) {
-          return a.discNumber - b.discNumber;
+        if (a.disc_number !== b.disc_number) {
+          return a.disc_number - b.disc_number;
         }
-        return a.trackNumber - b.trackNumber;
+        return a.track_number - b.track_number;
       });
     });
 

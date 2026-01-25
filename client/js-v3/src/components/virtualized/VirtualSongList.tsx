@@ -9,30 +9,15 @@ import {
   Show,
   untrack,
 } from "solid-js";
+import { getCurrentRemote } from "../../music/data";
+import type { Song } from "../../music/data/types";
+import { formatDuration } from "../../utils/formatDuration";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteToggle } from "../ratings/FavoriteToggle";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import { useScrollRestore } from "../../utils/scrollRestore";
-
-export interface VirtualSong {
-  id: string;
-  sha256?: string; // needed for favorite queue updates
-  title: string;
-  artist: string;
-  album: string;
-  albumArtist?: string;
-  genre?: string;
-  duration: string; // formatted as "3:45"
-  year?: number;
-  discNumber?: number;
-  trackNumber?: number;
-  thumbnailUrl?: string | null;
-  userIsFavorite?: boolean;
-  userRating?: number | null;
-  tags?: string[];
-}
 
 export type SortField =
   | "track"
@@ -54,21 +39,21 @@ export interface SortState {
 
 export interface VirtualSongListProps {
   /** array of songs to display */
-  songs: VirtualSong[];
+  songs: Song[];
   /** current sort state */
   sortState?: SortState;
   /** callback when sort changes (for server-side sorting) */
   onSortChange?: (field: SortField, direction: SortDirection) => void;
   /** callback when a song is clicked */
-  onSongClick?: (song: VirtualSong, index: number) => void;
+  onSongClick?: (song: Song, index: number) => void;
   /** callback when a song is double-clicked (for play action) */
-  onSongDoubleClick?: (song: VirtualSong, index: number) => void;
+  onSongDoubleClick?: (song: Song, index: number) => void;
   /** callback when favorite is toggled */
-  onFavoriteToggle?: (song: VirtualSong, isFavorite: boolean) => void;
+  onFavoriteToggle?: (song: Song, isFavorite: boolean) => void;
   /** callback when rating changes */
-  onRatingChange?: (song: VirtualSong, rating: number) => void;
+  onRatingChange?: (song: Song, rating: number) => void;
   /** callback to get context menu actions for a song */
-  getContextMenuActions?: (song: VirtualSong, index: number) => MenuAction[];
+  getContextMenuActions?: (song: Song, index: number) => MenuAction[];
   /** callback when virtualizer is rendering items near end (for infinite scroll) */
   onNearEnd?: () => void;
   /** currently playing song id */
@@ -115,7 +100,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   const showTags = () => props.showTags !== false;
 
   // compute track number from disc + track
-  const getTrackNumber = (song: VirtualSong, index: number): string => {
+  const getTrackNumber = (song: Song, index: number): string => {
     // for queue or playlist with position field, use position/index
     if (variant() === "queue" || variant() === "playlist") {
       return String(index + 1);
@@ -123,26 +108,26 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
     // if song has disc + track, compute the absolute track number
     // by counting all tracks from previous discs
-    if (song.discNumber && song.trackNumber) {
+    if (song.disc_number && song.track_number) {
       // count how many tracks are in previous discs for this album
       let trackOffset = 0;
       for (let i = 0; i < index; i++) {
         const prevSong = props.songs[i];
         // same album/artist and earlier disc
         if (
-          prevSong.album === song.album &&
-          prevSong.artist === song.artist &&
-          prevSong.discNumber &&
-          prevSong.discNumber < song.discNumber
+          prevSong.album_title === song.album_title &&
+          prevSong.artist_name === song.artist_name &&
+          prevSong.disc_number &&
+          prevSong.disc_number < song.disc_number
         ) {
           trackOffset++;
         }
       }
-      return String(trackOffset + song.trackNumber);
+      return String(trackOffset + song.track_number);
     }
 
     // fallback to track number or index
-    return song.trackNumber ? String(song.trackNumber) : String(index + 1);
+    return song.track_number ? String(song.track_number) : String(index + 1);
   };
 
   // track last triggered count to prevent infinite loops
@@ -226,17 +211,17 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     return current.direction === "asc" ? "↑" : "↓";
   };
 
-  const handleRowClick = (song: VirtualSong, index: number) => {
+  const handleRowClick = (song: Song, index: number) => {
     props.onSongClick?.(song, index);
   };
 
-  const handleRowDoubleClick = (song: VirtualSong, index: number) => {
+  const handleRowDoubleClick = (song: Song, index: number) => {
     props.onSongDoubleClick?.(song, index);
   };
 
-  const handleFavoriteClick = (e: MouseEvent, song: VirtualSong) => {
+  const handleFavoriteClick = (e: MouseEvent, song: Song) => {
     e.stopPropagation();
-    props.onFavoriteToggle?.(song, !song.userIsFavorite);
+    props.onFavoriteToggle?.(song, !song.is_favorite);
   };
 
   // grid template based on visible columns
@@ -400,7 +385,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <Show when={showTrackNumber()}>
                   <div class="px-3 flex justify-center">
                     <MediaThumbnail
-                      thumbnailUrl={song().thumbnailUrl}
+                      thumbnailUrl={song().thumbnail_blob_id ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song().thumbnail_blob_id}` : null}
                       indexText={getTrackNumber(song(), virtualRow.index)}
                       hideIndex={false}
                       onPlayClick={() =>
@@ -422,7 +407,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <Show when={showArtist()}>
                   <div class="px-4 min-w-0">
                     <div class="text-sm text-[var(--color-text-secondary)]">
-                      <MarqueeText text={song().artist} hoverOnly={true} />
+                      <MarqueeText text={song().artist_name} hoverOnly={true} />
                     </div>
                   </div>
                 </Show>
@@ -431,7 +416,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <Show when={showAlbum()}>
                   <div class="px-4 min-w-0">
                     <div class="text-sm text-[var(--color-text-secondary)]">
-                      <MarqueeText text={song().album} hoverOnly={true} />
+                      <MarqueeText text={song().album_title} hoverOnly={true} />
                     </div>
                   </div>
                 </Show>
@@ -439,7 +424,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {/* genre */}
                 <div class="px-4 min-w-0">
                   <div class="text-[var(--color-text-tertiary)] text-sm">
-                    <MarqueeText text={song().genre || "—"} hoverOnly={true} />
+                    <MarqueeText text={song().album_primary_genre_name || "—"} hoverOnly={true} />
                   </div>
                 </div>
 
@@ -450,7 +435,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
                 {/* duration */}
                 <div class="px-4 text-right text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                  {song().duration}
+                  {formatDuration(song().duration_seconds)}
                 </div>
 
                 {/* favorite */}
@@ -460,7 +445,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                       targetType="song"
                       targetId={song().id}
                       sha256={song().sha256}
-                      isFavorite={song().userIsFavorite ?? false}
+                      isFavorite={song().is_favorite ?? false}
                       size="sm"
                       onToggleSuccess={(newValue) => {
                         props.onFavoriteToggle?.(song(), newValue);
@@ -473,7 +458,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <Show when={showRating()}>
                   <div class="px-3 flex items-center justify-center">
                     <Rating
-                      rating={song().userRating}
+                      rating={song().user_rating}
                       size="sm"
                       onRatingChange={(newRating) => {
                         props.onRatingChange?.(song(), newRating);
@@ -487,7 +472,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   <div class="px-4 min-w-0">
                     <div class="text-xs text-[var(--color-text-muted)]">
                       <MarqueeText
-                        text={song().tags?.join(", ") || ""}
+                        text={song().album_tags?.join(", ") || ""}
                         hoverOnly={true}
                       />
                     </div>
