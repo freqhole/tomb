@@ -17,6 +17,7 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
+import { pushModal, popModal } from "../../music/modals";
 
 interface ArtistEditorModalProps {
   artistId: string;
@@ -63,15 +64,11 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     }
   });
 
-  // handle esc key to close modal
+  // register modal in stack for esc key handling
   onMount(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    const modalId = `artist-${props.artistId}`;
+    pushModal(modalId, props.onClose);
+    return () => popModal(modalId);
   });
 
   const hasChanges = createMemo(() => {
@@ -210,7 +207,8 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
   return (
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center"
+      classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
       onClick={props.onClose}
     >
       <div

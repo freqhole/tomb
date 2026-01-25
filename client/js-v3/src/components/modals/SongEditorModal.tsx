@@ -7,7 +7,7 @@ import {
   Show,
 } from "solid-js";
 import type { Song } from "../../music/data/types";
-import { showAlbumEditor, showArtistEditor } from "../../music/modals";
+import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/modals";
 import {
   useSongQuery,
   useUpdateSongsMutation,
@@ -87,15 +87,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }
   });
 
-  // handle esc key to close modal
+  // register modal in stack for esc key handling
   onMount(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    const modalId = `song-${props.songId}`;
+    pushModal(modalId, props.onClose);
+    return () => popModal(modalId);
   });
 
   const hasChanges = createMemo(() => {
@@ -184,7 +180,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
   return (
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      class="fixed inset-0 flex items-center justify-center bg-black/50"
+      classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
       onClick={() => props.onClose()}
     >
       <div

@@ -1,9 +1,58 @@
 // modal state helpers for song, artist, and album editors
 import { createSignal } from "solid-js";
 
+// modal stack to track which modal is topmost for esc key handling
+interface ModalEntry {
+  id: string;
+  onClose: () => void;
+}
+
+const modalStack: ModalEntry[] = [];
+let escapeListenerInstalled = false;
+
+function handleGlobalEscape(e: KeyboardEvent) {
+  if (e.key === "Escape" && modalStack.length > 0) {
+    // immediately pop the modal from the stack before calling onClose
+    const topModal = modalStack.pop()!;
+    
+    // remove global listener if no more modals
+    if (modalStack.length === 0 && escapeListenerInstalled) {
+      window.removeEventListener("keydown", handleGlobalEscape);
+      escapeListenerInstalled = false;
+    }
+    
+    // now call the close handler
+    topModal.onClose();
+  }
+}
+
+export function pushModal(modalId: string, onClose: () => void) {
+  modalStack.push({ id: modalId, onClose });
+  
+  // install global escape listener once
+  if (!escapeListenerInstalled) {
+    window.addEventListener("keydown", handleGlobalEscape);
+    escapeListenerInstalled = true;
+  }
+}
+
+export function popModal(modalId: string) {
+  const index = modalStack.findIndex(m => m.id === modalId);
+  if (index !== -1) {
+    modalStack.splice(index, 1);
+  }
+  
+  // remove global listener when no modals are open
+  if (modalStack.length === 0 && escapeListenerInstalled) {
+    window.removeEventListener("keydown", handleGlobalEscape);
+    escapeListenerInstalled = false;
+  }
+}
+
 interface SongEditorOptions {
   songId: string;
   onSave?: () => void;
+  disableNestedModals?: boolean;
 }
 
 interface ArtistEditorOptions {

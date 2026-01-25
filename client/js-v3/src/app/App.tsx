@@ -20,6 +20,7 @@ import {
   hideArtistEditor,
   hideSongEditor,
   hideImageCarousel,
+  showSongEditor,
   useAlbumEditorState,
   useArtistEditorState,
   useSongEditorState,
@@ -197,6 +198,7 @@ export function App() {
               state().onSave?.();
               hideSongEditor();
             }}
+            disableNestedModals={state().disableNestedModals}
           />
         )}
       </Show>
@@ -225,6 +227,9 @@ export function App() {
               hideAlbumEditor();
             }}
             disableNestedModals={state().disableNestedModals}
+            onOpenSongEditor={(songId) =>
+              showSongEditor({ songId, disableNestedModals: true })
+            }
           />
         )}
       </Show>

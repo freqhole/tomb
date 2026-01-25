@@ -21,6 +21,7 @@ import { GenreAutocomplete } from "../forms/GenreAutocomplete";
 import { SubGenreAutocomplete } from "../forms/SubGenreAutocomplete";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
+import { pushModal, popModal } from "../../music/modals";
 
 interface AlbumEditorModalProps {
   albumId: string;
@@ -101,15 +102,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     }
   });
 
-  // handle esc key to close modal
+  // register modal in stack for esc key handling
   onMount(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        props.onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    const modalId = `album-${props.albumId}`;
+    pushModal(modalId, props.onClose);
+    return () => popModal(modalId);
   });
 
   const hasChanges = createMemo(() => {
@@ -291,7 +288,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
   return (
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center"
+      classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
       onClick={props.onClose}
     >
       <div
@@ -613,7 +611,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               <label class="block text-sm font-medium text-[var(--color-text-primary)]">
                 songs in album ({songs().length})
               </label>
-              <div class="bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)] max-h-64 overflow-y-auto">
+              <div class="bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
                 <Show
                   when={songs().length > 0}
                   fallback={
