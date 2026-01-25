@@ -112,7 +112,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
       </div>
 
       {/* thumbnail strip at bottom */}
-      <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto px-4 z-10">
+      <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto overflow-y-hidden px-4 z-10">
         <For each={props.images}>
           {(img, idx) => (
             <button
