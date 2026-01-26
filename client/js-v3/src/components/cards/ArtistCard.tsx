@@ -1,24 +1,12 @@
 import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
-
-export interface ArtistCardData {
-  type: "artist";
-  id: string;
-  title: string;
-  imageUrl?: string;
-  isFavorite: boolean;
-  albumCount?: number;
-  genres?: string[];
-  tags?: string[];
-  createdAt: number;
-}
-
+import type { ArtistSummary } from "../../music/data/types";import { getImageUrl } from "../../music/utils/format";
 export interface ArtistCardProps {
-  artist: ArtistCardData;
-  onClick?: (artist: ArtistCardData) => void;
-  onPlay?: (artist: ArtistCardData) => void;
-  onContextMenu?: (e: MouseEvent, artist: ArtistCardData) => void;
+  artist: ArtistSummary;
+  onClick?: (artist: ArtistSummary) => void;
+  onPlay?: (artist: ArtistSummary) => void;
+  onContextMenu?: (e: MouseEvent, artist: ArtistSummary) => void;
   onFavoriteToggle?: (artistId: string, isFavorite: boolean) => void;
   onGenreClick?: (genre: string) => void;
 }
@@ -45,31 +33,31 @@ export function ArtistCard(props: ArtistCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-full relative">
-          <Show when={props.artist.imageUrl}>
+          <Show when={props.artist.images && props.artist.images.length > 0}>
             <div
               class="absolute inset-0 rounded-full overflow-hidden transition-all duration-300 group-hover:scale-105"
             >
               <img
-                src={props.artist.imageUrl!}
-                alt={props.artist.title}
+                src={getImageUrl(props.artist.images![0].blob_id)!}
+                alt={props.artist.name}
                 class="w-full h-full object-cover"
               />
             </div>
           </Show>
-          <Show when={!props.artist.imageUrl}>
+          <Show when={!props.artist.images || props.artist.images.length === 0}>
             <div class="absolute inset-0 flex items-center justify-center">
               <span class="text-3xl text-[var(--color-text-tertiary)]">
-                {getArtistAbbreviation(props.artist.title)}
+                {getArtistAbbreviation(props.artist.name)}
               </span>
             </div>
           </Show>
         </div>
-        <div class="absolute top-2 right-2 z-10">
+        <div class="absolute top-2 right-2 z-10 pointer-events-none">
           <FavoriteHeart
-            isFavorite={props.artist.isFavorite}
+            isFavorite={props.artist.is_favorite ?? false}
             onToggle={(isFavorite) => {
               event?.stopPropagation();
-              props.onFavoriteToggle?.(props.artist.id, isFavorite);
+              props.onFavoriteToggle?.(props.artist.artist_id, isFavorite);
             }}
             size="sm"
             class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
@@ -93,36 +81,12 @@ export function ArtistCard(props: ArtistCardProps) {
       <div class="space-y-1 text-center min-w-0">
         <div class="min-w-0">
           <MarqueeText
-            text={props.artist.title}
+            text={props.artist.name}
             class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"            hoverOnly={!isCardHovered()}          />
         </div>
-        <Show when={props.artist.albumCount !== undefined}>
+        <Show when={props.artist.album_count !== undefined}>
           <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors">
-            {props.artist.albumCount} albums
-          </div>
-        </Show>
-        <Show when={props.artist.genres && props.artist.genres.length > 0 || props.artist.tags && props.artist.tags.length > 0}>
-          <div class="flex flex-wrap gap-1 justify-center mt-2 min-h-[20px] max-h-[48px] overflow-y-clip pb-1">
-            <For each={props.artist.genres}>
-              {(genre) => (
-                <a
-                  class="text-xs px-1.5 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-accent-500)] hover:text-[var(--color-text-on-accent)] transition-colors cursor-pointer flex-shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onGenreClick?.(genre);
-                  }}
-                >
-                  {genre}
-                </a>
-              )}
-            </For>
-            <For each={props.artist.tags}>
-              {(tag) => (
-                <span class="text-xs px-1.5 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded flex-shrink-0">
-                  {tag}
-                </span>
-              )}
-            </For>
+            {props.artist.album_count} albums
           </div>
         </Show>
       </div>

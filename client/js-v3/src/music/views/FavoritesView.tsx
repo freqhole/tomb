@@ -1,9 +1,6 @@
 // favorites view - controller component that wraps FavoritesLayout with business logic
 import { FavoritesLayout, type FavoriteItem } from "../../components/layout/FavoritesLayout";
-import type { SongCardData } from "../../components/cards/SongCard";
-import type { AlbumCardData } from "../../components/cards/AlbumCard";
-import type { ArtistCardData } from "../../components/cards/ArtistCard";
-import type { PlaylistCardData } from "../../components/cards/PlaylistCard";
+import type { Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../data/types";
 
 // re-export types for external use
 export type { FavoriteItem };
@@ -16,11 +13,11 @@ export interface FavoritesViewProps {
   /** callback when a collection (album/artist/playlist) is clicked */
   onCollectionClick?: (id: string, type: "album" | "artist" | "playlist") => void;
   /** callback when a song is clicked */
-  onSongClick?: (song: SongCardData) => void;
+  onSongClick?: (song: Song) => void;
   /** callback when play button is clicked on collection */
   onCollectionPlay?: (id: string, type: "album" | "artist" | "playlist") => void;
   /** callback when song is double-clicked */
-  onSongDoubleClick?: (song: SongCardData) => void;
+  onSongDoubleClick?: (song: Song) => void;
   /** callback when favorite is toggled on collection - item will be removed from list when parent updates favorites array */
   onCollectionFavoriteToggle?: (
     id: string,
@@ -32,7 +29,7 @@ export interface FavoritesViewProps {
   /** callback when context menu is triggered on collection */
   onCollectionContextMenu?: (e: MouseEvent, id: string, type: "album" | "artist" | "playlist") => void;
   /** callback when context menu is triggered on song */
-  onSongContextMenu?: (e: MouseEvent, song: SongCardData) => void;
+  onSongContextMenu?: (e: MouseEvent, song: Song) => void;
   /** callback when artist name is clicked */
   onArtistClick?: (artistId: string) => void;
   /** callback when album name is clicked */
@@ -50,18 +47,18 @@ export function FavoritesView(props: FavoritesViewProps) {
       onSongPlay={props.onSongDoubleClick}
       onSongFavoriteToggle={props.onSongFavoriteToggle}
       onSongContextMenu={props.onSongContextMenu}
-      onAlbumClick={(album: AlbumCardData) => props.onCollectionClick?.(album.id, "album")}
-      onAlbumPlay={(album: AlbumCardData) => props.onCollectionPlay?.(album.id, "album")}
+      onAlbumClick={(album: AlbumSummary) => props.onCollectionClick?.(album.album_id, "album")}
+      onAlbumPlay={(album: AlbumSummary) => props.onCollectionPlay?.(album.album_id, "album")}
       onAlbumFavoriteToggle={(albumId, isFavorite) => props.onCollectionFavoriteToggle?.(albumId, "album", isFavorite)}
-      onAlbumContextMenu={(e, album) => props.onCollectionContextMenu?.(e, album.id, "album")}
-      onArtistClick={(artist: ArtistCardData) => props.onCollectionClick?.(artist.id, "artist")}
-      onArtistPlay={(artist: ArtistCardData) => props.onCollectionPlay?.(artist.id, "artist")}
+      onAlbumContextMenu={(e, album) => props.onCollectionContextMenu?.(e, album.album_id, "album")}
+      onArtistClick={(artist: ArtistSummary) => props.onCollectionClick?.(artist.artist_id, "artist")}
+      onArtistPlay={(artist: ArtistSummary) => props.onCollectionPlay?.(artist.artist_id, "artist")}
       onArtistFavoriteToggle={(artistId, isFavorite) => props.onCollectionFavoriteToggle?.(artistId, "artist", isFavorite)}
-      onArtistContextMenu={(e, artist) => props.onCollectionContextMenu?.(e, artist.id, "artist")}
-      onPlaylistClick={(playlist: PlaylistCardData) => props.onCollectionClick?.(playlist.id, "playlist")}
-      onPlaylistPlay={(playlist: PlaylistCardData) => props.onCollectionPlay?.(playlist.id, "playlist")}
+      onArtistContextMenu={(e, artist) => props.onCollectionContextMenu?.(e, artist.artist_id, "artist")}
+      onPlaylistClick={(playlist: PlaylistSummary) => props.onCollectionClick?.(playlist.playlist_id, "playlist")}
+      onPlaylistPlay={(playlist: PlaylistSummary) => props.onCollectionPlay?.(playlist.playlist_id, "playlist")}
       onPlaylistFavoriteToggle={(playlistId, isFavorite) => props.onCollectionFavoriteToggle?.(playlistId, "playlist", isFavorite)}
-      onPlaylistContextMenu={(e, playlist) => props.onCollectionContextMenu?.(e, playlist.id, "playlist")}
+      onPlaylistContextMenu={(e, playlist) => props.onCollectionContextMenu?.(e, playlist.playlist_id, "playlist")}
       onArtistNavigate={props.onArtistClick}
       onAlbumNavigate={props.onAlbumClick}
       onGenreClick={props.onGenreClick}

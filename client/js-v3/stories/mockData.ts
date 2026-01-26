@@ -79,6 +79,43 @@ export const mockPlaylistSongs: Record<string, string[]> =
 export const mockLibraryStats: LibraryStats = mockDataJson.library;
 export const mockTags: Tag[] = mockDataJson.tags;
 
+// import favorites from json and add required fields with defaults
+import type { FavoriteItem } from "../src/components/layout/FavoritesLayout";
+const rawFavorites = mockDataJson.favorites as any[];
+export const mockFavorites: FavoriteItem[] = rawFavorites.map((item) => {
+  if (item.type === "song") {
+    return {
+      ...item,
+      created_at: item.created_at ?? Date.now(),
+      updated_at: item.updated_at ?? Date.now(),
+      album_added_at: item.album_added_at ?? Date.now(),
+      album_primary_genre_id: item.album_primary_genre_id ?? null,
+    };
+  }
+  if (item.type === "album") {
+    return {
+      ...item,
+      created_at: item.created_at ?? Date.now(),
+      updated_at: item.updated_at ?? Date.now(),
+    };
+  }
+  if (item.type === "artist") {
+    return {
+      ...item,
+      created_at: item.created_at ?? Date.now(),
+      updated_at: item.updated_at ?? Date.now(),
+    };
+  }
+  if (item.type === "playlist") {
+    return {
+      ...item,
+      created_at: item.created_at ?? Date.now(),
+      updated_at: item.updated_at ?? Date.now(),
+    };
+  }
+  return item;
+}) as FavoriteItem[];
+
 // helper to get songs for a playlist
 export function getPlaylistSongs(playlistId: string): Song[] {
   const songIds = mockPlaylistSongs[playlistId] || [];
@@ -101,251 +138,6 @@ export function getAlbumsByArtist(artistName: string): Album[] {
   );
 }
 
-// mock favorites with long strings for testing marquee and truncation
-export const mockFavorites = [
-  // song with very long title and artist
-  {
-    type: "song" as const,
-    id: "song-long-1",
-    title: "This is an extremely long song title that should definitely trigger the marquee effect when it overflows the container",
-    artist: "An Artist With A Really Really Long Name That Goes On Forever",
-    album: "The Most Incredibly Long Album Title You've Ever Seen In Your Entire Life",
-    duration: "5:23",
-    thumbnailUrl: mockSongs[0]?.thumbnailUrl,
-    isFavorite: true,
-    sha256: "sha256-long-1",
-    createdAt: Date.now() - 1 * 86400000,
-  },
-  // album with long title
-  {
-    type: "album" as const,
-    id: "album-long-1",
-    title: "A Monumentally Long Album Title That Tests The Boundaries Of Text Truncation",
-    subtitle: "Another Extremely Long Artist Name For Testing Purposes",
-    imageUrl: mockAlbums[0]?.thumbnailUrl,
-    isFavorite: true,
-    trackCount: 24,
-    year: 1973,
-    genres: ["progressive rock", "art rock", "experimental", "psychedelic rock", "symphonic rock", "krautrock", "space rock", "jazz fusion"],
-    tags: ["classic", "iconic", "groundbreaking", "innovative", "experimental", "virtuoso", "complex", "atmospheric", "conceptual"],
-    createdAt: Date.now() - 2 * 86400000,
-  },
-  // artist with long name
-  {
-    type: "artist" as const,
-    id: "artist-long-1",
-    title: "The Incredibly Long Band Name That Just Keeps Going And Going And Going",
-    imageUrl: undefined,
-    isFavorite: true,
-    albumCount: 42,
-    genres: ["progressive metal", "symphonic metal", "technical death metal", "avant-garde metal", "djent", "mathcore", "post-metal"],
-    tags: ["virtuoso", "epic", "technical", "atmospheric", "heavy", "melodic", "complex", "innovative", "experimental"],
-    createdAt: Date.now() - 3 * 86400000,
-  },
-  // playlist with long description
-  {
-    type: "playlist" as const,
-    id: "playlist-long-1",
-    title: "My Super Long Playlist Name That Contains Way Too Many Words",
-    imageUrl: undefined,
-    isFavorite: true,
-    trackCount: 156,
-    description: "This is an extremely long description for a playlist that goes into great detail about the curation process and the emotional journey that listeners will experience when they play this carefully crafted collection of songs",
-    updatedAt: Date.now() - 8 * 3600000,
-    duration: 12847,
-    createdAt: Date.now() - 4 * 86400000,
-  },
-  // regular length song
-  {
-    type: "song" as const,
-    id: mockSongs[0].id,
-    title: mockSongs[0].title,
-    artist: mockSongs[0].artist,
-    album: mockSongs[0].album,
-    duration: `${Math.floor(mockSongs[0].durationSeconds / 60)}:${String(mockSongs[0].durationSeconds % 60).padStart(2, "0")}`,
-    thumbnailUrl: mockSongs[0].thumbnailUrl,
-    isFavorite: true,
-    sha256: `sha256-${mockSongs[0].id}`,
-    createdAt: Date.now() - 5 * 86400000,
-  },
-  // regular album
-  {
-    type: "album" as const,
-    id: mockAlbums[0].id,
-    title: mockAlbums[0].title,
-    subtitle: mockAlbums[0].artist,
-    imageUrl: mockAlbums[0].thumbnailUrl,
-    isFavorite: true,
-    trackCount: mockAlbums[0].trackCount,
-    year: mockAlbums[0].year,
-    genres: ["rock", "progressive rock", "classic rock", "album rock", "hard rock"],
-    tags: ["classic", "iconic", "70s", "legendary", "influential", "timeless"],
-    createdAt: Date.now() - 6 * 86400000,
-  },
-  // another long song
-  {
-    type: "song" as const,
-    id: "song-long-2",
-    title: "Another Song With An Absurdly Long Title That Will Definitely Need Scrolling",
-    artist: "Yet Another Band With Way Too Many Words In Their Name",
-    album: "Short Album",
-    duration: "7:42",
-    thumbnailUrl: mockSongs[1]?.thumbnailUrl,
-    isFavorite: true,
-    sha256: "sha256-long-2",
-    createdAt: Date.now() - 7 * 86400000,
-  },
-  // regular artist
-  {
-    type: "artist" as const,
-    id: mockArtists[0].id,
-    title: mockArtists[0].name,
-    imageUrl: undefined,
-    isFavorite: true,
-    albumCount: mockArtists[0].albumCount,
-    genres: ["rock", "alternative", "alternative rock", "indie rock", "post-grunge", "britpop"],
-    tags: ["90s", "iconic", "influential", "melodic", "anthemic", "legendary"],
-    createdAt: Date.now() - 8 * 86400000,
-  },
-  // more regular items
-  {
-    type: "song" as const,
-    id: mockSongs[1].id,
-    title: mockSongs[1].title,
-    artist: mockSongs[1].artist,
-    album: mockSongs[1].album,
-    duration: `${Math.floor(mockSongs[1].durationSeconds / 60)}:${String(mockSongs[1].durationSeconds % 60).padStart(2, "0")}`,
-    thumbnailUrl: mockSongs[1].thumbnailUrl,
-    isFavorite: true,
-    sha256: `sha256-${mockSongs[1].id}`,
-    createdAt: Date.now() - 9 * 86400000,
-  },
-  {
-    type: "album" as const,
-    id: mockAlbums[1].id,
-    title: mockAlbums[1].title,
-    subtitle: mockAlbums[1].artist,
-    imageUrl: mockAlbums[1].thumbnailUrl,
-    isFavorite: true,
-    trackCount: mockAlbums[1].trackCount,
-    year: mockAlbums[1].year,
-    genres: ["rock", "progressive rock"],
-    tags: ["classic", "iconic"],
-    createdAt: Date.now() - 10 * 86400000,
-  },
-  {
-    type: "playlist" as const,
-    id: mockPlaylists[0].id,
-    title: mockPlaylists[0].name,
-    imageUrl: undefined,
-    isFavorite: true,
-    trackCount: mockPlaylists[0].songCount,
-    description: `a curated collection of ${mockPlaylists[0].songCount} amazing tracks`,
-    updatedAt: Date.now() - 16 * 3600000,
-    duration: mockPlaylists[0].duration,
-    createdAt: Date.now() - 11 * 86400000,
-  },
-  {
-    type: "song" as const,
-    id: mockSongs[2].id,
-    title: mockSongs[2].title,
-    artist: mockSongs[2].artist,
-    album: mockSongs[2].album,
-    duration: `${Math.floor(mockSongs[2].durationSeconds / 60)}:${String(mockSongs[2].durationSeconds % 60).padStart(2, "0")}`,
-    thumbnailUrl: mockSongs[2].thumbnailUrl,
-    isFavorite: true,
-    sha256: `sha256-${mockSongs[2].id}`,
-    createdAt: Date.now() - 12 * 86400000,
-  },
-  {
-    type: "artist" as const,
-    id: mockArtists[1].id,
-    title: mockArtists[1].name,
-    imageUrl: undefined,
-    isFavorite: true,
-    albumCount: mockArtists[1].albumCount,
-    genres: ["rock", "alternative"],
-    tags: ["90s", "grunge"],
-    createdAt: Date.now() - 13 * 86400000,
-  },
-  {
-    type: "album" as const,
-    id: mockAlbums[2].id,
-    title: mockAlbums[2].title,
-    subtitle: mockAlbums[2].artist,
-    imageUrl: mockAlbums[2].thumbnailUrl,
-    isFavorite: true,
-    trackCount: mockAlbums[2].trackCount,
-    year: mockAlbums[2].year,
-    genres: ["rock", "classic rock"],
-    tags: ["70s", "legendary"],
-    createdAt: Date.now() - 14 * 86400000,
-  },
-  // song without image
-  {
-    type: "song" as const,
-    id: "song-no-image-1",
-    title: "Track Without Cover Art",
-    artist: "Unknown Artist",
-    album: "Unknown Album",
-    duration: "3:42",
-    thumbnailUrl: undefined,
-    isFavorite: true,
-    sha256: "sha256-no-image-1",
-    createdAt: Date.now() - 15 * 86400000,
-  },
-  // album without image
-  {
-    type: "album" as const,
-    id: "album-no-image-1",
-    title: "Rare Bootleg Recording",
-    subtitle: "Underground Band",
-    imageUrl: undefined,
-    isFavorite: true,
-    trackCount: 12,
-    year: 1998,
-    genres: ["punk", "hardcore"],
-    tags: ["rare", "bootleg"],
-    createdAt: Date.now() - 16 * 86400000,
-  },
-  // artist with image
-  {
-    type: "artist" as const,
-    id: "artist-with-image-1",
-    title: "Famous Band With Photo",
-    imageUrl: mockAlbums[0]?.thumbnailUrl,
-    isFavorite: true,
-    albumCount: 15,
-    genres: ["rock", "alternative"],
-    tags: ["iconic", "legendary"],
-    createdAt: Date.now() - 17 * 86400000,
-  },
-  // artist without image (already have this)
-  {
-    type: "artist" as const,
-    id: "artist-no-image-1",
-    title: "Mysterious Artist",
-    imageUrl: undefined,
-    isFavorite: true,
-    albumCount: 8,
-    genres: ["electronic", "ambient"],
-    tags: ["mysterious", "atmospheric"],
-    createdAt: Date.now() - 18 * 86400000,
-  },
-  // playlist without image
-  {
-    type: "playlist" as const,
-    id: "playlist-no-image-1",
-    title: "My Chill Mix",
-    imageUrl: undefined,
-    isFavorite: true,
-    trackCount: 87,
-    description: "relaxing tunes for late night coding sessions",
-    updatedAt: Date.now() - 24 * 3600000,
-    duration: 5420,
-    createdAt: Date.now() - 19 * 86400000,
-  },
-];
 
 // helper to get songs by album
 export function getSongsByAlbum(albumTitle: string): Song[] {

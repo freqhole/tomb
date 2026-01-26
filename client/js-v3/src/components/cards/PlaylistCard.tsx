@@ -1,25 +1,14 @@
 import { Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
-
-export interface PlaylistCardData {
-  type: "playlist";
-  id: string;
-  title: string;
-  imageUrl?: string;
-  isFavorite: boolean;
-  trackCount?: number;
-  description?: string;
-  updatedAt?: number;
-  duration?: number; // seconds
-  createdAt: number;
-}
+import type { PlaylistSummary } from "../../music/data/types";
+import { getImageUrl } from "../../music/utils/format";
 
 export interface PlaylistCardProps {
-  playlist: PlaylistCardData;
-  onClick?: (playlist: PlaylistCardData) => void;
-  onPlay?: (playlist: PlaylistCardData) => void;
-  onContextMenu?: (e: MouseEvent, playlist: PlaylistCardData) => void;
+  playlist: PlaylistSummary;
+  onClick?: (playlist: PlaylistSummary) => void;
+  onPlay?: (playlist: PlaylistSummary) => void;
+  onContextMenu?: (e: MouseEvent, playlist: PlaylistSummary) => void;
   onFavoriteToggle?: (playlistId: string, isFavorite: boolean) => void;
 }
 
@@ -64,15 +53,15 @@ export function PlaylistCard(props: PlaylistCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
-          <Show when={props.playlist.imageUrl}>
+          <Show when={props.playlist.thumbnail_blob_id}>
             <div
               class="absolute inset-0 bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105 rounded-lg group-hover:rounded-none"
-              style={`background-image: url('${props.playlist.imageUrl}')`}
+            style={`background-image: url('${getImageUrl(props.playlist.thumbnail_blob_id)}')`}
               role="img"
               aria-label={props.playlist.title}
             />
           </Show>
-          <Show when={!props.playlist.imageUrl}>
+          <Show when={!props.playlist.thumbnail_blob_id}>
             <div class="absolute inset-0 flex items-center justify-center">
               <svg class="w-12 h-12 text-[var(--color-accent-500)]" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
@@ -82,10 +71,10 @@ export function PlaylistCard(props: PlaylistCardProps) {
         </div>
         <div class="absolute top-2 right-2 z-10">
           <FavoriteHeart
-            isFavorite={props.playlist.isFavorite}
+            isFavorite={props.playlist.is_favorite ?? false}
             onToggle={(isFavorite) => {
               event?.stopPropagation();
-              props.onFavoriteToggle?.(props.playlist.id, isFavorite);
+              props.onFavoriteToggle?.(props.playlist.playlist_id, isFavorite);
             }}
             size="sm"
             class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
@@ -118,14 +107,11 @@ export function PlaylistCard(props: PlaylistCardProps) {
           </div>
         </Show>
         <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors truncate">
-          {[
-            props.playlist.trackCount && `${props.playlist.trackCount} songs`,
-            props.playlist.duration && formatDuration(props.playlist.duration)
-          ].filter(Boolean).join(" • ")}
+          {props.playlist.song_count && `${props.playlist.song_count} songs`}
         </div>
-        <Show when={props.playlist.updatedAt}>
+        <Show when={props.playlist.updated_at}>
           <div class="text-xs text-[var(--color-text-muted)] group-hover:text-[var(--color-text-tertiary)] transition-colors truncate">
-            updated {formatRelativeTime(props.playlist.updatedAt!)}
+            updated {formatRelativeTime(props.playlist.updated_at)}
           </div>
         </Show>
       </div>

@@ -26,6 +26,17 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
+// convert blob ID to image URL - handles both API blob IDs and external URLs
+export function getImageUrl(blobId: string | null | undefined): string | null {
+  if (!blobId) return null;
+  // if already a full URL, return as-is
+  if (blobId.startsWith('http://') || blobId.startsWith('https://')) {
+    return blobId;
+  }
+  // otherwise treat as blob ID and prepend API path
+  return `/api/blobs/${blobId}`;
+}
+
 // format number with thousands separator
 export function formatNumber(num: number): string {
   return num.toLocaleString();

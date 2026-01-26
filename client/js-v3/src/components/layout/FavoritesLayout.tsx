@@ -4,14 +4,20 @@ import { Icon } from "../icons/registry";
 import { MediaImage } from "../media/MediaImage";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
-import { SongCard, type SongCardData } from "../cards/SongCard";
-import { AlbumCard, type AlbumCardData } from "../cards/AlbumCard";
-import { ArtistCard, type ArtistCardData } from "../cards/ArtistCard";
-import { PlaylistCard, type PlaylistCardData } from "../cards/PlaylistCard";
+import { SongCard } from "../cards/SongCard";
+import { AlbumCard } from "../cards/AlbumCard";
+import { ArtistCard } from "../cards/ArtistCard";
+import { PlaylistCard } from "../cards/PlaylistCard";
+import type { Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../../music/data/types";
+import { getImageUrl } from "../../music/utils/format";
 
 export type FavoriteType = "all" | "songs" | "albums" | "artists" | "playlists";
 
-export type FavoriteItem = SongCardData | AlbumCardData | ArtistCardData | PlaylistCardData;
+export type FavoriteItem = 
+  | (Song & { type: "song" })
+  | (AlbumSummary & { type: "album" })
+  | (ArtistSummary & { type: "artist" })
+  | (PlaylistSummary & { type: "playlist" });
 
 export interface FavoritesLayoutProps {
   /** all favorites to display */
@@ -23,24 +29,24 @@ export interface FavoritesLayoutProps {
   /** callback when filter changes */
   onFilterChange?: (filter: FavoriteType) => void;
   /** song card callbacks */
-  onSongClick?: (song: SongCardData) => void;
-  onSongPlay?: (song: SongCardData) => void;
-  onSongContextMenu?: (e: MouseEvent, song: SongCardData) => void;
+  onSongClick?: (song: Song) => void;
+  onSongPlay?: (song: Song) => void;
+  onSongContextMenu?: (e: MouseEvent, song: Song) => void;
   onSongFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   /** album card callbacks */
-  onAlbumClick?: (album: AlbumCardData) => void;
-  onAlbumPlay?: (album: AlbumCardData) => void;
-  onAlbumContextMenu?: (e: MouseEvent, album: AlbumCardData) => void;
+  onAlbumClick?: (album: AlbumSummary) => void;
+  onAlbumPlay?: (album: AlbumSummary) => void;
+  onAlbumContextMenu?: (e: MouseEvent, album: AlbumSummary) => void;
   onAlbumFavoriteToggle?: (albumId: string, isFavorite: boolean) => void;
   /** artist card callbacks */
-  onArtistClick?: (artist: ArtistCardData) => void;
-  onArtistPlay?: (artist: ArtistCardData) => void;
-  onArtistContextMenu?: (e: MouseEvent, artist: ArtistCardData) => void;
+  onArtistClick?: (artist: ArtistSummary) => void;
+  onArtistPlay?: (artist: ArtistSummary) => void;
+  onArtistContextMenu?: (e: MouseEvent, artist: ArtistSummary) => void;
   onArtistFavoriteToggle?: (artistId: string, isFavorite: boolean) => void;
   /** playlist card callbacks */
-  onPlaylistClick?: (playlist: PlaylistCardData) => void;
-  onPlaylistPlay?: (playlist: PlaylistCardData) => void;
-  onPlaylistContextMenu?: (e: MouseEvent, playlist: PlaylistCardData) => void;
+  onPlaylistClick?: (playlist: PlaylistSummary) => void;
+  onPlaylistPlay?: (playlist: PlaylistSummary) => void;
+  onPlaylistContextMenu?: (e: MouseEvent, playlist: PlaylistSummary) => void;
   onPlaylistFavoriteToggle?: (playlistId: string, isFavorite: boolean) => void;
   /** navigation callbacks */
   onArtistNavigate?: (artistId: string) => void;
@@ -74,8 +80,8 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
       items = items.filter((fav) => fav.type === targetType);
     }
     
-    // sort by createdAt timestamp (most recent first)
-    return [...items].sort((a, b) => b.createdAt - a.createdAt);
+    // return items as-is (already sorted by parent)
+    return items;
   };
 
   // count by type for tab badges
@@ -179,7 +185,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                     <Switch>
                       <Match when={item.type === "song"}>
                         <SongCard
-                          song={item as SongCardData}
+                          song={item as (Song & { type: "song" })}
                           onClick={props.onSongClick}
                           onPlay={props.onSongPlay}
                           onContextMenu={props.onSongContextMenu}
@@ -190,7 +196,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       </Match>
                       <Match when={item.type === "album"}>
                         <AlbumCard
-                          album={item as AlbumCardData}
+                          album={item as (AlbumSummary & { type: "album" })}
                           onClick={props.onAlbumClick}
                           onPlay={props.onAlbumPlay}
                           onContextMenu={props.onAlbumContextMenu}
@@ -201,7 +207,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       </Match>
                       <Match when={item.type === "artist"}>
                         <ArtistCard
-                          artist={item as ArtistCardData}
+                          artist={item as (ArtistSummary & { type: "artist" })}
                           onClick={props.onArtistClick}
                           onPlay={props.onArtistPlay}
                           onContextMenu={props.onArtistContextMenu}
@@ -211,7 +217,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       </Match>
                       <Match when={item.type === "playlist"}>
                         <PlaylistCard
-                          playlist={item as PlaylistCardData}
+                          playlist={item as (PlaylistSummary & { type: "playlist" })}
                           onClick={props.onPlaylistClick}
                           onPlay={props.onPlaylistPlay}
                           onContextMenu={props.onPlaylistContextMenu}
@@ -226,9 +232,12 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
 
             <Match when={filterType() === "songs"}>
               <div class="space-y-1">
-                <For each={filteredFavorites() as SongCardData[]}>
+                <For each={filteredFavorites() as (Song & { type: "song" })[]}>
                   {(song) => {
-                    const subtitle = [song.artist, song.album].filter(Boolean).join(" • ");
+                    const subtitle = [song.artist_name, song.album_title].filter(Boolean).join(" • ");
+                    const duration_display = song.duration_seconds 
+                      ? `${Math.floor(song.duration_seconds / 60)}:${String(song.duration_seconds % 60).padStart(2, '0')}`
+                      : '';
                     return (
                       <div 
                         class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
@@ -237,9 +246,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                           props.onSongPlay?.(song);
                         }}
                       >
-                        <Show when={song.thumbnailUrl}>
+                        <Show when={song.thumbnail_blob_id}>
                           <MediaThumbnail
-                            thumbnailUrl={song.thumbnailUrl!}
+                          thumbnailUrl={getImageUrl(song.thumbnail_blob_id)!}
                             onPlayClick={() => {
                               console.log("media thumbnail click:", song.title);
                               props.onSongPlay?.(song);
@@ -259,10 +268,10 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                           </Show>
                         </div>
                         <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">
-                          {song.duration}
+                          {duration_display}
                         </div>
                         <FavoriteHeart
-                          isFavorite={song.isFavorite}
+                          isFavorite={song.is_favorite ?? false}
                           onToggle={(isFavorite) => props.onSongFavoriteToggle?.(song.id, isFavorite)}
                           size="sm"
                         />
@@ -275,7 +284,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
 
             <Match when={filterType() === "albums"}>
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites() as AlbumCardData[]}>
+                <For each={filteredFavorites() as (AlbumSummary & { type: "album" })[]}>
                   {(album) => (
                     <AlbumCard
                       album={album}
@@ -293,7 +302,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
 
             <Match when={filterType() === "artists"}>
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites() as ArtistCardData[]}>
+                <For each={filteredFavorites() as (ArtistSummary & { type: "artist" })[]}>
                   {(artist) => (
                     <ArtistCard
                       artist={artist}
@@ -310,7 +319,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
 
             <Match when={filterType() === "playlists"}>
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites() as PlaylistCardData[]}>
+                <For each={filteredFavorites() as (PlaylistSummary & { type: "playlist" })[]}>
                   {(playlist) => (
                     <PlaylistCard
                       playlist={playlist}

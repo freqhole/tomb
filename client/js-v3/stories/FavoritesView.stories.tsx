@@ -16,6 +16,15 @@ export const Default: Story = {
   render: () => {
     const [favorites, setFavorites] = createSignal<FavoriteItem[]>(mockFavorites);
 
+    // helper to get ID from favorite item
+    const getId = (item: FavoriteItem): string => {
+      if (item.type === "song") return item.id;
+      if (item.type === "album") return item.album_id;
+      if (item.type === "artist") return item.artist_id;
+      if (item.type === "playlist") return item.playlist_id;
+      return "";
+    };
+
     return (
       <FavoritesLayout
         favorites={favorites()}
@@ -24,7 +33,7 @@ export const Default: Story = {
         onSongFavoriteToggle={(songId, isFavorite) => {
           console.log("song favorite toggle:", songId, isFavorite);
           if (!isFavorite) {
-            setFavorites((prev) => prev.filter((fav) => fav.id !== songId));
+            setFavorites((prev) => prev.filter((fav) => getId(fav) !== songId));
           }
         }}
         onAlbumClick={(album) => console.log("album click:", album)}
@@ -32,7 +41,7 @@ export const Default: Story = {
         onAlbumFavoriteToggle={(albumId, isFavorite) => {
           console.log("album favorite toggle:", albumId, isFavorite);
           if (!isFavorite) {
-            setFavorites((prev) => prev.filter((fav) => fav.id !== albumId));
+            setFavorites((prev) => prev.filter((fav) => getId(fav) !== albumId));
           }
         }}
         onArtistClick={(artist) => console.log("artist click:", artist)}
@@ -40,7 +49,7 @@ export const Default: Story = {
         onArtistFavoriteToggle={(artistId, isFavorite) => {
           console.log("artist favorite toggle:", artistId, isFavorite);
           if (!isFavorite) {
-            setFavorites((prev) => prev.filter((fav) => fav.id !== artistId));
+            setFavorites((prev) => prev.filter((fav) => getId(fav) !== artistId));
           }
         }}
         onPlaylistClick={(playlist) => console.log("playlist click:", playlist)}
@@ -48,7 +57,7 @@ export const Default: Story = {
         onPlaylistFavoriteToggle={(playlistId, isFavorite) => {
           console.log("playlist favorite toggle:", playlistId, isFavorite);
           if (!isFavorite) {
-            setFavorites((prev) => prev.filter((fav) => fav.id !== playlistId));
+            setFavorites((prev) => prev.filter((fav) => getId(fav) !== playlistId));
           }
         }}
         onArtistNavigate={(artistId) => console.log("navigate to artist:", artistId)}

@@ -1,25 +1,14 @@
 import { Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
-
-export interface SongCardData {
-  type: "song";
-  id: string;
-  title: string;
-  artist?: string;
-  album?: string;
-  duration: string;
-  thumbnailUrl?: string;
-  isFavorite: boolean;
-  sha256?: string;
-  createdAt: number;
-}
+import type { Song } from "../../music/data/types";
+import { getImageUrl } from "../../music/utils/format";
 
 export interface SongCardProps {
-  song: SongCardData;
-  onClick?: (song: SongCardData) => void;
-  onPlay?: (song: SongCardData) => void;
-  onContextMenu?: (e: MouseEvent, song: SongCardData) => void;
+  song: Song;
+  onClick?: (song: Song) => void;
+  onPlay?: (song: Song) => void;
+  onContextMenu?: (e: MouseEvent, song: Song) => void;
   onFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   onArtistClick?: (artistId: string) => void;
   onAlbumClick?: (albumId: string) => void;
@@ -45,15 +34,15 @@ export function SongCard(props: SongCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
-          <Show when={props.song.thumbnailUrl}>
+          <Show when={props.song.thumbnail_blob_id}>
             <div
               class="absolute inset-0 bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105 rounded-lg group-hover:rounded-none"
-              style={`background-image: url('${props.song.thumbnailUrl}')`}
+            style={`background-image: url('${getImageUrl(props.song.thumbnail_blob_id)}')`}
               role="img"
               aria-label={props.song.title}
             />
           </Show>
-          <Show when={!props.song.thumbnailUrl}>
+          <Show when={!props.song.thumbnail_blob_id}>
             <div class="absolute inset-0 flex items-center justify-center">
               <svg class="w-12 h-12 text-[var(--color-accent-500)]" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
@@ -63,7 +52,7 @@ export function SongCard(props: SongCardProps) {
         </div>
         <div class="absolute top-2 right-2 z-10">
           <FavoriteHeart
-            isFavorite={props.song.isFavorite}
+            isFavorite={props.song.is_favorite ?? false}
             onToggle={(isFavorite) => {
               event?.stopPropagation();
               props.onFavoriteToggle?.(props.song.id, isFavorite);
@@ -105,8 +94,8 @@ export function SongCard(props: SongCardProps) {
           >
             <MarqueeText
               text={[
-                props.song.artist,
-                props.song.album
+                props.song.artist_name,
+                props.song.album_title
               ].filter(Boolean).join(" • ")}
               class="group-hover:text-[var(--color-text-primary)] transition-colors"
               hoverClass="text-[var(--color-accent-500)] underline"
@@ -114,8 +103,8 @@ export function SongCard(props: SongCardProps) {
             />
           </a>
         </div>
-        <div class="text-xs text-[var(--color-text-tertiary)]">
-          {props.song.duration}
+        <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors">
+          {Math.floor(props.song.duration_seconds / 60)}:{String(props.song.duration_seconds % 60).padStart(2, '0')}
         </div>
       </div>
     </div>
