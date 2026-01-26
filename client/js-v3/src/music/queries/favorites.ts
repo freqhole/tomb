@@ -106,10 +106,33 @@ export function useToggleFavoriteMutation() {
     onMutate: async (variables) => {
       debug("favorites", "onMutate called:", variables);
 
-      // update the song in the queue (IndexedDB) immediately so PlayerBar and Queue show correct state
-      if (variables.targetType === "song" && variables.sha256) {
-        debug("favorites", "updating song in queue (IndexedDB)");
-        await updateSongInQueue(variables.targetId, variables.sha256, {
+      // update the appropriate entity in cache immediately for instant UI feedback
+      if (variables.targetType === "song") {
+        debug("favorites", "optimistically updating song in cache");
+        updateSongInCache(queryClient, variables.targetId, variables.sha256 || "", {
+          is_favorite: variables.isFavorite,
+        });
+        
+        // also update song in queue (IndexedDB) so PlayerBar and Queue show correct state
+        if (variables.sha256) {
+          debug("favorites", "updating song in queue (IndexedDB)");
+          await updateSongInQueue(variables.targetId, variables.sha256, {
+            is_favorite: variables.isFavorite,
+          });
+        }
+      } else if (variables.targetType === "album") {
+        debug("favorites", "optimistically updating album in cache");
+        updateAlbumInCache(queryClient, variables.targetId, {
+          is_favorite: variables.isFavorite,
+        });
+      } else if (variables.targetType === "artist") {
+        debug("favorites", "optimistically updating artist in cache");
+        updateArtistInCache(queryClient, variables.targetId, {
+          is_favorite: variables.isFavorite,
+        });
+      } else if (variables.targetType === "playlist") {
+        debug("favorites", "optimistically updating playlist in cache");
+        updatePlaylistInCache(queryClient, variables.targetId, {
           is_favorite: variables.isFavorite,
         });
       }
@@ -181,25 +204,26 @@ function getQueryKeysToInvalidate(
         queryKeys.songs.all,
         queryKeys.favorites.all, // favorites list
         queryKeys.playlists.all, // playlist songs
-        ["album", "songs"], // album songs
+        ["album", "songs"], // album songs (prefix match all album detail views)
         ["artist", "songs"], // artist songs
         ["genre", "songs"], // genre songs
       ];
     case "album":
       return [
-        queryKeys.albums.all,
+        queryKeys.albums.all, // album lists and detail views (all nested queries)
         queryKeys.favorites.all, // favorites list
         ["artist", "songs"], // artist songs contain album_is_favorite
+        ["album", "songs"], // album detail views show album favorite status
       ];
     case "artist":
       return [
-        queryKeys.artists.all,
+        queryKeys.artists.all, // artist lists and detail views (all nested queries)
         queryKeys.favorites.all, // favorites list
         ["artist", "songs"], // artist songs contain artist data with is_favorite
       ];
     case "playlist":
       return [
-        queryKeys.playlists.all,
+        queryKeys.playlists.all, // playlist lists and detail views
         queryKeys.favorites.all, // favorites list
       ];
   }

@@ -383,13 +383,13 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               <GenreAutocomplete
                 label="genre"
                 value={formData().genre}
-                onSelect={(selection) =>
+                onSelect={(selection) => {
                   setFormData((prev) => ({
                     ...prev,
                     genre_id: selection.id,
                     genre: selection.name,
-                  }))
-                }
+                  }));
+                }}
                 placeholder="select or type genre"
                 hint="choose a genre for this album"
               />

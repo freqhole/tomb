@@ -165,7 +165,7 @@ export async function downloadPlaylist(
     });
 
     // download songs and create local entries
-    const localSongMappings: Array<{ sha256: string; position: number }> = [];
+    const localSongMappings: Array<{ song_id: string; position: number }> = [];
 
     for (let i = 0; i < allSongs.length; i++) {
       const remoteSong = allSongs[i];
@@ -221,7 +221,7 @@ export async function downloadPlaylist(
           );
           // just add to playlist mapping
           localSongMappings.push({
-            sha256,
+            song_id: sha256,
             position: remoteSong.position || i,
           });
           continue;
@@ -301,7 +301,7 @@ export async function downloadPlaylist(
 
         // add to playlist mapping
         localSongMappings.push({
-          sha256,
+          song_id: sha256,
           position: remoteSong.position || i,
         });
       } catch (error) {
@@ -464,7 +464,7 @@ export async function syncPlaylist(
     });
 
     // build song mappings and download missing songs
-    const localSongMappings: Array<{ sha256: string; position: number }> = [];
+    const localSongMappings: Array<{ song_id: string; position: number }> = [];
 
     for (let i = 0; i < allRemoteSongs.length; i++) {
       const remoteSong = allRemoteSongs[i];
@@ -510,7 +510,7 @@ export async function syncPlaylist(
         if (existingSong) {
           // already have it, just add to mapping
           localSongMappings.push({
-            sha256,
+            song_id: sha256,
             position: remoteSong.position || i,
           });
           continue;
@@ -573,7 +573,7 @@ export async function syncPlaylist(
         await db.put("songs", localSong);
 
         localSongMappings.push({
-          sha256,
+          song_id: sha256,
           position: remoteSong.position || i,
         });
       } catch (error) {

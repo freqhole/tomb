@@ -319,12 +319,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const summary = playlists().find((p) => p.playlist_id === id);
     if (!summary) return null;
 
-    // if viewing local, return the full playlist record (has sync fields)
-    if (!isViewingRemote() && fullPlaylist()?.playlist_id === id) {
-      return fullPlaylist();
-    }
-
-    // for remote, just return the summary (cast to Playlist for compatibility)
+    // return the summary from cache (gets optimistically updated for instant UI feedback)
+    // this works for both local and remote since the cache is the source of truth
     return summary as unknown as Playlist;
   });
 

@@ -132,17 +132,17 @@ export interface Playlist {
 
 // ===== PLAYLIST_SONGS TABLE (junction) =====
 export interface PlaylistSong {
-  playlist_id: string; // FK
-  sha256: string; // FK to songs
+  playlist_id: string; // FK to playlists
+  song_id: string; // FK to songs.id
   position: number; // order in playlist
   added_at: number;
 }
 
 // ===== USER DATA TABLES =====
 
-// user favorites (songs, albums, artists)
+// user favorites (songs, albums, artists, playlists)
 export interface Favorite {
-  target_type: "song" | "album" | "artist";
+  target_type: "song" | "album" | "artist" | "playlist";
   target_id: string;
   favorited_at: number;
 }
@@ -159,12 +159,10 @@ export interface Rating {
 
 // song with joined artist + album + genre
 export interface SongQueryResult {
-  song: Song;
+  song: Song; // song object already has is_favorite and user_rating populated
   artist: Artist;
   album: Album;
   genre: Genre | null;
-  is_favorite: boolean;
-  rating: number | null;
 }
 
 // album with joined artist + genre
@@ -229,7 +227,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 10; // bumped for album_tags table
+export const MUSIC_DB_VERSION = 11; // bumped for album_tags table
 
 // store names
 export const STORE_ARTISTS = "artists";

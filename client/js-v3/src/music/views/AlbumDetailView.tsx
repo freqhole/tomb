@@ -1,6 +1,7 @@
 // album detail view - shows album info and songs list
 import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
@@ -14,6 +15,7 @@ import { showAlbumEditor } from "../modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
+import { queryKeys } from "../queries/queryKeys";
 import { playSong } from "../services/audio/player";
 import {
   useAlbumContextMenu,
@@ -36,6 +38,7 @@ function formatDuration(seconds: number): string {
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // fetch album entity to get favorite status and metadata
   const albumQuery = useAlbumQuery(() => params.id);
@@ -57,10 +60,21 @@ export function AlbumDetailView() {
 
   // handle album favorite toggle
   const handleAlbumFavoriteToggle = (isFavorite: boolean) => {
+    const album = albumQuery.data;
+    // use the album's actual album_id for the mutation (to update the correct record in storage)
+    // but we also need to update the query cache which is keyed by params.id
+    const albumId = album?.album_id || params.id;
     toggleFavoriteMutation.mutate({
       targetType: "album",
-      targetId: params.id,
+      targetId: albumId,
       isFavorite,
+    }, {
+      onSuccess: () => {
+        // manually update the query cache using the route param id (the query key)
+        queryClient.setQueryData(queryKeys.albums.detail(params.id), (old: any) => 
+          old ? { ...old, is_favorite: isFavorite } : old
+        );
+      }
     });
   };
 

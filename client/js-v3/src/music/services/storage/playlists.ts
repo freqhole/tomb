@@ -131,7 +131,7 @@ export async function getPlaylistByRemoteId(
 export async function updatePlaylistSongs(
   db: IDBPDatabase,
   playlistId: string,
-  songs: Array<{ sha256: string; position: number }>,
+  songs: Array<{ song_id: string; position: number }>,
 ): Promise<void> {
   const tx = db.transaction(STORE_PLAYLIST_SONGS, "readwrite");
   const store = tx.objectStore(STORE_PLAYLIST_SONGS);
@@ -140,7 +140,7 @@ export async function updatePlaylistSongs(
   const index = store.index("by_playlist_id");
   const existingSongs = await index.getAll(playlistId);
   for (const song of existingSongs) {
-    await store.delete([song.playlist_id, song.sha256]);
+    await store.delete([song.playlist_id, song.song_id]);
   }
 
   // add new songs
@@ -148,7 +148,7 @@ export async function updatePlaylistSongs(
   for (const song of songs) {
     const playlistSong: PlaylistSong = {
       playlist_id: playlistId,
-      sha256: song.sha256,
+      song_id: song.song_id,
       position: song.position,
       added_at: now,
     };

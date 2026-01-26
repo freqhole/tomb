@@ -184,35 +184,51 @@ export function updateAlbumInCache(
   albumId: string,
   updates: Partial<Album>,
 ): void {
-  const updateAlbumInArray = (albums: Album[]): Album[] => {
+  debug("cacheUpdates", "updateAlbumInCache called:", {
+    albumId,
+    updates,
+  });
+
+  const updateAlbumInArray = <T extends { album_id: string }>(albums: T[]): T[] => {
     return albums.map((album) =>
       album.album_id === albumId ? { ...album, ...updates } : album,
     );
   };
 
-  // 1. update specific album query
-  queryClient.setQueryData<Album>(["album", albumId], (old) =>
+  // 1. update specific album detail query
+  queryClient.setQueryData<Album>(queryKeys.albums.detail(albumId), (old) =>
     old ? { ...old, ...updates } : old,
   );
 
-  // 2. update albums list queries
-  const albumsQueries = queryClient.getQueriesData<{
-    pages: Array<{ items: Album[] }>;
+  // 2. update albums infinite queries (AlbumSummary[])
+  const albumsInfiniteQueries = queryClient.getQueriesData<{
+    pages: Array<{
+      items: unknown[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>;
+    pageParams: unknown[];
   }>({
-    queryKey: queryKeys.albums.all,
+    queryKey: [...queryKeys.albums.all, "list"],
     exact: false,
   });
 
-  for (const [queryKey, data] of albumsQueries) {
+  for (const [queryKey, data] of albumsInfiniteQueries) {
     if (!data?.pages) continue;
 
-    queryClient.setQueryData(queryKey, {
+    debug("cacheUpdates", "updating infinite albums query:", queryKey);
+    const updatedData = {
       ...data,
       pages: data.pages.map((page) => ({
         ...page,
-        items: updateAlbumInArray(page.items),
+        items: updateAlbumInArray(page.items as Album[]),
       })),
-    });
+    };
+    queryClient.setQueryData(queryKey, updatedData);
+
+    debug("cacheUpdates", "updated infinite albums query");
   }
 
   // 3. update artist albums queries
@@ -230,6 +246,53 @@ export function updateAlbumInCache(
       ...data,
       items: updateAlbumInArray(data.items),
     });
+  }
+
+  // 4. update songs with album_is_favorite when album favorite changes
+  if (updates.is_favorite !== undefined) {
+    // update artist songs queries (where the album favorite heart appears)
+    const artistSongsQueries = queryClient.getQueriesData<{
+      items: Song[];
+    }>({
+      queryKey: ["artist", "songs"],
+      exact: false,
+    });
+
+    for (const [queryKey, data] of artistSongsQueries) {
+      if (!data?.items) continue;
+
+      const updatedData = {
+        ...data,
+        items: data.items.map(song =>
+          song.album_id === albumId
+            ? { ...song, album_is_favorite: updates.is_favorite }
+            : song
+        ),
+      };
+      queryClient.setQueryData(queryKey, updatedData);
+    }
+
+    // also update album songs queries
+    const albumSongsQueries = queryClient.getQueriesData<{
+      items: Song[];
+    }>({
+      queryKey: ["album", "songs"],
+      exact: false,
+    });
+
+    for (const [queryKey, data] of albumSongsQueries) {
+      if (!data?.items) continue;
+
+      const updatedData = {
+        ...data,
+        items: data.items.map(song =>
+          song.album_id === albumId
+            ? { ...song, album_is_favorite: updates.is_favorite }
+            : song
+        ),
+      };
+      queryClient.setQueryData(queryKey, updatedData);
+    }
   }
 }
 
@@ -281,6 +344,11 @@ export function updatePlaylistInCache(
   playlistId: string,
   updates: Partial<Playlist>,
 ): void {
+  debug("cacheUpdates", "updatePlaylistInCache called:", {
+    playlistId,
+    updates,
+  });
+
   const updatePlaylistInArray = (playlists: Playlist[]): Playlist[] => {
     return playlists.map((playlist) =>
       playlist.playlist_id === playlistId
@@ -294,7 +362,37 @@ export function updatePlaylistInCache(
     old ? { ...old, ...updates } : old,
   );
 
-  // 2. update playlists list queries
+  // 2. update playlists infinite queries
+  const playlistsInfiniteQueries = queryClient.getQueriesData<{
+    pages: Array<{
+      items: Playlist[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>;
+    pageParams: unknown[];
+  }>({
+    queryKey: [...queryKeys.playlists.all, "infinite"],
+    exact: false,
+  });
+
+  for (const [queryKey, data] of playlistsInfiniteQueries) {
+    if (!data?.pages) continue;
+
+    debug("cacheUpdates", "updating infinite playlists query:", queryKey);
+    const updatedData = {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        items: updatePlaylistInArray(page.items),
+      })),
+    };
+    queryClient.setQueryData(queryKey, updatedData);
+    debug("cacheUpdates", "updated infinite playlists query");
+  }
+
+  // 3. update playlists list queries (legacy/simple queries if any)
   const playlistsQueries = queryClient.getQueriesData<Playlist[]>({
     queryKey: queryKeys.playlists.all,
     exact: false,

@@ -31,7 +31,9 @@ import type {
   AlbumSummary,
   ArtistSummary,
   FavoriteTarget,
+  FavoriteItem,
   GenreSummary,
+  ListFavoritesParams,
   MusicDataSource,
   PaginatedResponse,
   PlaylistSummary,
@@ -53,9 +55,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       albumId: params?.album_id,
     });
 
-    // results already have denormalized artist_name and album_title
-    // sorted by added_at desc from IDB query (no additional sorting needed)
-    const songs = results.map((r) => r.song);
+    // querySongsWithDetails returns enriched Song[] directly
+    const songs = results;
 
     // TODO: get total count properly from database
     // for now, assume has_more if we got a full page
@@ -82,7 +83,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     const offset = params?.offset ?? 0;
 
     // query albums with aggregated stats
-    const results = await queryAlbums({ limit, offset });
+    const results = await queryAlbums({ 
+      limit, 
+      offset,
+      albumId: params?.album_id, 
+    });
 
     // map to AlbumSummary format
     const albums: AlbumSummary[] = results.map((result) => ({
@@ -94,6 +99,9 @@ export class LocalMusicDataSource implements MusicDataSource {
       year: result.album.year ?? undefined,
       release_date: result.album.release_date ?? undefined,
       label: result.album.label ?? undefined,
+      genre_id: result.album.genre_id ?? undefined,
+      genre: (result.album as any).genre ?? undefined, // genre name added at runtime in queryAlbums
+      sub_genres: (result.album as any).sub_genres ?? undefined, // TODO: populate from songs
       song_count: result.song_count,
       total_duration: result.total_duration,
       is_favorite: result.album.is_favorite,
@@ -126,7 +134,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       albumId,
     });
 
-    const songs = results.map((r) => r.song);
+    // querySongsWithDetails returns enriched Song[] directly
+    const songs = results;
 
     // apply canonical sorting: by disc+track
     const sortedSongs = sortSongsCanonical(songs);
@@ -148,7 +157,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     const offset = params?.offset ?? 0;
 
     // query artists with aggregated stats
-    const results = await queryArtists({ limit, offset });
+    const results = await queryArtists({ 
+      limit, 
+      offset,
+      artistId: params?.artist_id, 
+    });
 
     // map to ArtistSummary format
     const artists: ArtistSummary[] = results.map((result) => ({
@@ -187,7 +200,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       artistId,
     });
 
-    const songs = results.map((r) => r.song);
+    // querySongsWithDetails returns enriched Song[] directly
+    const songs = results;
 
     // apply canonical sorting with artist grouping
     const sortedSongs = sortSongsByArtist(songs);
@@ -209,7 +223,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     const offset = params?.offset ?? 0;
 
     // query genres with aggregated stats
-    const results = await queryGenres({ limit, offset });
+    const results = await queryGenres({ 
+      limit, 
+      offset,
+      search: params?.search,
+    });
 
     // map to GenreSummary format
     const genres: GenreSummary[] = results.map((result) => ({
@@ -246,7 +264,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       genreId,
     });
 
-    const songs = results.map((r) => r.song);
+    // querySongsWithDetails returns enriched Song[] directly
+    const songs = results;
 
     // apply canonical sorting: group by album, then disc+track
     const sortedSongs = sortSongsCanonical(songs);
@@ -294,6 +313,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           song_count: playlistSongs.length,
           created_at: playlist.created_at,
           updated_at: playlist.updated_at,
+          is_favorite: playlist.is_favorite ?? false,
         };
 
         return summary;
@@ -334,19 +354,19 @@ export class LocalMusicDataSource implements MusicDataSource {
     // sort by position
     playlistSongs.sort((a, b) => a.position - b.position);
 
-    // get sha256s for querySongsWithDetails
-    const sha256s = playlistSongs.map((ps) => ps.sha256);
+    // get song_ids for querySongsWithDetails
+    const songIds = playlistSongs.map((ps) => ps.song_id);
 
     // use querySongsWithDetails to get fully hydrated songs
     const results = await querySongsWithDetails({
-      songIds: sha256s,
+      songIds: songIds,
     });
 
-    // maintain playlist order
-    const songMap = new Map(results.map((r) => [r.song.sha256, r.song]));
-    const songs = sha256s
-      .map((sha) => songMap.get(sha))
-      .filter((s): s is Song => s !== undefined);
+    // maintain playlist order (querySongsWithDetails returns Song[] directly)
+    const songMap = new Map(results.map((song) => [song.id, song]));
+    const songs = songIds
+      .map((id) => songMap.get(id))
+      .filter((s) => s !== undefined) as Song[];
 
     // apply pagination
     const paginatedSongs = songs.slice(offset, offset + limit);
@@ -480,17 +500,17 @@ export class LocalMusicDataSource implements MusicDataSource {
     // add new songs
     const now = Date.now();
     for (let i = 0; i < songIds.length; i++) {
-      const sha256 = songIds[i];
+      const songId = songIds[i];
 
       // check if song already exists in playlist
-      const existing = existingSongs.find((ps) => ps.sha256 === sha256);
+      const existing = existingSongs.find((ps) => ps.song_id === songId);
       if (existing) {
         continue; // skip duplicates
       }
 
       const playlistSong: PlaylistSong = {
         playlist_id: playlistId,
-        sha256,
+        song_id: songId,
         position: maxPosition + i + 1,
         added_at: now,
       };
@@ -513,8 +533,8 @@ export class LocalMusicDataSource implements MusicDataSource {
     const db = await initMusicDB();
 
     // delete each song from playlist
-    for (const sha256 of songIds) {
-      await db.delete(STORE_PLAYLIST_SONGS, [playlistId, sha256]);
+    for (const songId of songIds) {
+      await db.delete(STORE_PLAYLIST_SONGS, [playlistId, songId]);
     }
 
     // update playlist updated_at
@@ -543,8 +563,8 @@ export class LocalMusicDataSource implements MusicDataSource {
     allSongs.sort((a, b) => a.position - b.position);
 
     // find songs to move
-    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.sha256));
-    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.sha256));
+    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.song_id));
+    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.song_id));
 
     // insert moved songs at new position (1-based index -> 0-based)
     const targetIndex = newPosition - 1;
@@ -556,7 +576,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // update positions
     const updates = reordered.map((song, index) => ({
-      sha256: song.sha256,
+      song_id: song.id,
       position: index + 1,
     }));
 
@@ -580,7 +600,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // use db helper to update favorites table
     await dbSetFavorite(
-      params.targetType as "song" | "album" | "artist",
+      params.targetType as "song" | "album" | "artist" | "playlist",
       params.targetId,
       params.isFavorite,
     );
@@ -598,11 +618,28 @@ export class LocalMusicDataSource implements MusicDataSource {
         album.is_favorite = params.isFavorite;
         await db.put(STORE_ALBUMS, album);
       }
+      
+      // also update album_is_favorite on all songs from this album
+      const albumSongs = await db.getAllFromIndex(
+        STORE_SONGS,
+        "by_album_id",
+        params.targetId
+      );
+      for (const song of albumSongs) {
+        song.album_is_favorite = params.isFavorite;
+        await db.put(STORE_SONGS, song);
+      }
     } else if (params.targetType === "artist") {
       const artist = await db.get(STORE_ARTISTS, params.targetId);
       if (artist) {
         artist.is_favorite = params.isFavorite;
         await db.put(STORE_ARTISTS, artist);
+      }
+    } else if (params.targetType === "playlist") {
+      const playlist = await db.get(STORE_PLAYLISTS, params.targetId);
+      if (playlist) {
+        playlist.is_favorite = params.isFavorite;
+        await db.put(STORE_PLAYLISTS, playlist);
       }
     }
   }
@@ -664,18 +701,29 @@ export class LocalMusicDataSource implements MusicDataSource {
     release_date?: string;
     label?: string;
     genre_id?: string;
+    genre?: string;
     year?: number;
   }): Promise<void> {
-    const { updateAlbum } = await import("../../services/storage/db");
-    await updateAlbum(params.album_id, {
-      title: params.title,
-      artist_id: params.artist_id,
-      album_type: params.album_type,
-      release_date: params.release_date,
-      label: params.label,
-      genre_id: params.genre_id,
-      year: params.year,
-    });
+    const { updateAlbum, getOrCreateGenre } = await import("../../services/storage/db");
+    
+    // if genre name is provided without id, create/fetch genre first
+    let genreId = params.genre_id;
+    if (params.genre && !genreId) {
+      const genre = await getOrCreateGenre(params.genre);
+      genreId = genre.genre_id;
+    }
+    
+    // build updates object, filtering out undefined values
+    const updates: Record<string, any> = {};
+    if (params.title !== undefined) updates.title = params.title;
+    if (params.artist_id !== undefined) updates.artist_id = params.artist_id;
+    if (params.album_type !== undefined) updates.album_type = params.album_type;
+    if (params.release_date !== undefined) updates.release_date = params.release_date;
+    if (params.label !== undefined) updates.label = params.label;
+    if (genreId !== undefined) updates.genre_id = genreId;
+    if (params.year !== undefined) updates.year = params.year;
+    
+    await updateAlbum(params.album_id, updates);
   }
 
   async updateSong(params: {
@@ -699,16 +747,40 @@ export class LocalMusicDataSource implements MusicDataSource {
     user_id?: string | null;
     updated_by?: string | null;
   }): Promise<void> {
-    const { updateSong } = await import("../../services/storage/db");
+    const { updateSong, getOrCreateArtist, getOrCreateAlbum, getOrCreateGenre } = await import("../../services/storage/db");
+    
+    // resolve artist/album/genre IDs if names are provided without IDs
+    let artistId = params.artist_id;
+    let albumId = params.album_id;
+    let genreId = params.genre_id;
+    
+    if (params.artist && !artistId) {
+      const artist = await getOrCreateArtist(params.artist);
+      artistId = artist.artist_id;
+    }
+    
+    if (params.album && !albumId && artistId) {
+      const album = await getOrCreateAlbum(params.album, artistId);
+      albumId = album.album_id;
+    }
+    
+    if (params.genre && !genreId) {
+      const genre = await getOrCreateGenre(params.genre);
+      genreId = genre.genre_id;
+    }
     
     // update each song - bulk update for local storage
     const updates = {
       title: params.title,
-      artist_id: params.artist_id,
-      album_id: params.album_id,
+      artist_id: artistId,
+      album_id: albumId,
+      genre_id: genreId,
       track_number: params.track_number,
       disc_number: params.disc_number,
       year: params.year,
+      bpm: params.bpm,
+      key_signature: params.key_signature,
+      lyrics: params.lyrics,
     };
     
     // filter out null/undefined values
@@ -799,6 +871,135 @@ export class LocalMusicDataSource implements MusicDataSource {
   }): Promise<void> {
     // TODO: implement OPFS deletion
     throw new Error("local image removal not yet implemented");
+  }
+
+  // favorites
+  async listFavorites(
+    params?: ListFavoritesParams,
+  ): Promise<PaginatedResponse<FavoriteItem>> {
+    const db = await initMusicDB();
+    const limit = params?.limit ?? 50;
+    const offset = params?.offset ?? 0;
+
+    // get all favorites from the table
+    let allFavorites = await db.getAll("favorites");
+
+    // filter by target_type if specified
+    if (params?.target_type) {
+      allFavorites = allFavorites.filter(
+        (fav) => fav.target_type === params.target_type,
+      );
+    }
+
+    // sort by favorited_at descending (most recent first)
+    allFavorites.sort((a, b) => b.favorited_at - a.favorited_at);
+
+    const total = allFavorites.length;
+    const paginatedFavorites = allFavorites.slice(offset, offset + limit);
+
+    // hydrate each favorite with its data
+    const items: FavoriteItem[] = [];
+
+    for (const favorite of paginatedFavorites) {
+      if (favorite.target_type === "song") {
+        const song = await db.get(STORE_SONGS, favorite.target_id);
+        if (song) {
+          items.push({
+            type: "song",
+            favorited_at: favorite.favorited_at,
+            data: song,
+          });
+        }
+      } else if (favorite.target_type === "album") {
+        const album = await db.get(STORE_ALBUMS, favorite.target_id);
+        if (album) {
+          const isFavorite = await checkFavorite("album", album.album_id);
+          const rating = await getRating("album", album.album_id);
+          // count songs in this album
+          const albumSongs = await db
+            .getAllFromIndex(STORE_SONGS, "by_album_id", album.album_id);
+          const totalDuration = albumSongs.reduce(
+            (sum, song) => sum + song.duration_seconds,
+            0,
+          );
+          items.push({
+            type: "album",
+            favorited_at: favorite.favorited_at,
+            data: {
+              album_id: album.album_id,
+              title: album.title,
+              artist_name: album.artist_name,
+              artist_id: album.artist_id,
+              album_type: album.album_type,
+              genre_id: album.genre_id || undefined,
+              release_date: album.release_date || null,
+              song_count: albumSongs.length,
+              total_duration: totalDuration,
+              is_favorite: isFavorite,
+              user_rating: rating,
+            },
+          });
+        }
+      } else if (favorite.target_type === "artist") {
+        const artist = await db.get(STORE_ARTISTS, favorite.target_id);
+        if (artist) {
+          const isFavorite = await checkFavorite("artist", artist.artist_id);
+          const rating = await getRating("artist", artist.artist_id);
+          // count songs and albums by this artist
+          const artistSongs = await db
+            .getAllFromIndex(STORE_SONGS, "by_artist_id", artist.artist_id);
+          const artistAlbums = await db
+            .getAllFromIndex(STORE_ALBUMS, "by_artist_id", artist.artist_id);
+          const totalDuration = artistSongs.reduce(
+            (sum, song) => sum + song.duration_seconds,
+            0,
+          );
+          items.push({
+            type: "artist",
+            favorited_at: favorite.favorited_at,
+            data: {
+              artist_id: artist.artist_id,
+              name: artist.name,
+              song_count: artistSongs.length,
+              album_count: artistAlbums.length,
+              total_duration: totalDuration,
+              is_favorite: isFavorite,
+              user_rating: rating,
+            },
+          });
+        }
+      } else if (favorite.target_type === "playlist") {
+        const playlist = await db.get(STORE_PLAYLISTS, favorite.target_id);
+        if (playlist) {
+          // count songs in playlist
+          const playlistSongs = await db
+            .getAllFromIndex(STORE_PLAYLIST_SONGS, "by_playlist_id", playlist.playlist_id);
+          items.push({
+            type: "playlist",
+            favorited_at: favorite.favorited_at,
+            data: {
+              playlist_id: playlist.playlist_id,
+              title: playlist.title,
+              description: playlist.description || null,
+              is_public: playlist.is_public,
+              thumbnail_blob_id: playlist.thumbnail_blob_id || null,
+              song_count: playlistSongs.length,
+              created_at: playlist.created_at,
+              updated_at: playlist.updated_at,
+              is_favorite: playlist.is_favorite ?? false,
+            },
+          });
+        }
+      }
+    }
+
+    return {
+      items,
+      total,
+      offset,
+      limit,
+      has_more: offset + limit < total,
+    };
   }
 
   // source metadata

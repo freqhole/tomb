@@ -227,10 +227,10 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
       // create playlist_songs junction table
       if (!db.objectStoreNames.contains(STORE_PLAYLIST_SONGS)) {
         const playlistSongsStore = db.createObjectStore(STORE_PLAYLIST_SONGS, {
-          keyPath: ["playlist_id", "sha256"],
+          keyPath: ["playlist_id", "song_id"],
         });
         playlistSongsStore.createIndex("by_playlist_id", "playlist_id");
-        playlistSongsStore.createIndex("by_sha256", "sha256");
+        playlistSongsStore.createIndex("by_song_id", "song_id");
         playlistSongsStore.createIndex("by_position", [
           "playlist_id",
           "position",
@@ -727,14 +727,30 @@ export async function clearAlbumTags(albumId: string): Promise<void> {
 export async function queryAlbums(options?: {
   limit?: number;
   offset?: number;
+  albumId?: string;
 }): Promise<AlbumWithStats[]> {
   const db = await initMusicDB();
 
-  // get all albums
-  const allAlbums = await db.getAll(STORE_ALBUMS);
+  // get all albums (or specific album if albumId provided)
+  const allAlbums = options?.albumId 
+    ? [await db.get(STORE_ALBUMS, options.albumId)].filter(Boolean) as Album[]
+    : await db.getAll(STORE_ALBUMS);
 
-  // get all songs to aggregate by album
+  // get all songs, artists, and genres once
   const allSongs = await db.getAll(STORE_SONGS);
+  const allArtists = await db.getAll(STORE_ARTISTS);
+  const allGenres = await db.getAll(STORE_GENRES);
+
+  // create artist and genre lookup maps
+  const artistsById = new Map<string, Artist>();
+  for (const artist of allArtists) {
+    artistsById.set(artist.artist_id, artist);
+  }
+  
+  const genresById = new Map<string, Genre>();
+  for (const genre of allGenres) {
+    genresById.set(genre.genre_id, genre);
+  }
 
   // group songs by album_id
   const songsByAlbum = new Map<string, Song[]>();
@@ -753,11 +769,28 @@ export async function queryAlbums(options?: {
     // skip albums with no songs
     if (songs.length === 0) continue;
 
-    // get artist name
-    const artist = album.artist_id
-      ? await getArtistById(album.artist_id)
-      : null;
+    // get artist name from map
+    const artist = album.artist_id ? artistsById.get(album.artist_id) : null;
     const artistName = artist?.name || "various artists";
+
+    // get genre name from map and update album object
+    if (album.genre_id) {
+      const genre = genresById.get(album.genre_id);
+      if (genre) {
+        (album as any).genre = genre.name;
+      }
+    }
+
+    // gather unique sub-genres from songs in this album
+    const subGenresSet = new Set<string>();
+    for (const song of songs) {
+      if (song.album_sub_genres) {
+        song.album_sub_genres.forEach(sg => subGenresSet.add(sg));
+      }
+    }
+    if (subGenresSet.size > 0) {
+      (album as any).sub_genres = Array.from(subGenresSet);
+    }
 
     // calculate total duration
     const totalDuration = songs.reduce(
@@ -773,8 +806,12 @@ export async function queryAlbums(options?: {
     });
   }
 
-  // sort by album title
-  results.sort((a, b) => a.album.title.localeCompare(b.album.title));
+  // sort by album title (handle null/undefined titles)
+  results.sort((a, b) => {
+    const titleA = a.album.title || '';
+    const titleB = b.album.title || '';
+    return titleA.localeCompare(titleB);
+  });
 
   // apply pagination if specified
   const limit = options?.limit ?? results.length;
@@ -786,11 +823,14 @@ export async function queryAlbums(options?: {
 export async function queryArtists(options?: {
   limit?: number;
   offset?: number;
+  artistId?: string;
 }): Promise<ArtistWithStats[]> {
   const db = await initMusicDB();
 
-  // get all artists
-  const allArtists = await db.getAll(STORE_ARTISTS);
+  // get all artists (or specific artist if artistId provided)
+  const allArtists = options?.artistId 
+    ? [await db.get(STORE_ARTISTS, options.artistId)].filter(Boolean) as Artist[]
+    : await db.getAll(STORE_ARTISTS);
 
   // get all songs and albums to aggregate by artist
   const allSongs = await db.getAll(STORE_SONGS);
@@ -854,11 +894,18 @@ export async function queryArtists(options?: {
 export async function queryGenres(options?: {
   limit?: number;
   offset?: number;
+  search?: string;
 }): Promise<GenreWithStats[]> {
   const db = await initMusicDB();
 
   // get all genres
-  const allGenres = await db.getAll(STORE_GENRES);
+  let allGenres = await db.getAll(STORE_GENRES);
+  
+  // filter by search if provided
+  if (options?.search) {
+    const searchLower = options.search.toLowerCase();
+    allGenres = allGenres.filter(g => g.name.toLowerCase().includes(searchLower));
+  }
 
   // get all albums and songs to count by genre
   const allAlbums = await db.getAll(STORE_ALBUMS);
@@ -922,7 +969,7 @@ export async function querySongsWithDetails(options?: {
   songIds?: string[];
   sortField?: "added_at" | "title" | "artist" | "album" | "genre" | "year";
   sortDirection?: "asc" | "desc";
-}): Promise<SongQueryResult[]> {
+}): Promise<Song[]> {
   const db = await initMusicDB();
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
@@ -1038,29 +1085,20 @@ export async function querySongsWithDetails(options?: {
     songsToQuery = songsToQuery.slice(offset, offset + limit);
   }
 
-  // join with artists, albums, genres
-  const results: SongQueryResult[] = [];
+  // join with artists, albums, genres and enrich songs with is_favorite and user_rating
+  const results: Song[] = [];
   for (const song of songsToQuery) {
-    const artist = await getArtistById(song.artist_id);
-    const album = await getAlbumById(song.album_id);
-    const genre = album?.genre_id ? await getGenreById(album.genre_id) : null;
-
-    if (!artist || !album) {
-      console.warn(`missing artist or album for song ${song.sha256}`);
-      continue;
-    }
-
     const isFavorite = await checkFavorite("song", song.id);
     const rating = await getRating("song", song.id);
 
-    results.push({
-      song,
-      artist,
-      album,
-      genre,
+    // enrich song object with is_favorite and user_rating
+    const enrichedSong: Song = {
+      ...song,
       is_favorite: isFavorite,
-      rating,
-    });
+      user_rating: rating ?? undefined,
+    };
+
+    results.push(enrichedSong);
   }
 
   return results;
@@ -1069,7 +1107,7 @@ export async function querySongsWithDetails(options?: {
 // ===== FAVORITES =====
 
 export async function setFavorite(
-  targetType: "song" | "album" | "artist",
+  targetType: "song" | "album" | "artist" | "playlist",
   targetId: string,
   isFavorite: boolean,
 ): Promise<void> {
@@ -1088,7 +1126,7 @@ export async function setFavorite(
 }
 
 export async function checkFavorite(
-  targetType: "song" | "album" | "artist",
+  targetType: "song" | "album" | "artist" | "playlist",
   targetId: string,
 ): Promise<boolean> {
   const db = await initMusicDB();

@@ -44,10 +44,11 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
 
   // sync with external value changes - find/create option for current value
   createEffect(() => {
-    if (props.value) {
+    const externalValue = props.value;
+    if (externalValue) {
       setLocalValue({
-        value: props.value,
-        label: props.value,
+        value: externalValue,
+        label: externalValue,
         id: undefined,
       });
     } else {
@@ -101,7 +102,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
     ) {
       results.push({
         value: input,
-        label: `create "${input}"`,
+        label: input,
         id: undefined,
       });
     }
@@ -136,7 +137,12 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
         <Combobox.Item item={itemProps.item} class="outline-none">
           <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors text-sm">
             <Combobox.ItemLabel>
-              {itemProps.item.rawValue.label}
+              <Show 
+                when={itemProps.item.rawValue.id}
+                fallback={<span>create "<span class="font-semibold">{itemProps.item.rawValue.label}</span>"</span>}
+              >
+                {itemProps.item.rawValue.label}
+              </Show>
             </Combobox.ItemLabel>
           </div>
         </Combobox.Item>
@@ -166,7 +172,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
       </Show>
 
       <Combobox.Portal>
-        <Combobox.Content class="z-50 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg max-h-80 overflow-y-auto animate-in fade-in-0 zoom-in-95">
+        <Combobox.Content class="z-[100] mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg max-h-80 overflow-y-auto animate-in fade-in-0 zoom-in-95">
           <Combobox.Listbox />
         </Combobox.Content>
       </Combobox.Portal>
