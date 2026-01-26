@@ -1,11 +1,9 @@
 import { createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
-import {
-  QueueSidebar,
-  type QueueSong,
-} from "../src/components/player/QueueSidebar";
-import { mockSongs } from "./mockData";
+import { QueueSidebar } from "../src/components/player/QueueSidebar";
+import type { Song } from "../src/music/data/types";
+import { generateBulkSongs } from "./mockData";
 
 const meta = {
   title: "Components/Player/QueueSidebar",
@@ -22,14 +20,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// map mock songs to queue format
-const mockQueueSongs: QueueSong[] = mockSongs.slice(0, 8).map((song) => ({
-  id: song.id,
-  title: song.title,
-  artist: song.artist,
-  duration: song.durationSeconds,
-  thumbnailUrl: song.thumbnailUrl,
-}));
+// generate mock songs using domain type
+const mockQueueSongs: Song[] = generateBulkSongs(8);
 
 // interactive example
 export const Interactive: Story = {
@@ -77,7 +69,7 @@ export const Interactive: Story = {
 
     const getContextMenuActions = (
       index: number,
-      song: QueueSong,
+      song: Song,
     ): MenuAction[] => [
       {
         label: "play now",
@@ -103,7 +95,7 @@ export const Interactive: Story = {
       {
         label: "view artist",
         icon: "artist" as const,
-        onClick: () => console.log("view artist:", song.artist),
+        onClick: () => console.log("view artist:", song.artist_name),
       },
       {
         type: "separator",
@@ -150,7 +142,7 @@ export const Interactive: Story = {
 export const Open: Story = {
   render: () => {
     const [isOpen, setIsOpen] = createSignal(true);
-    const [songs, setSongs] = createSignal(mockSongs);
+    const [songs, setSongs] = createSignal(mockQueueSongs);
     const [currentIndex, setCurrentIndex] = createSignal(2);
 
     const handleSongClick = (index: number) => {
@@ -192,7 +184,7 @@ export const Open: Story = {
 
     const getContextMenuActions = (
       index: number,
-      song: QueueSong,
+      song: Song,
     ): MenuAction[] => [
       {
         label: "play now",
@@ -218,7 +210,7 @@ export const Open: Story = {
       {
         label: "view artist",
         icon: "artist" as const,
-        onClick: () => console.log("view artist:", song.artist),
+        onClick: () => console.log("view artist:", song.artist_name),
       },
       {
         type: "separator",
@@ -334,7 +326,7 @@ export const SingleSong: Story = {
           </button>
         </div>
         <QueueSidebar
-          songs={[mockSongs[0]]}
+          songs={[mockQueueSongs[0]]}
           currentIndex={0}
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
@@ -350,13 +342,7 @@ export const SingleSong: Story = {
 // long queue
 export const LongQueue: Story = {
   render: () => {
-    const longQueue: QueueSong[] = Array.from({ length: 50 }, (_, i) => ({
-      id: `song-${i}`,
-      title: `song ${i + 1} with a really long title that should truncate properly`,
-      artist: `artist ${i + 1}`,
-      duration: 180 + Math.floor(Math.random() * 300),
-      thumbnailUrl: i % 3 === 0 ? mockSongs[0].thumbnailUrl : undefined,
-    }));
+    const longQueue: Song[] = generateBulkSongs(50);
 
     const [isOpen, setIsOpen] = createSignal(true);
 
@@ -430,7 +416,7 @@ export const PlayingLastSong: Story = {
         </div>
         <QueueSidebar
           songs={mockQueueSongs}
-          currentIndex={mockSongs.length - 1}
+          currentIndex={mockQueueSongs.length - 1}
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
           onSongClick={(i) => console.log("clicked:", i)}
@@ -459,11 +445,11 @@ export const MixedThumbnails: Story = {
         </div>
         <QueueSidebar
           songs={[
-            mockSongs[0], // with thumbnail
-            mockSongs[1], // no thumbnail
-            mockSongs[2], // with thumbnail
-            mockSongs[4], // no thumbnail
-            mockSongs[5], // with thumbnail
+            mockQueueSongs[0], // with thumbnail
+            mockQueueSongs[1], // no thumbnail
+            mockQueueSongs[2], // with thumbnail
+            mockQueueSongs[4], // no thumbnail
+            mockQueueSongs[5], // with thumbnail
           ]}
           currentIndex={2}
           isOpen={isOpen()}

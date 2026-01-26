@@ -31,12 +31,13 @@ import {
   mockArtists,
   mockGenres,
   mockPlaylists,
-  mockSongs,
   type Artist,
   type Genre,
   type Playlist,
-  type Song,
 } from "./mockData";
+
+// alias the domain Song for compatibility with existing code
+type Song = DomainSong;
 
 const meta = {
   title: "Super Story",
@@ -49,7 +50,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// mock data imported from shared mockData.ts
+// generate reusable mock songs
+const generatedSongs = generateBulkSongs(100);
 
 type Route = "songs" | "albums" | "artists" | "genres" | "playlists";
 
@@ -88,14 +90,14 @@ export const FullAppDemo: Story = {
 
     // player state
     const [currentSong, setCurrentSong] = createSignal<Song | null>(
-      mockSongs[0],
+      generatedSongs[0],
     );
     const [isPlaying, setIsPlaying] = createSignal(false);
     const [volume, setVolume] = createSignal(0.75);
     const [currentTime, setCurrentTime] = createSignal(45);
     const [queueOpen, setQueueOpen] = createSignal(false);
     const [queueSongs, setQueueSongs] = createSignal<Song[]>(
-      mockSongs.slice(0, 20),
+      generatedSongs.slice(0, 20),
     );
     const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
 
@@ -111,7 +113,7 @@ export const FullAppDemo: Story = {
       string | undefined
     >();
     const [playlistSongs, setPlaylistSongs] = createSignal<Song[]>(
-      mockSongs.slice(0, 10),
+      generatedSongs.slice(0, 10),
     );
     const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
     const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
@@ -278,13 +280,16 @@ export const FullAppDemo: Story = {
     };
 
     const handleSkip = (direction: "prev" | "next") => {
-      const currentIndex = mockSongs.findIndex(
-        (s) => s.id === currentSong()?.id,
+      const song = currentSong();
+      if (!song) return;
+      
+      const currentIndex = generatedSongs.findIndex(
+        (s) => s.sha256 === song.sha256,
       );
       if (direction === "prev" && currentIndex > 0) {
-        setCurrentSong(mockSongs[currentIndex - 1]);
-      } else if (direction === "next" && currentIndex < mockSongs.length - 1) {
-        setCurrentSong(mockSongs[currentIndex + 1]);
+        setCurrentSong(generatedSongs[currentIndex - 1]);
+      } else if (direction === "next" && currentIndex < generatedSongs.length - 1) {
+        setCurrentSong(generatedSongs[currentIndex + 1]);
       }
     };
 
@@ -438,7 +443,7 @@ export const FullAppDemo: Story = {
                 </h3>
               </div>
               <div class="space-y-1">
-                <For each={mockSongs.slice(0, 10)}>
+                <For each={generatedSongs.slice(0, 10)}>
                   {(song) => (
                     <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
                       <IconButton
@@ -451,10 +456,10 @@ export const FullAppDemo: Story = {
                         <div class="body-small text-[var(--color-text-primary)]">
                           {song.title}
                         </div>
-                        <div class="caption">{song.album}</div>
+                        <div class="caption">{song.album_title}</div>
                       </div>
                       <div class="monospace caption text-[var(--color-text-muted)]">
-                        {formatDuration(song.durationSeconds)}
+                        {formatDuration(song.duration_seconds)}
                       </div>
                     </div>
                   )}
@@ -582,7 +587,7 @@ export const FullAppDemo: Story = {
                 top songs
               </h3>
               <div class="space-y-1">
-                <For each={mockSongs.slice(0, 15)}>
+                <For each={generatedSongs.slice(0, 15)}>
                   {(song) => (
                     <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
                       <IconButton
@@ -595,10 +600,10 @@ export const FullAppDemo: Story = {
                         <div class="body-small text-[var(--color-text-primary)]">
                           {song.title}
                         </div>
-                        <div class="caption">{song.artist}</div>
+                        <div class="caption">{song.artist_name}</div>
                       </div>
                       <div class="monospace caption text-[var(--color-text-muted)]">
-                        {formatDuration(song.durationSeconds)}
+                        {formatDuration(song.duration_seconds)}
                       </div>
                     </div>
                   )}
@@ -713,9 +718,9 @@ export const FullAppDemo: Story = {
                     >
                       <DraggableRowSongContent
                         title={song.title}
-                        artist={song.artist}
-                        album={song.album}
-                        durationSeconds={song.durationSeconds}
+                        artist={song.artist_name}
+                        album={song.album_title}
+                        durationSeconds={song.duration_seconds}
                         actions={
                           <>
                             <IconButton
@@ -755,24 +760,18 @@ export const FullAppDemo: Story = {
     const songsView = () => (
       <div class="p-3">
         <div class="ml-[100px]">
-          <HeadingSection title="songs" count={mockSongs.length} />
+          <HeadingSection title="songs" count={generatedSongs.length} />
         </div>
         <div class="mt-6">
           <VirtualSongList
-            songs={generateBulkSongs(mockSongs.length) as DomainSong[]}
+            songs={generatedSongs}
             height={window.innerHeight - 240}
             onSongClick={(song) => {
-              const matchingSong = mockSongs.find((s) => s.id === song.id);
-              if (matchingSong) {
-                setCurrentSong(matchingSong);
-              }
+              setCurrentSong(song);
             }}
             onSongDoubleClick={(song) => {
-              const matchingSong = mockSongs.find((s) => s.id === song.id);
-              if (matchingSong) {
-                setCurrentSong(matchingSong);
-                setIsPlaying(true);
-              }
+              setCurrentSong(song);
+              setIsPlaying(true);
             }}
           />
         </div>
@@ -914,13 +913,7 @@ export const FullAppDemo: Story = {
           <QueueSidebar
             isOpen={queueOpen()}
             variant={isMobile() ? "overlay" : "inline"}
-            songs={queueSongs().map((song) => ({
-              id: song.id,
-              title: song.title,
-              artist: song.artist,
-              duration: song.durationSeconds,
-              thumbnailUrl: song.thumbnailUrl,
-            }))}
+            songs={queueSongs()}
             currentIndex={currentQueueIndex()}
             onClose={() => setQueueOpen(false)}
             onSongClick={handleQueueSongClick}
@@ -936,21 +929,21 @@ export const FullAppDemo: Story = {
               song={{
                 id: song().id,
                 title: song().title,
-                artist: song().artist,
-                album: song().album,
-                thumbnailUrl: song().thumbnailUrl,
-                isFavorite: song().isFavorite,
+                artist: song().artist_name,
+                album: song().album_title,
+                thumbnailUrl: "",
+                isFavorite: song().is_favorite ?? false,
               }}
               isPlaying={isPlaying()}
               volume={volume()}
               currentTime={currentTime()}
-              duration={song().durationSeconds}
+              duration={song().duration_seconds}
               queueOpen={queueOpen()}
               onPlayPause={handlePlayPause}
               onPrevious={() => handleSkip("prev")}
               onNext={() => handleSkip("next")}
               onSeek={(percentage) => {
-                const duration = song().durationSeconds;
+                const duration = song().duration_seconds;
                 const timeInSeconds = (percentage / 100) * duration;
                 setCurrentTime(timeInSeconds);
               }}

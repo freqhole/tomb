@@ -320,16 +320,7 @@ export function AppLayout(props: AppLayoutProps) {
         <QueueSidebar
           isOpen={queueOpen()}
           variant="inline"
-          songs={
-            (appState()?.queue.map((song) => ({
-              id: song.sha256,
-              title: song.title,
-              artist: song.artist_name,
-              duration: song.duration_seconds,
-              thumbnailUrl: getSongThumbnailUrl(song),
-              isFavorite: song.is_favorite ?? false,
-            })) || []) as any[]
-          }
+          songs={appState()?.queue || []}
           currentIndex={
             appState()?.current_sha256
               ? appState()!.queue.findIndex(

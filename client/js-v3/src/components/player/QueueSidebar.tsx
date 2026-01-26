@@ -1,5 +1,7 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createSignal, For, Show, type JSX } from "solid-js";
+import { getCurrentRemote } from "../../music/data";
+import type { Song } from "../../music/data/types";
 import { isMobile } from "../../utils/isMobile";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
@@ -7,24 +9,9 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
-export interface QueueSong {
-  /** song id */
-  id: string;
-  /** song title */
-  title: string;
-  /** artist name */
-  artist: string;
-  /** duration in seconds */
-  duration?: number;
-  /** thumbnail url */
-  thumbnailUrl?: string;
-  /** whether song is favorited */
-  isFavorite?: boolean;
-}
-
 export interface QueueSidebarProps {
   /** list of songs in queue */
-  songs: QueueSong[];
+  songs: Song[];
   /** currently playing song index */
   currentIndex: number;
   /** whether sidebar is open */
@@ -40,7 +27,7 @@ export interface QueueSidebarProps {
   /** callback when clear all clicked */
   onClearAll: () => void;
   /** callback to get context menu actions for a song */
-  getContextMenuActions?: (index: number, song: QueueSong) => MenuAction[];
+  getContextMenuActions?: (index: number, song: Song) => MenuAction[];
   /** layout variant: overlay (fixed position) or inline (in layout flow) */
   variant?: "overlay" | "inline";
   /** callback when queue is reordered */
@@ -253,7 +240,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   >
                     {/* thumbnail with index overlay */}
                     <MediaThumbnail
-                      thumbnailUrl={song()?.thumbnailUrl}
+                      thumbnailUrl={song()?.thumbnail_blob_id ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song()?.thumbnail_blob_id}` : null}
                       index={itemIndex}
                       hideIndex={false}
                       onPlayClick={() => handleSongDoubleClick(itemIndex)}
@@ -277,7 +264,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       </h4>
                       <p class="text-xs text-[var(--color-text-secondary)] m-0">
                         <MarqueeText
-                          text={song()?.artist || ""}
+                          text={song()?.artist_name || ""}
                           hoverOnly={!isCurrentlyPlaying()}
                         />
                       </p>
@@ -286,9 +273,9 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     {/* duration and favorite indicator */}
                     <div class="flex items-center gap-2 ml-3 flex-shrink-0">
                       <div class="text-xs text-[var(--color-text-muted)]">
-                        {formatDuration(song()?.duration)}
+                        {formatDuration(song()?.duration_seconds)}
                       </div>
-                      <Show when={song()?.isFavorite}>
+                      <Show when={song()?.is_favorite}>
                         <div title="favorited">
                           <Icon
                             name="favorite"

@@ -1,5 +1,6 @@
 // shared mock data for storybook stories
 import mockDataJson from "./mockData.json";
+import type { Song as DomainSong } from "../src/music/data/types";
 
 // type definitions
 export interface Artist {
@@ -134,29 +135,7 @@ export function formatDuration(seconds: number): string {
 }
 
 // helper to generate bulk songs using shared artist/album/genre names
-export function generateBulkSongs(count: number): Array<{
-  id: string;
-  sha256: string;
-  title: string;
-  artist_name: string;
-  artist_id: string;
-  album_title: string;
-  album_id: string;
-  album_primary_genre_name: string | null;
-  album_primary_genre_id: string | null;
-  duration_seconds: number;
-  year: number | null;
-  disc_number: number;
-  track_number: number;
-  thumbnail_blob_id: string | null;
-  is_favorite: boolean;
-  user_rating: number | null;
-  album_rating: number | null;
-  album_tags: string[];
-  album_is_favorite: boolean;
-  album_images: any[];
-  album_sub_genres: string[];
-}> {
+export function generateBulkSongs(count: number): DomainSong[] {
   const artistNames = mockArtists.map((a) => a.name);
   const albumNames = mockAlbums.map((a) => a.title);
   const genreNames = mockGenres.map((g) => g.name);
@@ -180,6 +159,8 @@ export function generateBulkSongs(count: number): Array<{
 
     const durationSeconds =
       Math.floor(Math.random() * 5) * 60 + Math.floor(Math.random() * 60) + 120;
+
+    const now = Date.now();
 
     results.push({
       id: `song-${i}`,
@@ -209,6 +190,25 @@ export function generateBulkSongs(count: number): Array<{
       album_is_favorite: Math.random() > 0.8,
       album_images: [],
       album_sub_genres: [],
+      // additional required Song fields
+      bpm: null,
+      key_signature: null,
+      lyrics: null,
+      metadata: null,
+      created_at: now,
+      updated_at: now,
+      album_added_at: now,
+      source_type: "remote" as const,
+      opfs_path: null,
+      file_name: null,
+      file_size: null,
+      last_modified: null,
+      mime_type: null,
+      source_url: null,
+      downloaded_at: null,
+      remote_server_id: null,
+      remote_sha256: null,
+      added_at: now,
     });
   }
 
