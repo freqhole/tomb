@@ -1,11 +1,4 @@
 {
-  "json.schemas": [
-    {
-      "fileMatch": ["assets/config/config.jsonc"],
-      "url": "./config.schema.json"
-    }
-  ],
-
   "format_on_save": "on",
   "languages": {
     "JSON": {
