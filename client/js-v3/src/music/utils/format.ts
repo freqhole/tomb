@@ -51,3 +51,10 @@ export function formatRelativeTime(timestamp: number): string {
   if (diffMonth < 12) return `${diffMonth}mo ago`;
   return `${diffYear}y ago`;
 }
+
+// create artist abbreviation (up to 3 letters from first words)
+export function getArtistAbbreviation(name: string): string {
+  const words = name.split(" ").filter(w => w.length > 0);
+  const letters = words.slice(0, 3).map(w => w[0].toUpperCase());
+  return letters.join("");
+}

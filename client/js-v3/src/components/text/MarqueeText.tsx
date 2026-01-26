@@ -5,6 +5,8 @@ interface MarqueeTextProps {
   text: string;
   /** additional css classes */
   class?: string;
+  /** hover-specific css classes (applied to inner span on hover) */
+  hoverClass?: string;
   /** tooltip text (defaults to the text content) */
   title?: string;
   /** only marquee on hover (default: false = always marquee when overflow) */
@@ -104,11 +106,11 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     >
       <span
         ref={textRef!}
-        class={
+        class={`${
           shouldMarquee()
             ? "inline-block whitespace-nowrap pr-4"
             : "truncate block"
-        }
+        } ${props.hoverClass && isHovering() ? props.hoverClass : ""}`}
         style={
           shouldAnimate()
             ? {

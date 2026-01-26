@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { AddMusicModal } from "../src/components/modals/AddMusicModal";
 
 const meta = {
-  title: "Modals/AddMusicModal",
+  title: "Components/Overlays/AddMusicModal",
   component: AddMusicModal,
   tags: ["autodocs"],
 } satisfies Meta<typeof AddMusicModal>;

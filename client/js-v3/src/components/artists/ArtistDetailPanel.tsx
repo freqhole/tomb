@@ -7,6 +7,7 @@ import {
 } from "../../music/services/contextMenu";
 import type { Song } from "../../music/services/storage/types";
 import { getBlobImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
+import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
 import {
@@ -185,11 +186,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   });
 
   // create artist abbreviation (up to 3 letters from first words)
-  const artistAbbreviation = createMemo(() => {
-    const words = props.artist.name.split(" ").filter(w => w.length > 0);
-    const letters = words.slice(0, 3).map(w => w[0].toUpperCase());
-    return letters.join("");
-  });
+  const artistAbbreviation = createMemo(() => getArtistAbbreviation(props.artist.name));
 
   // context menu for artist
   const artistContextMenuActions = createMemo(() => {
