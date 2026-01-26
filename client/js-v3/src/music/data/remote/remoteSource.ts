@@ -4,7 +4,9 @@ import * as apiClient from "freqhole-api-client";
 import type {
   AlbumSummary,
   ArtistSummary,
+  FavoriteItem,
   GenreSummary,
+  ListFavoritesParams,
   MusicDataSource,
   PaginatedResponse,
   PlaylistSummary,
@@ -509,6 +511,109 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     return result.data;
+  }
+
+  // favorites
+  async listFavorites(
+    params?: ListFavoritesParams,
+  ): Promise<PaginatedResponse<FavoriteItem>> {
+    const result = await apiClient.music.listFavorites(this.baseUrl, {
+      user_id: null, // server uses authenticated user from session
+      target_type: params?.target_type || null,
+      offset: params?.offset ?? null,
+      limit: params?.limit ?? null,
+    });
+
+    if (!result.success || !result.data) {
+      const errorMsg = result.success === false && 'error' in result 
+        ? JSON.stringify(result.error) 
+        : 'unknown error';
+      throw new Error(`failed to list favorites: ${errorMsg}`);
+    }
+
+    // transform API's discriminated union to app's discriminated union
+    const items: FavoriteItem[] = result.data.favorites.map((apiFav) => {
+      switch (apiFav.type) {
+        case "song":
+          return {
+            type: "song" as const,
+            favorited_at: apiFav.favorited_at,
+            data: adaptSongFromAPI(apiFav.song, this.baseUrl, this.remoteId),
+          };
+        case "album":
+          return {
+            type: "album" as const,
+            favorited_at: apiFav.favorited_at,
+            data: {
+              album_id: apiFav.album.album.id,
+              title: apiFav.album.album.title,
+              artist_id: apiFav.album.artist?.id || "",
+              artist_name: apiFav.album.artist?.name || "unknown artist",
+              album_type: apiFav.album.album.album_type,
+              year: undefined,
+              release_date: apiFav.album.album.release_date || undefined,
+              label: apiFav.album.album.label || undefined,
+              genre_id: apiFav.album.album.genre_id || undefined,
+              genre: apiFav.album.genre?.name || undefined,
+              sub_genres: apiFav.album.album.sub_genres || undefined,
+              song_count: apiFav.album.album.song_count,
+              total_duration: apiFav.album.album.total_duration,
+              images: apiFav.album.images?.map((img) => ({
+                blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary,
+              })) || undefined,
+              is_favorite: apiFav.album.is_favorite,
+              user_rating: apiFav.album.rating,
+              tags: apiFav.album.album_tags || undefined,
+            } as AlbumSummary,
+          };
+        case "artist":
+          return {
+            type: "artist" as const,
+            favorited_at: apiFav.favorited_at,
+            data: {
+              artist_id: apiFav.artist.artist.id,
+              name: apiFav.artist.artist.name,
+              bio: apiFav.artist.artist.bio,
+              album_count: apiFav.artist.album_count,
+              song_count: apiFav.artist.song_count,
+              total_duration: apiFav.artist.total_duration ? Math.floor(apiFav.artist.total_duration / 1000) : 0,
+              images: apiFav.artist.images?.map((img) => ({
+                blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary,
+              })) || undefined,
+              is_favorite: apiFav.artist.is_favorite,
+              user_rating: apiFav.artist.rating,
+            } as ArtistSummary,
+          };
+        case "playlist":
+          return {
+            type: "playlist" as const,
+            favorited_at: apiFav.favorited_at,
+            data: {
+              playlist_id: apiFav.playlist.playlist.id,
+              title: apiFav.playlist.playlist.title,
+              description: apiFav.playlist.playlist.description,
+              is_public: apiFav.playlist.playlist.is_public === 1,
+              thumbnail_blob_id: apiFav.playlist.playlist.thumbnail_blob_id 
+                ? `${this.baseUrl}/api/blobs/${apiFav.playlist.playlist.thumbnail_blob_id}`
+                : null,
+              song_count: apiFav.playlist.song_count,
+              created_at: apiFav.playlist.playlist.created_at * 1000,
+              updated_at: apiFav.playlist.playlist.updated_at * 1000,
+              is_favorite: apiFav.playlist.is_favorite,
+            } as PlaylistSummary,
+          };
+      }
+    });
+
+    return {
+      items,
+      total: result.data.total_count,
+      offset: result.data.offset,
+      limit: result.data.limit,
+      has_more: result.data.has_more,
+    };
   }
 
   // source metadata

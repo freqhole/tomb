@@ -318,6 +318,15 @@ export function AppLayout(props: AppLayoutProps) {
                   navigate(`${prefix}/playlists`);
                 },
               },
+              {
+                label: "favorites",
+                onClick: () => {
+                  const prefix = routeContext.isLocal()
+                    ? "/local"
+                    : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/favorites`);
+                },
+              },
             ],
           },
         ]}

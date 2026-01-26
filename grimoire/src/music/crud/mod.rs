@@ -6,6 +6,7 @@ mod deduplication;
 pub mod delete;
 mod models;
 mod query;
+mod query_favorites;
 mod query_playlists;
 mod update;
 
@@ -13,10 +14,12 @@ mod update;
 pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, AlbumsQueryResult,
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
-    BulkImportResult, CreateSongWithMetadataRequest, GenreQueryResult, GenresQueryResult,
-    ImportSongRequest, ImportSongResult, PlaylistQueryResult, PlaylistSongResult,
-    PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
-    QueryResult, SongImportError, SongQueryResult, SongUpdateError, SongsQueryResult,
+    BulkImportResult, CreateSongWithMetadataRequest, FavoriteAlbumResult, FavoriteArtistResult,
+    FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, GenreQueryResult,
+    GenresQueryResult, ImportSongRequest, ImportSongResult, PlaylistQueryResult,
+    PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
+    QueryPlaylistSongsRequest, QueryResult, SongImportError, SongQueryResult, SongUpdateError,
+    SongsQueryResult,
 };
 
 // re-export update types from models
@@ -71,6 +74,9 @@ pub use query::{
     query_songs,
     search_songs,
 };
+
+// re-export favorites query operations
+pub use query_favorites::query_favorites;
 
 // re-export playlist query operations
 pub use query_playlists::{

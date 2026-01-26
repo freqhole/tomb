@@ -1,5 +1,5 @@
 // favorites layout - presentational component for displaying favorites grid
-import { createSignal, For, Match, Show, Switch } from "solid-js";
+import { createSignal, For, Match, Show, Switch, onMount, onCleanup } from "solid-js";
 import { Icon } from "../icons/registry";
 import { MediaImage } from "../media/MediaImage";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -8,8 +8,10 @@ import { SongCard } from "../cards/SongCard";
 import { AlbumCard } from "../cards/AlbumCard";
 import { ArtistCard } from "../cards/ArtistCard";
 import { PlaylistCard } from "../cards/PlaylistCard";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import type { Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../../music/data/types";
 import { getImageUrl } from "../../music/utils/format";
+import { useScrollRestore } from "../../utils/scrollRestore";
 
 export type FavoriteType = "all" | "songs" | "albums" | "artists" | "playlists";
 
@@ -31,22 +33,22 @@ export interface FavoritesLayoutProps {
   /** song card callbacks */
   onSongClick?: (song: Song) => void;
   onSongPlay?: (song: Song) => void;
-  onSongContextMenu?: (e: MouseEvent, song: Song) => void;
+  getSongContextMenuActions?: (song: Song) => MenuAction[];
   onSongFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   /** album card callbacks */
   onAlbumClick?: (album: AlbumSummary) => void;
   onAlbumPlay?: (album: AlbumSummary) => void;
-  onAlbumContextMenu?: (e: MouseEvent, album: AlbumSummary) => void;
+  getAlbumContextMenuActions?: (album: AlbumSummary) => MenuAction[];
   onAlbumFavoriteToggle?: (albumId: string, isFavorite: boolean) => void;
   /** artist card callbacks */
   onArtistClick?: (artist: ArtistSummary) => void;
   onArtistPlay?: (artist: ArtistSummary) => void;
-  onArtistContextMenu?: (e: MouseEvent, artist: ArtistSummary) => void;
+  getArtistContextMenuActions?: (artist: ArtistSummary) => MenuAction[];
   onArtistFavoriteToggle?: (artistId: string, isFavorite: boolean) => void;
   /** playlist card callbacks */
   onPlaylistClick?: (playlist: PlaylistSummary) => void;
   onPlaylistPlay?: (playlist: PlaylistSummary) => void;
-  onPlaylistContextMenu?: (e: MouseEvent, playlist: PlaylistSummary) => void;
+  getPlaylistContextMenuActions?: (playlist: PlaylistSummary) => MenuAction[];
   onPlaylistFavoriteToggle?: (playlistId: string, isFavorite: boolean) => void;
   /** navigation callbacks */
   onArtistNavigate?: (artistId: string) => void;
@@ -56,6 +58,22 @@ export interface FavoritesLayoutProps {
 
 export function FavoritesLayout(props: FavoritesLayoutProps) {
   const [filterType, setFilterType] = createSignal<FavoriteType>(props.initialFilter || "all");
+  let scrollContainerRef: HTMLDivElement | undefined;
+
+  // scroll restoration
+  const { restoreScroll, saveScroll } = useScrollRestore("favorites");
+
+  onMount(() => {
+    if (scrollContainerRef) {
+      restoreScroll(scrollContainerRef);
+    }
+  });
+
+  onCleanup(() => {
+    if (scrollContainerRef) {
+      saveScroll(scrollContainerRef);
+    }
+  });
 
   const handleFilterChange = (type: FavoriteType) => {
     setFilterType(type);
@@ -129,7 +147,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     <div class="h-full flex flex-col">
       {/* header with tabs */}
       <div class="p-6 border-b border-[var(--color-border-subtle)]">
-        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-6">
+        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-6 ml-[150px]">
           favorites
         </h1>
 
@@ -148,7 +166,11 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
       </div>
 
       {/* content area */}
-      <div class="flex-1 overflow-y-auto p-6">
+      <div 
+        ref={scrollContainerRef!}
+        class="flex-1 overflow-y-auto p-6"
+        onScroll={(e) => saveScroll(e.currentTarget)}
+      >
         <Show
           when={!props.isLoading && filteredFavorites().length > 0}
           fallback={
@@ -184,45 +206,81 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                   {(item) => (
                     <Switch>
                       <Match when={item.type === "song"}>
-                        <SongCard
-                          song={item as (Song & { type: "song" })}
-                          onClick={props.onSongClick}
-                          onPlay={props.onSongPlay}
-                          onContextMenu={props.onSongContextMenu}
-                          onFavoriteToggle={props.onSongFavoriteToggle}
-                          onArtistClick={props.onArtistNavigate}
-                          onAlbumClick={props.onAlbumNavigate}
-                        />
+                        {(() => {
+                          const song = item as (Song & { type: "song" });
+                          const card = (
+                            <SongCard
+                              song={song}
+                              onClick={props.onSongClick}
+                              onPlay={props.onSongPlay}
+                              onFavoriteToggle={props.onSongFavoriteToggle}
+                              onArtistClick={props.onArtistNavigate}
+                              onAlbumClick={props.onAlbumNavigate}
+                            />
+                          );
+                          return props.getSongContextMenuActions ? (
+                            <ContextMenu actions={props.getSongContextMenuActions(song)}>
+                              {card}
+                            </ContextMenu>
+                          ) : card;
+                        })()}
                       </Match>
                       <Match when={item.type === "album"}>
-                        <AlbumCard
-                          album={item as (AlbumSummary & { type: "album" })}
-                          onClick={props.onAlbumClick}
-                          onPlay={props.onAlbumPlay}
-                          onContextMenu={props.onAlbumContextMenu}
-                          onFavoriteToggle={props.onAlbumFavoriteToggle}
-                          onArtistClick={props.onArtistNavigate}
-                          onGenreClick={props.onGenreClick}
-                        />
+                        {(() => {
+                          const album = item as (AlbumSummary & { type: "album" });
+                          const card = (
+                            <AlbumCard
+                              album={album}
+                              onClick={props.onAlbumClick}
+                              onPlay={props.onAlbumPlay}
+                              onFavoriteToggle={props.onAlbumFavoriteToggle}
+                              onArtistClick={props.onArtistNavigate}
+                              onGenreClick={props.onGenreClick}
+                            />
+                          );
+                          return props.getAlbumContextMenuActions ? (
+                            <ContextMenu actions={props.getAlbumContextMenuActions(album)}>
+                              {card}
+                            </ContextMenu>
+                          ) : card;
+                        })()}
                       </Match>
                       <Match when={item.type === "artist"}>
-                        <ArtistCard
-                          artist={item as (ArtistSummary & { type: "artist" })}
-                          onClick={props.onArtistClick}
-                          onPlay={props.onArtistPlay}
-                          onContextMenu={props.onArtistContextMenu}
-                          onFavoriteToggle={props.onArtistFavoriteToggle}
-                          onGenreClick={props.onGenreClick}
-                        />
+                        {(() => {
+                          const artist = item as (ArtistSummary & { type: "artist" });
+                          const card = (
+                            <ArtistCard
+                              artist={artist}
+                              onClick={props.onArtistClick}
+                              onPlay={props.onArtistPlay}
+                              onFavoriteToggle={props.onArtistFavoriteToggle}
+                              onGenreClick={props.onGenreClick}
+                            />
+                          );
+                          return props.getArtistContextMenuActions ? (
+                            <ContextMenu actions={props.getArtistContextMenuActions(artist)}>
+                              {card}
+                            </ContextMenu>
+                          ) : card;
+                        })()}
                       </Match>
                       <Match when={item.type === "playlist"}>
-                        <PlaylistCard
-                          playlist={item as (PlaylistSummary & { type: "playlist" })}
-                          onClick={props.onPlaylistClick}
-                          onPlay={props.onPlaylistPlay}
-                          onContextMenu={props.onPlaylistContextMenu}
-                          onFavoriteToggle={props.onPlaylistFavoriteToggle}
-                        />
+                        {(() => {
+                          const playlist = item as (PlaylistSummary & { type: "playlist" });
+                          const card = (
+                            <PlaylistCard
+                              playlist={playlist}
+                              onClick={props.onPlaylistClick}
+                              onPlay={props.onPlaylistPlay}
+                              onFavoriteToggle={props.onPlaylistFavoriteToggle}
+                            />
+                          );
+                          return props.getPlaylistContextMenuActions ? (
+                            <ContextMenu actions={props.getPlaylistContextMenuActions(playlist)}>
+                              {card}
+                            </ContextMenu>
+                          ) : card;
+                        })()}
                       </Match>
                     </Switch>
                   )}

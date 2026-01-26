@@ -4,7 +4,7 @@ use axum::{extract::State, Json};
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::crud::{ListFavoritesRequest, ListFavoritesResponse, SetFavoriteResponse};
 use grimoire::response::GrimoireResponse;
-use grimoire::users::{FavoriteTarget, FavoritesService, SetFavoriteRequest};
+use grimoire::users::{FavoritesService, SetFavoriteRequest};
 use inventory;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
@@ -130,56 +130,38 @@ pub async fn list_favorites_handler(
         auth_user.user_id
     );
 
-    let favorites_service = FavoritesService::new();
+    // use new query_favorites function that returns typed favorites
+    let limit = request.limit.unwrap_or(50);
+    let offset = request.offset.unwrap_or(0);
+    let target_type = request.target_type.as_ref().map(|t| t.to_string());
+    let target_type_str = target_type.as_deref();
 
-    let target_filter = match request.target_type.as_ref() {
-        Some(t) => match parse_favorite_target(t) {
-            Ok(target) => Some(target),
-            Err(e) => {
-                return Err(ApiError::BadRequest(e));
-            }
-        },
-        None => None,
-    };
-
-    let response = favorites_service
-        .get_user_favorites(
-            &target_user_id,
-            target_filter,
-            request.limit,
-            request.offset,
-        )
-        .await;
+    let response = grimoire::music::crud::query_favorites(
+        &target_user_id,
+        target_type_str,
+        limit,
+        offset,
+    )
+    .await;
 
     if !response.success {
         return Err(ApiError::Internal(response.message));
     }
 
     let favorites = response.data.unwrap_or_default();
+    let total_count = favorites.len() as i64;
+    let has_more = favorites.len() >= limit as usize;
 
     Ok(Json(GrimoireResponse {
         success: true,
         message: format!("found {} favorites", favorites.len()),
         data: Some(ListFavoritesResponse {
-            favorites: favorites
-                .into_iter()
-                .map(|f| serde_json::to_value(f).unwrap_or_default())
-                .collect(),
+            favorites,
+            total_count,
+            has_more,
+            offset: offset as i64,
+            limit: limit as i64,
         }),
         errors: vec![],
     }))
-}
-
-fn parse_favorite_target(target_type: &str) -> Result<FavoriteTarget, String> {
-    match target_type.to_lowercase().as_str() {
-        "song" => Ok(FavoriteTarget::Song),
-        "artist" => Ok(FavoriteTarget::Artist),
-        "album" => Ok(FavoriteTarget::Album),
-        "genre" => Ok(FavoriteTarget::Genre),
-        "playlist" => Ok(FavoriteTarget::Playlist),
-        _ => Err(format!(
-            "invalid target type: {}. must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-            target_type
-        )),
-    }
 }

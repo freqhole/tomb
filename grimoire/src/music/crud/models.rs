@@ -14,6 +14,7 @@ use crate::music::entities::{
     songs::Song,
 };
 use crate::music::users::models::RatingTarget;
+use crate::music::users::models::FavoriteTarget;
 
 /// image metadata with primary indicator
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
@@ -828,7 +829,7 @@ pub struct DeleteAlbumResponse {
 pub struct ListFavoritesRequest {
     /// User ID - optional, defaults to authenticated user
     pub user_id: Option<String>,
-    pub target_type: Option<String>,
+    pub target_type: Option<FavoriteTarget>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -840,10 +841,52 @@ pub struct SetFavoriteResponse {
     pub message: String,
 }
 
+/// favorite item that can be a song, album, artist, or playlist
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum FavoriteItem {
+    Song(FavoriteSongResult),
+    Album(FavoriteAlbumResult),
+    Artist(FavoriteArtistResult),
+    Playlist(FavoritePlaylistResult),
+}
+
+/// song favorite with full song metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteSongResult {
+    pub favorited_at: i64,
+    pub song: SongQueryResult,
+}
+
+/// album favorite with full album metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteAlbumResult {
+    pub favorited_at: i64,
+    pub album: AlbumQueryResult,
+}
+
+/// artist favorite with full artist metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteArtistResult {
+    pub favorited_at: i64,
+    pub artist: ArtistQueryResult,
+}
+
+/// playlist favorite with full playlist metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoritePlaylistResult {
+    pub favorited_at: i64,
+    pub playlist: PlaylistQueryResult,
+}
+
 /// response for listing favorites
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListFavoritesResponse {
-    pub favorites: Vec<serde_json::Value>,
+    pub favorites: Vec<FavoriteItem>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
 }
 
 // ============================================================================

@@ -1,10 +1,16 @@
 // query hooks for favorites with optimistic updates
-import { createMutation, useQueryClient } from "@tanstack/solid-query";
+import { 
+  createInfiniteQuery, 
+  createMutation, 
+  useQueryClient 
+} from "@tanstack/solid-query";
+import type { Accessor } from "solid-js";
 import * as apiClient from "freqhole-api-client";
 import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError, warn } from "../../utils/logger";
-import { getCurrentRemote } from "../data";
+import { getDataSource, getCurrentRemote } from "../data";
+import type { FavoriteItem, FavoriteTarget, ListFavoritesParams } from "../data/types";
 import { setFavorite as setLocalFavorite } from "../services/storage/db";
 import {
   updateAlbumInCache,
@@ -14,8 +20,61 @@ import {
 } from "./cacheUpdates";
 import { queryKeys } from "./queryKeys";
 
-// favorite target types
-export type FavoriteTarget = "song" | "album" | "artist" | "playlist";
+// re-export for convenience
+export type { FavoriteTarget };
+
+// infinite query hook for favorites list
+interface UseFavoritesInfiniteQueryOptions {
+  pageSize?: number;
+  targetType?: Accessor<FavoriteTarget | undefined>;
+}
+
+export function useFavoritesInfiniteQuery(
+  options?: UseFavoritesInfiniteQueryOptions,
+) {
+  const pageSize = options?.pageSize || 100;
+  const targetType = options?.targetType;
+
+  return createInfiniteQuery(() => ({
+    queryKey: queryKeys.favorites.infinite({
+      targetType: targetType?.(),
+    }),
+    queryFn: async ({ pageParam }: { pageParam: number }) => {
+      debug("favoritesQuery", "fetching favorites page:", {
+        pageParam,
+        targetType: targetType?.(),
+      });
+      
+      const dataSource = getDataSource();
+      if (!dataSource.listFavorites) {
+        throw new Error("favorites not supported by current data source");
+      }
+
+      const params: ListFavoritesParams = {
+        target_type: targetType?.(),
+        offset: pageParam,
+        limit: pageSize,
+      };
+
+      const response = await dataSource.listFavorites(params);
+
+      debug("favoritesQuery", "received favorites page:", {
+        pageParam,
+        count: response.items.length,
+        hasMore: response.has_more,
+      });
+
+      return {
+        items: response.items,
+        nextOffset: response.has_more
+          ? pageParam + pageSize
+          : undefined,
+      };
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+  }));
+}
 
 // mutation hook for toggling favorite status
 export function useToggleFavoriteMutation() {
@@ -147,6 +206,7 @@ function getQueryKeysToInvalidate(
       // invalidate all queries that might contain songs
       return [
         queryKeys.songs.all,
+        queryKeys.favorites.all, // favorites list
         queryKeys.playlists.all, // playlist songs
         ["album", "songs"], // album songs
         ["artist", "songs"], // artist songs
@@ -155,14 +215,19 @@ function getQueryKeysToInvalidate(
     case "album":
       return [
         queryKeys.albums.all,
+        queryKeys.favorites.all, // favorites list
         ["artist", "songs"], // artist songs contain album_is_favorite
       ];
     case "artist":
       return [
         queryKeys.artists.all,
+        queryKeys.favorites.all, // favorites list
         ["artist", "songs"], // artist songs contain artist data with is_favorite
       ];
     case "playlist":
-      return [queryKeys.playlists.all];
+      return [
+        queryKeys.playlists.all,
+        queryKeys.favorites.all, // favorites list
+      ];
   }
 }

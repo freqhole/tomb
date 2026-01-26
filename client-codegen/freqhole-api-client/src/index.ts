@@ -9,6 +9,9 @@ export * as utils from "./utils.js";
 // export webauthn helpers
 export * as webauthn from "./webauthn.js";
 
+// export hand-rolled favorites types (codegen doesn't handle discriminated unions)
+export type { FavoriteItem, ListFavoritesResponse } from "./favorites.js";
+
 // export schemas and types
 export type * from "./codegen/schema.js";
 export * as schema from "./codegen/schema.js";

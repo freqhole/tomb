@@ -109,13 +109,14 @@ pub mod type_registry {
     use crate::music::crud::{
         AlbumQueryResult, AlbumsQueryResult, ArtistQueryResult, ArtistsQueryResult,
         DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest, DeleteArtistResponse,
-        DeleteSongRequest, DeleteSongResponse, GenreQueryResult, GenresQueryResult,
-        GetAlbumRequest, GetArtistRequest, GetGenreRequest, GetRatingStatsRequest,
-        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult,
-        PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
-        RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
-        SetFavoriteResponse, SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult,
-        UpdateSongsRequest, UpdateSongsResult,
+        DeleteSongRequest, DeleteSongResponse, FavoriteAlbumResult, FavoriteArtistResult,
+        FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, GenreQueryResult,
+        GenresQueryResult, GetAlbumRequest, GetArtistRequest, GetGenreRequest,
+        GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult,
+        PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
+        QueryPlaylistSongsRequest, RatingStats, RecentSongsRequest, RemoveRatingRequest,
+        RemoveRatingResponse, SetFavoriteResponse, SetRatingResponse, SongQueryResult,
+        SongUpdateError, SongsQueryResult, UpdateSongsRequest, UpdateSongsResult,
     };
 
     // upload types
@@ -462,6 +463,21 @@ pub mod type_registry {
 
         gen.add_schema::<ListFavoritesResponse>("ListFavoritesResponse");
         registered.insert("ListFavoritesResponse".to_string());
+
+        gen.add_schema::<FavoriteItem>("FavoriteItem");
+        registered.insert("FavoriteItem".to_string());
+
+        gen.add_schema::<FavoriteSongResult>("FavoriteSongResult");
+        registered.insert("FavoriteSongResult".to_string());
+
+        gen.add_schema::<FavoriteAlbumResult>("FavoriteAlbumResult");
+        registered.insert("FavoriteAlbumResult".to_string());
+
+        gen.add_schema::<FavoriteArtistResult>("FavoriteArtistResult");
+        registered.insert("FavoriteArtistResult".to_string());
+
+        gen.add_schema::<FavoritePlaylistResult>("FavoritePlaylistResult");
+        registered.insert("FavoritePlaylistResult".to_string());
 
         gen.add_schema::<SetFavoriteResponse>("SetFavoriteResponse");
         registered.insert("SetFavoriteResponse".to_string());

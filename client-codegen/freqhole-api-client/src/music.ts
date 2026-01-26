@@ -7,6 +7,7 @@ import {
   UpdateArtistRequestSchema,
   UpdateSongsRequestSchema,
 } from "./codegen/schema.js";
+import { ListFavoritesResponseSchema } from "./favorites.js";
 
 // partial schema for update_songs - makes all fields optional except song_ids
 const UpdateSongsRequestPartialSchema =
@@ -696,7 +697,7 @@ export function listFavorites(
     baseUrl,
     "music",
     "list_favorites",
-    routes.music.list_favorites.resp,
+    ListFavoritesResponseSchema, // use hand-rolled schema instead of broken codegen
     routes.music.list_favorites.req,
     routes.music.list_favorites.method,
     routes.music.list_favorites.path,

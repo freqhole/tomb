@@ -98,6 +98,23 @@ export interface PlaylistSummary {
   is_favorite?: boolean;
 }
 
+// favorite target type for mutations
+export type FavoriteTarget = "song" | "album" | "artist" | "playlist";
+
+// favorite item - discriminated union of all favoritable types
+export type FavoriteItem =
+  | { type: "song"; favorited_at: number; data: Song }
+  | { type: "album"; favorited_at: number; data: AlbumSummary }
+  | { type: "artist"; favorited_at: number; data: ArtistSummary }
+  | { type: "playlist"; favorited_at: number; data: PlaylistSummary };
+
+// request params for listing favorites
+export interface ListFavoritesParams {
+  target_type?: FavoriteTarget;
+  limit?: number;
+  offset?: number;
+}
+
 // search suggestion types
 export type SuggestionType =
   | "artist"
@@ -297,6 +314,11 @@ export interface MusicDataSource {
     page?: number;
     page_size?: number;
   }): Promise<SearchResponse>;
+
+  // favorites (optional - remote only initially)
+  listFavorites?(
+    params?: ListFavoritesParams,
+  ): Promise<PaginatedResponse<FavoriteItem>>;
 
   // source metadata
   getSourceInfo(): Promise<{

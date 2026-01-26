@@ -88,6 +88,8 @@ export const queryKeys = {
     all: ["favorites"] as const,
     list: (userId?: string) =>
       [...queryKeys.favorites.all, "list", userId] as const,
+    infinite: (params: { targetType?: string }) =>
+      [...queryKeys.favorites.all, "infinite", params] as const,
   },
 
   // tags

@@ -10,6 +10,7 @@ import { AlbumDetailView } from "../../music/views/AlbumDetailView";
 import { AlbumsView } from "../../music/views/AlbumsView";
 import { ArtistDetailView } from "../../music/views/ArtistDetailView";
 import { ArtistsView } from "../../music/views/ArtistsView";
+import { FavoritesView } from "../../music/views/FavoritesView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
@@ -89,6 +90,10 @@ export function routes(props: RoutesProps) {
           path="/playlists/:id?"
           component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
         />
+        <Route
+          path="/favorites"
+          component={() => <FavoritesView onAddMusic={props.onAddMusic} onSongDoubleClick={props.onSongDoubleClick} />}
+        />
       </Route>
 
       {/* remote context routes */}
@@ -125,6 +130,10 @@ export function routes(props: RoutesProps) {
         <Route
           path="/playlists/:id?"
           component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+        />
+        <Route
+          path="/favorites"
+          component={() => <FavoritesView onAddMusic={props.onAddMusic} onSongDoubleClick={props.onSongDoubleClick} />}
         />
       </Route>
     </Route>
