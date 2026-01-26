@@ -23,8 +23,58 @@ export type RemoteSong = Required<Pick<Song,
   | 'remote_server_id' | 'remote_sha256' | 'added_at'
 >>;
 
+// API response structure - defines adapter's contract with API client
+// this is not a copy of API types, but a structural interface defining what the adapter uses
+export interface ApiSongQueryItem {
+  song: {
+    id: string;
+    title: string;
+    media_blob_id: string;
+    track_number?: number;
+    disc_number?: number;
+    duration?: number;  // milliseconds
+    year?: number | null;
+    bpm?: number | null;
+    key_signature?: string | null;
+    lyrics?: string | null;
+    metadata?: string | null;
+    thumbnail_blob_id?: string | null;
+    created_at: number;
+    updated_at: number;
+  };
+  artist?: {
+    id: string;
+    name: string;
+  };
+  album?: {
+    id: string;
+    title: string;
+    release_date?: string;
+    genre_id?: string;
+    genre?: string;
+    sub_genres?: string[];
+  };
+  blob?: {
+    sha256: string;
+    mime_type?: string;
+  };
+  genre?: {
+    id: string;
+    name: string;
+  };
+  is_favorite?: boolean;
+  rating?: number | null;
+  album_is_favorite?: boolean;
+  album_rating?: number | null;
+  album_tags?: string[];
+  images?: Array<{
+    blob_id: string;
+    is_primary: boolean | number;
+  }>;
+}
+
 // adapter to convert API song query result to domain Song type
-export function adaptSongFromAPI(item: any, baseUrl: string, remoteServerId: string): RemoteSong {
+export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remoteServerId: string): RemoteSong {
   const song = item.song;
   const artist = item.artist;
   const album = item.album;
