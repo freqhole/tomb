@@ -20,6 +20,8 @@ export interface VirtualAlbumGridProps {
   onAlbumClick?: (album: CollectionCardData) => void;
   /** callback when play button is clicked */
   onAlbumPlay?: (album: CollectionCardData) => void;
+  /** callback when favorite is toggled */
+  onFavoriteToggle?: (album: CollectionCardData, isFavorite: boolean) => void;
   /** callback to get context menu actions for an album */
   getContextMenuActions?: (album: CollectionCardData) => MenuAction[];
   /** height of the container */
@@ -207,6 +209,7 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
                           showGenres={props.showGenres}
                           onClick={props.onAlbumClick}
                           onPlay={props.onAlbumPlay}
+                          onFavoriteToggle={props.onFavoriteToggle}
                         />
                       );
 

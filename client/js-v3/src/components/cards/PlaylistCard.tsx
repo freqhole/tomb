@@ -2,7 +2,7 @@ import { Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import type { PlaylistSummary } from "../../music/data/types";
-import { getImageUrl } from "../../music/utils/format";
+import { getImageUrl } from "../../music/utils/images";
 
 export interface PlaylistCardProps {
   playlist: PlaylistSummary;

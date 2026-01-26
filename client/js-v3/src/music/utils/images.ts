@@ -4,18 +4,29 @@ import { getCurrentRemote } from "../data";
 import type { ImageMetadata } from "../data/types";
 
 /**
- * get image URL from a blob ID using current remote
- * @param blobId - the blob ID to construct URL for
+ * internal helper: get image URL from a blob ID using current remote
+ * handles both full URLs (from remote sources) and raw blob IDs (from local source)
+ * @param blobId - the blob ID or full URL
+ * @internal - use getImageUrl() instead
  */
-export function getBlobImageUrl(
+function getBlobImageUrl(
   blobId: string | null | undefined,
 ): string | null {
   if (!blobId) return null;
 
+  // trim whitespace in case there are any issues
+  const trimmedBlobId = blobId.trim();
+
+  // if already a full URL, return as-is
+  if (trimmedBlobId.startsWith('http://') || trimmedBlobId.startsWith('https://')) {
+    return trimmedBlobId;
+  }
+
+  // for local blob IDs, use current remote to construct URL
   const remote = getCurrentRemote();
   if (!remote) return null;
 
-  return `${remote.base_url}/api/blobs/${blobId}`;
+  return `${remote.base_url}/api/blobs/${trimmedBlobId}`;
 }
 
 /**
@@ -35,6 +46,7 @@ export function getPrimaryImageUrl(images: ImageMetadata[] | null | undefined): 
 /**
  * get image URL from either a blob ID or images array
  * useful for cases where we might have either format
+ * handles both full URLs (from remote) and raw blob IDs (from local)
  */
 export function getImageUrl(
   source: string | ImageMetadata[] | null | undefined

@@ -3,6 +3,7 @@ import { Icon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
+import { getImageUrl } from "../../music/utils/images";
 
 export interface PlayerBarSong {
   /** song id */

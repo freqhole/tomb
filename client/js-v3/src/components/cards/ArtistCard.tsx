@@ -1,7 +1,8 @@
 import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
-import type { ArtistSummary } from "../../music/data/types";import { getImageUrl } from "../../music/utils/format";
+import type { ArtistSummary } from "../../music/data/types";
+import { getImageUrl } from "../../music/utils/images";
 export interface ArtistCardProps {
   artist: ArtistSummary;
   onClick?: (artist: ArtistSummary) => void;

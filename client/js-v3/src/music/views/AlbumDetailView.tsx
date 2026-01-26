@@ -21,7 +21,7 @@ import {
 } from "../services/contextMenu";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
-import { getBlobImageUrl } from "../utils/images";
+import { getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -134,7 +134,7 @@ export function AlbumDetailView() {
     const songList = songs();
     if (songList.length === 0) return null;
     // use thumbnail_blob_id from first song (denormalized field)
-    return getBlobImageUrl(songList[0].thumbnail_blob_id);
+    return getImageUrl(songList[0].thumbnail_blob_id);
   });
 
   // context menu for album image

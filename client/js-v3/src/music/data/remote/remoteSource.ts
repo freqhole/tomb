@@ -133,7 +133,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         total_duration: item.album.total_duration,
         images:
           item.images?.map((img) => ({
-            blob_id: img.blob_id,
+            blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
         is_favorite: item.is_favorite,
@@ -195,7 +195,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
         images:
           item.images?.map((img) => ({
-            blob_id: img.blob_id,
+            blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
             is_primary: img.is_primary ? 1 : 0,
           })) || undefined,
         is_favorite: item.is_favorite,
@@ -306,7 +306,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.playlist.title,
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
-        thumbnail_blob_id: item.playlist.thumbnail_blob_id,
+        thumbnail_blob_id: item.playlist.thumbnail_blob_id
+          ? `${this.baseUrl}/api/blobs/${item.playlist.thumbnail_blob_id}`
+          : null,
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds

@@ -2,6 +2,7 @@
 import { For, type JSX } from "solid-js";
 import type { Song } from "../../music/data/types";
 import { formatDuration } from "../../utils/formatDuration";
+import { getImageUrl } from "../../music/utils/images";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
@@ -83,9 +84,9 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
         onClick={handleAlbumClick}
         class="w-16 h-16 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
       >
-        {props.artworkUrl ? (
+        {getImageUrl(props.artworkUrl) ? (
           <img
-            src={props.artworkUrl}
+            src={getImageUrl(props.artworkUrl)!}
             alt={`${props.albumTitle} artwork`}
             class="w-full h-full object-cover"
           />

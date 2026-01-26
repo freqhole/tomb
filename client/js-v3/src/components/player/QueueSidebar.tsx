@@ -1,7 +1,7 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createSignal, For, Show, type JSX } from "solid-js";
-import { getCurrentRemote } from "../../music/data";
 import type { Song } from "../../music/data/types";
+import { getImageUrl } from "../../music/utils/images";
 import { isMobile } from "../../utils/isMobile";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
@@ -240,7 +240,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   >
                     {/* thumbnail with index overlay */}
                     <MediaThumbnail
-                      thumbnailUrl={song()?.thumbnail_blob_id ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song()?.thumbnail_blob_id}` : null}
+                      thumbnailUrl={getImageUrl(song()?.thumbnail_blob_id)}
                       index={itemIndex}
                       hideIndex={false}
                       onPlayClick={() => handleSongDoubleClick(itemIndex)}

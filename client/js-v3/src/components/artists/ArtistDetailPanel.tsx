@@ -6,7 +6,7 @@ import {
   useSongContextMenu,
 } from "../../music/services/contextMenu";
 import type { Song } from "../../music/services/storage/types";
-import { getBlobImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
+import { getImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
 import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -103,7 +103,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         // prefer album's own images, fallback to song thumbnail
         const artworkUrl = song.album_images && song.album_images.length > 0
           ? getPrimaryImageUrl(song.album_images)
-          : getBlobImageUrl(song.thumbnail_blob_id);
+          : getImageUrl(song.thumbnail_blob_id);
 
         groups.set(song.album_id, {
           albumId: song.album_id,
@@ -182,7 +182,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
     
     // get primary image or first image
     const primaryImage = props.artist.images.find(img => img.is_primary) || props.artist.images[0];
-    return getBlobImageUrl(primaryImage.blob_id);
+    return getImageUrl(primaryImage.blob_id);
   });
 
   // create artist abbreviation (up to 3 letters from first words)

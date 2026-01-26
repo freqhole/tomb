@@ -11,6 +11,7 @@ import {
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
 import { useAlbumsQuery } from "../queries/songs";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
 import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu } from "../services/contextMenu";
@@ -35,6 +36,9 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   // fetch available tags
   const tagsQuery = useTagsQuery();
+
+  // favorites mutation
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // fetch albums using query hook
   const albumsQuery = useAlbumsQuery({
@@ -192,6 +196,14 @@ export function AlbumsView(props: AlbumsViewProps) {
     navigate(buildRoute(`/albums/${album.id}`));
   };
 
+  const handleFavoriteToggle = (albumId: string, isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "album",
+      targetId: albumId,
+      isFavorite,
+    });
+  };
+
   // build context menu actions for each album
   const getContextMenuActions = (album: CollectionCardData) => {
     return useAlbumContextMenu(
@@ -206,6 +218,12 @@ export function AlbumsView(props: AlbumsViewProps) {
         isFavorite: album.isFavorite ?? false,
       },
     );
+  };
+
+  // calculate grid height: window height - header (84) - album header (26) - tag filter (~80)
+  const gridHeight = () => {
+    if (typeof window === 'undefined') return 600;
+    return window.innerHeight - 84 - 26 - 80;
   };
 
   return (
@@ -271,11 +289,12 @@ export function AlbumsView(props: AlbumsViewProps) {
               albums={albums()}
               onAlbumClick={handleAlbumClick}
               onAlbumPlay={handleAlbumPlay}
+              onFavoriteToggle={(album, isFavorite) => handleFavoriteToggle(album.id, isFavorite)}
               getContextMenuActions={getContextMenuActions}
               showYear={true}
               showGenres={true}
               cardSize="medium"
-              height={undefined}
+              height={gridHeight()}
             />
           </Show>
         )}

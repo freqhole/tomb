@@ -9,7 +9,7 @@ import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
-import { getBlobImageUrl } from "../utils/images";
+import { getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import * as api from "freqhole-api-client";
@@ -193,7 +193,7 @@ export function ArtistDetailView() {
         return;
       }
       
-      const imageUrls = result.data.map(id => getBlobImageUrl(id)!).filter(Boolean);
+      const imageUrls = result.data.map(id => getImageUrl(id)!).filter(Boolean);
       
       if (imageUrls.length > 0) {
         showImageCarousel({

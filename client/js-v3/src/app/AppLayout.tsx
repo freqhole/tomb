@@ -46,7 +46,7 @@ import {
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
-import { getBlobImageUrl } from "../music/utils/images";
+import { getImageUrl } from "../music/utils/images";
 import { routes } from "../music/utils/routing";
 import {
   appState,
@@ -78,22 +78,11 @@ export function AppLayout(props: AppLayoutProps) {
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
   // helper to get thumbnail URL for a song
+  // remoteSource returns full URLs, localSource returns raw blob_ids
+  // getImageUrl handles both cases
   const getSongThumbnailUrl = (song: Song): string | undefined => {
     if (!song.thumbnail_blob_id) return undefined;
-    
-    const allRemotes = remotes();
-    
-    // if song has a remote_server_id, look it up in the remotes list
-    if (song.remote_server_id) {
-      const remote = allRemotes.find(r => r.remote_id === song.remote_server_id);
-      if (remote) {
-        return `${remote.base_url}/api/blobs/${song.thumbnail_blob_id}`;
-      }
-      return undefined;
-    }
-    
-    // for local songs, use current remote
-    return getBlobImageUrl(song.thumbnail_blob_id) || undefined;
+    return getImageUrl(song.thumbnail_blob_id) || undefined;
   };
 
   // load remotes and storage info on mount
@@ -261,9 +250,7 @@ export function AppLayout(props: AppLayoutProps) {
           recentPlaylistsQuery.data?.map((playlist) => ({
             id: playlist.playlist_id,
             name: playlist.title,
-            thumbnailUrl: playlist.thumbnail_blob_id
-              ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${playlist.thumbnail_blob_id}`
-              : null,
+            thumbnailUrl: getImageUrl(playlist.thumbnail_blob_id),
             updatedAt: playlist.updated_at,
             onClick: () => handlePlaylistClick(playlist.playlist_id),
           })) || []

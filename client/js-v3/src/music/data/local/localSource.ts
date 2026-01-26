@@ -65,7 +65,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   async getSongById(id: string): Promise<Song | null> {
-    return getSongById(id) || null;
+    return getSongById(id) ?? null;
   }
 
   // albums (optional - aggregate from songs)

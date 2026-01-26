@@ -23,7 +23,7 @@ import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
-import { getPrimaryImageUrl, getBlobImageUrl } from "../utils/images";
+import { getPrimaryImageUrl, getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -473,7 +473,7 @@ export function ArtistsView(props: ArtistsViewProps) {
         return;
       }
       
-      const imageUrls = result.data.map(id => getBlobImageUrl(id)!).filter(Boolean);
+      const imageUrls = result.data.map(id => getImageUrl(id)!).filter(Boolean);
       
       if (imageUrls.length > 0) {
         showImageCarousel({

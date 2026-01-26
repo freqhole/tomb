@@ -106,7 +106,9 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     // denormalized fields
     artist_name: artist?.name || "unknown artist",
     album_title: album?.title || "unknown album",
-    thumbnail_blob_id: song.thumbnail_blob_id || null,
+    thumbnail_blob_id: song.thumbnail_blob_id 
+      ? `${baseUrl}/api/blobs/${song.thumbnail_blob_id}`
+      : null,
     album_added_at: song.created_at, // use song's created_at as proxy
     album_primary_genre_id: album?.genre_id || item.genre?.id || null,
     album_primary_genre_name: album?.genre || item.genre?.name || null,

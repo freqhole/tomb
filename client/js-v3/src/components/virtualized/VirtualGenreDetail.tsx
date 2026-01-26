@@ -1,7 +1,7 @@
 // virtualized genre detail component - displays albums grouped by artist with virtualized scrolling
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { getBlobImageUrl } from "../../music/utils/images";
+import { getImageUrl } from "../../music/utils/images";
 import { CollectionCard } from "../cards/CollectionCard";
 import { formatDuration } from "../cards/StatsCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -78,7 +78,7 @@ export function VirtualGenreDetail(
           year: song.year,
           songCount: 0,
           totalDuration: 0,
-          imageUrl: getBlobImageUrl(song.thumbnail_blob_id),
+          imageUrl: getImageUrl(song.thumbnail_blob_id),
         });
       }
 

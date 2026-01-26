@@ -40,6 +40,7 @@ import { pollJobUntilComplete } from "../../utils/jobs";
 import { buildRoute } from "../utils/routing";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
+import { getImageUrl } from "../utils/images";
 import {
   useDeletePlaylistMutation,
   usePlaylistSongsQuery,
@@ -330,24 +331,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // convert playlists to list items for VirtualItemList
   const playlistListItems = createMemo((): ListItem[] => {
-    const remote = getCurrentRemote();
     return playlists().map((playlist) => {
-      // construct thumbnail URL
-      let thumbnailUrl: string | null = null;
-      if (playlist.thumbnail_blob_id) {
-        if (remote) {
-          // remote playlist - use blob URL
-          thumbnailUrl = apiClient.utils.getBlobUrl(
-            remote.base_url,
-            playlist.thumbnail_blob_id,
-          );
-        } else {
-          // local playlist - check if it's an OPFS path
-          // we'll need to handle this differently - for now just skip
-          // (could create object URLs but would need cleanup)
-          thumbnailUrl = null;
-        }
-      }
+      // use getImageUrl which handles both full URLs (remote) and raw blob_ids (local)
+      const thumbnailUrl = getImageUrl(playlist.thumbnail_blob_id);
 
       return {
         id: playlist.playlist_id,
@@ -418,14 +404,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     const viewingRemote = isViewingRemote();
 
-    // for remote playlists, always use remote blob URL
+    // for remote playlists, use getImageUrl which handles full URLs
     if (viewingRemote) {
-      const remote = getCurrentRemote();
-      if (!remote) return null;
-      return apiClient.utils.getBlobUrl(
-        remote.base_url,
-        playlist.thumbnail_blob_id,
-      );
+      return getImageUrl(playlist.thumbnail_blob_id);
     }
 
     // for local playlists, use local thumbnail URL if available for THIS playlist
@@ -465,7 +446,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     // add playlist thumbnail
     if (playlist.thumbnail_blob_id) {
-      images.push(`${baseUrl}/api/blobs/${playlist.thumbnail_blob_id}`);
+      const url = getImageUrl(playlist.thumbnail_blob_id);
+      if (url) images.push(url);
     }
 
     // collect all unique images from songs (album cover, album images)
@@ -473,12 +455,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     for (const song of songs) {
       // album cover (thumbnail_blob_id is the denormalized primary image)
       if (song.thumbnail_blob_id) {
-        imageSet.add(`${baseUrl}/api/blobs/${song.thumbnail_blob_id}`);
+        const url = getImageUrl(song.thumbnail_blob_id);
+        if (url) imageSet.add(url);
       }
       // album images
       if (song.album_images) {
         for (const img of song.album_images) {
-          imageSet.add(`${baseUrl}/api/blobs/${img.blob_id}`);
+          const url = getImageUrl(img.blob_id);
+          if (url) imageSet.add(url);
         }
       }
     }
@@ -1493,11 +1477,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                           onPlayClick={() =>
                                             handleSongDoubleClick(song)
                                           }
-                                          thumbnailUrl={
-                                            song.thumbnail_blob_id
-                                              ? `${getCurrentRemote()?.base_url || ""}/api/blobs/${song.thumbnail_blob_id}`
-                                              : undefined
-                                          }
+                                          thumbnailUrl={getImageUrl(
+                                            song.thumbnail_blob_id,
+                                          )}
                                           disabled={
                                             !isEditablePlaylist(
                                               selectedPlaylist()!,
