@@ -56,7 +56,7 @@ export interface VirtualSongListProps {
   getContextMenuActions?: (song: Song, index: number) => MenuAction[];
   /** callback when virtualizer is rendering items near end (for infinite scroll) */
   onNearEnd?: () => void;
-  /** currently playing song id */
+  /** currently playing song sha256 (content hash) */
   playingSongId?: string;
   /** selected song ids */
   selectedSongIds?: Set<string>;
@@ -359,7 +359,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
           {(virtualRow) => {
             // make song access reactive so changes to song data trigger re-renders
             const song = () => props.songs[virtualRow.index];
-            const isPlaying = () => props.playingSongId === song().id;
+            const isPlaying = () => props.playingSongId === song().sha256;
             const isSelected = () => props.selectedSongIds?.has(song().id);
 
             const rowContent = (
@@ -368,7 +368,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   h-full cursor-pointer
                   border-b border-[var(--color-border-subtle)]
                   transition-colors
-                  ${isPlaying() ? "bg-[var(--color-accent-500)] bg-opacity-10 text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
+                  ${isPlaying() ? "bg-[var(--color-bg-active)] text-[var(--color-text-primary)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
                   ${isSelected() ? "bg-[var(--color-bg-hover)]" : ""}
                 `}
                 style={{

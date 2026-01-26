@@ -1,6 +1,7 @@
 // songs view - displays all songs with infinite scroll using tanstack query
 import { useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal } from "solid-js";
+import { appState } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import {
   TagFilterPicker,
@@ -269,6 +270,7 @@ export function SongsView(props: SongsViewProps) {
               showTags={true}
               onFavoriteToggle={handleFavoriteToggle}
               onRatingChange={handleRatingChange}
+              playingSongId={appState()?.current_sha256 ?? undefined}
             />
             {songsQuery.isFetchingNextPage && (
               <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">
