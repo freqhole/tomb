@@ -64,7 +64,7 @@ export function AppLayout(props: AppLayoutProps) {
   // const location = useLocation();
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
-  // const toggleFavoriteMutation = useToggleFavoriteMutation();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   // const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
@@ -212,6 +212,18 @@ export function AppLayout(props: AppLayoutProps) {
     seek(timeInSeconds);
   };
 
+  // handle song favorite toggle from player bar
+  const handleSongFavoriteToggle = (songId: string) => {
+    const song = currentSongData();
+    if (!song) return;
+    toggleFavoriteMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      sha256: song.sha256,
+      isFavorite: !(song.is_favorite || false),
+    });
+  };
+
   const handleQueueToggle = async () => {
     await setQueueOpen(!queueOpen());
   };
@@ -231,6 +243,8 @@ export function AppLayout(props: AppLayoutProps) {
         searchPlaceholder="search artists, albums, songs..."
         onSearchChange={(query) => console.log("search:", query)}
         onSearchSubmit={(query) => console.log("search submit:", query)}
+        onNavigate={(path) => navigate(path)}
+        currentPath={location.pathname + location.search}
         currentSourceName={currentSourceName()}
         remotes={remotes().map((r) => ({
           id: r.remote_id,
@@ -411,7 +425,7 @@ export function AppLayout(props: AppLayoutProps) {
           onSeek={handleSeek}
           onVolumeChange={setPlayerVolume}
           onQueueToggle={handleQueueToggle}
-          onFavoriteToggle={undefined}
+          onFavoriteToggle={handleSongFavoriteToggle}
           queueLength={appState()?.queue.length || 0}
           canGoNext={canGoNext()}
           canGoPrevious={canGoPrevious()}

@@ -1,5 +1,4 @@
 // top nav search component with suggestions and navigation
-import { useLocation, useNavigate } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
@@ -9,24 +8,35 @@ import {
 } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchField, SearchSuggestion } from "../../music/data/types";
-import { useSearchSuggestions } from "../../music/queries/search";
 import { addToQueue } from "../../music/services/audio/player";
 import { routes } from "../../music/utils/routing";
 import { IconButton } from "../buttons/IconButton";
 import type { SearchSuggestion as SearchInputSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
 
-interface TopNavSearchProps {
+export interface TopNavSearchProps {
   /** placeholder text */
   placeholder?: string;
   /** callback when search is collapsed */
   onCollapse?: () => void;
+  /** callback for navigation - if not provided, navigation is disabled */
+  onNavigate?: (path: string) => void;
+  /** current pathname for filtering logic */
+  currentPath?: string;
+  /** search suggestions - if not provided, suggestions are disabled */
+  suggestions?: SearchInputSuggestion[];
+  /** callback when search value changes - parent should fetch suggestions */
+  onSearchChange?: (value: string) => void;
+  /** whether more suggestions are available */
+  hasMoreSuggestions?: boolean;
+  /** whether suggestions are loading */
+  isLoadingSuggestions?: boolean;
+  /** callback to load more suggestions */
+  onLoadMoreSuggestions?: () => void;
 }
 
-// top nav search with suggestions and navigation
+// top nav search with suggestions and navigation (presentational)
 export function TopNavSearch(props: TopNavSearchProps) {
-  const navigate = useNavigate();
-  const location = useLocation();
   const [searchValue, setSearchValue] = createSignal("");
   const [isExpanded, setIsExpanded] = createSignal(false);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
@@ -35,7 +45,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   // get current filterable view name
   const currentFilterableView = createMemo(() => {
-    const pathname = location.pathname;
+    const pathname = props.currentPath || "";
     const filterableRoutes = [
       "songs",
       "albums",
@@ -63,60 +73,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
     onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
-  // suggestions query with infinite scroll
-  const suggestionsQuery = useSearchSuggestions({
-    field: () => "all",
-    partial: searchValue,
-    pageSize: 20,
-    enabled: () => searchValue().length >= 2,
-  });
-
-  // flatten paginated suggestions
-  const suggestions = createMemo((): SearchInputSuggestion[] => {
-    const pages = suggestionsQuery.data?.pages;
-    if (!pages) return [];
-
-    const remote = getCurrentRemote();
-    const baseUrl = remote?.base_url || "";
-
-    return pages
-      .flatMap((page) => page.suggestions)
-      .map((s) => {
-        // extract thumbnail and metadata
-        let thumbnailUrl: string | undefined;
-        let albumId: string | undefined;
-
-        if (s.metadata) {
-          const meta = s.metadata as any;
-          if (meta.thumbnail_blob_id) {
-            thumbnailUrl = `${baseUrl}/api/blobs/${meta.thumbnail_blob_id}`;
-          }
-          if (meta.album_id) {
-            albumId = meta.album_id;
-          }
-        }
-
-        // only add thumbnail click for playable types (songs, albums, playlists)
-        const isPlayable =
-          s.suggestion_type === "song" ||
-          s.suggestion_type === "album" ||
-          s.suggestion_type === "playlist";
-
-        return {
-          id: s.entity_id,
-          text: s.display,
-          category: s.suggestion_type,
-          highlight: s.highlight,
-          count: s.count > 0 ? s.count : undefined,
-          thumbnailUrl,
-          isFavorite: s.is_favorite,
-          data: s,
-          onThumbnailClick: isPlayable
-            ? () => handleThumbnailClick(s, albumId)
-            : undefined,
-        };
-      });
-  });
+  // use suggestions from props
+  const suggestions = () => props.suggestions || [];
 
   // create hint message for enter key action
   const enterHintMessage = createMemo(() => {
@@ -127,13 +85,14 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   // handle loading more suggestions
   const handleEndReached = () => {
-    if (suggestionsQuery.hasNextPage && !suggestionsQuery.isFetchingNextPage) {
-      suggestionsQuery.fetchNextPage();
+    if (props.hasMoreSuggestions && !props.isLoadingSuggestions) {
+      props.onLoadMoreSuggestions?.();
     }
   };
 
   const handleInputChange = (value: string) => {
     setSearchValue(value);
+    props.onSearchChange?.(value);
     // don't collapse if value is empty - keep expanded while focused
     if (value && !isExpanded()) {
       setIsExpanded(true);
@@ -161,7 +120,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const handleClear = () => {
     setSearchValue("");
     // if on a filterable view with query param, clear it by navigating to the route without query
-    const pathname = location.pathname;
+    const pathname = props.currentPath || "";
     const filterableRoutes = [
       "songs",
       "albums",
@@ -172,8 +131,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const currentRoute = filterableRoutes.find((route) =>
       pathname.endsWith(`/${route}`),
     );
-    if (currentRoute && location.search) {
-      navigate(pathname, { replace: true });
+    if (currentRoute && pathname.includes('?')) {
+      // strip query params
+      props.onNavigate?.(pathname.split('?')[0]);
     }
     // keep expanded even after clearing
   };
@@ -240,24 +200,24 @@ export function TopNavSearch(props: TopNavSearchProps) {
         case "song":
           // for songs, navigate to album detail page if we have album_id
           if (meta?.album_id) {
-            navigate(routes.album(meta.album_id));
+            props.onNavigate?.(routes.album(meta.album_id));
           }
           break;
 
         case "artist":
-          navigate(routes.artist(s.entity_id));
+          props.onNavigate?.(routes.artist(s.entity_id));
           break;
 
         case "album":
-          navigate(routes.album(s.entity_id));
+          props.onNavigate?.(routes.album(s.entity_id));
           break;
 
         case "genre":
-          navigate(routes.genre(s.entity_id));
+          props.onNavigate?.(routes.genre(s.entity_id));
           break;
 
         case "playlist":
-          navigate(routes.playlist(s.entity_id));
+          props.onNavigate?.(routes.playlist(s.entity_id));
           break;
 
         default:
@@ -272,7 +232,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (query.length < 2) return;
 
     // apply filter to current view
-    const pathname = location.pathname;
+    const pathname = props.currentPath || "";
     const filterableRoutes = [
       "songs",
       "albums",
@@ -286,7 +246,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
     if (currentRoute) {
       // add query param to current view (don't clear search input)
-      navigate(`${pathname}?q=${encodeURIComponent(query)}`);
+      props.onNavigate?.(`${pathname}?q=${encodeURIComponent(query)}`);
     }
     // if not on a filterable view, do nothing (suggestions already work)
   };
@@ -357,7 +317,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             placeholder={
               props.placeholder || "search songs, artists, albums..."
             }
-            loading={suggestionsQuery.isFetching}
+            loading={props.isLoadingSuggestions}
             suggestions={suggestions()}
             open={suggestionsOpen()}
             onOpenChange={setSuggestionsOpen}
@@ -367,7 +327,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onFocus={handleFocus}
             onKeyDown={handleKeyDown}
             onEndReached={handleEndReached}
-            loadingMore={suggestionsQuery.isFetchingNextPage}
+            loadingMore={props.isLoadingSuggestions}
             hintMessage={enterHintMessage()}
             onHintClick={handleSearchSubmit}
             onBlur={(e) => {

@@ -3,7 +3,7 @@ import { For, type JSX } from "solid-js";
 import type { Song } from "../../music/data/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { SongRow } from "../songs/SongRow";
 import { MarqueeText } from "../text/MarqueeText";
@@ -35,6 +35,8 @@ export interface AlbumSectionProps {
   tags?: string[];
   /** rating change handler */
   onRatingChange?: (rating: number) => void;
+  /** favorite toggle handler */
+  onFavoriteToggle?: (isFavorite: boolean) => void;
   /** click handler for album (navigates to album detail) */
   onAlbumClick?: (albumId: string) => void;
   /** play album handler */
@@ -45,6 +47,8 @@ export interface AlbumSectionProps {
   onSongDoubleClick?: (song: Song) => void;
   /** song rating change handler */
   onSongRatingChange?: (songId: string, rating: number) => void;
+  /** song favorite toggle handler */
+  onSongFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   /** callback to get context menu actions for album header */
   getAlbumContextMenuActions?: () => MenuAction[];
   /** callback to get context menu actions for a song */
@@ -158,10 +162,9 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             />
           </svg>
         </button>
-        <FavoriteToggle
-          targetType="album"
-          targetId={props.albumId}
+        <FavoriteHeart
           isFavorite={props.isFavorite ?? false}
+          onToggle={props.onFavoriteToggle}
           size="md"
         />
         <Rating
@@ -209,6 +212,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
                 isFavorite={song.is_favorite}
                 rating={song.user_rating ?? 0}
                 onRatingChange={(rating) => props.onSongRatingChange?.(song.id, rating)}
+                onFavoriteToggle={(isFavorite) => props.onSongFavoriteToggle?.(song.id, isFavorite)}
                 songId={song.id}
                 sha256={song.sha256}
               />

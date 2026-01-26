@@ -17,7 +17,7 @@ import {
 } from "../cards/StatsCard";
 import { ContextMenu } from "../overlays/ContextMenu";
 import { Icon, IconNames } from "../icons/registry";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -76,6 +76,12 @@ export interface ArtistDetailPanelProps {
   onSongRatingChange?: (songId: string, rating: number) => void;
   /** album rating change handler */
   onAlbumRatingChange?: (albumId: string, rating: number) => void;
+  /** album favorite toggle handler */
+  onAlbumFavoriteToggle?: (albumId: string, isFavorite: boolean) => void;
+  /** song favorite toggle handler */
+  onSongFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
+  /** artist favorite toggle handler */
+  onFavoriteToggle?: (isFavorite: boolean) => void;
   /** edit artist handler */
   onEditArtist?: () => void;
   /** click artist image handler (for carousel) */
@@ -292,10 +298,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   <Icon name={IconNames.edit} size={20} />
                 </button>
               </Show>
-              <FavoriteToggle
-                targetType="artist"
-                targetId={props.artist.artist_id}
+              <FavoriteHeart
                 isFavorite={props.artist.is_favorite ?? false}
+                onToggle={props.onFavoriteToggle}
               />
               <Rating
                 rating={props.artist.user_rating ?? 0}
@@ -366,6 +371,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   subGenres={album.subGenres}
                   tags={album.tags}
                   onRatingChange={(rating) => props.onAlbumRatingChange?.(album.albumId, rating)}
+                  onFavoriteToggle={(isFavorite) => props.onAlbumFavoriteToggle?.(album.albumId, isFavorite)}
                   playingSongId={props.playingSongId}
                   onAlbumClick={props.onAlbumClick}
                   onPlayAlbum={() => props.onPlayAlbum?.(album.albumId)}
@@ -374,6 +380,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     props.onSongDoubleClick?.(song.id, album.albumId)
                   }
                   onSongRatingChange={(songId, rating) => props.onSongRatingChange?.(songId, rating)}
+                  onSongFavoriteToggle={(songId, isFavorite) => props.onSongFavoriteToggle?.(songId, isFavorite)}
                   getAlbumContextMenuActions={() => {
                     // get favorite status from any song in the album
                     const firstSongData = album.songs[0]

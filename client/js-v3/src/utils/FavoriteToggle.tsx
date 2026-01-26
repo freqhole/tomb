@@ -3,8 +3,8 @@
 import {
   useToggleFavoriteMutation,
   type FavoriteTarget,
-} from "../../music/queries/favorites";
-import { FavoriteHeart, type FavoriteHeartProps } from "./FavoriteHeart";
+} from "../music/queries/favorites";
+import { FavoriteHeart, type FavoriteHeartProps } from "../components/ratings/FavoriteHeart";
 
 export interface FavoriteToggleProps
   extends Pick<FavoriteHeartProps, "disabled" | "size" | "readonly" | "class"> {

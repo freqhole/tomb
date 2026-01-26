@@ -1,7 +1,7 @@
 import { createSignal, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -149,6 +149,8 @@ export interface DraggableRowSongContentProps {
   songId?: string;
   /** sha256 for favorite toggle (for queue updates) */
   sha256?: string;
+  /** callback when favorite is toggled */
+  onFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   /** additional actions (buttons, icons, etc) */
   actions?: JSX.Element;
   /** additional classes */
@@ -183,11 +185,9 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
       {/* favorite */}
       <Show when={props.isFavorite !== undefined && props.songId}>
         <div class="flex-shrink-0">
-          <FavoriteToggle
-            targetType="song"
-            targetId={props.songId!}
-            sha256={props.sha256}
+          <FavoriteHeart
             isFavorite={props.isFavorite ?? false}
+            onToggle={(isFavorite) => props.onFavoriteToggle?.(props.songId!, isFavorite)}
             size="sm"
           />
         </div>

@@ -860,6 +860,7 @@ export const FullAppDemo: Story = {
           brandName="freqhole"
           brandTagline="your music library"
           searchPlaceholder="search artists, albums, songs..."
+          searchComponent={<div />}
           onSearchChange={(query) => console.log("search:", query)}
           onSearchSubmit={(query) => console.log("search submit:", query)}
           mainNavSections={[

@@ -29,7 +29,7 @@ import {
   DraggableRowSongContent,
 } from "../../components/lists/DraggableRow";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
-import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
+import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import {
   VirtualItemList,
   type ListItem,

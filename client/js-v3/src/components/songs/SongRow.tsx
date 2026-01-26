@@ -3,7 +3,7 @@ import { Show, type JSX } from "solid-js";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -116,14 +116,11 @@ export function SongRow(props: SongRowProps): JSX.Element {
       {/* favorite indicator/toggle */}
       <Show when={props.isFavorite !== undefined && props.songId}>
         <div class="flex-shrink-0">
-          <FavoriteToggle
-            targetType="song"
-            targetId={props.songId!}
-            sha256={props.sha256}
+          <FavoriteHeart
             isFavorite={props.isFavorite ?? false}
+            onToggle={props.onFavoriteToggle}
             size="sm"
             readonly={!props.songId}
-            onToggleSuccess={props.onFavoriteToggle}
           />
         </div>
       </Show>

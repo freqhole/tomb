@@ -18,6 +18,7 @@ import { getCurrentRemote, getDataSource } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { querySongsWithDetails } from "../services/storage/db";
@@ -106,6 +107,9 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // rating mutation
   const setRatingMutation = useSetRatingMutation();
+
+  // favorite mutation
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // reset virtual list when query param changes
   createEffect(() => {
@@ -423,6 +427,37 @@ export function ArtistsView(props: ArtistsViewProps) {
     });
   };
 
+  // handle album favorite toggle
+  const handleAlbumFavoriteToggle = (albumId: string, isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "album",
+      targetId: albumId,
+      isFavorite,
+    });
+  };
+
+  // handle artist favorite toggle
+  const handleArtistFavoriteToggle = (isFavorite: boolean) => {
+    const artist = selectedArtist();
+    if (!artist) return;
+    toggleFavoriteMutation.mutate({
+      targetType: "artist",
+      targetId: artist.artist_id,
+      isFavorite,
+    });
+  };
+
+  // handle song favorite toggle
+  const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
+    const song = artistSongs()?.find(s => s.id === songId);
+    toggleFavoriteMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      sha256: song?.sha256,
+      isFavorite,
+    });
+  };
+
   // show artist image carousel
   const handleArtistImageClick = async () => {
     const artist = selectedArtist();
@@ -614,6 +649,9 @@ export function ArtistsView(props: ArtistsViewProps) {
           onRatingChange={handleRatingChange}
           onSongRatingChange={handleSongRatingChange}
           onAlbumRatingChange={handleAlbumRatingChange}
+          onFavoriteToggle={handleArtistFavoriteToggle}
+          onAlbumFavoriteToggle={handleAlbumFavoriteToggle}
+          onSongFavoriteToggle={handleSongFavoriteToggle}
           onImageClick={handleArtistImageClick}
           onGenreClick={handleGenreClick}
         />

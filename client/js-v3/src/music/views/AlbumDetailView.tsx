@@ -6,13 +6,14 @@ import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
-import { FavoriteToggle } from "../../components/ratings/FavoriteToggle";
+import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { getCurrentRemote, getDataSource } from "../data";
 import { showAlbumEditor } from "../modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
 import {
   useAlbumContextMenu,
@@ -42,12 +43,35 @@ export function AlbumDetailView() {
   // rating mutation
   const setRatingMutation = useSetRatingMutation();
 
+  // favorite mutation
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+
   // handle song rating change
   const handleSongRatingChange = (songId: string, rating: number) => {
     setRatingMutation.mutate({
       targetType: "song",
       targetId: songId,
       rating,
+    });
+  };
+
+  // handle album favorite toggle
+  const handleAlbumFavoriteToggle = (isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "album",
+      targetId: params.id,
+      isFavorite,
+    });
+  };
+
+  // handle song favorite toggle
+  const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
+    const song = songs().find(s => s.id === songId);
+    toggleFavoriteMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      sha256: song?.sha256,
+      isFavorite,
     });
   };
 
@@ -207,10 +231,9 @@ export function AlbumDetailView() {
                   >
                     <Icon name={IconNames.edit} />
                   </button>
-                  <FavoriteToggle
-                    targetType="album"
-                    targetId={info().album_id || params.id}
+                  <FavoriteHeart
                     isFavorite={albumQuery.data?.is_favorite ?? false}
+                    onToggle={handleAlbumFavoriteToggle}
                   />
                   <Rating
                     rating={albumQuery.data?.user_rating ?? 0}
@@ -248,6 +271,7 @@ export function AlbumDetailView() {
                         isFavorite={song.is_favorite}
                         rating={song.user_rating}
                         onRatingChange={(rating) => handleSongRatingChange(song.id, rating)}
+                        onFavoriteToggle={(isFavorite) => handleSongFavoriteToggle(song.id, isFavorite)}
                         songId={song.id}
                         sha256={song.sha256}
                       />

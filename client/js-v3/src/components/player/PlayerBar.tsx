@@ -1,6 +1,6 @@
 import { Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
 
@@ -138,16 +138,16 @@ export function PlayerBar(props: PlayerBarProps) {
 
           {/* favorite button */}
           <Show when={props.song}>
-            <div class="flex-shrink-0">
-              <FavoriteToggle
-                targetType="song"
-                targetId={props.song!.id}
-                sha256={props.song!.sha256}
-                isFavorite={props.song!.isFavorite || false}
-                size="md"
-                class="opacity-80 hover:opacity-100"
-              />
-            </div>
+            {(song) => (
+              <div class="flex-shrink-0">
+                <FavoriteHeart
+                  isFavorite={song().isFavorite || false}
+                  onToggle={() => props.onFavoriteToggle?.(song().id)}
+                  size="md"
+                  class="opacity-80 hover:opacity-100"
+                />
+              </div>
+            )}
           </Show>
 
           {/* title and artist - fills remaining space */}

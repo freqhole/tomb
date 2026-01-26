@@ -1,7 +1,7 @@
 import { createSignal, JSX, Show } from "solid-js";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { MediaImage } from "../media/MediaImage";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 
 // unified collection types
@@ -162,15 +162,11 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           }
         >
           <div class="absolute top-2 right-2 z-10">
-            <FavoriteToggle
-              targetType={props.collection.domainType as FavoriteTarget}
-              targetId={props.collection.id}
+            <FavoriteHeart
               isFavorite={props.collection.isFavorite ?? false}
+              onToggle={(isFavorite) => props.onFavoriteToggle?.(props.collection, isFavorite)}
               size="sm"
               class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
-              onToggleSuccess={(newValue) => {
-                props.onFavoriteToggle?.(props.collection, newValue);
-              }}
             />
           </div>
         </Show>

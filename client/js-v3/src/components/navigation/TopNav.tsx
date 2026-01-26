@@ -2,7 +2,7 @@ import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import { IconButton } from "../buttons/IconButton";
 import { Icon, type IconName } from "../icons/registry";
-import { TopNavSearch } from "./TopNavSearch";
+import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -56,6 +56,10 @@ export interface TopNavProps {
   onViewAllPlaylists?: () => void;
   /** callback for create playlist */
   onCreatePlaylist?: () => void;
+  /** callback for navigation (optional - if not provided, search navigation is disabled) */
+  onNavigate?: (path: string) => void;
+  /** current pathname for search filtering logic */
+  currentPath?: string;
   /** current source name (e.g. "local library" or remote name) */
   currentSourceName?: string;
   /** available remote sources */
@@ -72,6 +76,8 @@ export interface TopNavProps {
   storageQuota?: number;
   /** additional content to render on the right side of the nav bar */
   rightContent?: JSX.Element;
+  /** custom search component (optional - if not provided, uses TopNavSearchContainer) */
+  searchComponent?: JSX.Element;
   /** additional classes */
   class?: string;
 }
@@ -404,7 +410,18 @@ export function TopNav(props: TopNavProps) {
       </KobalteNav>
 
       {/* search */}
-      <TopNavSearch placeholder={props.searchPlaceholder} />
+      <Show
+        when={props.searchComponent !== undefined}
+        fallback={
+          <TopNavSearchContainer
+            placeholder={props.searchPlaceholder}
+            onNavigate={props.onNavigate}
+            currentPath={props.currentPath}
+          />
+        }
+      >
+        {props.searchComponent}
+      </Show>
     </nav>
   );
 }

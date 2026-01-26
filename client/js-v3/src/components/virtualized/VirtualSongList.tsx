@@ -14,7 +14,7 @@ import type { Song } from "../../music/data/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
-import { FavoriteToggle } from "../ratings/FavoriteToggle";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import { useScrollRestore } from "../../utils/scrollRestore";
@@ -441,15 +441,10 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 {/* favorite */}
                 <Show when={showFavorites()}>
                   <div class="px-3 flex items-center justify-center">
-                    <FavoriteToggle
-                      targetType="song"
-                      targetId={song().id}
-                      sha256={song().sha256}
+                    <FavoriteHeart
                       isFavorite={song().is_favorite ?? false}
+                      onToggle={(isFavorite) => props.onFavoriteToggle?.(song(), isFavorite)}
                       size="sm"
-                      onToggleSuccess={(newValue) => {
-                        props.onFavoriteToggle?.(song(), newValue);
-                      }}
                     />
                   </div>
                 </Show>

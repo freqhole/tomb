@@ -7,6 +7,7 @@ import { getCurrentRemote } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
 import { getBlobImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
@@ -22,6 +23,9 @@ export function ArtistDetailView() {
 
   // rating mutation
   const setRatingMutation = useSetRatingMutation();
+
+  // favorite mutation
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // fetch artist songs using tanstack query (works with local + remote)
   const artistSongsQuery = useArtistSongsQuery(() => params.id);
@@ -136,10 +140,41 @@ export function ArtistDetailView() {
   };
 
   // handle album rating change
-  const handleAlbumRatingChange = (albumId: string, rating: number) => {    console.log('[ArtistDetailView] handleAlbumRatingChange called:', { albumId, rating });    setRatingMutation.mutate({
+  const handleAlbumRatingChange = (albumId: string, rating: number) => {
+    console.log('[ArtistDetailView] handleAlbumRatingChange called:', { albumId, rating });
+    setRatingMutation.mutate({
       targetType: "album",
       targetId: albumId,
       rating,
+    });
+  };
+
+  // handle album favorite toggle
+  const handleAlbumFavoriteToggle = (albumId: string, isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "album",
+      targetId: albumId,
+      isFavorite,
+    });
+  };
+
+  // handle artist favorite toggle
+  const handleArtistFavoriteToggle = (isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "artist",
+      targetId: params.id,
+      isFavorite,
+    });
+  };
+
+  // handle song favorite toggle
+  const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
+    const song = songs().find(s => s.id === songId);
+    toggleFavoriteMutation.mutate({
+      targetType: "song",
+      targetId: songId,
+      sha256: song?.sha256,
+      isFavorite,
     });
   };
 
@@ -188,6 +223,8 @@ export function ArtistDetailView() {
               onPlayAll={handlePlayArtist}
               onShuffle={handleShuffleArtist}
               onAddToQueue={handleAddArtistToQueue}
+              onAlbumFavoriteToggle={handleAlbumFavoriteToggle}
+              onFavoriteToggle={handleArtistFavoriteToggle}
               onAlbumClick={handleAlbumClick}
               onPlayAlbum={handlePlayAlbum}
               onAddAlbumToQueue={handleAddAlbumToQueue}
@@ -196,6 +233,7 @@ export function ArtistDetailView() {
               onEditArtist={handleEditArtist}
               onRatingChange={handleRatingChange}
               onSongRatingChange={handleSongRatingChange}
+              onSongFavoriteToggle={handleSongFavoriteToggle}
               onAlbumRatingChange={handleAlbumRatingChange}
               onImageClick={handleArtistImageClick}
               onGenreClick={handleGenreClick}
