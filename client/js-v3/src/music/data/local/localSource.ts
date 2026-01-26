@@ -1,12 +1,16 @@
 // local data source implementation - queries indexeddb directly
 import { generateUUID } from "../../../utils/uuid";
 import {
+  checkFavorite,
+  getRating,
   getSongById,
   initMusicDB,
   queryAlbums,
   queryArtists,
   queryGenres,
   querySongsWithDetails,
+  setFavorite as dbSetFavorite,
+  setRating as dbSetRating,
 } from "../../services/storage/db";
 import {
   deletePlaylist as deletePlaylistFromDB,
@@ -14,6 +18,7 @@ import {
 } from "../../services/storage/playlists";
 import {
   STORE_ALBUMS,
+  STORE_ARTISTS,
   STORE_PLAYLIST_SONGS,
   STORE_PLAYLISTS,
   STORE_SONGS,
@@ -25,6 +30,7 @@ import { sortSongsByArtist, sortSongsCanonical } from "../../utils/songSort";
 import type {
   AlbumSummary,
   ArtistSummary,
+  FavoriteTarget,
   GenreSummary,
   MusicDataSource,
   PaginatedResponse,
@@ -233,30 +239,24 @@ export class LocalMusicDataSource implements MusicDataSource {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
-    // get all albums with this genre
-    const db = await initMusicDB();
+    // use querySongsWithDetails to get fully hydrated songs
+    const results = await querySongsWithDetails({
+      limit,
+      offset,
+      genreId,
+    });
 
-    // find albums with this genre_id
-    const allAlbums = await db.getAll(STORE_ALBUMS);
-    const genreAlbums = allAlbums.filter((album) => album.genre_id === genreId);
-    const albumIds = new Set(genreAlbums.map((a) => a.album_id));
-
-    // get all songs and filter by album_id
-    const allSongs = await db.getAll(STORE_SONGS);
-    const genreSongs = allSongs.filter((song) => albumIds.has(song.album_id));
+    const songs = results.map((r) => r.song);
 
     // apply canonical sorting: group by album, then disc+track
-    const sortedSongs = sortSongsCanonical(genreSongs);
-
-    // apply pagination
-    const paginatedSongs = sortedSongs.slice(offset, offset + limit);
+    const sortedSongs = sortSongsCanonical(songs);
 
     return {
-      items: paginatedSongs,
+      items: sortedSongs,
       total: sortedSongs.length,
       offset,
       limit,
-      has_more: offset + limit < sortedSongs.length,
+      has_more: sortedSongs.length === limit,
     };
   }
 
@@ -334,14 +334,19 @@ export class LocalMusicDataSource implements MusicDataSource {
     // sort by position
     playlistSongs.sort((a, b) => a.position - b.position);
 
-    // get full song details for each
-    const songs: Song[] = [];
-    for (const ps of playlistSongs) {
-      const song = await db.get(STORE_SONGS, ps.sha256);
-      if (song) {
-        songs.push(song);
-      }
-    }
+    // get sha256s for querySongsWithDetails
+    const sha256s = playlistSongs.map((ps) => ps.sha256);
+
+    // use querySongsWithDetails to get fully hydrated songs
+    const results = await querySongsWithDetails({
+      songIds: sha256s,
+    });
+
+    // maintain playlist order
+    const songMap = new Map(results.map((r) => [r.song.sha256, r.song]));
+    const songs = sha256s
+      .map((sha) => songMap.get(sha))
+      .filter((s): s is Song => s !== undefined);
 
     // apply pagination
     const paginatedSongs = songs.slice(offset, offset + limit);
@@ -563,6 +568,237 @@ export class LocalMusicDataSource implements MusicDataSource {
       playlist.updated_at = Date.now();
       await db.put(STORE_PLAYLISTS, playlist);
     }
+  }
+
+  // mutations
+  async setFavorite(params: {
+    targetType: FavoriteTarget;
+    targetId: string;
+    isFavorite: boolean;
+  }): Promise<void> {
+    const db = await initMusicDB();
+
+    // use db helper to update favorites table
+    await dbSetFavorite(
+      params.targetType as "song" | "album" | "artist",
+      params.targetId,
+      params.isFavorite,
+    );
+
+    // also update denormalized is_favorite field in the main record
+    if (params.targetType === "song") {
+      const song = await db.get(STORE_SONGS, params.targetId);
+      if (song) {
+        song.is_favorite = params.isFavorite;
+        await db.put(STORE_SONGS, song);
+      }
+    } else if (params.targetType === "album") {
+      const album = await db.get(STORE_ALBUMS, params.targetId);
+      if (album) {
+        album.is_favorite = params.isFavorite;
+        await db.put(STORE_ALBUMS, album);
+      }
+    } else if (params.targetType === "artist") {
+      const artist = await db.get(STORE_ARTISTS, params.targetId);
+      if (artist) {
+        artist.is_favorite = params.isFavorite;
+        await db.put(STORE_ARTISTS, artist);
+      }
+    }
+  }
+
+  async setRating(params: {
+    targetType: "song" | "album" | "artist";
+    targetId: string;
+    rating: number;
+  }): Promise<void> {
+    const db = await initMusicDB();
+
+    // validate rating
+    if (params.rating < 0 || params.rating > 5) {
+      throw new Error("rating must be between 0 and 5");
+    }
+
+    // use db helper to update ratings table
+    await dbSetRating(params.targetType, params.targetId, params.rating);
+
+    // also update denormalized user_rating field in the main record
+    if (params.targetType === "song") {
+      const song = await db.get(STORE_SONGS, params.targetId);
+      if (song) {
+        song.user_rating = params.rating || undefined;
+        await db.put(STORE_SONGS, song);
+      }
+    } else if (params.targetType === "album") {
+      const album = await db.get(STORE_ALBUMS, params.targetId);
+      if (album) {
+        album.user_rating = params.rating || undefined;
+        await db.put(STORE_ALBUMS, album);
+      }
+    } else if (params.targetType === "artist") {
+      const artist = await db.get(STORE_ARTISTS, params.targetId);
+      if (artist) {
+        artist.user_rating = params.rating || undefined;
+        await db.put(STORE_ARTISTS, artist);
+      }
+    }
+  }
+
+  async updateArtist(params: {
+    artist_id: string;
+    name?: string;
+    bio?: string;
+  }): Promise<void> {
+    const { updateArtist } = await import("../../services/storage/db");
+    await updateArtist(params.artist_id, {
+      name: params.name,
+      bio: params.bio,
+    });
+  }
+
+  async updateAlbum(params: {
+    album_id: string;
+    title?: string;
+    artist_id?: string;
+    album_type?: string;
+    release_date?: string;
+    label?: string;
+    genre_id?: string;
+    year?: number;
+  }): Promise<void> {
+    const { updateAlbum } = await import("../../services/storage/db");
+    await updateAlbum(params.album_id, {
+      title: params.title,
+      artist_id: params.artist_id,
+      album_type: params.album_type,
+      release_date: params.release_date,
+      label: params.label,
+      genre_id: params.genre_id,
+      year: params.year,
+    });
+  }
+
+  async updateSong(params: {
+    song_ids: string[];
+    title?: string | null;
+    artist?: string | null;
+    artist_id?: string | null;
+    album?: string | null;
+    album_id?: string | null;
+    genre?: string | null;
+    genre_id?: string | null;
+    sub_genre_ids?: string[] | null;
+    sub_genres?: string[] | null;
+    track_number?: number | null;
+    disc_number?: number | null;
+    year?: number | null;
+    duration?: number | null;
+    bpm?: number | null;
+    key_signature?: string | null;
+    lyrics?: string | null;
+    user_id?: string | null;
+    updated_by?: string | null;
+  }): Promise<void> {
+    const { updateSong } = await import("../../services/storage/db");
+    
+    // update each song - bulk update for local storage
+    const updates = {
+      title: params.title,
+      artist_id: params.artist_id,
+      album_id: params.album_id,
+      track_number: params.track_number,
+      disc_number: params.disc_number,
+      year: params.year,
+    };
+    
+    // filter out null/undefined values
+    const filteredUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([_, v]) => v != null)
+    );
+    
+    for (const songId of params.song_ids) {
+      await updateSong(songId, filteredUpdates);
+    }
+  }
+
+  async getTags(): Promise<{ tag_id: string; name: string; created_at: number }[]> {
+    const { getAllTags } = await import("../../services/storage/db");
+    return await getAllTags();
+  }
+
+  async addTag(params: { name: string }): Promise<void> {
+    const { createTag } = await import("../../services/storage/db");
+    await createTag(params.name);
+  }
+
+  async deleteTag(params: { name: string }): Promise<void> {
+    const { findTagByName, deleteTag } = await import("../../services/storage/db");
+    const tag = await findTagByName(params.name);
+    if (tag) {
+      await deleteTag(tag.tag_id);
+    }
+  }
+
+  // album tags
+  async getAlbumTags(albumId: string): Promise<string[]> {
+    const { getAlbumTags } = await import("../../services/storage/db");
+    const tags = await getAlbumTags(albumId);
+    return tags.map((t) => t.name);
+  }
+
+  async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
+    const { findTagByName, createTag, addAlbumTag } = await import("../../services/storage/db");
+    
+    for (const tagName of tagNames) {
+      // find or create tag
+      let tag = await findTagByName(tagName);
+      if (!tag) {
+        await createTag(tagName);
+        tag = await findTagByName(tagName);
+      }
+      
+      if (tag) {
+        await addAlbumTag(albumId, tag.tag_id);
+      }
+    }
+  }
+
+  async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
+    const { removeAlbumTag } = await import("../../services/storage/db");
+    
+    for (const tagId of tagIds) {
+      await removeAlbumTag(albumId, tagId);
+    }
+  }
+
+  // image operations - local storage using OPFS
+  async uploadImage(params: {
+    file: File;
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    isPrimary?: boolean;
+  }): Promise<string> {
+    // TODO: implement OPFS storage
+    // for now just return a placeholder
+    throw new Error("local image upload not yet implemented");
+  }
+
+  async getEntityImages(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+  }): Promise<string[]> {
+    // TODO: implement reading from OPFS
+    // for now return empty array
+    return [];
+  }
+
+  async removeImage(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    blobId: string;
+  }): Promise<void> {
+    // TODO: implement OPFS deletion
+    throw new Error("local image removal not yet implemented");
   }
 
   // source metadata

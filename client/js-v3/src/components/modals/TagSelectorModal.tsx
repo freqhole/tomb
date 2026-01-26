@@ -1,11 +1,16 @@
 // tag selector modal for managing album tags
-import * as apiClient from "freqhole-api-client";
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { getCurrentRemote } from "../../music/data";
+import { getDataSource } from "../../music/data";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
+
+interface Tag {
+  tag_id: string;
+  name: string;
+  created_at: number;
+}
 
 interface TagSelectorModalProps {
   /** album id(s) to manage tags for */
@@ -21,7 +26,7 @@ interface TagSelectorModalProps {
 export function TagSelectorModal(props: TagSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
-  const [allTags, setAllTags] = createSignal<apiClient.Tag[]>([]);
+  const [allTags, setAllTags] = createSignal<Tag[]>([]);
   const [currentTags, setCurrentTags] = createSignal<Set<string>>(new Set());
   const [pendingChanges, setPendingChanges] = createSignal<{
     add: Set<string>;
@@ -30,28 +35,30 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
 
   // load tags on mount
   (async () => {
-    const remote = getCurrentRemote();
-    if (!remote) return;
+    const datasource = await getDataSource();
 
     setIsLoading(true);
     try {
       // load all tags
-      const tagsResult = await apiClient.music.listTags(remote.base_url);
-      if (tagsResult.success) {
-        setAllTags(tagsResult.data);
+      const tags = await datasource.getTags?.();
+      if (tags) {
+        setAllTags(tags);
       }
 
-      // load current tags for the album(s) - returns union of all tags
-      const albumIds = props.albumIds;
-      const currentTagsResult = await apiClient.music.getAlbumsTags(
-        remote.base_url,
-        { album_ids: albumIds },
-      );
-      if (currentTagsResult.success) {
-        setCurrentTags(new Set(currentTagsResult.data.map((t) => t.id)));
+      // load current tags for the first album (for single album editing)
+      // TODO: support multi-album tag union
+      if (props.albumIds.length > 0) {
+        const tagNames = await datasource.getAlbumTags?.(props.albumIds[0]);
+        if (tagNames) {
+          // map tag names to tag ids
+          const tagIds = tagNames
+            .map((name) => tags?.find((t) => t.name === name)?.tag_id)
+            .filter((id): id is string => id !== undefined);
+          setCurrentTags(new Set(tagIds));
+        }
       }
-    } catch (error) {
-      console.error("failed to load tags:", error);
+    } catch (err) {
+      console.error("failed to load tags:", err);
       toast.error("failed to load tags");
     } finally {
       setIsLoading(false);
@@ -116,21 +123,21 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
     );
     if (existing) {
       // just select it
-      toggleTag(existing.id);
+      toggleTag(existing.tag_id);
       setSearchQuery("");
       return;
     }
 
     // mark it for addition - backend will create it during save
     // we'll add a temporary tag to show it in the UI
-    const tempTag: apiClient.Tag = {
-      id: `temp_${Date.now()}`,
+    const tempTag: Tag = {
+      tag_id: `temp_${Date.now()}`,
       name,
       created_at: Date.now(),
     };
     setAllTags([...allTags(), tempTag]);
     const changes = pendingChanges();
-    changes.add.add(tempTag.id);
+    changes.add.add(tempTag.tag_id);
     setPendingChanges({ ...changes });
     setSearchQuery("");
   };
@@ -143,14 +150,13 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       return;
     }
 
-    const remote = getCurrentRemote();
-    if (!remote) return;
+    const datasource = await getDataSource();
 
     setIsLoading(true);
     try {
-      // collect tag names for tags to add (backend will find or create)
+      // collect tag names for tags to add
       const tagNamesToAdd = Array.from(changes.add)
-        .map((id) => allTags().find((t) => t.id === id))
+        .map((id) => allTags().find((t) => t.tag_id === id))
         .filter((t) => t !== undefined)
         .map((t) => t!.name);
 
@@ -159,21 +165,18 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
         (id) => !id.startsWith("temp_"),
       );
 
-      // add tags using tag_names (backend will find or create)
+      // add tags (datasource will find or create)
       if (tagNamesToAdd.length > 0) {
-        await apiClient.music.addAlbumsTags(remote.base_url, {
-          album_ids: props.albumIds,
-          tag_ids: [],
-          tag_names: tagNamesToAdd,
-        });
+        for (const albumId of props.albumIds) {
+          await datasource.addTagsToAlbum?.(albumId, tagNamesToAdd);
+        }
       }
 
       // remove tags
       if (tagIdsToRemove.length > 0) {
-        await apiClient.music.removeAlbumsTags(remote.base_url, {
-          album_ids: props.albumIds,
-          tag_ids: tagIdsToRemove,
-        });
+        for (const albumId of props.albumIds) {
+          await datasource.removeTagsFromAlbum?.(albumId, tagIdsToRemove);
+        }
       }
 
       const albumText =
@@ -186,9 +189,9 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       props.onSave?.();
 
       props.onClose();
-    } catch (error) {
-      console.error("failed to update tags:", error);
-      toast.error("failed to update tags");
+    } catch (err) {
+      console.error("failed to save tags:", err);
+      toast.error("failed to save tags");
     } finally {
       setIsLoading(false);
     }
@@ -281,17 +284,17 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
               <div class="space-y-1">
                 <For each={filteredTags()}>
                   {(tag) => {
-                    const applied = () => isTagApplied(tag.id);
+                    const applied = () => isTagApplied(tag.tag_id);
                     const isPending = () => {
                       const changes = pendingChanges();
                       return (
-                        changes.add.has(tag.id) || changes.remove.has(tag.id)
+                        changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id)
                       );
                     };
 
                     return (
                       <button
-                        onClick={() => toggleTag(tag.id)}
+                        onClick={() => toggleTag(tag.tag_id)}
                         class={`
                           w-full flex items-center justify-between px-3 py-2 rounded
                           transition-colors text-left

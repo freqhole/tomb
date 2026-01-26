@@ -320,6 +320,87 @@ export interface MusicDataSource {
     params?: ListFavoritesParams,
   ): Promise<PaginatedResponse<FavoriteItem>>;
 
+  // mutations (optional - not all sources support all mutations)
+  setFavorite?(params: {
+    targetType: FavoriteTarget;
+    targetId: string;
+    isFavorite: boolean;
+  }): Promise<void>;
+
+  setRating?(params: {
+    targetType: "song" | "album" | "artist";
+    targetId: string;
+    rating: number; // 0-5, where 0 means remove rating
+  }): Promise<void>;
+
+  updateArtist?(params: {
+    artist_id: string;
+    name?: string;
+    bio?: string;
+  }): Promise<void>;
+
+  updateAlbum?(params: {
+    album_id: string;
+    title?: string;
+    artist_id?: string;
+    album_type?: string;
+    release_date?: string;
+    label?: string;
+    genre_id?: string;
+    year?: number;
+  }): Promise<void>;
+
+  updateSong?(params: {
+    song_ids: string[];
+    title?: string | null;
+    artist?: string | null;
+    artist_id?: string | null;
+    album?: string | null;
+    album_id?: string | null;
+    genre?: string | null;
+    genre_id?: string | null;
+    sub_genre_ids?: string[] | null;
+    sub_genres?: string[] | null;
+    track_number?: number | null;
+    disc_number?: number | null;
+    year?: number | null;
+    duration?: number | null;
+    bpm?: number | null;
+    key_signature?: string | null;
+    lyrics?: string | null;
+    user_id?: string | null;
+    updated_by?: string | null;
+  }): Promise<void>;
+
+  // tags
+  getTags?(): Promise<{ tag_id: string; name: string; created_at: number }[]>;
+  addTag?(params: { name: string }): Promise<void>;
+  deleteTag?(params: { name: string }): Promise<void>;
+
+  // album tags
+  getAlbumTags?(albumId: string): Promise<string[]>;
+  addTagsToAlbum?(albumId: string, tagNames: string[]): Promise<void>;
+  removeTagsFromAlbum?(albumId: string, tagIds: string[]): Promise<void>;
+
+  // image operations
+  uploadImage?(params: {
+    file: File;
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    isPrimary?: boolean;
+  }): Promise<string>;
+
+  getEntityImages?(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+  }): Promise<string[]>;
+
+  removeImage?(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    blobId: string;
+  }): Promise<void>;
+
   // source metadata
   getSourceInfo(): Promise<{
     type: "local" | "remote";

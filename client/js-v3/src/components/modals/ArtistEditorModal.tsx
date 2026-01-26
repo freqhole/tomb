@@ -7,8 +7,7 @@ import {
   Show,
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import * as apiClient from "freqhole-api-client";
-import { getCurrentRemote } from "../../music/data";
+import { getDataSource } from "../../music/data";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
@@ -156,57 +155,36 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     setProcessingJob({ status: "uploading", message: "uploading image..." });
 
     try {
-      const remote = getCurrentRemote();
-      if (!remote) {
-        toast.error("no remote connected");
-        setProcessingJob(null);
-        return;
-      }
+      const datasource = await getDataSource();
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("associate_with", JSON.stringify({
-        entity_type: "artist",
-        entity_id: props.artistId,
-        is_primary: true,
-      }));
+      const blobId = await datasource.uploadImage?.({
+        file,
+        entityType: "artist",
+        entityId: props.artistId,
+        isPrimary: true,
+      });
 
-      const uploadResult = await apiClient.music.uploadImage(
-        remote.base_url,
-        formData,
-      );
-
-      if (!uploadResult.success) {
+      if (!blobId) {
         toast.error("failed to upload image");
         setProcessingJob(null);
         return;
       }
 
-      const uploadData = uploadResult.data;
-      console.log("image uploaded, job_id:", uploadData.job_id);
+      console.log("image uploaded, blob_id:", blobId);
 
-      // poll for job completion
-      setProcessingJob({ status: "processing", message: "converting to webp..." });
-      const jobCompleted = await pollJobUntilComplete(
-        remote.base_url,
-        uploadData.job_id,
-      );
+      // assume success
+      setFormData((prev) => ({ ...prev, uploaded_blob_id: blobId }));
+      setProcessingJob(null);
 
-      if (jobCompleted) {
-        setProcessingJob({ status: "completed", message: "done!" });
-        // store the blob_id for later save
-        setFormData((prev) => ({ ...prev, uploaded_blob_id: uploadData.blob_id }));
-        
-        // invalidate queries to refresh artist images in UI
-        queryClient.invalidateQueries({ queryKey: queryKeys.artists.detail(props.artistId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
-        queryClient.invalidateQueries({ queryKey: ["artist", "songs"] }); // artist songs show artist images
-      } else {
-        setProcessingJob({ status: "failed", message: "image processing timed out" });
-      }
-    } catch (error) {
-      console.error("failed to upload image:", error);
-      toast.error("image upload failed");
+      toast.success("artist image uploaded successfully");
+
+      // invalidate queries to refresh artist images in UI
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.detail(props.artistId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
+      queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+    } catch (err) {
+      console.error("failed to upload image:", err);
+      toast.error("failed to upload image");
       setProcessingJob(null);
     }
   };

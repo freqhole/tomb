@@ -374,32 +374,39 @@ export function useGenreSongsQuery(genreId: Accessor<string | undefined>) {
 // mutation hooks
 
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
-import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
-import { getCurrentRemote } from "../data";
+
+interface UpdateSongsMutationParams {
+  song_ids: string[];
+  title?: string;
+  artist?: string;
+  artist_id?: string;
+  album?: string;
+  album_id?: string;
+  genre?: string;
+  genre_id?: string;
+  year?: number;
+  track_number?: number;
+  disc_number?: number;
+  duration?: number;
+  bpm?: number;
+  key_signature?: string;
+  lyrics?: string;
+  user_id?: string;
+  updated_by?: string;
+}
 
 export function useUpdateSongsMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (request: apiClient.UpdateSongsRequest) => {
-      const remote = getCurrentRemote();
-      if (!remote) throw new Error("no remote connected");
-
-      console.log("updateSongs request:", request);
-
-      const result = await apiClient.music.updateSongs(
-        remote.base_url,
-        request,
-      );
-
-      console.log("updateSongs result:", result);
-
-      if (!result.success) {
-        console.error("updateSongs failed:", result);
-        throw new Error("failed to update song");
+    mutationFn: async (params: UpdateSongsMutationParams) => {
+      const dataSource = getDataSource();
+      if (!dataSource.updateSong) {
+        throw new Error("current data source does not support updating songs");
       }
-      return result.data;
+
+      await dataSource.updateSong(params);
     },
     onSuccess: () => {
       // invalidate all music queries to refresh data

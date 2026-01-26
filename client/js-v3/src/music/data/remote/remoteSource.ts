@@ -5,6 +5,7 @@ import type {
   AlbumSummary,
   ArtistSummary,
   FavoriteItem,
+  FavoriteTarget,
   GenreSummary,
   ListFavoritesParams,
   MusicDataSource,
@@ -618,6 +619,173 @@ export class RemoteMusicDataSource implements MusicDataSource {
     };
   }
 
+  // mutations
+  async setFavorite(params: {
+    targetType: FavoriteTarget;
+    targetId: string;
+    isFavorite: boolean;
+  }): Promise<void> {
+    const result = await apiClient.music.setFavorite(this.baseUrl, {
+      user_id: null, // server will use authenticated user from session
+      target_type: params.targetType,
+      target_id: params.targetId,
+      is_favorite: params.isFavorite,
+    });
+
+    if (!result.success) {
+      const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
+      throw new Error(`failed to set favorite: ${errorMsg}`);
+    }
+
+    if (!result.data?.success) {
+      throw new Error(result.data?.message || "failed to set favorite");
+    }
+  }
+
+  async setRating(params: {
+    targetType: "song" | "album" | "artist";
+    targetId: string;
+    rating: number;
+  }): Promise<void> {
+    // validate rating
+    if (params.rating < 0 || params.rating > 5) {
+      throw new Error("rating must be between 0 and 5");
+    }
+
+    const result = await apiClient.music.setRating(this.baseUrl, {
+      user_id: null, // server will use authenticated user from session
+      target_type: params.targetType,
+      target_id: params.targetId,
+      rating: params.rating,
+    });
+
+    if (!result.success) {
+      const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
+      throw new Error(`failed to set rating: ${errorMsg}`);
+    }
+
+    if (!result.data?.success) {
+      throw new Error(result.data?.message || "failed to set rating");
+    }
+  }
+
+  async updateArtist(params: {
+    artist_id: string;
+    name?: string;
+    bio?: string;
+  }): Promise<void> {
+    const result = await apiClient.music.updateArtist(this.baseUrl, {
+      artist_id: params.artist_id,
+      name: params.name ?? null,
+      bio: params.bio ?? null,
+      updated_by: null,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to update artist");
+    }
+  }
+
+  async updateAlbum(params: {
+    album_id: string;
+    title?: string;
+    artist_id?: string;
+    album_type?: string;
+    release_date?: string;
+    label?: string;
+    genre_id?: string;
+    year?: number;
+  }): Promise<void> {
+    const result = await apiClient.music.updateAlbum(this.baseUrl, {
+      album_id: params.album_id,
+      title: params.title ?? null,
+      artist_id: params.artist_id ?? null,
+      artist_name: null,
+      album_type: params.album_type ?? null,
+      release_date: params.release_date ?? null,
+      label: params.label ?? null,
+      genre_id: params.genre_id ?? null,
+      genre: null,
+      sub_genre_ids: null,
+      sub_genres: null,
+      updated_by: null,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to update album");
+    }
+  }
+
+  async updateSong(params: {
+    song_ids: string[];
+    title?: string | null;
+    artist?: string | null;
+    artist_id?: string | null;
+    album?: string | null;
+    album_id?: string | null;
+    genre?: string | null;
+    genre_id?: string | null;
+    sub_genre_ids?: string[] | null;
+    sub_genres?: string[] | null;
+    track_number?: number | null;
+    disc_number?: number | null;
+    year?: number | null;
+    duration?: number | null;
+    bpm?: number | null;
+    key_signature?: string | null;
+    lyrics?: string | null;
+    user_id?: string | null;
+    updated_by?: string | null;
+  }): Promise<void> {
+    // map simpler params to API schema
+    const apiParams: any = {
+      song_ids: params.song_ids,
+      title: params.title,
+      artist_name: params.artist,  // use artist_name field
+      track_number: params.track_number,
+      disc_number: params.disc_number,
+      year: params.year,
+      duration: params.duration,
+      bpm: params.bpm,
+      key_signature: params.key_signature,
+      lyrics: params.lyrics,
+      genre: params.genre,
+      sub_genre: params.sub_genres?.[0] ?? null,  // API expects single sub_genre
+      user_id: params.user_id,
+      updated_by: params.updated_by,
+    };
+    
+    const result = await apiClient.music.updateSongs(this.baseUrl, apiParams);
+
+    if (!result.success) {
+      throw new Error("failed to update song");
+    }
+  }
+
+  async getTags(): Promise<{ tag_id: string; name: string; created_at: number }[]> {
+    const result = await apiClient.music.listTags(this.baseUrl);
+
+    if (!result.success) {
+      throw new Error("failed to get tags");
+    }
+
+    return result.data.map((tag: any) => ({
+      tag_id: tag.id,
+      name: tag.name,
+      created_at: tag.created_at,
+    }));
+  }
+
+  async addTag(params: { name: string }): Promise<void> {
+    // Note: there may not be an addTag endpoint, might need to be done via album/song tagging
+    throw new Error("addTag not implemented for remote source");
+  }
+
+  async deleteTag(params: { name: string }): Promise<void> {
+    // Note: there may not be a deleteTag endpoint
+    throw new Error("deleteTag not implemented for remote source");
+  }
+
   // source metadata
   async getSourceInfo(): Promise<{
     type: "local" | "remote";
@@ -636,5 +804,93 @@ export class RemoteMusicDataSource implements MusicDataSource {
       name: result.data.username || this.baseUrl,
       song_count: 0, // TODO: get actual song count from API
     };
+  }
+
+  // album tags
+  async getAlbumTags(albumId: string): Promise<string[]> {
+    const result = await apiClient.music.getAlbumsTags(this.baseUrl, { album_ids: [albumId] });
+    if (!result.success) {
+      throw new Error("failed to get album tags");
+    }
+    return result.data.map((t: any) => t.tag.name);
+  }
+
+  async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
+    const result = await apiClient.music.addAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: [], tag_names: tagNames });
+    if (!result.success) {
+      throw new Error("failed to add tags to album");
+    }
+  }
+
+  async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
+    const result = await apiClient.music.removeAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: tagIds });
+    if (!result.success) {
+      throw new Error("failed to remove tags from album");
+    }
+  }
+
+  // image operations - delegate to API client
+  async uploadImage(params: {
+    file: File;
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    isPrimary?: boolean;
+  }): Promise<string> {
+    const result = await apiClient.utils.uploadImage(this.baseUrl, params.file, {
+      associate: {
+        entity_type: params.entityType,
+        entity_id: params.entityId,
+        is_primary: params.isPrimary ?? false,
+      },
+    });
+    
+    if (!result.success) {
+      throw new Error("failed to upload image");
+    }
+    
+    return result.data.blob_id;
+  }
+
+  async getEntityImages(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+  }): Promise<string[]> {
+    // map entity type to API function
+    switch (params.entityType) {
+      case 'artist': {
+        const result = await apiClient.music.getArtistImages(this.baseUrl, { id: params.entityId });
+        if (!result.success) {
+          throw new Error("failed to get artist images");
+        }
+        return result.data.map((blobId: string) => `${this.baseUrl}/api/blobs/${blobId}`);
+      }
+      case 'album':
+      case 'song':
+      case 'playlist':
+        // TODO: implement album/song/playlist image APIs once available
+        return [];
+      default:
+        throw new Error(`unsupported entity type: ${params.entityType}`);
+    }
+  }
+
+  async removeImage(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    blobId: string;
+  }): Promise<void> {
+    // for playlists, use the dedicated removePlaylistThumbnail endpoint
+    if (params.entityType === 'playlist') {
+      const result = await apiClient.music.removePlaylistThumbnail(this.baseUrl, {
+        playlist_id: params.entityId,
+      });
+      if (!result.success) {
+        throw new Error("failed to remove playlist thumbnail");
+      }
+      return;
+    }
+    
+    // TODO: implement generic image removal API for other entity types
+    throw new Error(`image removal not yet implemented for ${params.entityType}`);
   }
 }

@@ -157,7 +157,7 @@ export function SongsView(props: SongsViewProps) {
     // mutation handles optimistic update automatically
     toggleFavoriteMutation.mutate({
       targetType: "song",
-      targetId: song.id,
+      targetId: song.id, // use local database id for favorites
       sha256: song.sha256,
       isFavorite,
     });
@@ -167,7 +167,7 @@ export function SongsView(props: SongsViewProps) {
   const handleRatingChange = (song: Song, rating: number) => {
     setRatingMutation.mutate({
       targetType: "song",
-      targetId: song.id,
+      targetId: song.id, // use local database id for ratings
       rating,
     });
   };

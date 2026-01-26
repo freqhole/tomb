@@ -2,7 +2,6 @@ import { createResource, Show } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import { VirtualSongList } from "../../components/virtualized/VirtualSongList";
 import { getDataSource } from "../data";
-import { songsVersion } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 
 export interface LibraryViewProps {
@@ -12,8 +11,8 @@ export interface LibraryViewProps {
 }
 
 export function LibraryView(props: LibraryViewProps) {
-  // fetch songs from data source - refetch when songsVersion changes
-  const [songsData] = createResource(songsVersion, async () => {
+  // fetch songs from data source
+  const [songsData] = createResource(async () => {
     const source = getDataSource();
     return source.getSongs({
       limit: 1000,

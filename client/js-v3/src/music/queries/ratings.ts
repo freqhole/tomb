@@ -1,9 +1,8 @@
 // query hooks for ratings with optimistic updates
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
-import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError } from "../../utils/logger";
-import { getCurrentRemote } from "../data";
+import { getDataSource } from "../data";
 import { queryKeys } from "./queryKeys";
 
 // rating target types
@@ -19,29 +18,19 @@ export function useSetRatingMutation() {
       targetId: string;
       rating: number; // 0-5, where 0 means remove rating
     }) => {
-      const remote = getCurrentRemote();
+      const dataSource = getDataSource();
 
-      if (!remote) {
-        throw new Error("ratings are not supported for local sources");
+      // check if datasource supports ratings
+      if (!dataSource.setRating) {
+        throw new Error("current data source does not support ratings");
       }
 
-      const result = await apiClient.music.setRating(remote.base_url, {
-        user_id: null, // server will use authenticated user from session
-        target_type: params.targetType,
-        target_id: params.targetId,
+      // call datasource method - it handles local vs remote
+      await dataSource.setRating({
+        targetType: params.targetType,
+        targetId: params.targetId,
         rating: params.rating,
       });
-
-      if (!result.success) {
-        console.error("set rating failed:", result);
-        throw new Error("failed to set rating");
-      }
-
-      // API response has data.success and data.message
-      if (!result.data?.success) {
-        console.error("set rating API error:", result.data);
-        throw new Error(result.data?.message || "unknown error from server");
-      }
 
       return params.rating;
     },

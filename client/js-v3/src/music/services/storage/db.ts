@@ -1,23 +1,28 @@
 // normalized music database with separate artists, albums, songs tables
 import { openDB, type IDBPDatabase } from "idb";
-import { createSignal } from "solid-js";
-import * as playlistHelpers from "./playlists";
 import type {
   Album,
   AlbumQueryResult,
+  AlbumTag,
+  AlbumWithStats,
   Artist,
   ArtistQueryResult,
+  ArtistWithStats,
   Favorite,
   Genre,
+  GenreWithStats,
+  NewSong,
   Playlist,
   PlaylistSong,
   Rating,
   Song,
   SongQueryResult,
+  Tag,
 } from "./types";
 import {
   MUSIC_DB_NAME,
   MUSIC_DB_VERSION,
+  STORE_ALBUM_TAGS,
   STORE_ALBUMS,
   STORE_ARTISTS,
   STORE_FAVORITES,
@@ -27,29 +32,33 @@ import {
   STORE_RATINGS,
   STORE_REMOTES,
   STORE_SONGS,
+  STORE_TAGS,
 } from "./types";
 
 let dbInstance: IDBPDatabase | null = null;
 
-// reactive signals (for backwards compatibility - will remove later)
-const [songs, setSongs] = createSignal<Song[]>([]);
-const [songsVersion, setSongsVersion] = createSignal(0);
-
 // ===== DATABASE INITIALIZATION =====
 
-async function initMusicDB(): Promise<IDBPDatabase> {
+export async function initMusicDB(): Promise<IDBPDatabase> {
   if (dbInstance) {
-    // load songs signal if not already loaded
-    if (songs().length === 0) {
-      const allSongs = await dbInstance.getAll(STORE_SONGS);
-      setSongs(allSongs);
-    }
     return dbInstance;
   }
 
   dbInstance = await openDB(MUSIC_DB_NAME, MUSIC_DB_VERSION, {
     upgrade(db, oldVersion, newVersion, transaction) {
       console.log(`upgrading music db from v${oldVersion} to v${newVersion}`);
+
+      // version 8: recreate songs store with UUID string primary key
+      if (oldVersion < 8 && db.objectStoreNames.contains(STORE_SONGS)) {
+        console.log('deleting old songs store to recreate with UUID primary key');
+        db.deleteObjectStore(STORE_SONGS);
+      }
+
+      // version 7: recreate songs store with auto-increment id
+      if (oldVersion < 7 && db.objectStoreNames.contains(STORE_SONGS)) {
+        console.log('deleting old songs store to recreate with auto-increment id');
+        db.deleteObjectStore(STORE_SONGS);
+      }
 
       // create artists table
       if (!db.objectStoreNames.contains(STORE_ARTISTS)) {
@@ -76,8 +85,9 @@ async function initMusicDB(): Promise<IDBPDatabase> {
       // create songs table
       if (!db.objectStoreNames.contains(STORE_SONGS)) {
         const songsStore = db.createObjectStore(STORE_SONGS, {
-          keyPath: "sha256",
+          keyPath: "id", // UUID string, no autoIncrement
         });
+        songsStore.createIndex("by_sha256", "sha256", { unique: true });
         songsStore.createIndex("by_title", "title");
         songsStore.createIndex("by_artist_id", "artist_id");
         songsStore.createIndex("by_album_id", "album_id");
@@ -254,6 +264,25 @@ async function initMusicDB(): Promise<IDBPDatabase> {
         remotesStore.createIndex("by_is_active", "is_active");
         remotesStore.createIndex("by_created_at", "created_at");
       }
+
+      // create tags table (v9)
+      if (!db.objectStoreNames.contains(STORE_TAGS)) {
+        const tagsStore = db.createObjectStore(STORE_TAGS, {
+          keyPath: "tag_id",
+        });
+        tagsStore.createIndex("by_name", "name", { unique: true });
+        tagsStore.createIndex("by_created_at", "created_at");
+      }
+
+      // create album_tags junction table (v10)
+      if (!db.objectStoreNames.contains(STORE_ALBUM_TAGS)) {
+        const albumTagsStore = db.createObjectStore(STORE_ALBUM_TAGS, {
+          keyPath: ["album_id", "tag_id"],
+        });
+        albumTagsStore.createIndex("by_album_id", "album_id");
+        albumTagsStore.createIndex("by_tag_id", "tag_id");
+        albumTagsStore.createIndex("by_created_at", "created_at");
+      }
     },
   });
 
@@ -261,11 +290,6 @@ async function initMusicDB(): Promise<IDBPDatabase> {
 
   // backfill denormalized album fields if needed (v3 upgrade)
   await backfillAlbumFields();
-
-  // load songs signal for backwards compat
-  const allSongs = await dbInstance.getAll(STORE_SONGS);
-  setSongs(allSongs);
-  setSongsVersion((v) => v + 1);
 
   return dbInstance;
 }
@@ -379,23 +403,23 @@ async function syncAlbumFields(albumId: string): Promise<void> {
 
 // ===== ARTISTS =====
 
-async function createArtist(artist: Artist): Promise<void> {
+export async function createArtist(artist: Artist): Promise<void> {
   const db = await initMusicDB();
   await db.put(STORE_ARTISTS, artist);
 }
 
-async function getArtistById(artistId: string): Promise<Artist | undefined> {
+export async function getArtistById(artistId: string): Promise<Artist | undefined> {
   const db = await initMusicDB();
   return db.get(STORE_ARTISTS, artistId);
 }
 
-async function findArtistByName(name: string): Promise<Artist | undefined> {
+export async function findArtistByName(name: string): Promise<Artist | undefined> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_ARTISTS).store.index("by_name");
   return index.get(name);
 }
 
-async function getOrCreateArtist(name: string): Promise<Artist> {
+export async function getOrCreateArtist(name: string): Promise<Artist> {
   const existing = await findArtistByName(name);
   if (existing) return existing;
 
@@ -410,19 +434,38 @@ async function getOrCreateArtist(name: string): Promise<Artist> {
   return artist;
 }
 
+export async function updateArtist(
+  artistId: string,
+  updates: Partial<Artist>,
+): Promise<void> {
+  const db = await initMusicDB();
+  const existing = await db.get(STORE_ARTISTS, artistId);
+  if (!existing) {
+    throw new Error(`artist not found: ${artistId}`);
+  }
+
+  const updated = {
+    ...existing,
+    ...updates,
+    updated_at: Date.now(),
+  };
+
+  await db.put(STORE_ARTISTS, updated);
+}
+
 // ===== ALBUMS =====
 
-async function createAlbum(album: Album): Promise<void> {
+export async function createAlbum(album: Album): Promise<void> {
   const db = await initMusicDB();
   await db.put(STORE_ALBUMS, album);
 }
 
-async function getAlbumById(albumId: string): Promise<Album | undefined> {
+export async function getAlbumById(albumId: string): Promise<Album | undefined> {
   const db = await initMusicDB();
   return db.get(STORE_ALBUMS, albumId);
 }
 
-async function findAlbumByArtistAndTitle(
+export async function findAlbumByArtistAndTitle(
   artistId: string | null,
   title: string,
 ): Promise<Album | undefined> {
@@ -431,7 +474,7 @@ async function findAlbumByArtistAndTitle(
   return index.get([artistId, title]);
 }
 
-async function getOrCreateAlbum(
+export async function getOrCreateAlbum(
   title: string,
   artistId: string | null,
   albumType: string = "album",
@@ -457,43 +500,69 @@ async function getOrCreateAlbum(
   return album;
 }
 
+export async function updateAlbum(
+  albumId: string,
+  updates: Partial<Album>,
+): Promise<void> {
+  const db = await initMusicDB();
+  const existing = await db.get(STORE_ALBUMS, albumId);
+  if (!existing) {
+    throw new Error(`album not found: ${albumId}`);
+  }
+
+  const updated = {
+    ...existing,
+    ...updates,
+    updated_at: Date.now(),
+  };
+
+  await db.put(STORE_ALBUMS, updated);
+}
+
 // ===== SONGS =====
 
-async function createSong(song: Song): Promise<void> {
+export async function createSong(newSong: NewSong): Promise<Song> {
   const db = await initMusicDB();
-  await db.put(STORE_SONGS, song);
+  
+  // generate UUID for song
+  const { generateUUID } = await import('../../../utils/uuid');
+  const songId = generateUUID();
+  
+  // create full song object with generated UUID
+  const song: Song = {
+    ...newSong,
+    id: songId,
+  };
+  
+  // add to IDB
+  await db.add(STORE_SONGS, song);
 
   // sync album_added_at for all songs in this album
   await syncAlbumFields(song.album_id);
-
-  // update reactive signal for backwards compatibility
-  const allSongs = await db.getAll(STORE_SONGS);
-  setSongs(allSongs);
-  setSongsVersion((v) => v + 1);
+  
+  return song;
 }
 
-async function getSongById(songId: string): Promise<Song | undefined> {
+export async function getSongById(songId: string): Promise<Song | undefined> {
   const db = await initMusicDB();
   return db.get(STORE_SONGS, songId);
 }
 
-async function getSongsByAlbumId(albumId: string): Promise<Song[]> {
+export async function getSongBySha256(sha256: string): Promise<Song | undefined> {
+  const db = await initMusicDB();
+  const index = db.transaction(STORE_SONGS).store.index("by_sha256");
+  const song = await index.get(sha256);
+  console.log(`getSongBySha256(${sha256.slice(0, 8)}...):`, song ? `found song id ${song.id}` : 'not found');
+  return song;
+}
+
+export async function getSongsByAlbumId(albumId: string): Promise<Song[]> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_album_id");
   return index.getAll(albumId);
 }
 
-async function findDuplicateSong(
-  fileName: string,
-  fileSize: number,
-  lastModified: number,
-): Promise<Song | undefined> {
-  const db = await initMusicDB();
-  const index = db.transaction(STORE_SONGS).store.index("by_file_identity");
-  return index.get([fileName, fileSize, lastModified]);
-}
-
-async function updateSong(
+export async function updateSong(
   songId: string,
   updates: Partial<Song>,
 ): Promise<void> {
@@ -503,45 +572,39 @@ async function updateSong(
     throw new Error(`song not found: ${songId}`);
   }
 
-  const updated: Song = {
+  const updated = {
     ...existing,
     ...updates,
-    sha256: songId,
     updated_at: Date.now(),
   };
 
   await db.put(STORE_SONGS, updated);
 }
 
-async function deleteSong(songId: string): Promise<void> {
+export async function deleteSong(songId: string): Promise<void> {
   const db = await initMusicDB();
   await db.delete(STORE_SONGS, songId);
-
-  // update reactive signal
-  const allSongs = await db.getAll(STORE_SONGS);
-  setSongs(allSongs);
-  setSongsVersion((v) => v + 1);
 }
 
 // ===== GENRES =====
 
-async function createGenre(genre: Genre): Promise<void> {
+export async function createGenre(genre: Genre): Promise<void> {
   const db = await initMusicDB();
   await db.put(STORE_GENRES, genre);
 }
 
-async function getGenreById(genreId: string): Promise<Genre | undefined> {
+export async function getGenreById(genreId: string): Promise<Genre | undefined> {
   const db = await initMusicDB();
   return db.get(STORE_GENRES, genreId);
 }
 
-async function findGenreByName(name: string): Promise<Genre | undefined> {
+export async function findGenreByName(name: string): Promise<Genre | undefined> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_GENRES).store.index("by_name");
   return index.get(name);
 }
 
-async function getOrCreateGenre(name: string): Promise<Genre> {
+export async function getOrCreateGenre(name: string): Promise<Genre> {
   const existing = await findGenreByName(name);
   if (existing) return existing;
 
@@ -556,17 +619,112 @@ async function getOrCreateGenre(name: string): Promise<Genre> {
   return genre;
 }
 
-// ===== QUERY HELPERS (with joins) =====
+// ===== TAGS =====
 
-// album aggregation with song counts and durations
-export interface AlbumWithStats {
-  album: Album;
-  artist_name: string;
-  song_count: number;
-  total_duration: number;
+export async function createTag(name: string): Promise<Tag> {
+  const db = await initMusicDB();
+  
+  // check if tag already exists
+  const existing = await findTagByName(name);
+  if (existing) {
+    return existing;
+  }
+
+  const tag: Tag = {
+    tag_id: crypto.randomUUID(),
+    name,
+    created_at: Date.now(),
+  };
+
+  await db.put(STORE_TAGS, tag);
+  return tag;
 }
 
-async function queryAlbums(options?: {
+export async function getTagById(tagId: string): Promise<Tag | undefined> {
+  const db = await initMusicDB();
+  return db.get(STORE_TAGS, tagId);
+}
+
+export async function findTagByName(name: string): Promise<Tag | undefined> {
+  const db = await initMusicDB();
+  const index = db.transaction(STORE_TAGS).store.index("by_name");
+  return index.get(name);
+}
+
+export async function getAllTags(): Promise<Tag[]> {
+  const db = await initMusicDB();
+  return db.getAll(STORE_TAGS);
+}
+
+export async function deleteTag(tagId: string): Promise<void> {
+  const db = await initMusicDB();
+  await db.delete(STORE_TAGS, tagId);
+}
+
+// ===== ALBUM TAGS =====
+
+export async function getAlbumTags(albumId: string): Promise<Tag[]> {
+  const db = await initMusicDB();
+  
+  // get all album_tag entries for this album
+  const albumTags = await db.getAllFromIndex(
+    STORE_ALBUM_TAGS,
+    "by_album_id",
+    albumId
+  );
+  
+  // fetch the actual tag objects
+  const tags: Tag[] = [];
+  for (const albumTag of albumTags) {
+    const tag = await db.get(STORE_TAGS, albumTag.tag_id);
+    if (tag) {
+      tags.push(tag);
+    }
+  }
+  
+  return tags;
+}
+
+export async function addAlbumTag(
+  albumId: string,
+  tagId: string
+): Promise<void> {
+  const db = await initMusicDB();
+  
+  const albumTag: AlbumTag = {
+    album_id: albumId,
+    tag_id: tagId,
+    created_at: Date.now(),
+  };
+  
+  await db.put(STORE_ALBUM_TAGS, albumTag);
+}
+
+export async function removeAlbumTag(
+  albumId: string,
+  tagId: string
+): Promise<void> {
+  const db = await initMusicDB();
+  await db.delete(STORE_ALBUM_TAGS, [albumId, tagId]);
+}
+
+export async function clearAlbumTags(albumId: string): Promise<void> {
+  const db = await initMusicDB();
+  
+  const albumTags = await db.getAllFromIndex(
+    STORE_ALBUM_TAGS,
+    "by_album_id",
+    albumId
+  );
+  
+  for (const albumTag of albumTags) {
+    await db.delete(STORE_ALBUM_TAGS, [albumTag.album_id, albumTag.tag_id]);
+  }
+}
+
+// ===== QUERY HELPERS (with joins) =====
+
+export async function queryAlbums(options?: {
   limit?: number;
   offset?: number;
 }): Promise<AlbumWithStats[]> {
@@ -625,15 +783,7 @@ async function queryAlbums(options?: {
   return results.slice(offset, offset + limit);
 }
 
-// artist aggregation with album/song counts and durations
-export interface ArtistWithStats {
-  artist: Artist;
-  album_count: number;
-  song_count: number;
-  total_duration: number;
-}
-
-async function queryArtists(options?: {
+export async function queryArtists(options?: {
   limit?: number;
   offset?: number;
 }): Promise<ArtistWithStats[]> {
@@ -701,14 +851,7 @@ async function queryArtists(options?: {
   return results.slice(offset, offset + limit);
 }
 
-// genre aggregation with album/song counts
-export interface GenreWithStats {
-  genre: Genre;
-  album_count: number;
-  song_count: number;
-}
-
-async function queryGenres(options?: {
+export async function queryGenres(options?: {
   limit?: number;
   offset?: number;
 }): Promise<GenreWithStats[]> {
@@ -770,11 +913,13 @@ async function queryGenres(options?: {
   return results.slice(offset, offset + limit);
 }
 
-async function querySongsWithDetails(options?: {
+export async function querySongsWithDetails(options?: {
   limit?: number;
   offset?: number;
   artistId?: string;
   albumId?: string;
+  genreId?: string;
+  songIds?: string[];
   sortField?: "added_at" | "title" | "artist" | "album" | "genre" | "year";
   sortDirection?: "asc" | "desc";
 }): Promise<SongQueryResult[]> {
@@ -821,6 +966,21 @@ async function querySongsWithDetails(options?: {
       }
       return a.track_number - b.track_number;
     });
+  } else if (options?.songIds) {
+    // query by specific song IDs
+    songsToQuery = [];
+    for (const sha256 of options.songIds) {
+      const song = await db.get(STORE_SONGS, sha256);
+      if (song) songsToQuery.push(song);
+    }
+  } else if (options?.genreId) {
+    // get all albums with this genre
+    const allAlbums = await db.getAll(STORE_ALBUMS);
+    const genreAlbums = allAlbums.filter((album) => album.genre_id === options.genreId);
+    const albumIds = new Set(genreAlbums.map((a) => a.album_id));
+    // get all songs and filter by album_id
+    const allSongs = await db.getAll(STORE_SONGS);
+    songsToQuery = allSongs.filter((song) => albumIds.has(song.album_id));
   } else {
     // use compound index for sorted, album-grouped results
     const indexName = indexMap[sortField];
@@ -890,8 +1050,8 @@ async function querySongsWithDetails(options?: {
       continue;
     }
 
-    const isFavorite = await checkFavorite("song", song.sha256);
-    const rating = await getRating("song", song.sha256);
+    const isFavorite = await checkFavorite("song", song.id);
+    const rating = await getRating("song", song.id);
 
     results.push({
       song,
@@ -908,7 +1068,7 @@ async function querySongsWithDetails(options?: {
 
 // ===== FAVORITES =====
 
-async function setFavorite(
+export async function setFavorite(
   targetType: "song" | "album" | "artist",
   targetId: string,
   isFavorite: boolean,
@@ -927,7 +1087,7 @@ async function setFavorite(
   }
 }
 
-async function checkFavorite(
+export async function checkFavorite(
   targetType: "song" | "album" | "artist",
   targetId: string,
 ): Promise<boolean> {
@@ -938,7 +1098,7 @@ async function checkFavorite(
 
 // ===== RATINGS =====
 
-async function setRating(
+export async function setRating(
   targetType: "song" | "album" | "artist",
   targetId: string,
   rating: number,
@@ -953,7 +1113,7 @@ async function setRating(
   await db.put(STORE_RATINGS, ratingRecord);
 }
 
-async function getRating(
+export async function getRating(
   targetType: "song" | "album" | "artist",
   targetId: string,
 ): Promise<number | null> {
@@ -964,7 +1124,7 @@ async function getRating(
 
 // ===== CLEAR DATA =====
 
-async function clearAllMusicData(): Promise<void> {
+export async function clearAllMusicData(): Promise<void> {
   const db = await initMusicDB();
   await db.clear(STORE_ARTISTS);
   await db.clear(STORE_ALBUMS);
@@ -974,72 +1134,14 @@ async function clearAllMusicData(): Promise<void> {
   await db.clear(STORE_PLAYLIST_SONGS);
   await db.clear(STORE_FAVORITES);
   await db.clear(STORE_RATINGS);
-  setSongs([]);
+  await db.clear(STORE_TAGS);
+  await db.clear(STORE_ALBUM_TAGS);
   console.log("cleared all music data");
 }
 
-// ===== EXPORTS =====
-
-export {
-  checkFavorite,
-  // cleanup
-  clearAllMusicData,
-  // albums
-  createAlbum,
-  // artists
-  createArtist,
-  // genres
-  createGenre,
-  // songs
-  createSong,
-  deleteSong,
-  findAlbumByArtistAndTitle,
-  findArtistByName,
-  findDuplicateSong,
-  findGenreByName,
-  getAlbumById,
-  getArtistById,
-  getGenreById,
-  getOrCreateAlbum,
-  getOrCreateArtist,
-  getOrCreateGenre,
-  getRating,
-  getSongById,
-  getSongsByAlbumId,
-  // init
-  initMusicDB,
-  // queries
-  queryAlbums,
-  queryArtists,
-  queryGenres,
-  querySongsWithDetails,
-  // favorites
-  setFavorite,
-  // ratings
-  setRating,
-  // backwards compat (will remove)
-  songs,
-  songsVersion,
-  updateSong,
-};
-
-// get playlist by id
 export async function getPlaylistById(
   playlistId: string,
 ): Promise<Playlist | undefined> {
   const db = await initMusicDB();
   return db.get(STORE_PLAYLISTS, playlistId);
 }
-
-// re-export playlist sync helpers
-export {
-  convertToLocalPlaylist,
-  createSyncedPlaylist,
-  deletePlaylist,
-  getPlaylistByRemoteId,
-  getSyncedPlaylists,
-  isEditablePlaylist,
-  isSyncedPlaylist,
-  updatePlaylistSongs,
-  updateSyncedPlaylistETag,
-} from "./playlists";

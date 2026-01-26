@@ -5,13 +5,11 @@ import {
   useQueryClient 
 } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
-import * as apiClient from "freqhole-api-client";
 import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError, warn } from "../../utils/logger";
-import { getDataSource, getCurrentRemote } from "../data";
+import { getDataSource } from "../data";
 import type { FavoriteItem, FavoriteTarget, ListFavoritesParams } from "../data/types";
-import { setFavorite as setLocalFavorite } from "../services/storage/db";
 import {
   updateAlbumInCache,
   updateArtistInCache,
@@ -87,44 +85,19 @@ export function useToggleFavoriteMutation() {
       sha256?: string; // for songs
       isFavorite: boolean;
     }) => {
-      const remote = getCurrentRemote();
+      const dataSource = getDataSource();
 
-      // for remote sources, call the API
-      if (remote) {
-        const result = await apiClient.music.setFavorite(remote.base_url, {
-          user_id: null, // server will use authenticated user from session
-          target_type: params.targetType,
-          target_id: params.targetId,
-          is_favorite: params.isFavorite,
-        });
-
-        if (!result.success) {
-          console.error("set favorite failed:", result);
-          throw new Error(
-            `failed to ${params.isFavorite ? "add to" : "remove from"} favorites`,
-          );
-        }
-
-        // API response has data.success and data.message
-        if (!result.data?.success) {
-          console.error("set favorite API error:", result.data);
-          throw new Error(result.data?.message || "unknown error from server");
-        }
-
-        return params.isFavorite;
+      // check if datasource supports favorites
+      if (!dataSource.setFavorite) {
+        throw new Error("current data source does not support favorites");
       }
 
-      // for local source, use local storage
-      // note: playlists are not supported in local storage favorites
-      if (params.targetType === "playlist") {
-        throw new Error("local playlists do not support favorites");
-      }
-
-      await setLocalFavorite(
-        params.targetType as "song" | "album" | "artist",
-        params.targetId,
-        params.isFavorite,
-      );
+      // call datasource method - it handles local vs remote
+      await dataSource.setFavorite({
+        targetType: params.targetType,
+        targetId: params.targetId,
+        isFavorite: params.isFavorite,
+      });
 
       return params.isFavorite;
     },

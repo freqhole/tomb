@@ -6,7 +6,6 @@ import {
   useSearchParams,
 } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import * as apiClient from "freqhole-api-client";
 import {
   createEffect,
   createMemo,
@@ -440,8 +439,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!playlist) return;
 
     const songs = playlistSongs();
-    const remote = getCurrentRemote();
-    const baseUrl = remote.base_url;
     const images: string[] = [];
 
     // add playlist thumbnail
@@ -621,53 +618,27 @@ export function PlaylistsView(props: PlaylistsViewProps) {
           });
         } else {
           // for remote playlists, upload to server
-          const uploadResult = await apiClient.utils.uploadImage(
-            remote.base_url,
+          const datasource = await getDataSource();
+          
+          const blobId = await datasource.uploadImage?.({
             file,
-            {
-              associate: {
-                entity_type: "playlist",
-                entity_id: playlist.playlist_id,
-                is_primary: true,
-              },
-            },
-          );
+            entityType: "playlist",
+            entityId: playlist.playlist_id,
+            isPrimary: true,
+          });
 
-          if (!isSuccess(uploadResult)) {
-            const errorMsg = uploadResult.error.issues
-              .map((i) => i.message)
-              .join(", ");
-            console.error("upload failed:", errorMsg);
+          if (!blobId) {
+            console.error("upload failed");
             return;
           }
 
-          // type guard ensures uploadResult.data exists after success check
-          const uploadData = uploadResult.data;
-          console.log("image uploaded successfully:", uploadData);
+          console.log("image uploaded successfully:", blobId);
 
-          // poll for job completion before refreshing
-          const jobCompleted = await pollJobUntilComplete(
-            remote.base_url,
-            uploadData.job_id,
-          );
-
-          if (jobCompleted) {
-            // invalidate queries to refresh the UI
-            await queryClient.invalidateQueries({
-              queryKey: ["playlists"],
-              refetchType: "all",
-            });
-
-            // small delay to ensure server has written to database
-            await new Promise((resolve) => setTimeout(resolve, 200));
-
-            // force a fresh refetch
-            await playlistsQuery.refetch();
-          } else {
-            console.warn(
-              "job did not complete in time, UI may not update immediately",
-            );
-          }
+          // invalidate queries to refresh the UI
+          await queryClient.invalidateQueries({
+            queryKey: ["playlists"],
+            refetchType: "all",
+          });
         }
       } catch (error) {
         console.error("failed to upload image:", error);
@@ -773,19 +744,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
           setFullPlaylist(p || null);
         });
       } else {
-        // for remote playlists, call API to remove thumbnail
-        const result = await apiClient.music.removePlaylistThumbnail(
-          remote.base_url,
-          {
-            playlist_id: playlist.playlist_id,
-            cleanup_blob: true,
-            deleted_by: null,
-          },
-        );
-
-        if (!isSuccess(result)) {
-          throw new Error("failed to remove thumbnail");
-        }
+        // for remote playlists, call datasource to remove thumbnail
+        const datasource = await getDataSource();
+        
+        await datasource.removeImage?.({
+          entityType: "playlist",
+          entityId: playlist.playlist_id,
+          blobId: "", // not needed for playlist removal
+        });
 
         console.log("image removed successfully");
 

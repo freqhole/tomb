@@ -11,7 +11,7 @@ import {
   getOrCreateGenre,
   getSongsByAlbumId,
 } from "../storage/db";
-import type { Song } from "../storage/types";
+import type { NewSong, Song } from "../storage/types";
 
 export interface AudioMetadata {
   title: string;
@@ -106,7 +106,7 @@ async function getAudioDuration(file: File): Promise<number> {
 export async function processMusicFile(
   file: File,
   songId: string,
-): Promise<Song> {
+): Promise<NewSong> {
   const metadata = await extractMetadata(file);
 
   // check opfs support
@@ -148,8 +148,7 @@ export async function processMusicFile(
   // for now, just use null (genre detection not implemented yet)
   const albumPrimaryGenreId: string | null = null;
 
-  const song: Song = {
-    id: songId, // for local files, use sha256 as the id
+  const song: NewSong = {
     sha256: songId,
     title: metadata.title,
     artist_id: artist.artist_id,
@@ -198,7 +197,7 @@ export async function processMusicFile(
 export async function processMusicFiles(
   files: FileList | File[],
   songIds: string[],
-): Promise<Song[]> {
+): Promise<NewSong[]> {
   const fileArray = Array.from(files);
 
   if (fileArray.length !== songIds.length) {

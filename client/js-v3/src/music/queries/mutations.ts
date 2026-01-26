@@ -1,8 +1,7 @@
 // mutation hooks for updating artists and albums
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
-import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
-import { getCurrentRemote } from "../data";
+import { getDataSource } from "../data";
 import { updateAlbumInCache, updateArtistInCache } from "./cacheUpdates";
 import { queryKeys } from "./queryKeys";
 
@@ -31,40 +30,17 @@ export function useUpdateArtistMutation() {
 
   return createMutation(() => ({
     mutationFn: async (data: UpdateArtistData) => {
-      const remote = getCurrentRemote();
-      if (!remote) throw new Error("no remote connected");
-
-      console.log("updateArtist request:", data);
-
-      // build update request (only include changed fields)
-      const request: apiClient.UpdateArtistRequest = {
-        artist_id: data.artist_id,
-        name: data.name ?? null,
-        bio: data.bio ?? null,
-        updated_by: null,
-      };
-
-      const result = await apiClient.music.updateArtist(
-        remote.base_url,
-        request,
-      );
-
-      console.log("updateArtist result:", result);
-
-      if (!result.success) {
-        console.error("updateArtist failed:", result);
-        throw new Error("failed to update artist");
+      const dataSource = getDataSource();
+      if (!dataSource.updateArtist) {
+        throw new Error("current data source does not support updating artists");
       }
 
-      return result.data;
+      await dataSource.updateArtist(data);
     },
-    onSuccess: (updatedArtist) => {
-      // update cache with new artist data
-      updateArtistInCache(queryClient, updatedArtist.id, updatedArtist);
-
+    onSuccess: (_, variables) => {
       // invalidate related queries to refresh data
       queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(updatedArtist.id),
+        queryKey: queryKeys.artists.detail(variables.artist_id),
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
@@ -84,48 +60,17 @@ export function useUpdateAlbumMutation() {
 
   return createMutation(() => ({
     mutationFn: async (data: UpdateAlbumData) => {
-      const remote = getCurrentRemote();
-      if (!remote) throw new Error("no remote connected");
-
-      console.log("updateAlbum request:", data);
-
-      // build update request (only include changed fields)
-      const request: apiClient.UpdateAlbumRequest = {
-        album_id: data.album_id,
-        title: data.title ?? null,
-        artist_id: data.artist_id ?? null,
-        artist_name: data.artist_name ?? null,
-        album_type: data.album_type ?? null,
-        release_date: data.release_date ?? null,
-        label: data.label ?? null,
-        genre_id: data.genre_id ?? null,
-        genre: data.genre ?? null,
-        sub_genre_ids: data.sub_genre_ids ?? null,
-        sub_genres: data.sub_genres ?? null,
-        updated_by: null,
-      };
-
-      const result = await apiClient.music.updateAlbum(
-        remote.base_url,
-        request,
-      );
-
-      console.log("updateAlbum result:", result);
-
-      if (!result.success) {
-        console.error("updateAlbum failed:", result);
-        throw new Error("failed to update album");
+      const dataSource = getDataSource();
+      if (!dataSource.updateAlbum) {
+        throw new Error("current data source does not support updating albums");
       }
 
-      return result.data;
+      await dataSource.updateAlbum(data);
     },
-    onSuccess: (updatedAlbum) => {
-      // update cache with new album data
-      updateAlbumInCache(queryClient, updatedAlbum.id, updatedAlbum);
-
+    onSuccess: (_, variables) => {
       // invalidate related queries to refresh data
       queryClient.invalidateQueries({
-        queryKey: queryKeys.albums.detail(updatedAlbum.id),
+        queryKey: queryKeys.albums.detail(variables.album_id),
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });

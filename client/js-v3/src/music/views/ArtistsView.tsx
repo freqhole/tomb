@@ -1,7 +1,6 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
-import * as api from "freqhole-api-client";
 import { appState, setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
@@ -14,7 +13,7 @@ import {
   VirtualItemList,
   type ListItem,
 } from "../../components/virtualized/VirtualItemList";
-import { getCurrentRemote, getDataSource } from "../data";
+import { getDataSource } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
@@ -270,29 +269,10 @@ export function ArtistsView(props: ArtistsViewProps) {
     return shuffled;
   };
 
-  // convert artist songs to full Song objects for queue
-  const getFullSongs = async (): Promise<Song[]> => {
-    const songs = artistSongs();
-    if (!songs || songs.length === 0) return [];
-
-    // for remote sources, we already have full song data from the query
-    const remote = getCurrentRemote();
-    if (remote) {
-      const result = artistSongsQuery.data;
-      return result?.items || [];
-    }
-
-    // for local sources, need to query full details
-    const songResults = await querySongsWithDetails({
-      artistId: selectedArtistId()!,
-    });
-    return songResults.map((r) => r.song);
-  };
-
   // play all songs for selected artist
   const handlePlayAll = async () => {
-    const songs = await getFullSongs();
-    if (songs.length === 0) return;
+    const songs = artistSongs();
+    if (!songs || songs.length === 0) return;
 
     await setQueue(songs);
     await playSong(songs[0]);
@@ -300,8 +280,8 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // shuffle all songs for selected artist
   const handleShuffle = async () => {
-    const songs = await getFullSongs();
-    if (songs.length === 0) return;
+    const songs = artistSongs();
+    if (!songs || songs.length === 0) return;
 
     const shuffled = shuffleArray(songs);
     await setQueue(shuffled);
@@ -310,8 +290,8 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // add all songs to end of queue
   const handleAddToQueue = async () => {
-    const songs = await getFullSongs();
-    if (songs.length === 0) return;
+    const songs = artistSongs();
+    if (!songs || songs.length === 0) return;
 
     const state = appState();
     const currentQueue = state?.queue || [];
@@ -326,67 +306,36 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // play specific album
   const handlePlayAlbum = async (albumId: string) => {
-    // for remote sources, use artist songs filtered by album
-    const remote = getCurrentRemote();
-    let songs: Song[];
+    const datasource = getDataSource();
+    const result = await datasource.getAlbumSongs?.(albumId);
+    if (!result || result.items.length === 0) return;
 
-    if (remote) {
-      const result = artistSongsQuery.data;
-      songs = result?.items.filter((s) => s.album_id === albumId) || [];
-    } else {
-      // for local sources, query from db
-      const songResults = await querySongsWithDetails({ albumId });
-      songs = songResults.map((r) => r.song);
-    }
-
-    const sortedSongs = sortSongsCanonical(songs);
-
-    if (sortedSongs.length === 0) return;
-    await setQueue(sortedSongs);
-    await playSong(sortedSongs[0]);
+    await setQueue(result.items);
+    await playSong(result.items[0]);
   };
 
   // add album to queue
   const handleAddAlbumToQueue = async (albumId: string) => {
-    // for remote sources, use artist songs filtered by album
-    const remote = getCurrentRemote();
-    let songs: Song[];
-
-    if (remote) {
-      const result = artistSongsQuery.data;
-      songs = result?.items.filter((s) => s.album_id === albumId) || [];
-    } else {
-      // for local sources, query from db
-      const songResults = await querySongsWithDetails({ albumId });
-      songs = songResults.map((r) => r.song);
-    }
-
-    const sortedSongs = sortSongsCanonical(songs);
+    const datasource = getDataSource();
+    const result = await datasource.getAlbumSongs?.(albumId);
+    if (!result || result.items.length === 0) return;
 
     const state = appState();
     const currentQueue = state?.queue || [];
-    await setQueue([...currentQueue, ...sortedSongs]);
+    await setQueue([...currentQueue, ...result.items]);
   };
 
   // play specific song
   const handleSongDoubleClick = async (songId: string, albumId: string) => {
-    // for remote sources, use artist songs filtered by album
-    const remote = getCurrentRemote();
-    let songs: Song[];
+    const datasource = getDataSource();
+    const result = await datasource.getAlbumSongs?.(albumId);
+    if (!result || result.items.length === 0) return;
 
-    if (remote) {
-      const result = artistSongsQuery.data;
-      songs = result?.items.filter((s) => s.album_id === albumId) || [];
-    } else {
-      // for local sources, query from db
-      const songResults = await querySongsWithDetails({ albumId });
-      songs = songResults.map((r) => r.song);
-    }
+    const clickedSong = result.items.find((s) => s.id === songId);
+    if (!clickedSong) return;
 
-    const sortedSongs = sortSongsCanonical(songs);
-
-    await setQueue(sortedSongs);
-    await playSong(songId);
+    await setQueue(result.items);
+    await playSong(clickedSong);
   };
 
   // edit artist
@@ -464,25 +413,24 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (!artist) return;
 
     try {
-      const remote = getCurrentRemote();
-      if (!remote) return;
+      const datasource = await getDataSource();
       
-      const result = await api.music.getArtistImages(remote.base_url, { id: artist.artist_id });
-      if (!result.success) {
-        console.error("failed to fetch artist images");
+      const imageUrls = await datasource.getEntityImages?.({
+        entityType: "artist",
+        entityId: artist.artist_id,
+      });
+      
+      if (!imageUrls || imageUrls.length === 0) {
+        console.log("no images found for artist");
         return;
       }
       
-      const imageUrls = result.data.map(id => getImageUrl(id)!).filter(Boolean);
-      
-      if (imageUrls.length > 0) {
-        showImageCarousel({
-          images: imageUrls,
-          title: `${artist.name} images`,
-        });
-      }
-    } catch (error) {
-      console.error("failed to fetch artist images:", error);
+      showImageCarousel({
+        images: imageUrls,
+        title: `${artist.name} images`,
+      });
+    } catch (err) {
+      console.error("failed to fetch artist images:", err);
     }
   };
 
@@ -510,32 +458,32 @@ export function ArtistsView(props: ArtistsViewProps) {
           setSelectedArtistId(artist.artist_id);
           // wait a tick for query to update
           await new Promise((resolve) => setTimeout(resolve, 50));
-          // play all songs (limited to 100)
-          const songs = await getFullSongs();
-          const limited = songs.slice(0, 100);
-          if (limited.length === 0) return;
-          await setQueue(limited);
-          await playSong(limited[0]);
+          // get songs via datasource (limited to 100)
+          const datasource = getDataSource();
+          const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
+          if (!result || result.items.length === 0) return;
+          await setQueue(result.items);
+          await playSong(result.items[0]);
         },
         onShuffle: async () => {
           setSelectedArtistId(artist.artist_id);
           await new Promise((resolve) => setTimeout(resolve, 50));
-          const songs = await getFullSongs();
-          const limited = songs.slice(0, 100);
-          if (limited.length === 0) return;
-          const shuffled = shuffleArray(limited);
+          const datasource = getDataSource();
+          const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
+          if (!result || result.items.length === 0) return;
+          const shuffled = shuffleArray(result.items);
           await setQueue(shuffled);
           await playSong(shuffled[0]);
         },
         onAddToQueue: async () => {
           setSelectedArtistId(artist.artist_id);
           await new Promise((resolve) => setTimeout(resolve, 50));
-          const songs = await getFullSongs();
-          const limited = songs.slice(0, 100);
-          if (limited.length === 0) return;
+          const datasource = getDataSource();
+          const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
+          if (!result || result.items.length === 0) return;
           const state = appState();
           const currentQueue = state?.queue || [];
-          await setQueue([...currentQueue, ...limited]);
+          await setQueue([...currentQueue, ...result.items]);
         },
       },
     );

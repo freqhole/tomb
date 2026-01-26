@@ -2,8 +2,7 @@
 import { processMusicFiles } from "../../music/services/metadata/fileProcessor";
 import {
   createSong,
-  findDuplicateSong,
-  getSongById,
+  getSongBySha256,
 } from "../../music/services/storage/db";
 import { computeSHA256 } from "../../utils/hash";
 
@@ -28,32 +27,34 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
   const songsData = await processMusicFiles(fileArray, sha256Hashes);
 
   for (const songData of songsData) {
-    // check for duplicates by sha256 first (content-based deduplication)
-    const existingSong = await getSongById(songData.sha256);
+    // check for duplicates by sha256 (content-based deduplication)
+    const existingSong = await getSongBySha256(songData.sha256);
 
     if (existingSong) {
       console.log(
-        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as ${existingSong.file_name}`,
+        `skipping duplicate (sha256 match): ${songData.file_name} - already exists as song id ${existingSong.id}`,
       );
       skippedCount++;
       continue;
     }
 
-    // fallback: check for duplicates by file metadata
-    const isDuplicate = await findDuplicateSong(
-      songData.file_name!,
-      songData.file_size!,
-      songData.last_modified!,
-    );
-
-    if (isDuplicate) {
-      console.log(
-        `skipping duplicate (metadata match): ${songData.file_name} (${songData.file_size} bytes)`,
-      );
-      skippedCount++;
-    } else {
+    // no duplicate found, add the song
+    try {
       await createSong(songData);
       addedCount++;
+      console.log(`✓ added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
+    } catch (error) {
+      // handle constraint error (duplicate sha256 from race condition or stale index)
+      if (error instanceof Error && error.name === 'ConstraintError') {
+        console.warn(
+          `⚠ skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`,
+        );
+        console.warn('this suggests getSongBySha256 did not find the existing song - possible stale index');
+        skippedCount++;
+      } else {
+        // re-throw unexpected errors
+        throw error;
+      }
     }
   }
 

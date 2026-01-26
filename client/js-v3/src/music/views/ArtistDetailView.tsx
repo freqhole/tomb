@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
-import { getCurrentRemote } from "../data";
+import { getDataSource } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
@@ -12,7 +12,6 @@ import { playSong } from "../services/audio/player";
 import { getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
-import * as api from "freqhole-api-client";
 
 export function ArtistDetailView() {
   const params = useParams<{ id: string }>();
@@ -184,25 +183,24 @@ export function ArtistDetailView() {
     if (!artist) return;
 
     try {
-      const remote = getCurrentRemote();
-      if (!remote) return;
+      const datasource = await getDataSource();
       
-      const result = await api.music.getArtistImages(remote.base_url, { id: artist.artist_id });
-      if (!result.success) {
-        console.error("failed to fetch artist images");
+      const imageUrls = await datasource.getEntityImages?.({
+        entityType: "artist",
+        entityId: artist.artist_id,
+      });
+      
+      if (!imageUrls || imageUrls.length === 0) {
+        console.log("no images found for artist");
         return;
       }
       
-      const imageUrls = result.data.map(id => getImageUrl(id)!).filter(Boolean);
-      
-      if (imageUrls.length > 0) {
-        showImageCarousel({
-          images: imageUrls,
-          title: `${artist.name} images`,
-        });
-      }
-    } catch (error) {
-      console.error("failed to fetch artist images:", error);
+      showImageCarousel({
+        images: imageUrls,
+        title: `${artist.name} images`,
+      });
+    } catch (err) {
+      console.error("failed to fetch artist images:", err);
     }
   };
 
