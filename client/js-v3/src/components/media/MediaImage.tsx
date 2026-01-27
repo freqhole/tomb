@@ -1,44 +1,26 @@
-import { createEffect, createSignal, onMount, JSX, Show } from "solid-js";
+import { createEffect, createSignal, JSX, Show, onCleanup } from "solid-js";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { Icon } from "../icons/registry";
 
-/**
- * pick the best image from an array of ImageMetadata
- * priority: primary thumbnail → first thumbnail → first available → null
- */
 function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
   if (!images || images.length === 0) return null;
-  
-  // find primary thumbnail
   const primary = images.find(img => img.is_primary && img.type === 'thumbnail');
   if (primary) return primary;
-  
-  // find any thumbnail
   const thumbnail = images.find(img => img.type === 'thumbnail');
   if (thumbnail) return thumbnail;
-  
-  // fallback to first image
   return images[0];
 }
 
 interface MediaImageProps {
-  /** structured image metadata array (preferred) */
   images?: ImageMetadata[];
-  /** blob ID to resolve (legacy, for backward compatibility) */
   blobId?: string | null;
-  /** direct image url (legacy, for backward compatibility or remote images) */
   imageUrl?: string | null;
-  /** alt text for accessibility */
   alt: string;
-  /** size variant */
   size?: "xs" | "sm" | "md" | "lg" | "xl";
-  /** additional css classes */
   class?: string;
-  /** enable album card hover effect (bg-cover → bg-contain + scale) */
   enableAlbumHover?: boolean;
-  /** show fallback icon when no image */
   showFallback?: boolean;
-  /** domain type for appropriate fallback icon */
   domainType?: "song" | "album" | "artist" | "genre" | "playlist";
 }
 
@@ -47,168 +29,116 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   const [imageLoaded, setImageLoaded] = createSignal(false);
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
   
-  // resolve blob URL on mount - create object URL once per component instance
-  onMount(async () => {
-    // priority: images array → legacy blobId
+  let blobUrlToCleanup: string | null = null;
+  
+  createEffect(() => {
     const bestImage = pickBestImage(props.images);
+    const blobId = bestImage?.local_blob_id || props.blobId;
+    const remoteUrl = bestImage?.remote_url || props.imageUrl;
     
-    if (bestImage?.local_blob_id) {
-      // local image: create blob URL
-      const blob = await getBlobObjectURL(bestImage.local_blob_id);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        setResolvedUrl(url);
-      }
-    } else if (bestImage?.remote_url) {
-      // remote image: use directly
-      setResolvedUrl(bestImage.remote_url);
-    } else if (props.blobId) {
-      // legacy path: use blobId prop
-      const blob = await getBlobObjectURL(props.blobId);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        setResolvedUrl(url);
-      }
+    if (blobUrlToCleanup) {
+      URL.revokeObjectURL(blobUrlToCleanup);
+      blobUrlToCleanup = null;
+    }
+    
+    if (blobId) {
+      getBlobObjectURL(blobId).then(blob => {
+        if (blob) {
+          const newBlobUrl = URL.createObjectURL(blob);
+          blobUrlToCleanup = newBlobUrl;
+          setResolvedUrl(newBlobUrl);
+        } else {
+          setResolvedUrl(null);
+        }
+      });
+    } else if (remoteUrl) {
+      setResolvedUrl(remoteUrl);
+    } else {
+      setResolvedUrl(null);
     }
   });
   
-  // use resolved blob URL or fallback to legacy imageUrl prop
-  const finalImageUrl = () => resolvedUrl() || props.imageUrl;
-
-  // reset error state when image source changes
-  createEffect(() => {
-    if (finalImageUrl()) {
+  createEffect((prev) => {
+    const url = resolvedUrl();
+    if (url !== prev) {
       setImageError(false);
       setImageLoaded(false);
+    }
+    return url;
+  });
+  
+  onCleanup(() => {
+    if (blobUrlToCleanup) {
+      URL.revokeObjectURL(blobUrlToCleanup);
     }
   });
 
   const getSizeClasses = (): string => {
     switch (props.size) {
-      case "xs":
-        return "w-8 h-8";
-      case "sm":
-        return "w-12 h-12";
-      case "md":
-        return "w-16 h-16";
-      case "lg":
-        return "w-24 h-24";
-      case "xl":
-        return "w-32 h-32";
-      default:
-        return "w-16 h-16";
+      case "xs": return "w-8 h-8";
+      case "sm": return "w-12 h-12";
+      case "md": return "w-16 h-16";
+      case "lg": return "w-24 h-24";
+      case "xl": return "w-32 h-32";
+      default: return "";
     }
   };
 
-  const getIconSize = (): string => {
-    switch (props.size) {
-      case "xs":
-        return "w-3 h-3";
-      case "sm":
-        return "w-4 h-4";
-      case "md":
-        return "w-6 h-6";
-      case "lg":
-        return "w-8 h-8";
-      case "xl":
-        return "w-12 h-12";
-      default:
-        return "w-6 h-6";
-    }
-  };
-
-  const getFallbackIcon = (): JSX.Element => {
-    const iconClass = `${getIconSize()} text-[var(--color-accent-500)]`;
-
+  const getFallbackIcon = () => {
+    const iconProps = { class: "w-full h-full opacity-30" };
     switch (props.domainType) {
-      case "album":
-        return (
-          <svg class={iconClass} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z" />
-          </svg>
-        );
-      case "artist":
-        return (
-          <svg class={iconClass} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 3.5C14.5 3.18 13.9 3.18 13.4 3.5L7 7V9C7 9.55 7.45 10 8 10S9 9.55 9 9V8.25L12 6.5L15 8.25V9C15 9.55 15.45 10 16 10S17 9.55 17 9V7.75L20 9.5L21 9ZM17.75 17.5C18.5 17.5 19.13 16.87 19.13 16.13C19.13 15.38 18.5 14.75 17.75 14.75C17 14.75 16.38 15.38 16.38 16.13C16.38 16.87 17 17.5 17.75 17.5ZM8 12C6.9 12 6 12.9 6 14V22H8V14H16V22H18V14C18 12.9 17.1 12 16 12H8Z" />
-          </svg>
-        );
-      case "playlist":
-        return (
-          <svg class={iconClass} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
-          </svg>
-        );
-      case "genre":
-        return (
-          <svg class={iconClass} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6zm-2 13c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45-1-1 1z" />
-          </svg>
-        );
       case "song":
+        return <Icon name="music" {...iconProps} />;
+      case "album":
+        return <Icon name="album" {...iconProps} />;
+      case "artist":
+        return <Icon name="artist" {...iconProps} />;
+      case "genre":
+        return <Icon name="genre" {...iconProps} />;
+      case "playlist":
+        return <Icon name="playlist" {...iconProps} />;
       default:
-        return (
-          <svg class={iconClass} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-          </svg>
-        );
+        return <Icon name="music" {...iconProps} />;
     }
   };
 
-  // determine base classes and hover behavior
-  const baseClasses = () => {
-    if (props.enableAlbumHover) {
-      // album card: css background with hover effect
-      return "bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105";
-    }
-    // default: no special classes for img-based rendering
-    return "";
-  };
+  const imageUrl = resolvedUrl;
+  const shouldShowFallbackIcon = () => props.showFallback !== false && (imageError() || !imageUrl());
 
   return (
     <div
-      class={`${getSizeClasses()} bg-[var(--color-bg-elevated)] rounded overflow-hidden ${baseClasses()} ${props.class || ""}`}
-      style={props.enableAlbumHover && finalImageUrl() ? `background-image: url('${finalImageUrl()}')` : undefined}
-      role={props.enableAlbumHover && finalImageUrl() ? "img" : undefined}
-      aria-label={props.enableAlbumHover && finalImageUrl() ? props.alt : undefined}
+      class={`relative overflow-hidden bg-gray-800/20 flex items-center justify-center ${
+        props.enableAlbumHover ? "group bg-cover transition-all duration-300 hover:bg-contain hover:scale-105" : ""
+      } ${getSizeClasses()} ${props.class || ""}`}
+      style={{
+        "background-image": imageUrl() && !imageError() ? `url(${imageUrl()})` : undefined,
+        "background-size": "cover",
+        "background-position": "center",
+        "background-repeat": "no-repeat",
+      }}
     >
-      <Show
-        when={finalImageUrl() && !imageError()}
-        fallback={
-          <Show
-            when={props.showFallback !== false}
-            fallback={
-              <div class="w-full h-full bg-[var(--color-bg-elevated)]" />
-            }
-          >
-            <div class="w-full h-full flex items-center justify-center">
-              {getFallbackIcon()}
-            </div>
-          </Show>
-        }
-      >
-        {/* for album cards with hover, we use CSS background (already applied above) */}
-        {/* for everything else, use img tag for proper loading/error handling */}
-        <Show when={!props.enableAlbumHover}>
-          <div class="relative w-full h-full">
-            {/* loading placeholder */}
-            <Show when={!imageLoaded()}>
-              <div class="absolute inset-0 bg-[var(--color-bg-elevated)] animate-pulse" />
-            </Show>
+      <Show when={!imageUrl() && !imageError()}>
+        <div class="absolute inset-0 bg-gray-700/30 animate-pulse" />
+      </Show>
 
-            {/* actual img element */}
-            <img
-              src={finalImageUrl()!}
-              alt={props.alt}
-              class={`w-full h-full object-cover transition-opacity duration-200 ${
-                imageLoaded() ? "opacity-100" : "opacity-0"
-              }`}
-              loading="lazy"
-              onLoad={() => setImageLoaded(true)}
-              onError={() => setImageError(true)}
-            />
-          </div>
-        </Show>
+      <Show when={shouldShowFallbackIcon()}>
+        <div class="text-gray-500">{getFallbackIcon()}</div>
+      </Show>
+
+      <Show when={imageUrl()}>
+        <img
+          src={imageUrl()!}
+          alt={props.alt}
+          class="absolute inset-0 w-full h-full object-cover opacity-0"
+          onLoad={() => {
+            setImageLoaded(true);
+            setImageError(false);
+          }}
+          onError={() => {
+            setImageError(true);
+            setImageLoaded(false);
+          }}
+        />
       </Show>
     </div>
   );

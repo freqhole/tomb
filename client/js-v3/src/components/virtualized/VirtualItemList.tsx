@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, JSX, onMount, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, Index, JSX, onMount, onCleanup, Show } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -142,41 +142,41 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
           position: "relative",
         }}
       >
-        <For each={rowVirtualizer().getVirtualItems()}>
+        <Index each={rowVirtualizer().getVirtualItems()}>
           {(virtualRow) => {
-            const item = props.items[virtualRow.index];
+            const item = () => props.items[virtualRow().index];
 
             const itemButton = (
               <button
                 class={`
                   w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
                   ${
-                    props.selectedId === item.id
+                    props.selectedId === item().id
                       ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
                       : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                   }
                 `}
-                onClick={() => handleItemClick(item)}
+                onClick={() => handleItemClick(item())}
               >
                 <MediaImage
-                  images={item.images}
-                  imageUrl={item.thumbnailUrl || null}
-                  alt=""
+                  images={item().images}
+                  imageUrl={item().thumbnailUrl || null}
+                  alt={item().title}
                   class="w-12 h-12 object-cover rounded flex-shrink-0"
                   domainType="playlist"
                 />
                 <div class="flex-1 min-w-0">
                   <div class="font-medium text-base">
-                    <MarqueeText text={item.title} hoverOnly={true} />
+                    <MarqueeText text={item().title} hoverOnly={true} />
                   </div>
-                  {item.subtitle && (
+                  {item().subtitle && (
                     <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                      {item.subtitle}
+                      {item().subtitle}
                     </div>
                   )}
-                  {item.metadata && (
+                  {item().metadata && (
                     <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
-                      {item.metadata}
+                      {item().metadata}
                     </div>
                   )}
                 </div>
@@ -185,21 +185,21 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
 
             return (
               <div
-                data-index={virtualRow.index}
+                data-index={virtualRow().index}
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  height: `${virtualRow().size}px`,
+                  transform: `translateY(${virtualRow().start}px)`,
                 }}
               >
                 {props.getContextMenuActions ? (
                   <ContextMenu
                     actions={props.getContextMenuActions(
-                      item,
-                      virtualRow.index,
+                      item(),
+                      virtualRow().index,
                     )}
                   >
                     {itemButton}
@@ -210,7 +210,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
               </div>
             );
           }}
-        </For>
+        </Index>
       </div>
     </div>
   );
