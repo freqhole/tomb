@@ -5,6 +5,7 @@ import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
+import { enrichWithThumbnailUrl, enrichWithThumbnailUrls } from "../utils/imageResolver";
 import { queryKeys } from "./queryKeys";
 
 export type SongSortField =
@@ -281,7 +282,12 @@ export function useArtistQuery(artistId: Accessor<string | undefined>) {
         limit: 1,
       });
 
-      return result.items[0] || null;
+      const artist = result.items[0] || null;
+      if (!artist) return null;
+      
+      // enrich with pre-resolved thumbnail URL
+      const enriched = await enrichWithThumbnailUrl(artist);
+      return enriched;
     },
     enabled: () => !!artistId(),
   }));
@@ -301,7 +307,13 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
       }
 
       const result = await dataSource.getArtistSongs(id, { limit: 1000 });
-      return result;
+      
+      // enrich songs with pre-resolved thumbnail URLs
+      const enrichedItems = await enrichWithThumbnailUrls(result.items);
+      return {
+        ...result,
+        items: enrichedItems,
+      };
     },
     enabled: () => !!artistId(),
   }));

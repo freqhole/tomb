@@ -8,6 +8,7 @@ import {
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
 import type { PlaylistSummary, Song } from "../data/types";
+import { enrichWithThumbnailUrls } from "../utils/imageResolver";
 import { queryKeys } from "./queryKeys";
 
 // query hook for recent playlists (no pagination, just top N)
@@ -29,7 +30,8 @@ export function useRecentPlaylistsQuery(
         limit,
       });
 
-      return response.items;
+      // enrich with resolved thumbnail URLs
+      return await enrichWithThumbnailUrls(response.items);
     },
     enabled: enabled(),
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -70,7 +72,13 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
         search: search?.(),
       });
 
-      return response;
+      // enrich with resolved thumbnail URLs
+      const enrichedItems = await enrichWithThumbnailUrls(response.items);
+
+      return {
+        ...response,
+        items: enrichedItems,
+      };
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
@@ -121,7 +129,13 @@ export function usePlaylistSongsQuery(options: UsePlaylistSongsQueryOptions) {
         search: search?.(),
       });
 
-      return response;
+      // enrich songs with resolved thumbnail URLs
+      const enrichedItems = await enrichWithThumbnailUrls(response.items);
+
+      return {
+        ...response,
+        items: enrichedItems,
+      };
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {

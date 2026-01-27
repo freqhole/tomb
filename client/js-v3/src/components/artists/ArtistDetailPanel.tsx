@@ -6,7 +6,6 @@ import {
   useSongContextMenu,
 } from "../../music/services/contextMenu";
 import type { Song } from "../../music/services/storage/types";
-import { getImageUrl, getPrimaryImageUrl } from "../../music/utils/images";
 import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -30,6 +29,7 @@ export interface ArtistDetailPanelArtist {
   album_count: number;
   total_duration: number;
   images?: Array<{ blob_id: string; is_primary: number }>;
+  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -100,10 +100,8 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
     props.songs.forEach((song, index) => {
       if (!groups.has(song.album_id)) {
-        // prefer album's own images, fallback to song thumbnail
-        const artworkUrl = song.album_images && song.album_images.length > 0
-          ? getPrimaryImageUrl(song.album_images)
-          : getImageUrl(song.thumbnail_blob_id);
+        // use pre-resolved thumbnail_url from enriched songs
+        const artworkUrl = song.thumbnail_url ?? null;
 
         groups.set(song.album_id, {
           albumId: song.album_id,
@@ -178,11 +176,8 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
   // get artist image URL
   const artistImageUrl = createMemo(() => {
-    if (!props.artist.images || props.artist.images.length === 0) return null;
-    
-    // get primary image or first image
-    const primaryImage = props.artist.images.find(img => img.is_primary) || props.artist.images[0];
-    return getImageUrl(primaryImage.blob_id);
+    // use pre-resolved thumbnail_url from enriched artist
+    return props.artist.thumbnail_url ?? null;
   });
 
   // create artist abbreviation (up to 3 letters from first words)

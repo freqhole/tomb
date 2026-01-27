@@ -73,6 +73,7 @@ export interface ArtistSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
   is_favorite?: boolean;
   user_rating?: number;
 }

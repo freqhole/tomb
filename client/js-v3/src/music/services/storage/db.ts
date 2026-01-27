@@ -728,7 +728,7 @@ export async function queryAlbums(options?: {
   limit?: number;
   offset?: number;
   albumId?: string;
-}): Promise<AlbumWithStats[]> {
+}): Promise<AlbumQueryResult[]> {
   const db = await initMusicDB();
 
   // get all albums (or specific album if albumId provided)
@@ -762,7 +762,7 @@ export async function queryAlbums(options?: {
   }
 
   // build album results with stats
-  const results: AlbumWithStats[] = [];
+  const results: AlbumQueryResult[] = [];
   for (const album of allAlbums) {
     const songs = songsByAlbum.get(album.album_id) || [];
 
@@ -773,11 +773,12 @@ export async function queryAlbums(options?: {
     const artist = album.artist_id ? artistsById.get(album.artist_id) : null;
     const artistName = artist?.name || "various artists";
 
-    // get genre name from map and update album object
+    // get genre name from map and add to result
+    let genreName: string | undefined;
     if (album.genre_id) {
       const genre = genresById.get(album.genre_id);
       if (genre) {
-        (album as any).genre = genre.name;
+        genreName = genre.name;
       }
     }
 
@@ -788,9 +789,7 @@ export async function queryAlbums(options?: {
         song.album_sub_genres.forEach(sg => subGenresSet.add(sg));
       }
     }
-    if (subGenresSet.size > 0) {
-      (album as any).sub_genres = Array.from(subGenresSet);
-    }
+    const subGenres = subGenresSet.size > 0 ? Array.from(subGenresSet) : undefined;
 
     // calculate total duration
     const totalDuration = songs.reduce(
@@ -803,6 +802,8 @@ export async function queryAlbums(options?: {
       artist_name: artistName,
       song_count: songs.length,
       total_duration: totalDuration,
+      genre_name: genreName,
+      sub_genres: subGenres,
     });
   }
 
@@ -1085,17 +1086,58 @@ export async function querySongsWithDetails(options?: {
     songsToQuery = songsToQuery.slice(offset, offset + limit);
   }
 
-  // join with artists, albums, genres and enrich songs with is_favorite and user_rating
+  // join with artists, albums, genres and enrich songs with denormalized fields
   const results: Song[] = [];
+  
+  // load all albums, artists, genres, tags once for lookups
+  const allAlbums = await db.getAll(STORE_ALBUMS);
+  const allGenres = await db.getAll(STORE_GENRES);
+  const allTags = await db.getAll(STORE_TAGS);
+  const allAlbumTags = await db.getAll(STORE_ALBUM_TAGS);
+  
+  const albumsMap = new Map(allAlbums.map(a => [a.album_id, a]));
+  const genresMap = new Map(allGenres.map(g => [g.genre_id, g]));
+  const tagsMap = new Map(allTags.map(t => [t.tag_id, t]));
+  
+  // build map of album_id -> tag names
+  const albumTagsMap = new Map<string, string[]>();
+  for (const albumTag of allAlbumTags) {
+    const tag = tagsMap.get(albumTag.tag_id);
+    if (tag) {
+      if (!albumTagsMap.has(albumTag.album_id)) {
+        albumTagsMap.set(albumTag.album_id, []);
+      }
+      albumTagsMap.get(albumTag.album_id)!.push(tag.name);
+    }
+  }
+  
   for (const song of songsToQuery) {
     const isFavorite = await checkFavorite("song", song.id);
     const rating = await getRating("song", song.id);
 
-    // enrich song object with is_favorite and user_rating
+    // get album to populate denormalized fields
+    const album = albumsMap.get(song.album_id);
+    const albumIsFavorite = album ? await checkFavorite("album", album.album_id) : false;
+    const albumRating = album ? await getRating("album", album.album_id) : null;
+    
+    // get genre name if album has genre_id
+    const genreName = album?.genre_id ? genresMap.get(album.genre_id)?.name : undefined;
+    
+    // get album tags
+    const albumTags = album ? albumTagsMap.get(album.album_id) : undefined;
+
+    // enrich song object with is_favorite, user_rating, and denormalized album fields
     const enrichedSong: Song = {
       ...song,
       is_favorite: isFavorite,
       user_rating: rating ?? undefined,
+      album_is_favorite: albumIsFavorite,
+      album_rating: albumRating ?? undefined,
+      album_primary_genre_id: album?.genre_id,
+      album_primary_genre_name: genreName,
+      album_tags: albumTags,
+      // album_sub_genres is already on the song from import/edit
+      // album_images - would need separate images table, skipping for now
     };
 
     results.push(enrichedSong);

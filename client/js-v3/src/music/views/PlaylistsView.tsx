@@ -52,10 +52,7 @@ import {
   usePlaylistContextMenu,
   useSongContextMenu,
 } from "../services/contextMenu";
-import {
-  readThumbnailFromOPFS,
-  writeThumbnailToOPFS,
-} from "../services/opfs/helpers";
+import { storeBlob } from "../services/storage/blobs";
 import {
   checkIfPlaylistNeedsSync,
   downloadPlaylist,
@@ -327,8 +324,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // convert playlists to list items for VirtualItemList
   const playlistListItems = createMemo((): ListItem[] => {
     return playlists().map((playlist) => {
-      // use getImageUrl which handles both full URLs (remote) and raw blob_ids (local)
-      const thumbnailUrl = getImageUrl(playlist.thumbnail_blob_id);
+      // thumbnail_url is pre-resolved in the query
+      const thumbnailUrl = playlist.thumbnail_url;
 
       return {
         id: playlist.playlist_id,
@@ -395,16 +392,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // construct thumbnail URL for selected playlist
   const thumbnailUrl = createMemo(() => {
     const playlist = selectedPlaylist();
-    if (!playlist?.thumbnail_blob_id) return null;
+    if (!playlist) return null;
 
-    const viewingRemote = isViewingRemote();
-
-    // for remote playlists, use getImageUrl which handles full URLs
-    if (viewingRemote) {
-      return getImageUrl(playlist.thumbnail_blob_id);
+    // use pre-resolved thumbnail_url from query if available
+    if (playlist.thumbnail_url) {
+      return playlist.thumbnail_url;
     }
 
-    // for local playlists, use local thumbnail URL if available for THIS playlist
+    // fallback: use local thumbnail URL if available for THIS playlist
     const localUrl = localThumbnailUrl();
     const localPlaylist = fullPlaylist();
     if (localUrl && localPlaylist?.playlist_id === playlist.playlist_id) {
@@ -439,7 +434,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     // add playlist thumbnail
     if (playlist.thumbnail_blob_id) {
-      const url = getImageUrl(playlist.thumbnail_blob_id);
+      const url = await getImageUrl(playlist.thumbnail_blob_id);
       if (url) images.push(url);
     }
 
@@ -448,13 +443,13 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     for (const song of songs) {
       // album cover (thumbnail_blob_id is the denormalized primary image)
       if (song.thumbnail_blob_id) {
-        const url = getImageUrl(song.thumbnail_blob_id);
+        const url = await getImageUrl(song.thumbnail_blob_id);
         if (url) imageSet.add(url);
       }
       // album images
       if (song.album_images) {
         for (const img of song.album_images) {
-          const url = getImageUrl(img.blob_id);
+          const url = await getImageUrl(img.blob_id);
           if (url) imageSet.add(url);
         }
       }
@@ -570,48 +565,22 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
       try {
         if (isLocal) {
-          // for local playlists, save thumbnail to OPFS
-          const thumbnailId = generateUUID();
-          const thumbnailPath = await writeThumbnailToOPFS(file, thumbnailId);
+          // for local playlists, store blob and update playlist
+          const blobId = await storeBlob(file, file.type);
 
-          // update playlist with thumbnail path
+          // update playlist with new thumbnail
           const dataSource = getDataSource();
           await dataSource.updatePlaylist?.(playlist.playlist_id, {
-            thumbnail_blob_id: thumbnailPath,
+            thumbnail_blob_id: blobId,
+            images: [{ blob_id: blobId, is_primary: 1 }],
           });
 
-          // invalidate queries first
+          // invalidate and refetch queries
           await queryClient.invalidateQueries({
             queryKey: ["playlists"],
           });
 
-          // revoke old thumbnail URL before creating new one
-          const oldUrl = localThumbnailUrl();
-          if (oldUrl) {
-            URL.revokeObjectURL(oldUrl);
-            setLocalThumbnailUrl(null);
-          }
-
-          // refresh local playlist data and thumbnail
-          await getPlaylistById(playlist.playlist_id).then((p) => {
-            setFullPlaylist(p || null);
-            if (
-              p?.thumbnail_blob_id &&
-              p.thumbnail_blob_id.startsWith("thumbnails/")
-            ) {
-              readThumbnailFromOPFS(p.thumbnail_blob_id)
-                .then((file) => {
-                  const url = URL.createObjectURL(file);
-                  setLocalThumbnailUrl(url);
-                })
-                .catch((error) => {
-                  console.error("failed to load local thumbnail:", error);
-                  setLocalThumbnailUrl(null);
-                });
-            } else {
-              setLocalThumbnailUrl(null);
-            }
-          });
+          toast.success("playlist image updated");
         } else {
           // for remote playlists, upload to server
           const datasource = await getDataSource();
@@ -1439,9 +1408,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                           onPlayClick={() =>
                                             handleSongDoubleClick(song)
                                           }
-                                          thumbnailUrl={getImageUrl(
-                                            song.thumbnail_blob_id,
-                                          )}
+                                          thumbnailUrl={
+                                            song.thumbnail_url || undefined
+                                          }
                                           disabled={
                                             !isEditablePlaylist(
                                               selectedPlaylist()!,

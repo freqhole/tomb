@@ -14,6 +14,7 @@ export interface Artist {
   artist_id: string; // uuid
   name: string;
   bio?: string | null;
+  images?: ImageMetadata[]; // artist images
   created_at: number;
   updated_at: number;
   // user-specific fields (from query views)
@@ -32,6 +33,7 @@ export interface Album {
   label: string | null;
   genre_id: string | null; // FK to genres
   year: number | null;
+  images?: ImageMetadata[]; // album images (artwork, etc)
   created_at: number;
   updated_at: number;
   // user-specific fields (from query views)
@@ -61,6 +63,7 @@ export interface Song {
   artist_name: string;
   album_title: string;
   thumbnail_blob_id: string | null; // denormalized primary image blob id
+  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
 
   // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
   album_added_at: number; // earliest added_at of any song in this album
@@ -116,6 +119,7 @@ export interface Playlist {
   description: string | null;
   is_public: boolean;
   thumbnail_blob_id: string | null;
+  images?: ImageMetadata[]; // playlist images
   created_at: number;
   updated_at: number;
   // sync fields for remote playlists
@@ -165,15 +169,14 @@ export interface SongQueryResult {
   genre: Genre | null;
 }
 
-// album with joined artist + genre
+// album with aggregated stats and runtime-augmented fields
 export interface AlbumQueryResult {
   album: Album;
-  artist: Artist | null;
-  genre: Genre | null;
+  artist_name: string;
   song_count: number;
   total_duration: number;
-  is_favorite: boolean;
-  rating: number | null;
+  genre_name?: string;
+  sub_genres?: string[];
 }
 
 // artist with aggregated stats

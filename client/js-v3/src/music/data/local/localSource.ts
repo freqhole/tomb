@@ -33,6 +33,7 @@ import type {
   FavoriteTarget,
   FavoriteItem,
   GenreSummary,
+  ImageMetadata,
   ListFavoritesParams,
   MusicDataSource,
   PaginatedResponse,
@@ -79,6 +80,7 @@ export class LocalMusicDataSource implements MusicDataSource {
   async getAlbums(
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
+    const { adaptAlbumFromIDB } = await import("./adapters");
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
@@ -89,24 +91,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       albumId: params?.album_id, 
     });
 
-    // map to AlbumSummary format
-    const albums: AlbumSummary[] = results.map((result) => ({
-      album_id: result.album.album_id,
-      title: result.album.title,
-      artist_id: result.album.artist_id || "",
-      artist_name: result.artist_name,
-      album_type: result.album.album_type,
-      year: result.album.year ?? undefined,
-      release_date: result.album.release_date ?? undefined,
-      label: result.album.label ?? undefined,
-      genre_id: result.album.genre_id ?? undefined,
-      genre: (result.album as any).genre ?? undefined, // genre name added at runtime in queryAlbums
-      sub_genres: (result.album as any).sub_genres ?? undefined, // TODO: populate from songs
-      song_count: result.song_count,
-      total_duration: result.total_duration,
-      is_favorite: result.album.is_favorite,
-      user_rating: result.album.user_rating,
-    }));
+    // use adapter to convert IDB results to AlbumSummary
+    const albums = results.map(adaptAlbumFromIDB);
 
     // TODO: get total count properly from database
     // for now, assume has_more if we got a full page
@@ -170,6 +156,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       album_count: result.album_count,
       song_count: result.song_count,
       total_duration: result.total_duration,
+      images: result.artist.images,
       is_favorite: result.artist.is_favorite,
       user_rating: result.artist.user_rating,
     }));
@@ -426,6 +413,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description?: string | null;
       is_public?: boolean | null;
       thumbnail_blob_id?: string | null;
+      images?: ImageMetadata[] | null;
     },
   ): Promise<PlaylistSummary> {
     const db = await initMusicDB();
@@ -447,6 +435,9 @@ export class LocalMusicDataSource implements MusicDataSource {
     }
     if (params.thumbnail_blob_id !== undefined) {
       playlist.thumbnail_blob_id = params.thumbnail_blob_id;
+    }
+    if (params.images !== undefined) {
+      playlist.images = params.images || undefined;
     }
 
     playlist.updated_at = Date.now();
@@ -702,9 +693,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     label?: string;
     genre_id?: string;
     genre?: string;
+    sub_genres?: string[];
     year?: number;
   }): Promise<void> {
-    const { updateAlbum, getOrCreateGenre } = await import("../../services/storage/db");
+    const { updateAlbum, initMusicDB, getOrCreateGenre } = await import("../../services/storage/db");
+    const { STORE_SONGS } = await import("../../services/storage/types");
     
     // if genre name is provided without id, create/fetch genre first
     let genreId = params.genre_id;
@@ -724,6 +717,22 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.year !== undefined) updates.year = params.year;
     
     await updateAlbum(params.album_id, updates);
+    
+    // if sub_genres were provided, update all songs in this album
+    if (params.sub_genres !== undefined) {
+      const db = await initMusicDB();
+      const allSongs = await db.getAll(STORE_SONGS);
+      const albumSongs = allSongs.filter(song => song.album_id === params.album_id);
+      
+      for (const song of albumSongs) {
+        const updated = {
+          ...song,
+          album_sub_genres: params.sub_genres,
+          updated_at: Date.now(),
+        };
+        await db.put(STORE_SONGS, updated);
+      }
+    }
   }
 
   async updateSong(params: {
@@ -850,9 +859,59 @@ export class LocalMusicDataSource implements MusicDataSource {
     entityId: string;
     isPrimary?: boolean;
   }): Promise<string> {
-    // TODO: implement OPFS storage
-    // for now just return a placeholder
-    throw new Error("local image upload not yet implemented");
+    const { storeBlob } = await import("../../services/storage/blobs");
+    
+    // store blob in OPFS/Cache
+    const blobId = await storeBlob(params.file, params.file.type);
+
+    // update entity with new image
+    const db = await initMusicDB();
+    const imageMetadata: ImageMetadata = {
+      blob_id: blobId,
+      is_primary: params.isPrimary ? 1 : 0,
+    };
+
+    if (params.entityType === "album") {
+      const album = await db.get(STORE_ALBUMS, params.entityId);
+      if (album) {
+        const images = album.images || [];
+        // if this is primary, mark others as non-primary
+        if (params.isPrimary) {
+          images.forEach(img => img.is_primary = 0);
+        }
+        images.push(imageMetadata);
+        album.images = images;
+        album.updated_at = Date.now();
+        await db.put(STORE_ALBUMS, album);
+      }
+    } else if (params.entityType === "artist") {
+      const artist = await db.get(STORE_ARTISTS, params.entityId);
+      if (artist) {
+        const images = artist.images || [];
+        if (params.isPrimary) {
+          images.forEach(img => img.is_primary = 0);
+        }
+        images.push(imageMetadata);
+        artist.images = images;
+        artist.updated_at = Date.now();
+        await db.put(STORE_ARTISTS, artist);
+      }
+    } else if (params.entityType === "playlist") {
+      const playlist = await db.get(STORE_PLAYLISTS, params.entityId);
+      if (playlist) {
+        const images = playlist.images || [];
+        if (params.isPrimary) {
+          images.forEach(img => img.is_primary = 0);
+          playlist.thumbnail_blob_id = blobId;
+        }
+        images.push(imageMetadata);
+        playlist.images = images;
+        playlist.updated_at = Date.now();
+        await db.put(STORE_PLAYLISTS, playlist);
+      }
+    }
+
+    return blobId;
   }
 
   async getEntityImages(params: {

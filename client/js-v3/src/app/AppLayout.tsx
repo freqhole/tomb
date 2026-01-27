@@ -250,7 +250,7 @@ export function AppLayout(props: AppLayoutProps) {
           recentPlaylistsQuery.data?.map((playlist) => ({
             id: playlist.playlist_id,
             name: playlist.title,
-            thumbnailUrl: getImageUrl(playlist.thumbnail_blob_id),
+            thumbnailUrl: playlist.thumbnail_url || undefined,
             updatedAt: playlist.updated_at,
             onClick: () => handlePlaylistClick(playlist.playlist_id),
           })) || []
