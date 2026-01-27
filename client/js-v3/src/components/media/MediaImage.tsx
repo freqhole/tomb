@@ -32,35 +32,10 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   
   let blobUrlToCleanup: string | null = null;
   
-  console.log('[MediaImage] render:', {
-    alt: props.alt,
-    hasImages: !!props.images,
-    imagesLength: props.images?.length,
-    hasBlobId: !!props.blobId,
-    hasImageUrl: !!props.imageUrl,
-    domainType: props.domainType,
-    showFallback: props.showFallback,
-  });
-  
   createEffect(() => {
     const bestImage = pickBestImage(props.images);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-    
-    console.log('[MediaImage] effect:', {
-      alt: props.alt,
-      bestImage,
-      bestImageKeys: bestImage ? Object.keys(bestImage) : null,
-      bestImageValues: bestImage ? {
-        local_blob_id: bestImage.local_blob_id,
-        remote_url: bestImage.remote_url,
-        is_primary: bestImage.is_primary,
-        type: bestImage.type,
-      } : null,
-      blobId,
-      remoteUrl,
-      rawImages: props.images,
-    });
     
     if (blobUrlToCleanup) {
       URL.revokeObjectURL(blobUrlToCleanup);
@@ -72,22 +47,18 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     if (blobId) {
       setIsLoading(true);
       getBlobObjectURL(blobId).then(blob => {
-        console.log('[MediaImage] blob result:', { alt: props.alt, hasBlob: !!blob });
         if (blob) {
           const newBlobUrl = URL.createObjectURL(blob);
           blobUrlToCleanup = newBlobUrl;
           setResolvedUrl(newBlobUrl);
-          console.log('[MediaImage] set blob url:', { alt: props.alt, url: newBlobUrl });
         }
         setIsLoading(false);
       });
     } else if (remoteUrl) {
       setResolvedUrl(remoteUrl);
       setIsLoading(false);
-      console.log('[MediaImage] set remote url:', { alt: props.alt, url: remoteUrl });
     } else {
       setIsLoading(false);
-      console.log('[MediaImage] no image source:', { alt: props.alt });
     }
   });
   
@@ -136,26 +107,8 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   };
 
   const shouldShowFallbackIcon = () => {
-    const result = props.showFallback !== false && !imageLoaded() && (imageError() || !resolvedUrl());
-    console.log('[MediaImage] shouldShowFallbackIcon:', {
-      alt: props.alt,
-      showFallback: props.showFallback,
-      imageLoaded: imageLoaded(),
-      imageError: imageError(),
-      resolvedUrl: resolvedUrl(),
-      result,
-    });
-    return result;
+    return props.showFallback !== false && !imageLoaded() && (imageError() || !resolvedUrl());
   };
-
-  console.log('[MediaImage] rendering dom:', {
-    alt: props.alt,
-    isLoading: isLoading(),
-    shouldShowFallback: shouldShowFallbackIcon(),
-    hasResolvedUrl: !!resolvedUrl(),
-    imageLoaded: imageLoaded(),
-    imageError: imageError(),
-  });
 
   return (
     <div
@@ -187,12 +140,10 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
             imageLoaded() && !imageError() ? "opacity-100" : "opacity-0"
           }`}
           onLoad={() => {
-            console.log('[MediaImage] img onLoad:', { alt: props.alt, src: resolvedUrl() });
             setImageLoaded(true);
             setImageError(false);
           }}
           onError={() => {
-            console.log('[MediaImage] img onError:', { alt: props.alt, src: resolvedUrl() });
             setImageError(true);
             setImageLoaded(false);
           }}
