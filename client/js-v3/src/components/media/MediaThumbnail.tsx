@@ -1,9 +1,34 @@
 // reusable media thumbnail with index overlay and play icon hover
-import { Show, type JSX } from "solid-js";
+import { onMount, createSignal, Show, type JSX } from "solid-js";
+import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import { Icon } from "../icons/registry";
+import type { ImageMetadata } from "../../music/services/storage/types";
+
+/**
+ * pick the best image from an array of ImageMetadata
+ * priority: primary thumbnail → first thumbnail → first available → null
+ */
+function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
+  if (!images || images.length === 0) return null;
+  
+  // find primary thumbnail
+  const primary = images.find(img => img.is_primary && img.type === 'thumbnail');
+  if (primary) return primary;
+  
+  // find any thumbnail
+  const thumbnail = images.find(img => img.type === 'thumbnail');
+  if (thumbnail) return thumbnail;
+  
+  // fallback to first image
+  return images[0];
+}
 
 export interface MediaThumbnailProps {
-  /** thumbnail image url (optional) */
+  /** structured image metadata array (preferred) */
+  images?: ImageMetadata[];
+  /** thumbnail blob ID to resolve (legacy, for backward compatibility) */
+  thumbnailBlobId?: string | null;
+  /** thumbnail image url (legacy, for backward compatibility or remote images) */
   thumbnailUrl?: string | null;
   /** index number to display (will be zero-padded to 3 digits) */
   index?: number;
@@ -36,6 +61,36 @@ export interface MediaThumbnailProps {
  * used in: queue sidebar, playlist rows, song rows, search results
  */
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
+  const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
+  
+  // resolve blob URL on mount - create object URL once per component instance
+  onMount(async () => {
+    // priority: images array → legacy thumbnailBlobId
+    const bestImage = pickBestImage(props.images);
+    
+    if (bestImage?.local_blob_id) {
+      // local image: create blob URL
+      const blob = await getBlobObjectURL(bestImage.local_blob_id);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        setResolvedUrl(url);
+      }
+    } else if (bestImage?.remote_url) {
+      // remote image: use directly
+      setResolvedUrl(bestImage.remote_url);
+    } else if (props.thumbnailBlobId) {
+      // legacy path: use thumbnailBlobId prop
+      const blob = await getBlobObjectURL(props.thumbnailBlobId);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        setResolvedUrl(url);
+      }
+    }
+  });
+  
+  // use resolved blob URL or fallback to legacy thumbnailUrl prop
+  const imageUrl = () => resolvedUrl() || props.thumbnailUrl;
+  
   const size = () => props.size ?? 48;
   const showPlayIcon = () => props.showPlayIcon !== false;
   const displayText = () => {
@@ -75,11 +130,11 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
       {/* thumbnail image or transparent fallback */}
       <div class="w-full h-full rounded overflow-hidden">
         <Show
-          when={props.thumbnailUrl}
+          when={imageUrl()}
           fallback={<div class="w-full h-full bg-transparent" />}
         >
           <img
-            src={props.thumbnailUrl!}
+            src={imageUrl()!}
             alt=""
             class="w-full h-full object-cover"
             loading="lazy"

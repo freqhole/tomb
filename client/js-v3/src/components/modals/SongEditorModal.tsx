@@ -3,10 +3,14 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  For,
   onMount,
   Show,
 } from "solid-js";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import type { Song } from "../../music/data/types";
+import { getDataSource } from "../../music/data";
+import { updateSong } from "../../music/services/storage/db";
 import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/modals";
 import {
   useSongQuery,
@@ -18,6 +22,8 @@ import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
+import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
+import MediaImage from "../media/MediaImage";
 
 interface SongEditorModalProps {
   songId: string;
@@ -43,6 +49,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const songQuery = useSongQuery(() => props.songId);
   const updateMutation = useUpdateSongsMutation();
 
+  const [activeTab, setActiveTab] = createSignal("metadata");
   const [formData, setFormData] = createSignal<FormData>({
     title: "",
     track_number: 1,
@@ -59,11 +66,21 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const [lyricsExpanded, setLyricsExpanded] = createSignal(false);
   const [artistId, setArtistId] = createSignal<string | undefined>(undefined);
   const [albumId, setAlbumId] = createSignal<string | undefined>(undefined);
+  
+  // image management
+  const [images, setImages] = createSignal<ImageMetadata[]>([]);
+  const [loadedSongId, setLoadedSongId] = createSignal<string | null>(null);
+  const [imagePreview, setImagePreview] = createSignal<string | null>(null);
+  const [processingJob, setProcessingJob] = createSignal<{
+    status: string;
+    message: string;
+  } | null>(null);
 
-  // initialize form data when song loads
+  // initialize form data when song loads or when songId changes
   createEffect(() => {
     const song = songQuery.data;
-    if (song && !initialData()) {
+    // reinitialize if this is a different song or first load
+    if (song && loadedSongId() !== props.songId) {
       const data: FormData = {
         title: song.title,
         track_number: song.track_number,
@@ -79,6 +96,12 @@ export function SongEditorModal(props: SongEditorModalProps) {
       setInitialData(data);
       setArtistId(song.artist_id);
       setAlbumId(song.album_id);
+      setLoadedSongId(props.songId);
+      
+      // load song images
+      if (song.images) {
+        setImages(song.images);
+      }
 
       // auto-expand lyrics if song has lyrics
       if (song.lyrics && song.lyrics.trim().length > 0) {
@@ -118,7 +141,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (!initial) return;
 
     // collect only changed fields
-    const updates: Partial<typeof current> & { song_ids: string[] } = {
+    const updates: any = {
       song_ids: [props.songId],
     };
 
@@ -133,9 +156,9 @@ export function SongEditorModal(props: SongEditorModalProps) {
       updates.key_signature = current.key_signature;
     if (current.lyrics !== initial.lyrics) updates.lyrics = current.lyrics;
     if (current.artist_name !== initial.artist_name)
-      updates.artist_name = current.artist_name;
+      updates.artist = current.artist_name;
     if (current.album_title !== initial.album_title)
-      updates.album_title = current.album_title;
+      updates.album = current.album_title;
 
     if (Object.keys(updates).length === 1) {
       // only song_ids, no actual changes
@@ -178,15 +201,125 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }
   };
 
+  const handleImageSelect = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("please select an image file");
+      return;
+    }
+
+    // check file size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("image must be smaller than 10MB");
+      return;
+    }
+
+    // show preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImagePreview(e.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    setProcessingJob({ status: "uploading", message: "uploading image..." });
+
+    try {
+      const datasource = await getDataSource();
+      const blobId = await datasource.uploadImage?.({
+        file,
+        entityType: "song",
+        entityId: props.songId,
+      });
+
+      if (!blobId) {
+        setProcessingJob(null);
+        setImagePreview(null);
+        toast.error("failed to upload image");
+        return;
+      }
+
+      console.log("image uploaded, blob_id:", blobId);
+
+      // add new image to list (marked as primary if it's the first one)
+      const newImage: ImageMetadata = {
+        local_blob_id: blobId,
+        is_primary: images().length === 0,
+        type: "thumbnail",
+      };
+      const updatedImages = [...images(), newImage];
+      setImages(updatedImages);
+
+      // persist to IDB immediately
+      setProcessingJob({ status: "saving", message: "saving to database..." });
+      await updateSong(props.songId, { images: updatedImages });
+
+      setProcessingJob({ status: "completed", message: "image uploaded successfully" });
+      setTimeout(() => {
+        setProcessingJob(null);
+        setImagePreview(null);
+      }, 2000);
+
+      toast.success("image uploaded successfully");
+      
+      // invalidate queries to refresh UI
+      songQuery.refetch();
+    } catch (err) {
+      console.error("failed to upload image:", err);
+      toast.error("failed to upload image");
+      setProcessingJob(null);
+      setImagePreview(null);
+    }
+  };
+
+  const handleTogglePrimary = async (index: number) => {
+    const updated = images().map((img, i) => ({
+      ...img,
+      is_primary: i === index,
+    }));
+    setImages(updated);
+
+    // persist to IDB immediately
+    try {
+      await updateSong(props.songId, { images: updated });
+      toast.success("primary image updated");
+      songQuery.refetch();
+    } catch (err) {
+      console.error("failed to update primary image:", err);
+      toast.error("failed to update primary image");
+    }
+  };
+
+  const handleRemoveImage = async (index: number) => {
+    const updated = images().filter((_, i) => i !== index);
+    
+    // if we removed the primary image and there are still images, make the first one primary
+    if (updated.length > 0 && !updated.some(img => img.is_primary)) {
+      updated[0].is_primary = true;
+    }
+    
+    setImages(updated);
+
+    // persist to IDB immediately
+    try {
+      await updateSong(props.songId, { images: updated });
+      toast.success("image removed");
+      songQuery.refetch();
+    } catch (err) {
+      console.error("failed to remove image:", err);
+      toast.error("failed to remove image");
+    }
+  };
+
   return (
     <div
       class="fixed inset-0 flex items-center justify-center bg-black/50"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
-      onClick={() => props.onClose()}
     >
       <div
         class="bg-[var(--color-bg-primary)] w-full max-w-2xl max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* header */}
         <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
@@ -208,16 +341,36 @@ export function SongEditorModal(props: SongEditorModalProps) {
           </div>
         </div>
 
-        {/* body */}
-        <div class="flex-1 overflow-y-auto p-4">
-          <Show
-            when={initialData()}
-            fallback={
-              <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
-                loading...
-              </div>
-            }
-          >
+        {/* song info banner */}
+        <Show when={initialData()}>
+          <div class="bg-[var(--color-bg-elevated)] p-3 border-b border-[var(--color-border-default)]">
+            <div class="text-sm text-[var(--color-text-secondary)]">
+              editing: {formData().title} - {formData().artist_name}
+            </div>
+            <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+              {formData().album_title} • {formData().year || "no year"}
+            </div>
+          </div>
+        </Show>
+
+        {/* tabs */}
+        <Tabs activeTab={activeTab()} onTabChange={setActiveTab} class="flex-1 flex flex-col min-h-0">
+          <TabList class="px-4">
+            <Tab id="metadata" label="metadata" />
+            <Tab id="images" label="images" badge={images().length || undefined} />
+          </TabList>
+
+          {/* metadata tab */}
+          <TabPanel id="metadata" class="flex-1 overflow-y-auto">
+                <div class="p-4">
+                  <Show
+                    when={initialData()}
+                    fallback={
+                      <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
+                        loading...
+                      </div>
+                    }
+                  >
             <div class="space-y-4">
               {/* title */}
               <div class="flex items-center gap-2">
@@ -555,21 +708,122 @@ export function SongEditorModal(props: SongEditorModalProps) {
               </div>
             </div>
           </Show>
-        </div>
+                </div>
+              </TabPanel>
 
-        {/* footer */}
-        <div class="flex items-center justify-end gap-2 p-4 border-t border-[var(--color-border-default)]">
-          <Button onClick={props.onClose} variant="ghost">
-            cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            variant="primary"
-            disabled={!hasChanges() || updateMutation.isPending}
-          >
-            {updateMutation.isPending ? "saving..." : "save"}
-          </Button>
-        </div>
+              {/* images tab */}
+              <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
+                <div class="space-y-6">
+                  {/* existing images grid */}
+                  <Show when={images().length > 0}>
+                    <div class="space-y-4">
+                      <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
+                        song images ({images().length})
+                      </h3>
+                      <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <For each={images()}>
+                          {(image, index) => (
+                            <div class="relative group">
+                              <MediaImage
+                                images={[image]}
+                                alt={`song image ${index() + 1}`}
+                                domainType="song"
+                                class="w-full aspect-square object-cover rounded"
+                              />
+                              <div class="absolute top-2 left-2 flex gap-1">
+                                <Show when={image.type}>
+                                  <span class="px-2 py-0.5 text-xs bg-black/70 text-white rounded">
+                                    {image.type}
+                                  </span>
+                                </Show>
+                                <Show when={image.is_primary}>
+                                  <span class="px-2 py-0.5 text-xs bg-blue-500 text-white rounded">
+                                    primary
+                                  </span>
+                                </Show>
+                              </div>
+                              <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Show when={!image.is_primary}>
+                                  <button
+                                    onClick={() => handleTogglePrimary(index())}
+                                    class="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded"
+                                    title="set as primary"
+                                  >
+                                    <Icon name={IconNames.star} size={16} />
+                                  </button>
+                                </Show>
+                                <button
+                                  onClick={() => handleRemoveImage(index())}
+                                  class="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded"
+                                  title="remove image"
+                                >
+                                  <Icon name={IconNames.delete} size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
+
+                  {/* upload section */}
+                  <div class="space-y-4">
+                    <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
+                      add new image
+                    </h3>
+                    <Show
+                      when={!processingJob()}
+                      fallback={
+                        <div class="p-4 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)] text-center">
+                          <div class="text-sm text-[var(--color-text-secondary)]">
+                            {processingJob()?.message || "processing..."}
+                          </div>
+                        </div>
+                      }
+                    >
+                      <label class="block">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageSelect}
+                          class="hidden"
+                        />
+                        <div class="p-8 border-2 border-dashed border-[var(--color-border-default)] rounded hover:border-[var(--color-primary)] transition-colors cursor-pointer text-center">
+                          <Icon
+                            name={IconNames.upload}
+                            size={32}
+                            className="mx-auto mb-2 text-[var(--color-text-tertiary)]"
+                          />
+                          <div class="text-sm text-[var(--color-text-primary)]">
+                            click to upload image
+                          </div>
+                          <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                            jpg, png, webp (max 10mb)
+                          </div>
+                        </div>
+                      </label>
+                    </Show>
+                  </div>
+                </div>
+              </TabPanel>
+        </Tabs>
+
+        {/* footer - only show on metadata tab */}
+        <Show when={activeTab() === "metadata"}>
+          <div class="flex items-center justify-end gap-2 p-4 border-t border-[var(--color-border-default)]">
+            <Button onClick={props.onClose} variant="ghost">
+              cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              variant="primary"
+              disabled={!hasChanges() || updateMutation.isPending}
+            >
+              {updateMutation.isPending ? "saving..." : "save"}
+            </Button>
+          </div>
+        </Show>
       </div>
     </div>
   );

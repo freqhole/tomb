@@ -12,7 +12,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'bpm' | 'key_signature' | 'lyrics' | 'metadata'
   | 'created_at' | 'updated_at'
   // denormalized display fields
-  | 'artist_name' | 'album_title' | 'thumbnail_blob_id' | 'thumbnail_url'
+  | 'artist_name' | 'album_title'
   | 'album_added_at' | 'album_primary_genre_id' | 'album_primary_genre_name'
   // user-specific metadata (optional fields)
   | 'is_favorite' | 'user_rating' | 'album_is_favorite' | 'album_rating'
@@ -106,10 +106,6 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     // denormalized fields
     artist_name: artist?.name || "unknown artist",
     album_title: album?.title || "unknown album",
-    thumbnail_blob_id: song.thumbnail_blob_id || null,
-    thumbnail_url: song.thumbnail_blob_id 
-      ? `${baseUrl}/api/blobs/${song.thumbnail_blob_id}`
-      : null,
     album_added_at: song.created_at, // use song's created_at as proxy
     album_primary_genre_id: album?.genre_id || item.genre?.id || null,
     album_primary_genre_name: album?.genre || item.genre?.name || null,
@@ -122,8 +118,9 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_tags: item.album_tags || undefined,
     album_sub_genres: album?.sub_genres || undefined,
     album_images: item.images?.map((img: any) => ({
-      blob_id: img.blob_id,
-      is_primary: img.is_primary ? 1 : 0,
+      remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
+      is_primary: !!img.is_primary,
+      type: 'thumbnail' as const,
     })) || undefined,
 
     // remote source type

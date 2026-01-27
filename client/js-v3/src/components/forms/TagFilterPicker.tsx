@@ -86,6 +86,8 @@ export function TagFilterPicker(props: TagFilterPickerProps) {
   };
 
   // close menu when clicking outside
+  // THIS IS EXPENSIVE!
+  // #TODO: deal with it!
   const handleClickOutside = (e: MouseEvent) => {
     if (
       menuRef &&

@@ -1,7 +1,10 @@
 // data source abstractions for music library
 // supports local (indexeddb/opfs) and remote (server) sources
 
-import type { Song } from "../services/storage/types";
+import type { Song, ImageMetadata } from "../services/storage/types";
+
+// re-export for convenience
+export type { Song, ImageMetadata };
 
 // query parameters for listing/filtering
 export interface QueryParams {
@@ -34,15 +37,6 @@ export interface PaginatedResponse<T> {
   has_more: boolean;
 }
 
-// re-export storage Song type (no translation needed)
-export type { Song };
-
-// image metadata with primary indicator
-export interface ImageMetadata {
-  blob_id: string;
-  is_primary: number; // 0 or 1 from SQLite
-}
-
 // album summary data for grids
 export interface AlbumSummary {
   album_id: string;
@@ -59,7 +53,6 @@ export interface AlbumSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
-  thumbnail_url?: string | null;
   is_favorite?: boolean;
   user_rating?: number;
   tags?: string[];
@@ -74,7 +67,6 @@ export interface ArtistSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
-  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -93,8 +85,7 @@ export interface PlaylistSummary {
   title: string;
   description: string | null;
   is_public: boolean;
-  thumbnail_blob_id: string | null;
-  thumbnail_url?: string | null; // pre-resolved from data source
+  images?: ImageMetadata[];
   song_count: number;
   created_at: number;
   updated_at: number;

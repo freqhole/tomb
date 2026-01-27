@@ -8,6 +8,7 @@ import {
 } from "../../music/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
+import { MediaImage } from "../media/MediaImage";
 
 export interface AddRemoteModalProps {
   isOpen: boolean;
@@ -436,20 +437,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   {/* server info display */}
                   <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
                     <div class="flex items-start gap-3">
-                      <Show
-                        when={serverInfo()?.image_url}
-                        fallback={
-                          <div class="w-12 h-12 rounded bg-[var(--color-bg-elevated)] flex items-center justify-center text-2xl">
-                            🎵
-                          </div>
-                        }
-                      >
-                        <img
-                          src={`${url()}${serverInfo()?.image_url}`}
-                          alt={serverInfo()?.name}
-                          class="w-12 h-12 rounded object-cover"
-                        />
-                      </Show>
+                      <MediaImage
+                        imageUrl={serverInfo()?.image_url ? `${url()}${serverInfo()?.image_url}` : null}
+                        alt={serverInfo()?.name}
+                        class="w-12 h-12 rounded object-cover"
+                      />
                       <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium text-[var(--color-text-primary)]">
                           {serverInfo()?.name}

@@ -239,7 +239,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   >
                     {/* thumbnail with index overlay */}
                     <MediaThumbnail
-                      thumbnailUrl={song()?.thumbnail_url}
+                      images={song()?.images}
                       index={itemIndex}
                       hideIndex={false}
                       onPlayClick={() => handleSongDoubleClick(itemIndex)}

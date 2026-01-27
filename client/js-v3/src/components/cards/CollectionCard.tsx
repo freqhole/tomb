@@ -1,5 +1,6 @@
 import { createSignal, JSX, Show } from "solid-js";
 import type { FavoriteTarget } from "../../music/queries/favorites";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
@@ -16,6 +17,7 @@ export interface CollectionCardData {
 
   // media info
   imageUrl?: string | null;
+  images?: ImageMetadata[];
 
   // metadata
   artist?: string | null;
@@ -132,27 +134,15 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
       <div
         class={`${sizeClasses().container} bg-[var(--color-bg-base)] rounded-lg mb-2 relative transition-all duration-300 group-hover:rounded-none`}
       >
-        <Show
-          when={props.collection.imageUrl}
-          fallback={
-            <div class="w-full h-full flex items-center justify-center bg-[var(--color-bg-elevated)] rounded-lg">
-              <MediaImage
-                imageUrl={null}
-                alt={props.collection.title}
-                domainType={props.collection.domainType}
-                showFallback={true}
-                size="lg"
-              />
-            </div>
-          }
-        >
-          <div
-            class="w-full h-full bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105 rounded-lg"
-            style={`background-image: url('${props.collection.imageUrl}')`}
-            role="img"
-            aria-label={props.collection.title}
-          />
-        </Show>
+        <MediaImage
+          images={props.collection.images}
+          imageUrl={props.collection.imageUrl}
+          alt={props.collection.title}
+          domainType={props.collection.domainType}
+          showFallback={true}
+          enableAlbumHover={true}
+          class="w-full h-full rounded-lg group-hover:rounded-none"
+        />
 
         {/* favorite toggle - top right corner */}
         <Show

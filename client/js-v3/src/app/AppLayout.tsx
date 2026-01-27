@@ -20,6 +20,7 @@ import {
   getCurrentRemote,
   getDataSource,
 } from "../music/data";
+import { useImageUrl } from "../music/hooks/useImageUrl";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
@@ -75,12 +76,6 @@ export function AppLayout(props: AppLayoutProps) {
 
   // fetch recent playlists (contextual to current data source)
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
-
-  // helper to get thumbnail URL for a song
-  // songs are enriched with thumbnail_url in queries
-  const getSongThumbnailUrl = (song: Song): string | undefined => {
-    return song.thumbnail_url || undefined;
-  };
 
   // load remotes and storage info on mount
   onMount(async () => {
@@ -247,7 +242,7 @@ export function AppLayout(props: AppLayoutProps) {
           recentPlaylistsQuery.data?.map((playlist) => ({
             id: playlist.playlist_id,
             name: playlist.title,
-            thumbnailUrl: playlist.thumbnail_url || undefined,
+            images: playlist.images,
             updatedAt: playlist.updated_at,
             onClick: () => handlePlaylistClick(playlist.playlist_id),
           })) || []
@@ -401,7 +396,7 @@ export function AppLayout(props: AppLayoutProps) {
                   title: currentSongData()!.title,
                   artist: currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,
-                  thumbnailUrl: getSongThumbnailUrl(currentSongData()!),
+                  images: currentSongData()!.images,
                   isFavorite: currentSongData()!.is_favorite || false,
                 }
               : undefined

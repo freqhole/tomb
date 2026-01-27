@@ -119,9 +119,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // adapt API response to our interface
     return {
       items: result.data.items.map((item) => {
-        const primaryImage = item.images?.find(img => img.is_primary);
-        const thumbnailBlobId = primaryImage?.blob_id || item.images?.[0]?.blob_id;
-        
         return {
           album_id: item.album.id,
           title: item.album.title,
@@ -138,12 +135,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           total_duration: item.album.total_duration,
           images:
             item.images?.map((img) => ({
-              blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-              is_primary: img.is_primary ? 1 : 0,
+              remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+              is_primary: img.is_primary ? true : false,
+              type: 'thumbnail' as const,
             })) || undefined,
-          thumbnail_url: thumbnailBlobId 
-            ? `${this.baseUrl}/api/blobs/${thumbnailBlobId}`
-            : null,
           is_favorite: item.is_favorite,
           user_rating: item.rating,
           tags: item.album_tags || undefined,
@@ -196,9 +191,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // adapt API response to our interface
     return {
       items: result.data.items.map((item) => {
-        const primaryImage = item.images?.find(img => img.is_primary);
-        const thumbnailBlobId = primaryImage?.blob_id || item.images?.[0]?.blob_id;
-        
         return {
           artist_id: item.artist.id,
           name: item.artist.name,
@@ -208,12 +200,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
           images:
             item.images?.map((img) => ({
-              blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-              is_primary: img.is_primary ? 1 : 0,
+              remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+              is_primary: img.is_primary ? true : false,
+              type: 'thumbnail' as const,
             })) || undefined,
-          thumbnail_url: thumbnailBlobId 
-            ? `${this.baseUrl}/api/blobs/${thumbnailBlobId}`
-            : null,
           is_favorite: item.is_favorite,
           user_rating: item.rating,
         };
@@ -391,7 +381,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: result.data.title,
       description: result.data.description,
       is_public: result.data.is_public === 1,
-      thumbnail_blob_id: result.data.thumbnail_blob_id,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
       updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
@@ -424,7 +413,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: result.data.title,
       description: result.data.description,
       is_public: result.data.is_public === 1,
-      thumbnail_blob_id: result.data.thumbnail_blob_id,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
       updated_at: result.data.updated_at * 1000, // convert seconds to milliseconds
@@ -579,8 +567,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
               song_count: apiFav.album.album.song_count,
               total_duration: apiFav.album.album.total_duration,
               images: apiFav.album.images?.map((img) => ({
-                blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-                is_primary: img.is_primary,
+                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary ? true : false,
+                type: 'thumbnail' as const,
               })) || undefined,
               is_favorite: apiFav.album.is_favorite,
               user_rating: apiFav.album.rating,
@@ -599,8 +588,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
               song_count: apiFav.artist.song_count,
               total_duration: apiFav.artist.total_duration ? Math.floor(apiFav.artist.total_duration / 1000) : 0,
               images: apiFav.artist.images?.map((img) => ({
-                blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-                is_primary: img.is_primary,
+                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary ? true : false,
+                type: 'thumbnail' as const,
               })) || undefined,
               is_favorite: apiFav.artist.is_favorite,
               user_rating: apiFav.artist.rating,

@@ -142,12 +142,15 @@ export function AlbumDetailView() {
     navigate(buildRoute(`/artists/${info.artist_id}`));
   };
 
-  // get album artwork from first song's album_thumbnail_url
+  // get album artwork from first song's album_images
   const albumArtworkUrl = createMemo(() => {
     const songList = songs();
     if (songList.length === 0) return null;
-    // use pre-resolved album_thumbnail_url for album artwork
-    return songList[0].album_thumbnail_url;
+    // use album_images to construct URL
+    const images = songList[0].album_images;
+    if (!images?.length) return null;
+    const primaryImage = images.find(img => img.is_primary) || images[0];
+    return primaryImage.remote_url || null;
   });
 
   // context menu for album image
@@ -187,20 +190,13 @@ export function AlbumDetailView() {
               {/* album artwork */}
               <ContextMenu actions={albumContextMenuActions()}>
                 <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <Show
-                    when={albumArtworkUrl()}
-                    fallback={
-                      <span class="text-[var(--color-text-tertiary)] text-sm">
-                        no artwork
-                      </span>
-                    }
-                  >
-                    <MediaImage
-                      imageUrl={albumArtworkUrl()!}
-                      alt={info().title}
-                      class="w-full h-full object-cover"
-                    />
-                  </Show>
+                  <MediaImage
+                    images={songs()[0]?.album_images}
+                    imageUrl={albumArtworkUrl() || null}
+                    alt={info().title}
+                    class="w-full h-full object-cover"
+                    domainType="album"
+                  />
                 </div>
               </ContextMenu>
 

@@ -34,6 +34,7 @@ import {
   STORE_SONGS,
   STORE_TAGS,
 } from "./types";
+import { generateUUID } from "../../../utils/uuid";
 
 let dbInstance: IDBPDatabase | null = null;
 
@@ -453,6 +454,18 @@ export async function updateArtist(
   await db.put(STORE_ARTISTS, updated);
 }
 
+export async function deleteArtist(artistId: string): Promise<void> {
+  const db = await initMusicDB();
+  await db.delete(STORE_ARTISTS, artistId);
+}
+
+export async function countSongsByArtist(artistId: string): Promise<number> {
+  const db = await initMusicDB();
+  const index = db.transaction(STORE_SONGS).store.index("by_artist_id");
+  const songs = await index.getAll(artistId);
+  return songs.length;
+}
+
 // ===== ALBUMS =====
 
 export async function createAlbum(album: Album): Promise<void> {
@@ -519,13 +532,24 @@ export async function updateAlbum(
   await db.put(STORE_ALBUMS, updated);
 }
 
+export async function deleteAlbum(albumId: string): Promise<void> {
+  const db = await initMusicDB();
+  await db.delete(STORE_ALBUMS, albumId);
+}
+
+export async function countSongsByAlbum(albumId: string): Promise<number> {
+  const db = await initMusicDB();
+  const index = db.transaction(STORE_SONGS).store.index("by_album_id");
+  const songs = await index.getAll(albumId);
+  return songs.length;
+}
+
 // ===== SONGS =====
 
 export async function createSong(newSong: NewSong): Promise<Song> {
   const db = await initMusicDB();
   
   // generate UUID for song
-  const { generateUUID } = await import('../../../utils/uuid');
   const songId = generateUUID();
   
   // create full song object with generated UUID
@@ -1186,6 +1210,21 @@ export async function checkFavorite(
   return !!favorite;
 }
 
+export async function migrateFavorite(
+  targetType: "song" | "album" | "artist" | "playlist",
+  oldId: string,
+  newId: string,
+): Promise<void> {
+  const db = await initMusicDB();
+  const oldFavorite = await db.get(STORE_FAVORITES, [targetType, oldId]);
+  if (oldFavorite) {
+    // copy to new entity
+    await setFavorite(targetType, newId, true);
+    // delete old favorite
+    await db.delete(STORE_FAVORITES, [targetType, oldId]);
+  }
+}
+
 // ===== RATINGS =====
 
 export async function setRating(
@@ -1210,6 +1249,21 @@ export async function getRating(
   const db = await initMusicDB();
   const rating = await db.get(STORE_RATINGS, [targetType, targetId]);
   return rating?.rating ?? null;
+}
+
+export async function migrateRating(
+  targetType: "song" | "album" | "artist",
+  oldId: string,
+  newId: string,
+): Promise<void> {
+  const db = await initMusicDB();
+  const oldRating = await db.get(STORE_RATINGS, [targetType, oldId]);
+  if (oldRating) {
+    // copy to new entity
+    await setRating(targetType, newId, oldRating.rating);
+    // delete old rating
+    await db.delete(STORE_RATINGS, [targetType, oldId]);
+  }
 }
 
 // ===== CLEAR DATA =====

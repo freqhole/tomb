@@ -195,7 +195,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       id: artist.artist_id,
       title: artist.name,
       subtitle: `${formatNumber(artist.song_count)} songs · ${artist.album_count} albums`,
-      thumbnailUrl: artist.thumbnail_url,
+      images: artist.images,
     }));
   });
 

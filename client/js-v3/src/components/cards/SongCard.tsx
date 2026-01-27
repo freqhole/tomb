@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
+import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
 import type { Song } from "../../music/data/types";
 
@@ -34,21 +35,13 @@ export function SongCard(props: SongCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
-          <Show when={props.song.thumbnail_url}>
-            <div
-              class="absolute inset-0 bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105 rounded-lg group-hover:rounded-none"
-            style={`background-image: url('${props.song.thumbnail_url}')`}
-              role="img"
-              aria-label={props.song.title}
-            />
-          </Show>
-          <Show when={!props.song.thumbnail_url}>
-            <div class="absolute inset-0 flex items-center justify-center">
-              <svg class="w-12 h-12 text-[var(--color-accent-500)]" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-              </svg>
-            </div>
-          </Show>
+          <MediaImage
+            images={props.song.images}
+            alt={props.song.title}
+            domainType="song"
+            enableAlbumHover
+            class="absolute inset-0 rounded-lg group-hover:rounded-none"
+          />
         </div>
         <div class="absolute top-2 right-2 z-10">
           <FavoriteHeart

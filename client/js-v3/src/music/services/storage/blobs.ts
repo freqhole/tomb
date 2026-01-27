@@ -2,11 +2,15 @@
 // metadata in IndexedDB, actual blob data in OPFS or Cache API
 
 import { openDB, type IDBPDatabase } from "idb";
+import { url } from "inspector/promises";
 
 const BLOB_DB_NAME = "freqhole_blobs";
 const BLOB_DB_VERSION = 1;
 const STORE_BLOBS = "blobs";
 const CACHE_NAME = "freqhole-blobs";
+
+// global blob URL cache - persists for session, cleared on page reload
+const BLOB_URL_CACHE = new Map<string, string>();
 
 export type BlobStorageType = "opfs" | "cache";
 
@@ -171,14 +175,30 @@ export async function getBlob(blobId: string): Promise<Blob | null> {
 }
 
 /**
- * create object URL for a blob ID (for displaying images)
- * returns null if blob not found
- * caller is responsible for revoking URL with URL.revokeObjectURL()
+ * get blob by ID (cached to avoid repeated OPFS reads)
+ * returns blob data - caller creates object URL if needed
  */
-export async function getBlobObjectURL(blobId: string): Promise<string | null> {
-  const blob = await getBlob(blobId);
-  if (!blob) return null;
-  return URL.createObjectURL(blob);
+export async function getBlobObjectURL(blobId: string): Promise<Blob | null> {
+  if (!blobId) return null;
+  
+  // just return the blob, don't create URLs here
+  return await getBlob(blobId);
+}
+
+
+/**
+ * clear all cached blob URLs (for testing/cleanup)
+ */
+export function clearBlobUrlCache(): void {
+  BLOB_URL_CACHE.forEach(url => URL.revokeObjectURL(url));
+  BLOB_URL_CACHE.clear();
+}
+
+// cleanup on page unload (optional - browser does this anyway)
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    clearBlobUrlCache();
+  });
 }
 
 /**

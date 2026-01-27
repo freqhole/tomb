@@ -15,8 +15,7 @@ export interface VirtualGenreDetailSong {
   album_title: string;
   duration_seconds: number;
   year: number | null;
-  thumbnail_blob_id: string | null;
-  thumbnail_url?: string | null; // pre-resolved from data source
+  images?: import("../../music/services/storage/types").ImageMetadata[];
 }
 
 interface AlbumGroup {
@@ -27,7 +26,7 @@ interface AlbumGroup {
   year: number | null;
   songCount: number;
   totalDuration: number;
-  imageUrl: string | null;
+  images?: import("../../music/services/storage/types").ImageMetadata[];
 }
 
 interface ArtistGroup {
@@ -78,7 +77,7 @@ export function VirtualGenreDetail(
           year: song.year,
           songCount: 0,
           totalDuration: 0,
-          imageUrl: song.thumbnail_url,
+          images: song.images,
         });
       }
 
@@ -253,7 +252,7 @@ export function VirtualGenreDetail(
                                   totalDuration: formatDuration(
                                     album.totalDuration,
                                   ),
-                                  imageUrl: album.imageUrl,
+                                  images: album.images,
                                 }}
                                 showYear={true}
                                 showDuration={true}

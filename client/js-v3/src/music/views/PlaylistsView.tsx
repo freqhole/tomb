@@ -303,15 +303,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // convert playlists to list items for VirtualItemList
   const playlistListItems = createMemo((): ListItem[] => {
     return playlists().map((playlist) => {
-      // thumbnail_url is pre-resolved in the query
-      const thumbnailUrl = playlist.thumbnail_url;
-
       return {
         id: playlist.playlist_id,
         title: playlist.title,
         subtitle: `${playlist.song_count} ${playlist.song_count === 1 ? "song" : "songs"}`,
         metadata: `updated ${formatRelativeTime(playlist.updated_at)}`,
-        thumbnailUrl,
+        images: playlist.images,
       };
     });
   });
@@ -373,9 +370,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const playlist = selectedPlaylist();
     if (!playlist) return null;
 
-    // use pre-resolved thumbnail_url from query if available
-    if (playlist.thumbnail_url) {
-      return playlist.thumbnail_url;
+    // use images array if available
+    if (playlist.images?.length) {
+      const primaryImage = playlist.images.find(img => img.is_primary) || playlist.images[0];
+      return primaryImage.remote_url || primaryImage.local_blob_id || null;
     }
 
     // fallback: use local thumbnail URL if available for THIS playlist
@@ -411,16 +409,20 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const songs = playlistSongs();
     const images: string[] = [];
 
-    // add playlist thumbnail
-    if (playlist.thumbnail_url) {
-      images.push(playlist.thumbnail_url);
+    // add playlist thumbnail from images array
+    if (playlist.images?.length) {
+      const primaryImage = playlist.images.find(img => img.is_primary) || playlist.images[0];
+      const url = primaryImage.remote_url || primaryImage.local_blob_id;
+      if (url) images.push(url);
     }
 
-    // collect all unique images from songs (album cover from thumbnail_url)
+    // collect all unique images from songs
     const imageSet = new Set<string>();
     for (const song of songs) {
-      if (song.thumbnail_url) {
-        imageSet.add(song.thumbnail_url);
+      if (song.images?.length) {
+        const primaryImage = song.images.find(img => img.is_primary) || song.images[0];
+        const url = primaryImage.remote_url || primaryImage.local_blob_id;
+        if (url) imageSet.add(url);
       }
     }
 
@@ -652,17 +654,17 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // handle image removal
   const handleRemoveImage = async () => {
     const playlist = selectedPlaylist();
-    if (!playlist || !playlist.thumbnail_blob_id) return;
+    if (!playlist || !playlist.images?.length) return;
 
     const remote = getCurrentRemote();
     const isLocal = !remote;
 
     try {
       if (isLocal) {
-        // for local playlists, just clear the thumbnail_blob_id
+        // for local playlists, just clear the images
         const dataSource = getDataSource();
-        await dataSource.updatePlaylist?.(playlist.playlist_id, {
-          thumbnail_blob_id: null,
+        await (dataSource as any).updatePlaylist?.(playlist.playlist_id, {
+          images: [],
         });
 
         // invalidate queries first
@@ -1379,9 +1381,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                           onPlayClick={() =>
                                             handleSongDoubleClick(song)
                                           }
-                                          thumbnailUrl={
-                                            song.thumbnail_url || undefined
-                                          }
+                                          images={song.images}
                                           disabled={
                                             !isEditablePlaylist(
                                               selectedPlaylist()!,

@@ -25,9 +25,9 @@ const meta = {
       options: ["song", "album", "artist", "genre", "playlist"],
       description: "domain type for appropriate fallback icon",
     },
-    enableHover: {
+    enableAlbumHover: {
       control: "boolean",
-      description: "enable hover zoom effect",
+      description: "enable album card hover effect (bg-cover → bg-contain + scale)",
     },
     showFallback: {
       control: "boolean",
@@ -49,7 +49,7 @@ export const Default: Story = {
     imageUrl: sampleAlbumUrl,
     alt: "album artwork",
     size: "md",
-    enableHover: false,
+    enableAlbumHover: false,
     showFallback: true,
   },
 };
@@ -60,7 +60,7 @@ export const WithHover: Story = {
     imageUrl: sampleAlbumUrl,
     alt: "album artwork",
     size: "lg",
-    enableHover: true,
+    enableAlbumHover: true,
     showFallback: true,
   },
 };
@@ -254,7 +254,7 @@ export const InGrid: Story = {
             alt={`album ${i + 1}`}
             size="lg"
             domainType="album"
-            enableHover={true}
+            enableAlbumHover={true}
           />
         ))}
       </div>

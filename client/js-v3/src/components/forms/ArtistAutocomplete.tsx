@@ -3,7 +3,12 @@
 
 import { Combobox } from "@kobalte/core/combobox";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import type { ArtistSummary } from "../../music/data/types";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { useArtistAutocompleteQuery } from "../../music/queries/autocomplete";
+import { Icon } from "../icons/registry";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
+import { MediaImage } from "../media/MediaImage";
 
 
 export interface ArtistAutocompleteProps {
@@ -30,6 +35,7 @@ interface ArtistOption {
   songCount?: number;
   albumCount?: number;
   thumbnailUrl?: string;
+  images?: ImageMetadata[];
   isFavorite?: boolean;
   isNew?: boolean;
 }
@@ -73,7 +79,8 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
         id: item.artist_id,
         songCount: item.song_count,
         albumCount: item.album_count,
-        thumbnailUrl: item.thumbnail_url,
+        thumbnailUrl: undefined,
+        images: item.images,
         isFavorite: item.is_favorite === true,
       });
     }
@@ -130,20 +137,13 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
       itemComponent={(props) => (
         <Combobox.Item item={props.item} class="outline-none">
           <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors flex items-center gap-3">
-            <Show
-              when={props.item.rawValue.thumbnailUrl}
-              fallback={
-                <div class="w-10 h-10 bg-[var(--color-bg-tertiary)] rounded flex items-center justify-center text-[var(--color-text-muted)] text-xs flex-shrink-0">
-                  {props.item.rawValue.value[0]?.toUpperCase() || "?"}
-                </div>
-              }
-            >
-              <img
-                src={props.item.rawValue.thumbnailUrl}
-                alt=""
-                class="w-10 h-10 object-cover rounded flex-shrink-0"
-              />
-            </Show>
+            <MediaImage
+              images={props.item.rawValue.images}
+              imageUrl={props.item.rawValue.thumbnailUrl || null}
+              alt=""
+              class="w-10 h-10 object-cover rounded flex-shrink-0"
+              domainType="artist"
+            />
 
             <div class="flex-1 min-w-0">
               <Show when={props.item.rawValue.isNew}>

@@ -22,7 +22,9 @@ export interface SongRowProps {
   onClick?: () => void;
   /** double click handler for play action */
   onDoubleClick?: () => void;
-  /** thumbnail url */
+  /** structured image metadata array (preferred) */
+  images?: import("../../music/services/storage/types").ImageMetadata[];
+  /** thumbnail url (legacy, for backward compatibility) */
   thumbnailUrl?: string;
   /** index number for display (will be zero-padded to 3 digits) */
   index?: number;
@@ -92,6 +94,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
         }
       >
         <MediaThumbnail
+          images={props.images}
           thumbnailUrl={props.thumbnailUrl}
           indexText={props.trackNumber?.toString()}
           hideIndex={false}

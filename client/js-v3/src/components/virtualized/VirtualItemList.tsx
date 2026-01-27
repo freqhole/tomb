@@ -4,12 +4,14 @@ import { useScrollRestore } from "../../utils/scrollRestore";
 import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
+import { MediaImage } from "../media/MediaImage";
 
 export interface ListItem {
   id: string;
   title: string;
   subtitle?: string;
   metadata?: string;
+  images?: import("../../music/services/storage/types").ImageMetadata[];
   thumbnailUrl?: string | null;
 }
 
@@ -156,31 +158,13 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                 `}
                 onClick={() => handleItemClick(item)}
               >
-                <Show
-                  when={item.thumbnailUrl}
-                  fallback={
-                    <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] flex items-center justify-center">
-                      <Icon name="playlist" size="24" />
-                    </div>
-                  }
-                >
-                  <img
-                    src={item.thumbnailUrl!}
-                    alt=""
-                    class="w-12 h-12 object-cover rounded flex-shrink-0"
-                    onError={(e) => {
-                      // hide broken image and show fallback
-                      e.currentTarget.style.display = "none";
-                      const fallback = e.currentTarget.nextElementSibling;
-                      if (fallback) {
-                        (fallback as HTMLElement).style.display = "flex";
-                      }
-                    }}
-                  />
-                  <div class="w-12 h-12 rounded flex-shrink-0 bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] items-center justify-center hidden">
-                    <Icon name="playlist" size="24" />
-                  </div>
-                </Show>
+                <MediaImage
+                  images={item.images}
+                  imageUrl={item.thumbnailUrl || null}
+                  alt=""
+                  class="w-12 h-12 object-cover rounded flex-shrink-0"
+                  domainType="playlist"
+                />
                 <div class="flex-1 min-w-0">
                   <div class="font-medium text-base">
                     <MarqueeText text={item.title} hoverOnly={true} />

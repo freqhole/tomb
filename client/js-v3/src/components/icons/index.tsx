@@ -7,6 +7,3 @@ export * from "./player";
 
 // Re-export registry functionality from separate file
 export * from "./registry";
-
-// Utility type for icon components
-export type IconComponent = (props: IconProps) => any;

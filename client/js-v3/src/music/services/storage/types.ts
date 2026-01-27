@@ -3,10 +3,12 @@
 // source types for songs
 export type MusicSourceType = "local" | "downloaded" | "remote";
 
-// image metadata with primary indicator
+// image metadata with source-specific fields
 export interface ImageMetadata {
-  blob_id: string;
-  is_primary: number; // 0 or 1 from SQLite
+  local_blob_id?: string; // for local/downloaded images
+  remote_url?: string; // for remote images (already includes base URL)
+  is_primary: boolean; // primary/featured image
+  type: 'thumbnail' | 'waveform'; // image type
 }
 
 // ===== ARTISTS TABLE =====
@@ -62,9 +64,7 @@ export interface Song {
   // denormalized for quick access (no lookups needed for display/playback)
   artist_name: string;
   album_title: string;
-  thumbnail_blob_id: string | null; // denormalized primary image blob id
-  thumbnail_url?: string | null; // pre-resolved image URL for song (added by query enrichment)
-  album_thumbnail_url?: string | null; // pre-resolved album image URL (for album artwork display)
+  images?: ImageMetadata[]; // song images (constructed by data source)
 
   // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
   album_added_at: number; // earliest added_at of any song in this album
@@ -119,8 +119,6 @@ export interface Playlist {
   title: string;
   description: string | null;
   is_public: boolean;
-  thumbnail_blob_id: string | null;
-  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
   images?: ImageMetadata[]; // playlist images
   created_at: number;
   updated_at: number;

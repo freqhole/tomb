@@ -384,7 +384,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <Show when={showTrackNumber()}>
                   <div class="px-3 flex justify-center">
                     <MediaThumbnail
-                      thumbnailUrl={song().thumbnail_url}
+                      images={song().images}
                       indexText={getTrackNumber(song(), virtualRow.index)}
                       hideIndex={false}
                       onPlayClick={() =>

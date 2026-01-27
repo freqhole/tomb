@@ -1,5 +1,6 @@
 import { Search } from "@kobalte/core/search";
 import { createSignal, For, Show, splitProps, type JSX } from "solid-js";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
@@ -20,6 +21,8 @@ export interface SearchSuggestion {
   count?: number;
   /** optional thumbnail image url */
   thumbnailUrl?: string;
+  /** optional images array */
+  images?: ImageMetadata[];
   /** whether this suggestion is disabled */
   disabled?: boolean;
   /** whether this suggestion is favorited */
@@ -252,6 +255,7 @@ export function SearchInput(props: SearchInputProps) {
                   {/* thumbnail with play on click */}
                   <div data-thumbnail="true" class="cursor-pointer">
                     <MediaThumbnail
+                      images={itemProps.item.rawValue.images}
                       thumbnailUrl={itemProps.item.rawValue.thumbnailUrl}
                       size={40}
                       hideIndex={

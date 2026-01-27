@@ -3,6 +3,7 @@ import { Icon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
+import MediaImage from "../media/MediaImage";
 
 export interface PlayerBarSong {
   /** song id */
@@ -15,7 +16,11 @@ export interface PlayerBarSong {
   artist: string;
   /** album name */
   album?: string;
-  /** thumbnail image url */
+  /** structured image metadata array (preferred) */
+  images?: import("../../music/services/storage/types").ImageMetadata[];
+  /** thumbnail blob id (legacy, for backward compatibility) */
+  thumbnailBlobId?: string;
+  /** thumbnail image url (legacy, fallback for remote) */
   thumbnailUrl?: string;
   /** whether song is favorited */
   isFavorite?: boolean;
@@ -116,24 +121,14 @@ export function PlayerBar(props: PlayerBarProps) {
         <div class="flex items-center gap-4 flex-1 min-w-0">
           {/* thumbnail */}
           <div class="w-12 h-12 flex-shrink-0">
-            <Show
-              when={props.song?.thumbnailUrl}
-              fallback={
-                <div class="w-12 h-12 bg-gradient-to-br from-[var(--color-accent-500)]/20 to-[var(--color-accent-500)]/40 rounded flex items-center justify-center">
-                  <Icon
-                    name="music"
-                    size={24}
-                    color="var(--color-accent-500)"
-                  />
-                </div>
-              }
-            >
-              <img
-                src={props.song!.thumbnailUrl}
-                alt={props.song!.title}
-                class="w-12 h-12 rounded object-cover"
-              />
-            </Show>
+            <MediaImage
+              images={props.song?.images}
+              blobId={props.song?.thumbnailBlobId}
+              imageUrl={props.song?.thumbnailUrl}
+              alt={props.song?.title || 'song artwork'}
+              domainType="song"
+              class="w-12 h-12 rounded object-cover"
+            />
           </div>
 
           {/* favorite button */}

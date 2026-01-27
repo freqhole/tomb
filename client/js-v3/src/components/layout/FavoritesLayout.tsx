@@ -303,9 +303,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                           props.onSongPlay?.(song);
                         }}
                       >
-                        <Show when={song.thumbnail_url}>
+                        <Show when={song.images?.length}>
                           <MediaThumbnail
-                            thumbnailUrl={song.thumbnail_url}
+                            images={song.images}
                             onPlayClick={() => {
                               console.log("media thumbnail click:", song.title);
                               props.onSongPlay?.(song);

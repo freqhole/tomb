@@ -1,5 +1,6 @@
 import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
+import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
 import type { AlbumSummary } from "../../music/data/types";
 
@@ -29,21 +30,13 @@ export function AlbumCard(props: AlbumCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
-          <Show when={props.album.thumbnail_url}>
-            <div
-              class="absolute inset-0 bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105 rounded-lg group-hover:rounded-none"
-              style={`background-image: url('${props.album.thumbnail_url}')`}
-              role="img"
-              aria-label={props.album.title}
-            />
-          </Show>
-          <Show when={!props.album.thumbnail_url}>
-            <div class="absolute inset-0 flex items-center justify-center">
-              <svg class="w-12 h-12 text-[var(--color-accent-500)]" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm0-5.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z" />
-              </svg>
-            </div>
-          </Show>
+          <MediaImage
+            images={props.album.images}
+            alt={props.album.title}
+            domainType="album"
+            enableAlbumHover
+            class="absolute inset-0 rounded-lg group-hover:rounded-none"
+          />
         </div>
         <div class="absolute top-2 right-2 z-10">
           <FavoriteHeart

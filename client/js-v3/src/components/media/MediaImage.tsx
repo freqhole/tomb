@@ -1,7 +1,32 @@
-import { createEffect, createSignal, JSX, Show } from "solid-js";
+import { createEffect, createSignal, onMount, JSX, Show } from "solid-js";
+import { getBlobObjectURL } from "../../music/services/storage/blobs";
+import type { ImageMetadata } from "../../music/services/storage/types";
+
+/**
+ * pick the best image from an array of ImageMetadata
+ * priority: primary thumbnail → first thumbnail → first available → null
+ */
+function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
+  if (!images || images.length === 0) return null;
+  
+  // find primary thumbnail
+  const primary = images.find(img => img.is_primary && img.type === 'thumbnail');
+  if (primary) return primary;
+  
+  // find any thumbnail
+  const thumbnail = images.find(img => img.type === 'thumbnail');
+  if (thumbnail) return thumbnail;
+  
+  // fallback to first image
+  return images[0];
+}
 
 interface MediaImageProps {
-  /** direct image url (can be null) */
+  /** structured image metadata array (preferred) */
+  images?: ImageMetadata[];
+  /** blob ID to resolve (legacy, for backward compatibility) */
+  blobId?: string | null;
+  /** direct image url (legacy, for backward compatibility or remote images) */
   imageUrl?: string | null;
   /** alt text for accessibility */
   alt: string;
@@ -9,8 +34,8 @@ interface MediaImageProps {
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   /** additional css classes */
   class?: string;
-  /** enable hover zoom effect */
-  enableHover?: boolean;
+  /** enable album card hover effect (bg-cover → bg-contain + scale) */
+  enableAlbumHover?: boolean;
   /** show fallback icon when no image */
   showFallback?: boolean;
   /** domain type for appropriate fallback icon */
@@ -20,10 +45,39 @@ interface MediaImageProps {
 export function MediaImage(props: MediaImageProps): JSX.Element {
   const [imageError, setImageError] = createSignal(false);
   const [imageLoaded, setImageLoaded] = createSignal(false);
+  const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
+  
+  // resolve blob URL on mount - create object URL once per component instance
+  onMount(async () => {
+    // priority: images array → legacy blobId
+    const bestImage = pickBestImage(props.images);
+    
+    if (bestImage?.local_blob_id) {
+      // local image: create blob URL
+      const blob = await getBlobObjectURL(bestImage.local_blob_id);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        setResolvedUrl(url);
+      }
+    } else if (bestImage?.remote_url) {
+      // remote image: use directly
+      setResolvedUrl(bestImage.remote_url);
+    } else if (props.blobId) {
+      // legacy path: use blobId prop
+      const blob = await getBlobObjectURL(props.blobId);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        setResolvedUrl(url);
+      }
+    }
+  });
+  
+  // use resolved blob URL or fallback to legacy imageUrl prop
+  const finalImageUrl = () => resolvedUrl() || props.imageUrl;
 
   // reset error state when image source changes
   createEffect(() => {
-    if (props.imageUrl) {
+    if (finalImageUrl()) {
       setImageError(false);
       setImageLoaded(false);
     }
@@ -101,12 +155,25 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     }
   };
 
+  // determine base classes and hover behavior
+  const baseClasses = () => {
+    if (props.enableAlbumHover) {
+      // album card: css background with hover effect
+      return "bg-cover group-hover:bg-contain bg-center bg-no-repeat transition-all duration-300 group-hover:scale-105";
+    }
+    // default: no special classes for img-based rendering
+    return "";
+  };
+
   return (
     <div
-      class={`${getSizeClasses()} bg-[var(--color-bg-elevated)] rounded overflow-hidden ${props.enableHover ? "transition-transform hover:scale-105" : ""} ${props.class || ""}`}
+      class={`${getSizeClasses()} bg-[var(--color-bg-elevated)] rounded overflow-hidden ${baseClasses()} ${props.class || ""}`}
+      style={props.enableAlbumHover && finalImageUrl() ? `background-image: url('${finalImageUrl()}')` : undefined}
+      role={props.enableAlbumHover && finalImageUrl() ? "img" : undefined}
+      aria-label={props.enableAlbumHover && finalImageUrl() ? props.alt : undefined}
     >
       <Show
-        when={props.imageUrl && !imageError()}
+        when={finalImageUrl() && !imageError()}
         fallback={
           <Show
             when={props.showFallback !== false}
@@ -120,24 +187,28 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           </Show>
         }
       >
-        <div class="relative w-full h-full">
-          {/* loading placeholder */}
-          <Show when={!imageLoaded()}>
-            <div class="absolute inset-0 bg-[var(--color-bg-elevated)] animate-pulse" />
-          </Show>
+        {/* for album cards with hover, we use CSS background (already applied above) */}
+        {/* for everything else, use img tag for proper loading/error handling */}
+        <Show when={!props.enableAlbumHover}>
+          <div class="relative w-full h-full">
+            {/* loading placeholder */}
+            <Show when={!imageLoaded()}>
+              <div class="absolute inset-0 bg-[var(--color-bg-elevated)] animate-pulse" />
+            </Show>
 
-          {/* actual image */}
-          <img
-            src={props.imageUrl!}
-            alt={props.alt}
-            class={`w-full h-full object-cover transition-opacity duration-200 ${
-              imageLoaded() ? "opacity-100" : "opacity-0"
-            }`}
-            loading="lazy"
-            onLoad={() => setImageLoaded(true)}
-            onError={() => setImageError(true)}
-          />
-        </div>
+            {/* actual img element */}
+            <img
+              src={finalImageUrl()!}
+              alt={props.alt}
+              class={`w-full h-full object-cover transition-opacity duration-200 ${
+                imageLoaded() ? "opacity-100" : "opacity-0"
+              }`}
+              loading="lazy"
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageError(true)}
+            />
+          </div>
+        </Show>
       </Show>
     </div>
   );

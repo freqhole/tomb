@@ -1,7 +1,7 @@
 // local-only image utilities for OPFS/Cache blob resolution
 // remote sources should return full URLs directly from server
 
-import type { ImageMetadata } from "../data/types";
+import type { ImageMetadata } from "../services/storage/types";
 import { getBlobObjectURL } from "../services/storage/blobs";
 
 /**
@@ -15,7 +15,9 @@ export async function resolveLocalBlobUrl(
   blobId: string | null | undefined,
 ): Promise<string | null> {
   if (!blobId) return null;
-  return await getBlobObjectURL(blobId);
+  const blob = await getBlobObjectURL(blobId);
+  if (!blob) return null;
+  return URL.createObjectURL(blob);
 }
 
 
@@ -29,6 +31,6 @@ export function getPrimaryImageBlobId(
 ): string | null {
   if (!images || images.length === 0) return null;
 
-  const primaryImage = images.find((img) => img.is_primary === 1);
-  return primaryImage?.blob_id || images[0]?.blob_id || null;
+  const primaryImage = images.find((img) => img.is_primary === true);
+  return primaryImage?.local_blob_id || images[0]?.local_blob_id || null;
 }

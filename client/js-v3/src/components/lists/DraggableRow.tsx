@@ -32,7 +32,11 @@ export interface DraggableRowProps {
   onContextMenu?: (e: MouseEvent) => void;
   /** whether to show drag handle instead of index */
   showDragHandle?: boolean;
-  /** thumbnail url */
+  /** structured image metadata array (preferred) */
+  images?: import("../../music/services/storage/types").ImageMetadata[];
+  /** thumbnail blob id (legacy, for backward compatibility) */
+  thumbnailBlobId?: string;
+  /** thumbnail url (legacy, fallback for remote) */
   thumbnailUrl?: string;
   /** callback when thumbnail/play button is clicked */
   onPlayClick?: () => void;
@@ -59,6 +63,8 @@ export function DraggableRow(props: DraggableRowProps) {
     "onDoubleClick",
     "onContextMenu",
     "showDragHandle",
+    "images",
+    "thumbnailBlobId",
     "thumbnailUrl",
     "onPlayClick",
     "class",
@@ -117,6 +123,8 @@ export function DraggableRow(props: DraggableRowProps) {
     >
       {/* thumbnail with index overlay - always shown for playlists */}
       <MediaThumbnail
+        images={local.images}
+        thumbnailBlobId={local.thumbnailBlobId}
         thumbnailUrl={local.thumbnailUrl}
         index={local.index}
         hideIndex={isHovered()}

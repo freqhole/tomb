@@ -20,6 +20,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
+import MediaImage from "../media/MediaImage";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -28,8 +29,9 @@ export interface ArtistDetailPanelArtist {
   song_count: number;
   album_count: number;
   total_duration: number;
-  images?: Array<{ blob_id: string; is_primary: number }>;
-  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
+  images?: import("../../music/services/storage/types").ImageMetadata[];
+  thumbnail_url?: string | null; // pre-resolved image URL (legacy, for backward compatibility)
+  thumbnail_blob_id?: string | null; // pre-resolved image blob ID (legacy, for backward compatibility)
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -40,7 +42,9 @@ interface AlbumGroup {
   year: number | null;
   songs: Song[];
   totalDuration: number;
+  images?: import("../../music/services/storage/types").ImageMetadata[];
   artworkUrl: string | null;
+  blobId?: string | null;
   isFavorite: boolean;
   rating?: number;
   genre?: string | null;
@@ -100,11 +104,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
     props.songs.forEach((song, index) => {
       if (!groups.has(song.album_id)) {
-        // use pre-resolved album_thumbnail_url for album artwork
-        const artworkUrl = song.album_thumbnail_url ?? null;
+        // get first image URL from album_images if available
+        const firstImage = song.album_images?.[0];
+        const artworkUrl = firstImage?.local_blob_id || firstImage?.remote_url || null;
         
         if (index < 3) { // log first 3 albums
-          console.log(`[ArtistDetailPanel] album=${song.album_title}, album_thumbnail_url=${artworkUrl}`);
+          console.log(`[ArtistDetailPanel] album=${song.album_title}, images=${song.album_images?.length || 0}`);
         }
 
         groups.set(song.album_id, {
@@ -113,6 +118,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           year: song.year,
           songs: [],
           totalDuration: 0,
+          images: song.album_images,
           artworkUrl,
           isFavorite: song.album_is_favorite ?? false,
           rating: song.album_rating,
@@ -178,12 +184,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
     return Array.from(tagSet).sort();
   });
 
-  // get artist image URL
-  const artistImageUrl = createMemo(() => {
-    // use pre-resolved thumbnail_url from enriched artist
-    return props.artist.thumbnail_url ?? null;
-  });
-
   // create artist abbreviation (up to 3 letters from first words)
   const artistAbbreviation = createMemo(() => getArtistAbbreviation(props.artist.name));
 
@@ -216,17 +216,14 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
               onClick={props.onImageClick}
             >
-              <Show when={artistImageUrl()} fallback={
-                <span class="text-6xl text-[var(--color-text-tertiary)]">
-                  {artistAbbreviation()}
-                </span>
-              }>
-                <img
-                  src={artistImageUrl()!}
-                  alt={props.artist.name}
-                  class="w-full h-full object-cover"
-                />
-              </Show>
+              <MediaImage
+                images={props.artist.images}
+                imageUrl={props.artist.thumbnail_url ?? null}
+                blobId={props.artist.thumbnail_blob_id ?? null}
+                alt={props.artist.name}
+                class="w-full h-full object-cover"
+                domainType="artist"
+              />
             </div>
           </ContextMenu>
 
@@ -360,7 +357,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   year={album.year}
                   songs={album.songs}
                   totalDuration={album.totalDuration}
+                  images={album.images}
                   artworkUrl={album.artworkUrl}
+                  blobId={album.blobId}
                   isFavorite={album.isFavorite}
                   rating={album.rating}
                   genre={album.genre}

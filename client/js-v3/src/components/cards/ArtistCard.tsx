@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
+import { MediaImage } from "../media/MediaImage";
 import type { ArtistSummary } from "../../music/data/types";
 export interface ArtistCardProps {
   artist: ArtistSummary;
@@ -34,24 +35,16 @@ export function ArtistCard(props: ArtistCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-full relative">
-          <Show when={props.artist.thumbnail_url}>
-            <div
-              class="absolute inset-0 rounded-full overflow-hidden transition-all duration-300 group-hover:scale-105"
-            >
-              <img
-                src={props.artist.thumbnail_url!}
-                alt={props.artist.name}
-                class="w-full h-full object-cover"
-              />
-            </div>
-          </Show>
-          <Show when={!props.artist.thumbnail_url}>
-            <div class="absolute inset-0 flex items-center justify-center">
-              <span class="text-3xl text-[var(--color-text-tertiary)]">
-                {getArtistAbbreviation(props.artist.name)}
-              </span>
-            </div>
-          </Show>
+          <div
+            class="absolute inset-0 rounded-full overflow-hidden transition-all duration-300 group-hover:scale-105"
+          >
+            <MediaImage
+              images={props.artist.images}
+              alt={props.artist.name}
+              domainType="artist"
+              class="w-full h-full object-cover"
+            />
+          </div>
         </div>
         <div class="absolute top-2 right-2 z-10 pointer-events-none">
           <FavoriteHeart

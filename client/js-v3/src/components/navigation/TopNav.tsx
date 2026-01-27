@@ -3,6 +3,7 @@ import { createSignal, For, Show, type JSX } from "solid-js";
 import { IconButton } from "../buttons/IconButton";
 import { Icon, type IconName } from "../icons/registry";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
+import MediaImage from "../media/MediaImage";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -23,8 +24,11 @@ export interface RecentPlaylist {
   id: string;
   /** playlist name */
   name: string;
-  /** playlist thumbnail url */
+  /** structured image metadata array (preferred) */
+  images?: import("../../music/services/storage/types").ImageMetadata[];
+  /** playlist thumbnail url (legacy, for backward compatibility) */
   thumbnailUrl?: string | null;
+  thumbnailBlobId?: string | null;
   /** timestamp when playlist was last updated */
   updatedAt: number;
   /** callback when clicked */
@@ -239,19 +243,12 @@ export function TopNav(props: TopNavProps) {
                                     color="var(--color-accent-500)"
                                   />
                                 </Show>
-                                <Show
-                                  when={remote.imageUrl}
-                                  fallback={
-                                    <span class="truncate">{remote.name}</span>
-                                  }
-                                >
-                                  <img
-                                    src={`${remote.url}${remote.imageUrl}`}
-                                    alt=""
-                                    class="w-4 h-4 rounded object-cover flex-shrink-0"
-                                  />
-                                  <span class="truncate">{remote.name}</span>
-                                </Show>
+                                <MediaImage
+                                  imageUrl={remote.imageUrl ? `${remote.url}${remote.imageUrl}` : null}
+                                  alt=""
+                                  class="w-4 h-4 rounded object-cover flex-shrink-0"
+                                />
+                                <span class="truncate">{remote.name}</span>
                               </button>
                             )}
                           </For>
@@ -349,16 +346,14 @@ export function TopNav(props: TopNavProps) {
                               <div class="flex items-center gap-2">
                                 <Show
                                   when={playlist.thumbnailUrl}
-                                  fallback={
-                                    <div class="w-10 h-10 rounded bg-[var(--color-bg-primary)]/20 text-[var(--color-accent-500)] flex items-center justify-center flex-shrink-0">
-                                      <Icon name="playlist" size={20} />
-                                    </div>
-                                  }
                                 >
-                                  <img
-                                    src={playlist.thumbnailUrl!}
+                                  <MediaImage
+                                    images={playlist.images}
+                                    imageUrl={playlist.thumbnailUrl || null}
+                                    blobId={playlist.thumbnailBlobId}
                                     alt=""
                                     class="w-10 h-10 object-cover rounded flex-shrink-0"
+                                    domainType="playlist"
                                   />
                                 </Show>
                                 <div class="flex-1 min-w-0">

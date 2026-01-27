@@ -1,12 +1,14 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
 import type { Song } from "../../music/data/types";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { SongRow } from "../songs/SongRow";
 import { MarqueeText } from "../text/MarqueeText";
+import MediaImage from "../media/MediaImage";
 
 export interface AlbumSectionProps {
   /** album id */
@@ -19,8 +21,11 @@ export interface AlbumSectionProps {
   songs: Song[];
   /** total duration in seconds */
   totalDuration?: number;
-  /** album artwork url */
+  /** structured image metadata array (preferred) */
+  images?: ImageMetadata[];
+  /** album artwork url (legacy, for backward compatibility) */
   artworkUrl?: string | null;
+  blobId?: string | null;
   /** currently playing song id */
   playingSongId?: string;
   /** album favorite status */
@@ -67,43 +72,53 @@ function formatAlbumDuration(seconds: number): string {
   return `${minutes}m`;
 }
 
-export function AlbumSection(props: AlbumSectionProps): JSX.Element {
-  const totalDuration = () =>
-    props.totalDuration ??
-    props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
-
-  const handleAlbumClick = () => {
-    props.onAlbumClick?.(props.albumId);
-  };
-
-  const albumHeader = (
+function AlbumHeader(props: {
+  albumId: string;
+  albumTitle: string;
+  year?: number | null;
+  songs: Song[];
+  totalDuration: number;
+  images?: ImageMetadata[];
+  artworkUrl?: string | null;
+  blobId?: string | null;
+  isFavorite?: boolean;
+  rating?: number;
+  genre?: string | null;
+  subGenres?: string[];
+  tags?: string[];
+  onAlbumClick?: () => void;
+  onPlayAlbum?: () => void;
+  onAddToQueue?: () => void;
+  onRatingChange?: (rating: number) => void;
+  onFavoriteToggle?: (isFavorite: boolean) => void;
+}): JSX.Element {
+  return (
     <div class="flex items-center gap-4 p-4 bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors">
       {/* album artwork */}
       <button
-        onClick={handleAlbumClick}
+        onClick={props.onAlbumClick}
         class="w-16 h-16 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
       >
-        {props.artworkUrl ? (
-          <img
-            src={props.artworkUrl}
-            alt={`${props.albumTitle} artwork`}
-            class="w-full h-full object-cover"
-          />
-        ) : (
-          <span class="text-[var(--color-text-tertiary)] text-xs">no art</span>
-        )}
+        <MediaImage
+          images={props.images}
+          imageUrl={props.artworkUrl || null}
+          blobId={props.blobId}
+          alt={`${props.albumTitle} artwork`}
+          class="w-full h-full object-cover"
+          domainType="album"
+        />
       </button>
 
       {/* album info */}
       <div class="flex-1 min-w-0">
         <button
-          onClick={handleAlbumClick}
+          onClick={props.onAlbumClick}
           class="text-xl font-semibold text-[var(--color-text-primary)] hover:underline text-left block"
         >
           <MarqueeText text={props.albumTitle} hoverOnly={true} />
         </button>
         <div class="text-sm text-[var(--color-text-secondary)]">
-          {props.songs.length} tracks · {formatAlbumDuration(totalDuration())}
+          {props.songs.length} tracks · {formatAlbumDuration(props.totalDuration)}
           {props.year && ` · ${props.year}`}
         </div>
         {/* genres and tags */}
@@ -175,16 +190,64 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
       </div>
     </div>
   );
+}
+
+export function AlbumSection(props: AlbumSectionProps): JSX.Element {
+  const totalDuration = () =>
+    props.totalDuration ??
+    props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
+
+  const handleAlbumClick = () => {
+    props.onAlbumClick?.(props.albumId);
+  };
 
   return (
     <div class={`space-y-2 ${props.class || ""}`}>
       {/* album header */}
       {props.getAlbumContextMenuActions ? (
         <ContextMenu actions={props.getAlbumContextMenuActions()}>
-          {albumHeader}
+          <AlbumHeader
+            albumId={props.albumId}
+            albumTitle={props.albumTitle}
+            year={props.year}
+            songs={props.songs}
+            totalDuration={totalDuration()}
+            images={props.images}
+            artworkUrl={props.artworkUrl}
+            blobId={props.blobId}
+            isFavorite={props.isFavorite}
+            rating={props.rating}
+            genre={props.genre}
+            subGenres={props.subGenres}
+            tags={props.tags}
+            onAlbumClick={handleAlbumClick}
+            onPlayAlbum={props.onPlayAlbum}
+            onAddToQueue={props.onAddToQueue}
+            onRatingChange={props.onRatingChange}
+            onFavoriteToggle={props.onFavoriteToggle}
+          />
         </ContextMenu>
       ) : (
-        albumHeader
+        <AlbumHeader
+          albumId={props.albumId}
+          albumTitle={props.albumTitle}
+          year={props.year}
+          songs={props.songs}
+          totalDuration={totalDuration()}
+          images={props.images}
+          artworkUrl={props.artworkUrl}
+          blobId={props.blobId}
+          isFavorite={props.isFavorite}
+          rating={props.rating}
+          genre={props.genre}
+          subGenres={props.subGenres}
+          tags={props.tags}
+          onAlbumClick={handleAlbumClick}
+          onPlayAlbum={props.onPlayAlbum}
+          onAddToQueue={props.onAddToQueue}
+          onRatingChange={props.onRatingChange}
+          onFavoriteToggle={props.onFavoriteToggle}
+        />
       )}
 
       {/* album songs */}
