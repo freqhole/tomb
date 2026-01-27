@@ -23,7 +23,6 @@ export function SongCard(props: SongCardProps) {
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.song)}
       onDblClick={() => {
-        console.log('song card double clicked:', props.song.title);
         props.onPlay?.(props.song);
       }}
       onContextMenu={(e) => {

@@ -39,7 +39,7 @@ export function ArtistDetailView() {
   const artistData = createMemo(() => {
     const artist = artistQuery.data;
     const songList = songs();
-    
+
     if (!artist || songList.length === 0) return null;
 
     return {
@@ -47,8 +47,11 @@ export function ArtistDetailView() {
       name: artist.name,
       bio: artist.bio,
       song_count: songList.length,
-      album_count: new Set(songList.map(s => s.album_id)).size,
-      total_duration: songList.reduce((sum, song) => sum + song.duration_seconds, 0),
+      album_count: new Set(songList.map((s) => s.album_id)).size,
+      total_duration: songList.reduce(
+        (sum, song) => sum + song.duration_seconds,
+        0
+      ),
       images: artist.images,
       is_favorite: artist.is_favorite,
     };
@@ -130,7 +133,8 @@ export function ArtistDetailView() {
   };
 
   // handle song rating change
-  const handleSongRatingChange = (songId: string, rating: number) => {    console.log('[ArtistDetailView] handleSongRatingChange called:', { songId, rating });    setRatingMutation.mutate({
+  const handleSongRatingChange = (songId: string, rating: number) => {
+    setRatingMutation.mutate({
       targetType: "song",
       targetId: songId,
       rating,
@@ -139,7 +143,6 @@ export function ArtistDetailView() {
 
   // handle album rating change
   const handleAlbumRatingChange = (albumId: string, rating: number) => {
-    console.log('[ArtistDetailView] handleAlbumRatingChange called:', { albumId, rating });
     setRatingMutation.mutate({
       targetType: "album",
       targetId: albumId,
@@ -167,7 +170,7 @@ export function ArtistDetailView() {
 
   // handle song favorite toggle
   const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
-    const song = songs().find(s => s.id === songId);
+    const song = songs().find((s) => s.id === songId);
     toggleFavoriteMutation.mutate({
       targetType: "song",
       targetId: songId,
@@ -183,17 +186,17 @@ export function ArtistDetailView() {
 
     try {
       const datasource = await getDataSource();
-      
+
       const imageUrls = await datasource.getEntityImages?.({
         entityType: "artist",
         entityId: artist.artist_id,
       });
-      
+
       if (!imageUrls || imageUrls.length === 0) {
-        console.log("no images found for artist");
+        console.warn("no images found for artist");
         return;
       }
-      
+
       showImageCarousel({
         images: imageUrls,
         title: `${artist.name} images`,
@@ -226,7 +229,7 @@ export function ArtistDetailView() {
               onPlayAlbum={handlePlayAlbum}
               onAddAlbumToQueue={handleAddAlbumToQueue}
               onSongDoubleClick={handleSongDoubleClick}
-              getSongData={(songId) => songs().find(s => s.id === songId)}
+              getSongData={(songId) => songs().find((s) => s.id === songId)}
               onEditArtist={handleEditArtist}
               onRatingChange={handleRatingChange}
               onSongRatingChange={handleSongRatingChange}

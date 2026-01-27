@@ -107,10 +107,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         // get first image URL from album_images if available
         const firstImage = song.album_images?.[0];
         const artworkUrl = firstImage?.local_blob_id || firstImage?.remote_url || null;
-        
-        if (index < 3) { // log first 3 albums
-          console.log(`[ArtistDetailPanel] album=${song.album_title}, images=${song.album_images?.length || 0}`);
-        }
 
         groups.set(song.album_id, {
           albumId: song.album_id,

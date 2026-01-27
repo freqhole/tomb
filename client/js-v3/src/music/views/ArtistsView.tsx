@@ -420,7 +420,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       });
       
       if (!imageUrls || imageUrls.length === 0) {
-        console.log("no images found for artist");
+        console.warn("no images found for artist");
         return;
       }
       

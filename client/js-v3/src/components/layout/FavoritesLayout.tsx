@@ -299,14 +299,12 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       <div 
                         class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
                         onDblClick={() => {
-                          console.log("song row double click:", song.title);
                           props.onSongPlay?.(song);
                         }}
                       >
                         <MediaThumbnail
                           images={song.images}
                           onPlayClick={() => {
-                            console.log("media thumbnail click:", song.title);
                             props.onSongPlay?.(song);
                           }}
                           size={48}

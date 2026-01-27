@@ -241,8 +241,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
         return;
       }
 
-      console.log("image uploaded, blob_id:", blobId);
-
       // add new image to list (marked as primary if it's the first one)
       const newImage: ImageMetadata = {
         local_blob_id: blobId,
