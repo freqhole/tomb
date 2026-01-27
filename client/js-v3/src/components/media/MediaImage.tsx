@@ -28,33 +28,66 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   const [imageError, setImageError] = createSignal(false);
   const [imageLoaded, setImageLoaded] = createSignal(false);
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
+  const [isLoading, setIsLoading] = createSignal(false);
   
   let blobUrlToCleanup: string | null = null;
+  
+  console.log('[MediaImage] render:', {
+    alt: props.alt,
+    hasImages: !!props.images,
+    imagesLength: props.images?.length,
+    hasBlobId: !!props.blobId,
+    hasImageUrl: !!props.imageUrl,
+    domainType: props.domainType,
+    showFallback: props.showFallback,
+  });
   
   createEffect(() => {
     const bestImage = pickBestImage(props.images);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
     
+    console.log('[MediaImage] effect:', {
+      alt: props.alt,
+      bestImage,
+      bestImageKeys: bestImage ? Object.keys(bestImage) : null,
+      bestImageValues: bestImage ? {
+        local_blob_id: bestImage.local_blob_id,
+        remote_url: bestImage.remote_url,
+        is_primary: bestImage.is_primary,
+        type: bestImage.type,
+      } : null,
+      blobId,
+      remoteUrl,
+      rawImages: props.images,
+    });
+    
     if (blobUrlToCleanup) {
       URL.revokeObjectURL(blobUrlToCleanup);
       blobUrlToCleanup = null;
     }
     
+    setResolvedUrl(null);
+    
     if (blobId) {
+      setIsLoading(true);
       getBlobObjectURL(blobId).then(blob => {
+        console.log('[MediaImage] blob result:', { alt: props.alt, hasBlob: !!blob });
         if (blob) {
           const newBlobUrl = URL.createObjectURL(blob);
           blobUrlToCleanup = newBlobUrl;
           setResolvedUrl(newBlobUrl);
-        } else {
-          setResolvedUrl(null);
+          console.log('[MediaImage] set blob url:', { alt: props.alt, url: newBlobUrl });
         }
+        setIsLoading(false);
       });
     } else if (remoteUrl) {
       setResolvedUrl(remoteUrl);
+      setIsLoading(false);
+      console.log('[MediaImage] set remote url:', { alt: props.alt, url: remoteUrl });
     } else {
-      setResolvedUrl(null);
+      setIsLoading(false);
+      console.log('[MediaImage] no image source:', { alt: props.alt });
     }
   });
   
@@ -85,7 +118,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   };
 
   const getFallbackIcon = () => {
-    const iconProps = { class: "w-full h-full opacity-30" };
+    const iconProps = { class: "w-12 h-12" };
     switch (props.domainType) {
       case "song":
         return <Icon name="music" {...iconProps} />;
@@ -102,39 +135,64 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     }
   };
 
-  const imageUrl = resolvedUrl;
-  const shouldShowFallbackIcon = () => props.showFallback !== false && (imageError() || !imageUrl());
+  const shouldShowFallbackIcon = () => {
+    const result = props.showFallback !== false && !imageLoaded() && (imageError() || !resolvedUrl());
+    console.log('[MediaImage] shouldShowFallbackIcon:', {
+      alt: props.alt,
+      showFallback: props.showFallback,
+      imageLoaded: imageLoaded(),
+      imageError: imageError(),
+      resolvedUrl: resolvedUrl(),
+      result,
+    });
+    return result;
+  };
+
+  console.log('[MediaImage] rendering dom:', {
+    alt: props.alt,
+    isLoading: isLoading(),
+    shouldShowFallback: shouldShowFallbackIcon(),
+    hasResolvedUrl: !!resolvedUrl(),
+    imageLoaded: imageLoaded(),
+    imageError: imageError(),
+  });
 
   return (
     <div
-      class={`relative overflow-hidden bg-gray-800/20 flex items-center justify-center ${
+      class={`relative overflow-hidden bg-gray-800/50 flex items-center justify-center ${
         props.enableAlbumHover ? "group bg-cover transition-all duration-300 hover:bg-contain hover:scale-105" : ""
       } ${getSizeClasses()} ${props.class || ""}`}
       style={{
-        "background-image": imageUrl() && !imageError() ? `url(${imageUrl()})` : undefined,
+        "background-image": resolvedUrl() && !imageError() && imageLoaded() ? `url(${resolvedUrl()})` : undefined,
         "background-size": "cover",
         "background-position": "center",
         "background-repeat": "no-repeat",
       }}
     >
-      <Show when={!imageUrl() && !imageError()}>
-        <div class="absolute inset-0 bg-gray-700/30 animate-pulse" />
+      <Show when={isLoading()}>
+        <div class="absolute inset-0 bg-gray-700/30 animate-pulse z-10" />
       </Show>
 
       <Show when={shouldShowFallbackIcon()}>
-        <div class="text-gray-500">{getFallbackIcon()}</div>
+        <div class="absolute inset-0 flex items-center justify-center text-gray-400 z-20">
+          {getFallbackIcon()}
+        </div>
       </Show>
 
-      <Show when={imageUrl()}>
+      <Show when={resolvedUrl()}>
         <img
-          src={imageUrl()!}
+          src={resolvedUrl()!}
           alt={props.alt}
-          class="absolute inset-0 w-full h-full object-cover opacity-0"
+          class={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 z-30 ${
+            imageLoaded() && !imageError() ? "opacity-100" : "opacity-0"
+          }`}
           onLoad={() => {
+            console.log('[MediaImage] img onLoad:', { alt: props.alt, src: resolvedUrl() });
             setImageLoaded(true);
             setImageError(false);
           }}
           onError={() => {
+            console.log('[MediaImage] img onError:', { alt: props.alt, src: resolvedUrl() });
             setImageError(true);
             setImageLoaded(false);
           }}

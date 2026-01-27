@@ -133,12 +133,13 @@ export class RemoteMusicDataSource implements MusicDataSource {
           sub_genres: item.album.sub_genres || undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
-          images:
-            item.images?.map((img) => ({
-              remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-              is_primary: img.is_primary ? true : false,
-              type: 'thumbnail' as const,
-            })) || undefined,
+          images: item.images && item.images.length > 0
+            ? item.images.map((img) => ({
+                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary ? true : false,
+                type: 'thumbnail' as const,
+              }))
+            : undefined,
           is_favorite: item.is_favorite,
           user_rating: item.rating,
           tags: item.album_tags || undefined,
@@ -198,12 +199,13 @@ export class RemoteMusicDataSource implements MusicDataSource {
           album_count: item.album_count,
           song_count: item.song_count,
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
-          images:
-            item.images?.map((img) => ({
-              remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-              is_primary: img.is_primary ? true : false,
-              type: 'thumbnail' as const,
-            })) || undefined,
+          images: item.images && item.images.length > 0
+            ? item.images.map((img) => ({
+                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary ? true : false,
+                type: 'thumbnail' as const,
+              }))
+            : undefined,
           is_favorite: item.is_favorite,
           user_rating: item.rating,
         };
@@ -566,11 +568,13 @@ export class RemoteMusicDataSource implements MusicDataSource {
               sub_genres: apiFav.album.album.sub_genres || undefined,
               song_count: apiFav.album.album.song_count,
               total_duration: apiFav.album.album.total_duration,
-              images: apiFav.album.images?.map((img) => ({
-                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-                is_primary: img.is_primary ? true : false,
-                type: 'thumbnail' as const,
-              })) || undefined,
+              images: apiFav.album.images && apiFav.album.images.length > 0
+                ? apiFav.album.images.map((img) => ({
+                    remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                    is_primary: img.is_primary ? true : false,
+                    type: 'thumbnail' as const,
+                  }))
+                : undefined,
               is_favorite: apiFav.album.is_favorite,
               user_rating: apiFav.album.rating,
               tags: apiFav.album.album_tags || undefined,
@@ -587,11 +591,13 @@ export class RemoteMusicDataSource implements MusicDataSource {
               album_count: apiFav.artist.album_count,
               song_count: apiFav.artist.song_count,
               total_duration: apiFav.artist.total_duration ? Math.floor(apiFav.artist.total_duration / 1000) : 0,
-              images: apiFav.artist.images?.map((img) => ({
-                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-                is_primary: img.is_primary ? true : false,
-                type: 'thumbnail' as const,
-              })) || undefined,
+              images: apiFav.artist.images && apiFav.artist.images.length > 0
+                ? apiFav.artist.images.map((img) => ({
+                    remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                    is_primary: img.is_primary ? true : false,
+                    type: 'thumbnail' as const,
+                  }))
+                : undefined,
               is_favorite: apiFav.artist.is_favorite,
               user_rating: apiFav.artist.rating,
             } as ArtistSummary,

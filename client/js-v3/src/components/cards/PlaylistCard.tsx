@@ -54,13 +54,15 @@ export function PlaylistCard(props: PlaylistCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
-          <MediaImage
-            images={props.playlist.images}
-            alt={props.playlist.title}
-            domainType="playlist"
-            enableAlbumHover
-            class="absolute inset-0 rounded-lg group-hover:rounded-none"
-          />
+          <div class="absolute inset-0 rounded-lg group-hover:rounded-none overflow-hidden">
+            <MediaImage
+              images={props.playlist.images}
+              alt={props.playlist.title}
+              domainType="playlist"
+              enableAlbumHover
+              class="w-full h-full"
+            />
+          </div>
         </div>
         <div class="absolute top-2 right-2 z-10">
           <FavoriteHeart

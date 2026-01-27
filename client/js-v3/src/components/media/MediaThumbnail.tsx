@@ -127,11 +127,13 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
         }
       }}
     >
-      {/* thumbnail image or transparent fallback */}
-      <div class="w-full h-full rounded overflow-hidden">
+      {/* thumbnail image or fallback icon */}
+      <div class="w-full h-full rounded overflow-hidden bg-gray-800/50 flex items-center justify-center">
         <Show
           when={imageUrl()}
-          fallback={<div class="w-full h-full bg-transparent" />}
+          fallback={
+            <Icon name="music" size={size() > 40 ? 32 : 24} color="var(--color-text-disabled)" />
+          }
         >
           <img
             src={imageUrl()!}

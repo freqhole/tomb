@@ -303,17 +303,15 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                           props.onSongPlay?.(song);
                         }}
                       >
-                        <Show when={song.images?.length}>
-                          <MediaThumbnail
-                            images={song.images}
-                            onPlayClick={() => {
-                              console.log("media thumbnail click:", song.title);
-                              props.onSongPlay?.(song);
-                            }}
-                            size={48}
-                            class="flex-shrink-0"
-                          />
-                        </Show>
+                        <MediaThumbnail
+                          images={song.images}
+                          onPlayClick={() => {
+                            console.log("media thumbnail click:", song.title);
+                            props.onSongPlay?.(song);
+                          }}
+                          size={48}
+                          class="flex-shrink-0"
+                        />
                         <div class="flex-1 min-w-0">
                           <div class="text-[var(--color-text-primary)] font-medium truncate">
                             {song.title}

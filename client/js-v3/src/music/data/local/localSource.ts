@@ -1108,6 +1108,14 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (favorite.target_type === "song") {
         const song = await getSongById(favorite.target_id);
         if (song) {
+          // populate album_images if missing (album.images is already ImageMetadata[])
+          if (!song.album_images && song.album_id) {
+            const album = await db.get(STORE_ALBUMS, song.album_id);
+            if (album?.images) {
+              song.album_images = album.images;
+            }
+          }
+          
           // enrich with images array
           const enriched = enrichSongsWithImages([song])[0];
           items.push({
@@ -1129,6 +1137,7 @@ export class LocalMusicDataSource implements MusicDataSource {
             0,
           );
           
+          // album.images is already in ImageMetadata[] format, no need to adapt
           items.push({
             type: "album",
             favorited_at: favorite.favorited_at,
@@ -1144,7 +1153,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               total_duration: totalDuration,
               is_favorite: isFavorite,
               user_rating: rating,
-              images: adaptDatabaseImages(album.images),
+              images: album.images,
             },
           });
         }
@@ -1174,7 +1183,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               total_duration: totalDuration,
               is_favorite: isFavorite,
               user_rating: rating,
-              images: adaptDatabaseImages(artist.images),
+              images: artist.images,
             },
           });
         }
@@ -1192,7 +1201,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               title: playlist.title,
               description: playlist.description || null,
               is_public: playlist.is_public,
-              images: adaptDatabaseImages(playlist.images),
+              images: playlist.images,
               song_count: playlistSongs.length,
               created_at: playlist.created_at,
               updated_at: playlist.updated_at,

@@ -49,7 +49,7 @@ export function FavoritesView(props: FavoritesViewProps) {
     const pages = favoritesQuery.data?.pages ?? [];
     const items = pages.flatMap((page) => page.items);
 
-    return items.map((item: FavoriteItem): LayoutFavoriteItem => {
+    const result = items.map((item: FavoriteItem): LayoutFavoriteItem => {
       switch (item.type) {
         case "song":
           return { ...item.data, type: "song" };
@@ -61,6 +61,8 @@ export function FavoritesView(props: FavoritesViewProps) {
           return { ...item.data, type: "playlist" };
       }
     });
+    
+    return result;
   });
 
   // song handlers
