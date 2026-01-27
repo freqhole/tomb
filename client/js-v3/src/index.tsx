@@ -1,8 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
+import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
 import { App } from "./app/App";
+import { queryClient } from "./queryClient";
 
-export const queryClient = new QueryClient();
+export { queryClient };
 
 const root = document.getElementById("root");
 

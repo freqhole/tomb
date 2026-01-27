@@ -4,7 +4,7 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import { queryClient } from "..";
+import { queryClient } from "../queryClient";
 import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorModal";
 
 /**

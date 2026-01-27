@@ -1,10 +1,5 @@
-// Base icon props interface
-export interface IconProps {
-  size?: number | string;
-  color?: string;
-  className?: string;
-  "aria-label"?: string;
-}
+// Re-export types from types.ts
+export type { IconProps, IconComponent } from "./types";
 
 // Re-export all icon components from organized modules
 export * from "./navigation";

@@ -1,4 +1,4 @@
-import type { IconProps } from "./index";
+import type { IconProps } from "./types";
 
 // Base icon wrapper for consistent behavior
 const BaseIcon = (

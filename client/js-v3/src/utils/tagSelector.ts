@@ -3,7 +3,7 @@
 
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
-import { queryClient } from "..";
+import { queryClient } from "../queryClient";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { queryKeys } from "../music/queries/queryKeys";
 
