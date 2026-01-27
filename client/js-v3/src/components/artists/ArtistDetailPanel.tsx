@@ -100,8 +100,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
     props.songs.forEach((song, index) => {
       if (!groups.has(song.album_id)) {
-        // use pre-resolved thumbnail_url from enriched songs
-        const artworkUrl = song.thumbnail_url ?? null;
+        // use pre-resolved album_thumbnail_url for album artwork
+        const artworkUrl = song.album_thumbnail_url ?? null;
+        
+        if (index < 3) { // log first 3 albums
+          console.log(`[ArtistDetailPanel] album=${song.album_title}, album_thumbnail_url=${artworkUrl}`);
+        }
 
         groups.set(song.album_id, {
           albumId: song.album_id,

@@ -46,7 +46,6 @@ import {
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
-import { getImageUrl } from "../music/utils/images";
 import { routes } from "../music/utils/routing";
 import {
   appState,
@@ -78,11 +77,9 @@ export function AppLayout(props: AppLayoutProps) {
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
   // helper to get thumbnail URL for a song
-  // remoteSource returns full URLs, localSource returns raw blob_ids
-  // getImageUrl handles both cases
+  // songs are enriched with thumbnail_url in queries
   const getSongThumbnailUrl = (song: Song): string | undefined => {
-    if (!song.thumbnail_blob_id) return undefined;
-    return getImageUrl(song.thumbnail_blob_id) || undefined;
+    return song.thumbnail_url || undefined;
   };
 
   // load remotes and storage info on mount

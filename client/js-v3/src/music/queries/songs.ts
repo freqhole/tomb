@@ -5,7 +5,6 @@ import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
-import { enrichWithThumbnailUrl, enrichWithThumbnailUrls } from "../utils/imageResolver";
 import { queryKeys } from "./queryKeys";
 
 export type SongSortField =
@@ -235,8 +234,11 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   return createInfiniteQuery(() => ({
     queryKey: queryKeys.artists.list(query?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
+      console.log(`[useArtistsQuery] queryFn called with pageParam=${pageParam}`);
       const dataSource = getDataSource();
+      console.log(`[useArtistsQuery] dataSource:`, dataSource);
       if (!dataSource.getArtists) {
+        console.warn(`[useArtistsQuery] dataSource has no getArtists method!`);
         return {
           items: [],
           total: 0,
@@ -245,11 +247,13 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
           has_more: false,
         };
       }
-      return dataSource.getArtists({
+      const result = await dataSource.getArtists({
         offset: pageParam,
         limit: pageSize,
         search: query?.(),
       });
+      console.log(`[useArtistsQuery] dataSource.getArtists returned:`, result);
+      return result;
     },
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more) return undefined;
@@ -282,12 +286,8 @@ export function useArtistQuery(artistId: Accessor<string | undefined>) {
         limit: 1,
       });
 
-      const artist = result.items[0] || null;
-      if (!artist) return null;
-      
-      // enrich with pre-resolved thumbnail URL
-      const enriched = await enrichWithThumbnailUrl(artist);
-      return enriched;
+      // artist already has thumbnail_url from data source
+      return result.items[0] || null;
     },
     enabled: () => !!artistId(),
   }));
@@ -308,12 +308,8 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
 
       const result = await dataSource.getArtistSongs(id, { limit: 1000 });
       
-      // enrich songs with pre-resolved thumbnail URLs
-      const enrichedItems = await enrichWithThumbnailUrls(result.items);
-      return {
-        ...result,
-        items: enrichedItems,
-      };
+      // songs already have thumbnail_url from data source
+      return result;
     },
     enabled: () => !!artistId(),
   }));

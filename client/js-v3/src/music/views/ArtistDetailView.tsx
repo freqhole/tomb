@@ -9,7 +9,6 @@ import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
-import { getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 

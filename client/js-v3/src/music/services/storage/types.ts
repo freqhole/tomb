@@ -63,7 +63,8 @@ export interface Song {
   artist_name: string;
   album_title: string;
   thumbnail_blob_id: string | null; // denormalized primary image blob id
-  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
+  thumbnail_url?: string | null; // pre-resolved image URL for song (added by query enrichment)
+  album_thumbnail_url?: string | null; // pre-resolved album image URL (for album artwork display)
 
   // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
   album_added_at: number; // earliest added_at of any song in this album
@@ -119,6 +120,7 @@ export interface Playlist {
   description: string | null;
   is_public: boolean;
   thumbnail_blob_id: string | null;
+  thumbnail_url?: string | null; // pre-resolved image URL (added by query enrichment)
   images?: ImageMetadata[]; // playlist images
   created_at: number;
   updated_at: number;

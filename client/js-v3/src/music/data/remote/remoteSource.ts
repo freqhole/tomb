@@ -118,29 +118,37 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     // adapt API response to our interface
     return {
-      items: result.data.items.map((item) => ({
-        album_id: item.album.id,
-        title: item.album.title,
-        artist_id: item.artist?.id || "",
-        artist_name: item.artist?.name || "unknown artist",
-        album_type: item.album.album_type,
-        year: undefined, // TODO: extract year from release_date if present
-        release_date: item.album.release_date || undefined,
-        label: item.album.label || undefined,
-        genre_id: item.album.genre_id || undefined,
-        genre: item.album.genre || undefined,
-        sub_genres: item.album.sub_genres || undefined,
-        song_count: item.album.song_count,
-        total_duration: item.album.total_duration,
-        images:
-          item.images?.map((img) => ({
-            blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-            is_primary: img.is_primary ? 1 : 0,
-          })) || undefined,
-        is_favorite: item.is_favorite,
-        user_rating: item.rating,
-        tags: item.album_tags || undefined,
-      })),
+      items: result.data.items.map((item) => {
+        const primaryImage = item.images?.find(img => img.is_primary);
+        const thumbnailBlobId = primaryImage?.blob_id || item.images?.[0]?.blob_id;
+        
+        return {
+          album_id: item.album.id,
+          title: item.album.title,
+          artist_id: item.artist?.id || "",
+          artist_name: item.artist?.name || "unknown artist",
+          album_type: item.album.album_type,
+          year: undefined, // TODO: extract year from release_date if present
+          release_date: item.album.release_date || undefined,
+          label: item.album.label || undefined,
+          genre_id: item.album.genre_id || undefined,
+          genre: item.album.genre || undefined,
+          sub_genres: item.album.sub_genres || undefined,
+          song_count: item.album.song_count,
+          total_duration: item.album.total_duration,
+          images:
+            item.images?.map((img) => ({
+              blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+              is_primary: img.is_primary ? 1 : 0,
+            })) || undefined,
+          thumbnail_url: thumbnailBlobId 
+            ? `${this.baseUrl}/api/blobs/${thumbnailBlobId}`
+            : null,
+          is_favorite: item.is_favorite,
+          user_rating: item.rating,
+          tags: item.album_tags || undefined,
+        };
+      }),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -187,21 +195,29 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     // adapt API response to our interface
     return {
-      items: result.data.items.map((item) => ({
-        artist_id: item.artist.id,
-        name: item.artist.name,
-        bio: item.artist.bio,
-        album_count: item.album_count,
-        song_count: item.song_count,
-        total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
-        images:
-          item.images?.map((img) => ({
-            blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-            is_primary: img.is_primary ? 1 : 0,
-          })) || undefined,
-        is_favorite: item.is_favorite,
-        user_rating: item.rating,
-      })),
+      items: result.data.items.map((item) => {
+        const primaryImage = item.images?.find(img => img.is_primary);
+        const thumbnailBlobId = primaryImage?.blob_id || item.images?.[0]?.blob_id;
+        
+        return {
+          artist_id: item.artist.id,
+          name: item.artist.name,
+          bio: item.artist.bio,
+          album_count: item.album_count,
+          song_count: item.song_count,
+          total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
+          images:
+            item.images?.map((img) => ({
+              blob_id: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+              is_primary: img.is_primary ? 1 : 0,
+            })) || undefined,
+          thumbnail_url: thumbnailBlobId 
+            ? `${this.baseUrl}/api/blobs/${thumbnailBlobId}`
+            : null,
+          is_favorite: item.is_favorite,
+          user_rating: item.rating,
+        };
+      }),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -307,7 +323,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.playlist.title,
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
-        thumbnail_blob_id: item.playlist.thumbnail_blob_id
+        thumbnail_blob_id: item.playlist.thumbnail_blob_id || null,
+        thumbnail_url: item.playlist.thumbnail_blob_id
           ? `${this.baseUrl}/api/blobs/${item.playlist.thumbnail_blob_id}`
           : null,
         song_count: item.song_count,

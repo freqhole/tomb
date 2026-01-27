@@ -4,7 +4,7 @@
 import { Combobox } from "@kobalte/core/combobox";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { useArtistAutocompleteQuery } from "../../music/queries/autocomplete";
-import { getImageUrl } from "../../music/utils/images";
+
 
 export interface ArtistAutocompleteProps {
   /** current artist name value */
@@ -65,7 +65,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
     const results: ArtistOption[] = [];
     const items = artistQuery.data?.items || [];
 
-    // add existing artists
+    // add existing artists - thumbnail_url already resolved
     for (const item of items) {
       results.push({
         value: item.name,
@@ -73,9 +73,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
         id: item.artist_id,
         songCount: item.song_count,
         albumCount: item.album_count,
-        thumbnailUrl: item.images?.[0]?.blob_id
-          ? getImageUrl(item.images[0].blob_id)
-          : undefined,
+        thumbnailUrl: item.thumbnail_url,
         isFavorite: item.is_favorite === true,
       });
     }

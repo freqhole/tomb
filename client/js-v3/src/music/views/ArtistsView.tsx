@@ -22,7 +22,6 @@ import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { querySongsWithDetails } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
-import { getPrimaryImageUrl, getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -196,7 +195,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       id: artist.artist_id,
       title: artist.name,
       subtitle: `${formatNumber(artist.song_count)} songs · ${artist.album_count} albums`,
-      thumbnailUrl: getPrimaryImageUrl(artist.images),
+      thumbnailUrl: artist.thumbnail_url,
     }));
   });
 

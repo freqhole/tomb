@@ -2,7 +2,6 @@ import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import type { ArtistSummary } from "../../music/data/types";
-import { getImageUrl } from "../../music/utils/images";
 export interface ArtistCardProps {
   artist: ArtistSummary;
   onClick?: (artist: ArtistSummary) => void;
@@ -14,7 +13,8 @@ export interface ArtistCardProps {
 
 export function ArtistCard(props: ArtistCardProps) {
   // helper to get artist abbreviation
-  const getArtistAbbreviation = (name: string) => {
+  const getArtistAbbreviation = (name: string | undefined) => {
+    if (!name) return '?';
     const words = name.split(/\s+/);
     return words.slice(0, 3).map(w => w[0]?.toUpperCase() || '').join('');
   };
@@ -34,18 +34,18 @@ export function ArtistCard(props: ArtistCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-full relative">
-          <Show when={props.artist.images && props.artist.images.length > 0}>
+          <Show when={props.artist.thumbnail_url}>
             <div
               class="absolute inset-0 rounded-full overflow-hidden transition-all duration-300 group-hover:scale-105"
             >
               <img
-                src={getImageUrl(props.artist.images![0].blob_id)!}
+                src={props.artist.thumbnail_url!}
                 alt={props.artist.name}
                 class="w-full h-full object-cover"
               />
             </div>
           </Show>
-          <Show when={!props.artist.images || props.artist.images.length === 0}>
+          <Show when={!props.artist.thumbnail_url}>
             <div class="absolute inset-0 flex items-center justify-center">
               <span class="text-3xl text-[var(--color-text-tertiary)]">
                 {getArtistAbbreviation(props.artist.name)}

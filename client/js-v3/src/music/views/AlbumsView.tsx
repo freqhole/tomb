@@ -1,6 +1,6 @@
 // albums view - displays all albums in a grid
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, on, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
@@ -15,7 +15,6 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
 import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu } from "../services/contextMenu";
-import { getPrimaryImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -94,7 +93,7 @@ export function AlbumsView(props: AlbumsViewProps) {
   };
 
   // flatten all pages into albums list
-  const albums = (): CollectionCardData[] => {
+  const albums = createMemo((): CollectionCardData[] => {
     const pages = albumsQuery.data?.pages ?? [];
     const allAlbums = pages.flatMap((page) => page.items);
 
@@ -120,13 +119,13 @@ export function AlbumsView(props: AlbumsViewProps) {
         year: year,
         trackCount: album.song_count,
         totalDuration: formatDuration(album.total_duration),
-        imageUrl: getPrimaryImageUrl(album.images),
+        imageUrl: album.thumbnail_url,
         isFavorite: album.is_favorite ?? false,
         genres: genreText,
         tags: album.tags,
       };
     });
-  };
+  });
 
   // tag filter handlers
   const handleAddTag = (tag: string) => {

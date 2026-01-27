@@ -10,7 +10,6 @@ import {
   untrack,
 } from "solid-js";
 import type { Song } from "../../music/data/types";
-import { getImageUrl } from "../../music/utils/images";
 import { formatDuration } from "../../utils/formatDuration";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -385,7 +384,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                 <Show when={showTrackNumber()}>
                   <div class="px-3 flex justify-center">
                     <MediaThumbnail
-                      thumbnailUrl={getImageUrl(song().thumbnail_blob_id)}
+                      thumbnailUrl={song().thumbnail_url}
                       indexText={getTrackNumber(song(), virtualRow.index)}
                       hideIndex={false}
                       onPlayClick={() =>

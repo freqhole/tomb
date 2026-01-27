@@ -39,7 +39,6 @@ import { pollJobUntilComplete } from "../../utils/jobs";
 import { buildRoute } from "../utils/routing";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
-import { getImageUrl } from "../utils/images";
 import {
   useDeletePlaylistMutation,
   usePlaylistSongsQuery,
@@ -285,27 +284,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     getPlaylistById(id).then((playlist) => {
       setFullPlaylist(playlist || null);
 
-      // load local thumbnail if present
-      if (playlist?.thumbnail_blob_id) {
-        const thumbnailPath = playlist.thumbnail_blob_id;
-        // check if it's an OPFS path (starts with "thumbnails/")
-        if (thumbnailPath.startsWith("thumbnails/")) {
-          readThumbnailFromOPFS(thumbnailPath)
-            .then((file) => {
-              const url = URL.createObjectURL(file);
-              setLocalThumbnailUrl(url);
-            })
-            .catch((error) => {
-              console.error("failed to load local thumbnail:", error);
-              setLocalThumbnailUrl(null);
-            });
-        } else {
-          // it's a blob ID, not an OPFS path - clear local thumbnail
-          setLocalThumbnailUrl(null);
-        }
-      } else {
-        setLocalThumbnailUrl(null);
-      }
+      // thumbnail_url is pre-resolved in query enrichment
     });
   });
 
@@ -425,7 +404,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   };
 
   // open image carousel with all playlist and song images
-  const handleOpenImageCarousel = async () => {
+  const handleOpenImageCarousel = () => {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
@@ -433,25 +412,15 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const images: string[] = [];
 
     // add playlist thumbnail
-    if (playlist.thumbnail_blob_id) {
-      const url = await getImageUrl(playlist.thumbnail_blob_id);
-      if (url) images.push(url);
+    if (playlist.thumbnail_url) {
+      images.push(playlist.thumbnail_url);
     }
 
-    // collect all unique images from songs (album cover, album images)
+    // collect all unique images from songs (album cover from thumbnail_url)
     const imageSet = new Set<string>();
     for (const song of songs) {
-      // album cover (thumbnail_blob_id is the denormalized primary image)
-      if (song.thumbnail_blob_id) {
-        const url = await getImageUrl(song.thumbnail_blob_id);
-        if (url) imageSet.add(url);
-      }
-      // album images
-      if (song.album_images) {
-        for (const img of song.album_images) {
-          const url = await getImageUrl(img.blob_id);
-          if (url) imageSet.add(url);
-        }
+      if (song.thumbnail_url) {
+        imageSet.add(song.thumbnail_url);
       }
     }
 
@@ -570,9 +539,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
           // update playlist with new thumbnail
           const dataSource = getDataSource();
-          await dataSource.updatePlaylist?.(playlist.playlist_id, {
-            thumbnail_blob_id: blobId,
-            images: [{ blob_id: blobId, is_primary: 1 }],
+          await dataSource.uploadImage?.({
+            file,
+            entityType: "playlist",
+            entityId: playlist.playlist_id,
+            isPrimary: true,
           });
 
           // invalidate and refetch queries

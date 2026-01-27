@@ -882,8 +882,12 @@ export async function queryArtists(options?: {
     });
   }
 
-  // sort by artist name
-  results.sort((a, b) => a.artist.name.localeCompare(b.artist.name));
+  // sort by artist name (handle undefined names)
+  results.sort((a, b) => {
+    const nameA = a.artist.name || "";
+    const nameB = b.artist.name || "";
+    return nameA.localeCompare(nameB);
+  });
 
   // apply pagination if specified
   const limit = options?.limit ?? results.length;
@@ -951,8 +955,12 @@ export async function queryGenres(options?: {
     });
   }
 
-  // sort by genre name
-  results.sort((a, b) => a.genre.name.localeCompare(b.genre.name));
+  // sort by genre name (handle undefined names)
+  results.sort((a, b) => {
+    const nameA = a.genre.name || "";
+    const nameB = b.genre.name || "";
+    return nameA.localeCompare(nameB);
+  });
 
   // apply pagination if specified
   const limit = options?.limit ?? results.length;
@@ -997,7 +1005,9 @@ export async function querySongsWithDetails(options?: {
     songsToQuery.sort((a, b) => {
       // always maintain album grouping: album_title -> disc -> track
       if (a.album_title !== b.album_title) {
-        return a.album_title.localeCompare(b.album_title);
+        const titleA = a.album_title || "";
+        const titleB = b.album_title || "";
+        return titleA.localeCompare(titleB);
       }
       if (a.disc_number !== b.disc_number) {
         return a.disc_number - b.disc_number;
@@ -1136,8 +1146,8 @@ export async function querySongsWithDetails(options?: {
       album_primary_genre_id: album?.genre_id,
       album_primary_genre_name: genreName,
       album_tags: albumTags,
+      album_images: album?.images, // include album images for artwork display
       // album_sub_genres is already on the song from import/edit
-      // album_images - would need separate images table, skipping for now
     };
 
     results.push(enrichedSong);

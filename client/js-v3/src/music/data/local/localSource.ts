@@ -12,6 +12,7 @@ import {
   setFavorite as dbSetFavorite,
   setRating as dbSetRating,
 } from "../../services/storage/db";
+import { adaptAlbumFromIDB } from "./adapters";
 import {
   deletePlaylist as deletePlaylistFromDB,
   updatePlaylistSongs,
@@ -41,6 +42,43 @@ import type {
   QueryParams,
 } from "../types";
 
+// centralized image enrichment - resolves all image URLs for songs
+async function enrichSongsWithImageUrls(songs: Song[]): Promise<Song[]> {
+  const { resolveLocalBlobUrl } = await import("../../utils/images");
+  
+  return Promise.all(
+    songs.map(async (song, index) => {
+      // resolve song thumbnail (with album fallback)
+      let thumbnailUrl = await resolveLocalBlobUrl(song.thumbnail_blob_id);
+      if (!thumbnailUrl && song.album_images?.length) {
+        const primaryImage = song.album_images.find(img => img.is_primary === 1);
+        const blobId = primaryImage?.blob_id || song.album_images[0].blob_id;
+        thumbnailUrl = await resolveLocalBlobUrl(blobId);
+      }
+      
+      // resolve album artwork
+      let albumThumbnailUrl = null;
+      if (song.album_images?.length) {
+        const primaryImage = song.album_images.find(img => img.is_primary === 1);
+        const blobId = primaryImage?.blob_id || song.album_images[0].blob_id;
+        albumThumbnailUrl = await resolveLocalBlobUrl(blobId);
+        
+        if (index < 3) { // log first 3 songs
+          console.log(`[enrichSongsWithImageUrls] song="${song.title}" album_images.length=${song.album_images.length} blobId=${blobId} albumThumbnailUrl=${albumThumbnailUrl}`);
+        }
+      } else if (index < 3) {
+        console.log(`[enrichSongsWithImageUrls] song="${song.title}" has NO album_images`);
+      }
+      
+      return {
+        ...song,
+        thumbnail_url: thumbnailUrl,
+        album_thumbnail_url: albumThumbnailUrl,
+      };
+    })
+  );
+}
+
 // local data source implementation
 export class LocalMusicDataSource implements MusicDataSource {
   // songs
@@ -48,7 +86,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
-    // query with details (joined)
     const results = await querySongsWithDetails({
       limit,
       offset,
@@ -56,11 +93,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       albumId: params?.album_id,
     });
 
-    // querySongsWithDetails returns enriched Song[] directly
-    const songs = results;
+    const songs = await enrichSongsWithImageUrls(results);
 
-    // TODO: get total count properly from database
-    // for now, assume has_more if we got a full page
     const hasMore = songs.length === limit;
 
     return {
@@ -73,26 +107,58 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   async getSongById(id: string): Promise<Song | null> {
-    return getSongById(id) ?? null;
+    const { resolveLocalBlobUrl } = await import("../../utils/images");
+    const song = await getSongById(id);
+    if (!song) return null;
+    
+    // try song thumbnail first, fallback to album primary image
+    let thumbnailUrl = await resolveLocalBlobUrl(song.thumbnail_blob_id);
+    if (!thumbnailUrl && song.album_images && song.album_images.length > 0) {
+      const primaryImage = song.album_images.find(img => img.is_primary === 1);
+      const blobId = primaryImage?.blob_id || song.album_images[0].blob_id;
+      thumbnailUrl = await resolveLocalBlobUrl(blobId);
+    }
+    
+    return {
+      ...song,
+      thumbnail_url: thumbnailUrl,
+    };
   }
 
   // albums (optional - aggregate from songs)
   async getAlbums(
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
-    const { adaptAlbumFromIDB } = await import("./adapters");
+    const { resolveLocalBlobUrl, getPrimaryImageBlobId } = await import("../../utils/images");
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
-    // query albums with aggregated stats
-    const results = await queryAlbums({ 
-      limit, 
+    const results = await queryAlbums({
+      limit,
       offset,
-      albumId: params?.album_id, 
     });
 
-    // use adapter to convert IDB results to AlbumSummary
-    const albums = results.map(adaptAlbumFromIDB);
+    // use adapter to convert IDB results to AlbumSummary and resolve thumbnail_url
+    const albumPromises = results.map(async (result) => {
+      try {
+        const album = adaptAlbumFromIDB(result);
+        if (!album.album_id) {
+          console.warn("skipping album with missing id:", result);
+          return null;
+        }
+        const blobId = getPrimaryImageBlobId(album.images);
+        return {
+          ...album,
+          thumbnail_url: await resolveLocalBlobUrl(blobId),
+        };
+      } catch (error) {
+        console.error("failed to process album:", result, error);
+        return null;
+      }
+    });
+
+    const albumResults = await Promise.all(albumPromises);
+    const albums = albumResults.filter(a => a !== null) as AlbumSummary[];
 
     // TODO: get total count properly from database
     // for now, assume has_more if we got a full page
@@ -120,46 +186,76 @@ export class LocalMusicDataSource implements MusicDataSource {
       albumId,
     });
 
-    // querySongsWithDetails returns enriched Song[] directly
-    const songs = results;
+    const songsWithUrls = await enrichSongsWithImageUrls(results);
 
-    // apply canonical sorting: by disc+track
-    const sortedSongs = sortSongsCanonical(songs);
+    // TODO: get total count properly from database
+    const hasMore = songsWithUrls.length === limit;
 
     return {
-      items: sortedSongs,
-      total: sortedSongs.length,
+      items: songsWithUrls,
+      total: songsWithUrls.length,
       offset,
       limit,
-      has_more: sortedSongs.length === limit,
+      has_more: hasMore,
     };
   }
-
   // artists (optional - aggregate from songs)
   async getArtists(
     params?: QueryParams,
   ): Promise<PaginatedResponse<ArtistSummary>> {
-    const limit = params?.limit ?? 50;
-    const offset = params?.offset ?? 0;
+    console.log(`[LocalMusicDataSource.getArtists] called with params:`, params);
+    try {
+      const { resolveLocalBlobUrl, getPrimaryImageBlobId } = await import(
+        "../../utils/images"
+      );
+      const limit = params?.limit ?? 50;
+      const offset = params?.offset ?? 0;
 
-    // query artists with aggregated stats
-    const results = await queryArtists({ 
-      limit, 
-      offset,
-      artistId: params?.artist_id, 
+      console.log(`[LocalMusicDataSource.getArtists] calling queryArtists...`);
+      // query artists with aggregated stats
+      const results = await queryArtists({ 
+        limit, 
+        offset,
+        artistId: params?.artist_id, 
+      });
+
+      console.log(`[localSource.getArtists] queryArtists returned ${results.length} results`);
+
+    // map to ArtistSummary format and resolve thumbnail_url
+    const artistPromises = results.map(async (result) => {
+      try {
+        // validate required fields
+        if (!result.artist || !result.artist.artist_id) {
+          console.warn("skipping artist with missing id:", result);
+          return null;
+        }
+        if (!result.artist.name) {
+          console.warn("artist missing name, using fallback:", result.artist.artist_id);
+        }
+        
+        const blobId = getPrimaryImageBlobId(result.artist.images);
+        return {
+          artist_id: result.artist.artist_id,
+          name: result.artist.name || "Unknown Artist",
+          album_count: result.album_count,
+          song_count: result.song_count,
+          total_duration: result.total_duration,
+          images: result.artist.images,
+          thumbnail_url: await resolveLocalBlobUrl(blobId),
+          is_favorite: result.artist.is_favorite,
+          user_rating: result.artist.user_rating,
+        };
+      } catch (error) {
+        console.error("failed to process artist:", result.artist?.artist_id, error);
+        return null;
+      }
     });
 
-    // map to ArtistSummary format
-    const artists: ArtistSummary[] = results.map((result) => ({
-      artist_id: result.artist.artist_id,
-      name: result.artist.name,
-      album_count: result.album_count,
-      song_count: result.song_count,
-      total_duration: result.total_duration,
-      images: result.artist.images,
-      is_favorite: result.artist.is_favorite,
-      user_rating: result.artist.user_rating,
-    }));
+    const artistResults = await Promise.all(artistPromises);
+    // filter out null entries (failed artists)
+    const artists = artistResults.filter(a => a !== null) as ArtistSummary[];
+
+    console.log(`[localSource.getArtists] returning ${artists.length} artists after filtering`);
 
     // TODO: get total count properly from database
     // for now, assume has_more if we got a full page
@@ -172,6 +268,10 @@ export class LocalMusicDataSource implements MusicDataSource {
       limit,
       has_more: hasMore,
     };
+    } catch (error) {
+      console.error(`[LocalMusicDataSource.getArtists] ERROR:`, error);
+      throw error;
+    }
   }
 
   async getArtistSongs(
@@ -187,50 +287,14 @@ export class LocalMusicDataSource implements MusicDataSource {
       artistId,
     });
 
-    // querySongsWithDetails returns enriched Song[] directly
-    const songs = results;
-
-    // apply canonical sorting with artist grouping
-    const sortedSongs = sortSongsByArtist(songs);
-
-    return {
-      items: sortedSongs,
-      total: sortedSongs.length,
-      offset,
-      limit,
-      has_more: sortedSongs.length === limit,
-    };
-  }
-
-  // genres (optional - aggregate from albums/songs)
-  async getGenres(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<GenreSummary>> {
-    const limit = params?.limit ?? 50;
-    const offset = params?.offset ?? 0;
-
-    // query genres with aggregated stats
-    const results = await queryGenres({ 
-      limit, 
-      offset,
-      search: params?.search,
-    });
-
-    // map to GenreSummary format
-    const genres: GenreSummary[] = results.map((result) => ({
-      genre_id: result.genre.genre_id,
-      name: result.genre.name,
-      album_count: result.album_count,
-      song_count: result.song_count,
-    }));
+    const songsWithUrls = await enrichSongsWithImageUrls(results);
 
     // TODO: get total count properly from database
-    // for now, assume has_more if we got a full page
-    const hasMore = genres.length === limit;
+    const hasMore = songsWithUrls.length === limit;
 
     return {
-      items: genres,
-      total: genres.length,
+      items: songsWithUrls,
+      total: songsWithUrls.length,
       offset,
       limit,
       has_more: hasMore,
@@ -270,6 +334,9 @@ export class LocalMusicDataSource implements MusicDataSource {
   async getPlaylists(
     params?: QueryParams,
   ): Promise<PaginatedResponse<PlaylistSummary>> {
+    const { resolveLocalBlobUrl, getPrimaryImageBlobId } = await import(
+      "../../utils/images"
+    );
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
@@ -282,30 +349,42 @@ export class LocalMusicDataSource implements MusicDataSource {
     // sort by updated_at desc
     activePlaylists.sort((a, b) => b.updated_at - a.updated_at);
 
-    // get song counts for each playlist
-    const playlistsWithCounts = await Promise.all(
-      activePlaylists.map(async (playlist) => {
+    // get song counts and resolve thumbnail_url for each playlist
+    const playlistPromises = activePlaylists.map(async (playlist) => {
+      try {
+        if (!playlist.playlist_id) {
+          console.warn("skipping playlist with missing id:", playlist);
+          return null;
+        }
+        
         const playlistSongs = await db.getAllFromIndex(
           STORE_PLAYLIST_SONGS,
           "by_playlist_id",
           playlist.playlist_id,
         );
 
+        const blobId = getPrimaryImageBlobId(playlist.images);
         const summary: PlaylistSummary = {
           playlist_id: playlist.playlist_id,
-          title: playlist.title,
+          title: playlist.title || "Untitled Playlist",
           description: playlist.description,
           is_public: playlist.is_public,
           thumbnail_blob_id: playlist.thumbnail_blob_id,
+          thumbnail_url: await resolveLocalBlobUrl(blobId),
           song_count: playlistSongs.length,
           created_at: playlist.created_at,
           updated_at: playlist.updated_at,
           is_favorite: playlist.is_favorite ?? false,
         };
-
         return summary;
-      }),
-    );
+      } catch (error) {
+        console.error("failed to process playlist:", playlist.playlist_id, error);
+        return null;
+      }
+    });
+
+    const playlistResults = await Promise.all(playlistPromises);
+    const playlistsWithCounts = playlistResults.filter(p => p !== null) as PlaylistSummary[];
 
     // apply pagination
     const paginatedPlaylists = playlistsWithCounts.slice(
@@ -326,6 +405,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     playlistId: string,
     params?: QueryParams,
   ): Promise<PaginatedResponse<Song>> {
+    const { resolveLocalBlobUrl } = await import("../../utils/images");
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
@@ -349,8 +429,10 @@ export class LocalMusicDataSource implements MusicDataSource {
       songIds: songIds,
     });
 
-    // maintain playlist order (querySongsWithDetails returns Song[] directly)
-    const songMap = new Map(results.map((song) => [song.id, song]));
+    const songsWithUrls = await enrichSongsWithImageUrls(results);
+
+    // maintain playlist order
+    const songMap = new Map(songsWithUrls.map((song) => [song.id, song]));
     const songs = songIds
       .map((id) => songMap.get(id))
       .filter((s) => s !== undefined) as Song[];
@@ -961,17 +1043,20 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     for (const favorite of paginatedFavorites) {
       if (favorite.target_type === "song") {
-        const song = await db.get(STORE_SONGS, favorite.target_id);
+        const song = await getSongById(favorite.target_id);
         if (song) {
+          // enrich with image URLs
+          const [enriched] = await enrichSongsWithImageUrls([song]);
           items.push({
             type: "song",
             favorited_at: favorite.favorited_at,
-            data: song,
+            data: enriched,
           });
         }
       } else if (favorite.target_type === "album") {
         const album = await db.get(STORE_ALBUMS, favorite.target_id);
         if (album) {
+          const { resolveLocalBlobUrl, getPrimaryImageBlobId } = await import("../../utils/images");
           const isFavorite = await checkFavorite("album", album.album_id);
           const rating = await getRating("album", album.album_id);
           // count songs in this album
@@ -981,6 +1066,10 @@ export class LocalMusicDataSource implements MusicDataSource {
             (sum, song) => sum + song.duration_seconds,
             0,
           );
+          // resolve thumbnail_url from album images
+          const blobId = getPrimaryImageBlobId(album.images);
+          const thumbnailUrl = await resolveLocalBlobUrl(blobId);
+          
           items.push({
             type: "album",
             favorited_at: favorite.favorited_at,
@@ -996,12 +1085,15 @@ export class LocalMusicDataSource implements MusicDataSource {
               total_duration: totalDuration,
               is_favorite: isFavorite,
               user_rating: rating,
+              images: album.images,
+              thumbnail_url: thumbnailUrl,
             },
           });
         }
       } else if (favorite.target_type === "artist") {
         const artist = await db.get(STORE_ARTISTS, favorite.target_id);
         if (artist) {
+          const { resolveLocalBlobUrl, getPrimaryImageBlobId } = await import("../../utils/images");
           const isFavorite = await checkFavorite("artist", artist.artist_id);
           const rating = await getRating("artist", artist.artist_id);
           // count songs and albums by this artist
@@ -1013,6 +1105,10 @@ export class LocalMusicDataSource implements MusicDataSource {
             (sum, song) => sum + song.duration_seconds,
             0,
           );
+          // resolve thumbnail_url from artist images
+          const blobId = getPrimaryImageBlobId(artist.images);
+          const thumbnailUrl = await resolveLocalBlobUrl(blobId);
+          
           items.push({
             type: "artist",
             favorited_at: favorite.favorited_at,
@@ -1024,6 +1120,8 @@ export class LocalMusicDataSource implements MusicDataSource {
               total_duration: totalDuration,
               is_favorite: isFavorite,
               user_rating: rating,
+              images: artist.images,
+              thumbnail_url: thumbnailUrl,
             },
           });
         }

@@ -11,7 +11,6 @@ import {
   type Accessor,
 } from "solid-js";
 import { useAlbumAutocompleteQuery } from "../../music/queries/autocomplete";
-import { getImageUrl } from "../../music/utils/images";
 
 export interface AlbumAutocompleteProps {
   /** current album title value */
@@ -74,7 +73,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
     const results: AlbumOption[] = [];
     const items = albumQuery.data?.items || [];
 
-    // add existing albums
+    // add existing albums - thumbnail_url already resolved
     for (const item of items) {
       results.push({
         value: item.title,
@@ -82,9 +81,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
         id: item.album_id,
         artistName: item.artist_name,
         songCount: item.song_count,
-        thumbnailUrl: item.images?.[0]?.blob_id
-          ? getImageUrl(item.images[0].blob_id)
-          : undefined,
+        thumbnailUrl: item.thumbnail_url,
         isFavorite: item.is_favorite === true,
       });
     }

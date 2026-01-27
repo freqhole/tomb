@@ -23,7 +23,6 @@ import {
 } from "../services/contextMenu";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
-import { getImageUrl } from "../utils/images";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -143,12 +142,12 @@ export function AlbumDetailView() {
     navigate(buildRoute(`/artists/${info.artist_id}`));
   };
 
-  // get album artwork from first song's thumbnail
+  // get album artwork from first song's album_thumbnail_url
   const albumArtworkUrl = createMemo(() => {
     const songList = songs();
     if (songList.length === 0) return null;
-    // use thumbnail_blob_id from first song (denormalized field)
-    return getImageUrl(songList[0].thumbnail_blob_id);
+    // use pre-resolved album_thumbnail_url for album artwork
+    return songList[0].album_thumbnail_url;
   });
 
   // context menu for album image

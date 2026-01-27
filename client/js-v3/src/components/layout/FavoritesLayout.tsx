@@ -10,7 +10,6 @@ import { ArtistCard } from "../cards/ArtistCard";
 import { PlaylistCard } from "../cards/PlaylistCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import type { Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../../music/data/types";
-import { getImageUrl } from "../../music/utils/images";
 import { useScrollRestore } from "../../utils/scrollRestore";
 
 export type FavoriteType = "all" | "songs" | "albums" | "artists" | "playlists";
@@ -304,9 +303,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                           props.onSongPlay?.(song);
                         }}
                       >
-                        <Show when={song.thumbnail_blob_id}>
+                        <Show when={song.thumbnail_url}>
                           <MediaThumbnail
-                            thumbnailUrl={getImageUrl(song.thumbnail_blob_id)}
+                            thumbnailUrl={song.thumbnail_url}
                             onPlayClick={() => {
                               console.log("media thumbnail click:", song.title);
                               props.onSongPlay?.(song);

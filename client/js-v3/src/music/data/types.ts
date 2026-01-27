@@ -59,6 +59,7 @@ export interface AlbumSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  thumbnail_url?: string | null;
   is_favorite?: boolean;
   user_rating?: number;
   tags?: string[];
@@ -93,6 +94,7 @@ export interface PlaylistSummary {
   description: string | null;
   is_public: boolean;
   thumbnail_blob_id: string | null;
+  thumbnail_url?: string | null; // pre-resolved from data source
   song_count: number;
   created_at: number;
   updated_at: number;
