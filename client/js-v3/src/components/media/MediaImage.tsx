@@ -160,7 +160,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   return (
     <div
       class={`relative overflow-hidden bg-gray-800/50 flex items-center justify-center ${
-        props.enableAlbumHover ? "group bg-cover transition-all duration-300 hover:bg-contain hover:scale-105" : ""
+        props.enableAlbumHover ? "bg-cover transition-all duration-300 group-hover:bg-contain group-hover:scale-105" : ""
       } ${getSizeClasses()} ${props.class || ""}`}
       style={{
         "background-image": resolvedUrl() && !imageError() && imageLoaded() ? `url(${resolvedUrl()})` : undefined,
