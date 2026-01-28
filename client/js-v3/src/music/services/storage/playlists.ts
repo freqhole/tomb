@@ -1,7 +1,7 @@
 // playlist storage helpers for local and synced playlists
 
 import type { IDBPDatabase } from "idb";
-import type { Playlist, PlaylistSong } from "./types";
+import type { ImageMetadata, Playlist, PlaylistSong } from "./types";
 import { STORE_PLAYLISTS, STORE_PLAYLIST_SONGS } from "./types";
 
 // ===== SYNCED PLAYLIST FUNCTIONS =====
@@ -17,7 +17,7 @@ export async function createSyncedPlaylist(
     title: string;
     description: string | null;
     is_public: boolean;
-    thumbnail_blob_id: string | null;
+    images?: ImageMetadata[];
     source_remote_id: string;
     source_remote_url: string;
     source_etag: string;

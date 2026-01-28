@@ -315,10 +315,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.playlist.title,
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
-        thumbnail_blob_id: item.playlist.thumbnail_blob_id || null,
-        thumbnail_url: item.playlist.thumbnail_blob_id
-          ? `${this.baseUrl}/api/blobs/${item.playlist.thumbnail_blob_id}`
-          : null,
+        images: item.playlist.thumbnail_blob_id
+          ? [
+              {
+                remote_url: `${this.baseUrl}/api/blobs/${item.playlist.thumbnail_blob_id}`,
+                is_primary: true,
+                type: 'thumbnail' as const,
+              },
+            ]
+          : [],
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
@@ -611,9 +616,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
               title: apiFav.playlist.playlist.title,
               description: apiFav.playlist.playlist.description,
               is_public: apiFav.playlist.playlist.is_public === 1,
-              thumbnail_blob_id: apiFav.playlist.playlist.thumbnail_blob_id 
-                ? `${this.baseUrl}/api/blobs/${apiFav.playlist.playlist.thumbnail_blob_id}`
-                : null,
+              images: apiFav.playlist.playlist.thumbnail_blob_id
+                ? [
+                    {
+                      remote_url: `${this.baseUrl}/api/blobs/${apiFav.playlist.playlist.thumbnail_blob_id}`,
+                      is_primary: true,
+                      type: 'thumbnail' as const,
+                    },
+                  ]
+                : [],
               song_count: apiFav.playlist.song_count,
               created_at: apiFav.playlist.playlist.created_at * 1000,
               updated_at: apiFav.playlist.playlist.updated_at * 1000,

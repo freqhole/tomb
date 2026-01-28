@@ -131,8 +131,8 @@ export async function downloadPlaylist(
       downloadedSongs: 0,
     });
 
-    // download thumbnail if present
-    let localThumbnailId: string | null = null;
+    // download thumbnail if present and construct images array
+    let images: Array<{ local_blob_id: string; is_primary: boolean; type: 'thumbnail' }> = [];
     if (remotePlaylist.thumbnail_blob_id) {
       try {
         const thumbnailBlobUrl = `${remoteUrl}/api/blobs/${remotePlaylist.thumbnail_blob_id}`;
@@ -142,8 +142,15 @@ export async function downloadPlaylist(
 
         if (thumbnailResponse.ok) {
           const thumbnailBlob = await thumbnailResponse.blob();
-          localThumbnailId = generateUUID();
+          const localThumbnailId = generateUUID();
           await writeThumbnailToOPFS(thumbnailBlob, localThumbnailId);
+          images = [
+            {
+              local_blob_id: localThumbnailId,
+              is_primary: true,
+              type: 'thumbnail' as const,
+            },
+          ];
         }
       } catch (error) {
         console.warn("failed to download playlist thumbnail:", error);
@@ -158,7 +165,7 @@ export async function downloadPlaylist(
       title: remotePlaylist.title,
       description: remotePlaylist.description,
       is_public: Boolean(remotePlaylist.is_public),
-      thumbnail_blob_id: localThumbnailId,
+      images: images.length > 0 ? images : undefined,
       source_remote_id: remotePlaylistId,
       source_remote_url: remoteUrl,
       source_etag: etag,

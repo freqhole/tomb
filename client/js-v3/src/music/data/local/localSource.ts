@@ -82,13 +82,14 @@ function buildSongImages(song: Song): ImageMetadata[] {
 }
 
 // helper to construct ImageMetadata from database image records
-function adaptDatabaseImages(dbImages?: Array<{ blob_id: string; is_primary: number }>): ImageMetadata[] {
+function adaptDatabaseImages(dbImages?: Array<{ blob_id?: string; local_blob_id?: string; remote_url?: string | null; is_primary: number | boolean; type?: string }>): ImageMetadata[] {
   if (!dbImages?.length) return [];
   
   return dbImages.map(img => ({
-    local_blob_id: img.blob_id,
-    is_primary: img.is_primary === 1,
-    type: 'thumbnail' as const,
+    local_blob_id: img.local_blob_id || img.blob_id || null,
+    remote_url: img.remote_url || null,
+    is_primary: typeof img.is_primary === 'boolean' ? img.is_primary : img.is_primary === 1,
+    type: (img.type as 'thumbnail' | 'waveform') || 'thumbnail',
   }));
 }
 
@@ -1046,8 +1047,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (playlist) {
         const images = playlist.images || [];
         if (params.isPrimary) {
-          images.forEach(img => img.is_primary = 0);
-          playlist.thumbnail_blob_id = blobId;
+          images.forEach(img => img.is_primary = false);
         }
         images.push(imageMetadata);
         playlist.images = images;

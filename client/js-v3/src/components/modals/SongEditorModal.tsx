@@ -24,6 +24,7 @@ import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import MediaImage from "../media/MediaImage";
+import { EntityImages } from "../layout/EntityImages";
 
 interface SongEditorModalProps {
   songId: string;
@@ -711,99 +712,22 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
               {/* images tab */}
               <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
-                <div class="space-y-6">
-                  {/* existing images grid */}
-                  <Show when={images().length > 0}>
-                    <div class="space-y-4">
-                      <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
-                        song images ({images().length})
-                      </h3>
-                      <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        <For each={images()}>
-                          {(image, index) => (
-                            <div class="relative group">
-                              <MediaImage
-                                images={[image]}
-                                alt={`song image ${index() + 1}`}
-                                domainType="song"
-                                class="w-full aspect-square object-cover rounded"
-                              />
-                              <div class="absolute top-2 left-2 flex gap-1">
-                                <Show when={image.type}>
-                                  <span class="px-2 py-0.5 text-xs bg-black/70 text-white rounded">
-                                    {image.type}
-                                  </span>
-                                </Show>
-                                <Show when={image.is_primary}>
-                                  <span class="px-2 py-0.5 text-xs bg-blue-500 text-white rounded">
-                                    primary
-                                  </span>
-                                </Show>
-                              </div>
-                              <div class="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Show when={!image.is_primary}>
-                                  <button
-                                    onClick={() => handleTogglePrimary(index())}
-                                    class="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded"
-                                    title="set as primary"
-                                  >
-                                    <Icon name={IconNames.star} size={16} />
-                                  </button>
-                                </Show>
-                                <button
-                                  onClick={() => handleRemoveImage(index())}
-                                  class="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded"
-                                  title="remove image"
-                                >
-                                  <Icon name={IconNames.delete} size={16} />
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* upload section */}
-                  <div class="space-y-4">
-                    <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
-                      add new image
-                    </h3>
-                    <Show
-                      when={!processingJob()}
-                      fallback={
-                        <div class="p-4 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)] text-center">
-                          <div class="text-sm text-[var(--color-text-secondary)]">
-                            {processingJob()?.message || "processing..."}
-                          </div>
-                        </div>
-                      }
-                    >
-                      <label class="block">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageSelect}
-                          class="hidden"
-                        />
-                        <div class="p-8 border-2 border-dashed border-[var(--color-border-default)] rounded hover:border-[var(--color-primary)] transition-colors cursor-pointer text-center">
-                          <Icon
-                            name={IconNames.upload}
-                            size={32}
-                            className="mx-auto mb-2 text-[var(--color-text-tertiary)]"
-                          />
-                          <div class="text-sm text-[var(--color-text-primary)]">
-                            click to upload image
-                          </div>
-                          <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                            jpg, png, webp (max 10mb)
-                          </div>
-                        </div>
-                      </label>
-                    </Show>
-                  </div>
-                </div>
+                <EntityImages
+                  images={images()}
+                  onUpload={(file) => {
+                    const event = new Event("change") as any;
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    input.files = dataTransfer.files;
+                    Object.defineProperty(event, "target", { value: input, writable: false });
+                    handleImageSelect(event);
+                  }}
+                  onDelete={handleRemoveImage}
+                  onSetPrimary={handleTogglePrimary}
+                  uploading={!!processingJob()}
+                />
               </TabPanel>
         </Tabs>
 

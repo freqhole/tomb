@@ -21,6 +21,8 @@ import { IconButton } from "../../components/buttons/IconButton";
 import { ConfirmDialog } from "../../components/dialogs/ConfirmDialog";
 import { ImageCarouselModal } from "../../components/modals/ImageCarouselModal";
 import { toast } from "../../components/feedback/Toast";
+import { Icon, IconNames } from "../../components/icons/registry";
+import MediaImage from "../../components/media/MediaImage";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import {
@@ -51,7 +53,7 @@ import {
   usePlaylistContextMenu,
   useSongContextMenu,
 } from "../services/contextMenu";
-import { storeBlob } from "../services/storage/blobs";
+import { storeBlob, getBlobObjectURL } from "../services/storage/blobs";
 import {
   checkIfPlaylistNeedsSync,
   downloadPlaylist,
@@ -67,6 +69,8 @@ import {
 } from "../services/storage/playlists";
 import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
+import { PlaylistImageManager } from "./playlists/PlaylistImageManager";
+import { PlaylistEditor } from "./playlists/PlaylistEditor";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -99,10 +103,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [lastClickedId, setLastClickedId] = createSignal<string | null>(null);
   const [clickTimeout, setClickTimeout] = createSignal<number | null>(null);
   const [editMode, setEditMode] = createSignal(false);
-  const [editTitle, setEditTitle] = createSignal("");
-  const [editDescription, setEditDescription] = createSignal("");
-  const [uploadingImage, setUploadingImage] = createSignal(false);
-  const [uploadProgress, setUploadProgress] = createSignal(0);
   const [showImageCarousel, setShowImageCarousel] = createSignal(false);
   const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
   const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
@@ -119,6 +119,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [localThumbnailUrl, setLocalThumbnailUrl] = createSignal<string | null>(
     null,
   );
+  const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
   const [downloadProgress, setDownloadProgress] =
     createSignal<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = createSignal(false);
@@ -158,13 +159,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     }
   });
   const [isSyncing, setIsSyncing] = createSignal(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
-  const [isDeleting, setIsDeleting] = createSignal(false);
 
   // mutations for updating playlist
   const updatePlaylistMutation = useUpdatePlaylistMutation();
   const reorderSongsMutation = useReorderPlaylistSongsMutation();
-  const deletePlaylistMutation = useDeletePlaylistMutation();
 
   // query client for invalidation
   const queryClient = useQueryClient();
@@ -174,6 +172,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const url = localThumbnailUrl();
     if (url) {
       URL.revokeObjectURL(url);
+    }
+    const bgUrl = backgroundImageUrl();
+    if (bgUrl) {
+      URL.revokeObjectURL(bgUrl);
     }
   });
 
@@ -329,6 +331,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     }
   });
 
+  // clear edit mode when navigating to a different playlist
+  createEffect(() => {
+    selectedPlaylistId();
+    setEditMode(false);
+  });
+
   // handle playlist selection (simple click, like ArtistsView/GenresView)
   const handlePlaylistClick = (item: ListItem) => {
     setIsLocalClick(true);
@@ -384,6 +392,40 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     }
 
     return null;
+  });
+
+  // resolve blob URLs for background image (convert blob IDs to actual URLs)
+  createEffect(() => {
+    const url = thumbnailUrl();
+    
+    // revoke old background URL
+    untrack(() => {
+      const oldBgUrl = backgroundImageUrl();
+      if (oldBgUrl && oldBgUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(oldBgUrl);
+      }
+    });
+    
+    if (!url) {
+      setBackgroundImageUrl(null);
+      return;
+    }
+    
+    // if it's already a URL (http/https/blob), use it directly
+    if (url.startsWith('http') || url.startsWith('blob:')) {
+      setBackgroundImageUrl(url);
+      return;
+    }
+    
+    // otherwise it's a blob ID, need to resolve it to a blob URL
+    getBlobObjectURL(url).then(blob => {
+      if (blob) {
+        const blobUrl = URL.createObjectURL(blob);
+        setBackgroundImageUrl(blobUrl);
+      } else {
+        setBackgroundImageUrl(null);
+      }
+    });
   });
 
   // calculate total duration
@@ -467,126 +509,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       return;
     }
 
-    if (!editMode()) {
-      // entering edit mode - populate fields
-      setEditTitle(playlist.title);
-      setEditDescription(playlist.description || "");
-      setEditMode(true);
-    } else {
-      // exiting edit mode without saving
-      setEditMode(false);
-    }
-  };
-
-  // save playlist changes
-  const handleSavePlaylist = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    try {
-      await updatePlaylistMutation.mutateAsync({
-        playlistId: playlist.playlist_id,
-        title: editTitle() || null,
-        description: editDescription() || null,
-      });
-
-      setEditMode(false);
-
-      // refresh local playlist data
-      const remote = getCurrentRemote();
-      if (!remote) {
-        await getPlaylistById(playlist.playlist_id).then((p) => {
-          setFullPlaylist(p || null);
-        });
-      }
-    } catch (error) {
-      console.error("failed to update playlist:", error);
-    }
-  };
-
-  // cancel edit mode
-  const handleCancelEdit = () => {
-    setEditMode(false);
-  };
-
-  // handle image upload
-  const handleImageUpload = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    const remote = getCurrentRemote();
-    const isLocal = !remote;
-
-    // create file input
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      // validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        console.error("file too large (max 10MB)");
-        return;
-      }
-
-      setUploadingImage(true);
-      setUploadProgress(0);
-
-      try {
-        if (isLocal) {
-          // for local playlists, store blob and update playlist
-          const blobId = await storeBlob(file, file.type);
-
-          // update playlist with new thumbnail
-          const dataSource = getDataSource();
-          await dataSource.uploadImage?.({
-            file,
-            entityType: "playlist",
-            entityId: playlist.playlist_id,
-            isPrimary: true,
-          });
-
-          // invalidate and refetch queries
-          await queryClient.invalidateQueries({
-            queryKey: ["playlists"],
-          });
-
-          toast.success("playlist image updated");
-        } else {
-          // for remote playlists, upload to server
-          const datasource = await getDataSource();
-          
-          const blobId = await datasource.uploadImage?.({
-            file,
-            entityType: "playlist",
-            entityId: playlist.playlist_id,
-            isPrimary: true,
-          });
-
-          if (!blobId) {
-            console.error("upload failed");
-            return;
-          }
-
-          console.log("image uploaded successfully:", blobId);
-
-          // invalidate queries to refresh the UI
-          await queryClient.invalidateQueries({
-            queryKey: ["playlists"],
-            refetchType: "all",
-          });
-        }
-      } catch (error) {
-        console.error("failed to upload image:", error);
-      } finally {
-        setUploadingImage(false);
-        setUploadProgress(0);
-      }
-    };
-
-    input.click();
+    setEditMode(!editMode());
   };
 
   // handle drag start
@@ -648,56 +571,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     } finally {
       setDraggedSongId(null);
       setDropTargetIndex(null);
-    }
-  };
-
-  // handle image removal
-  const handleRemoveImage = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist || !playlist.images?.length) return;
-
-    const remote = getCurrentRemote();
-    const isLocal = !remote;
-
-    try {
-      if (isLocal) {
-        // for local playlists, just clear the images
-        const dataSource = getDataSource();
-        await (dataSource as any).updatePlaylist?.(playlist.playlist_id, {
-          images: [],
-        });
-
-        // invalidate queries first
-        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
-
-        // revoke and clear local thumbnail URL
-        const oldUrl = localThumbnailUrl();
-        if (oldUrl) {
-          URL.revokeObjectURL(oldUrl);
-        }
-        setLocalThumbnailUrl(null);
-
-        // refresh local playlist data
-        await getPlaylistById(playlist.playlist_id).then((p) => {
-          setFullPlaylist(p || null);
-        });
-      } else {
-        // for remote playlists, call datasource to remove thumbnail
-        const datasource = await getDataSource();
-        
-        await datasource.removeImage?.({
-          entityType: "playlist",
-          entityId: playlist.playlist_id,
-          blobId: "", // not needed for playlist removal
-        });
-
-        console.log("image removed successfully");
-
-        // invalidate queries to refresh the UI
-        queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      }
-    } catch (error) {
-      console.error("failed to remove image:", error);
     }
   };
 
@@ -857,8 +730,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
         // enter edit mode
         setEditMode(true);
-        setEditTitle("new playlist");
-        setEditDescription("");
 
         toast.success("created new playlist", {
           title: "playlist created",
@@ -873,45 +744,31 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     }
   };
 
-  // handle delete playlist
-  const handleDeletePlaylist = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
+  // callbacks for PlaylistEditor
+  const handlePlaylistSaved = async () => {
+    setEditMode(false);
 
+    // refresh local playlist data
     const remote = getCurrentRemote();
-    setIsDeleting(true);
-
-    try {
-      if (remote) {
-        // delete remote playlist
-        await deletePlaylistMutation.mutateAsync(playlist.playlist_id);
-      } else {
-        // delete local playlist (severs sync if synced)
-        const dataSource = getDataSource();
-        await dataSource.deletePlaylist?.(playlist.playlist_id);
-
-        // invalidate queries
-        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+    if (!remote) {
+      const playlist = selectedPlaylist();
+      if (playlist) {
+        await getPlaylistById(playlist.playlist_id).then((p) => {
+          setFullPlaylist(p || null);
+        });
       }
-
-      // clear selection and navigate back to list
-      setSelectedPlaylistId(null);
-      const prefix = getRoutePrefix();
-      navigate(`${prefix}/playlists`, { replace: true });
-
-      toast.success(`deleted "${playlist.title}"`, {
-        title: "playlist deleted",
-      });
-    } catch (error) {
-      console.error("failed to delete playlist:", error);
-      toast.error(
-        error instanceof Error ? error.message : "failed to delete playlist",
-        { title: "delete failed" },
-      );
-    } finally {
-      setIsDeleting(false);
-      setShowDeleteConfirm(false);
     }
+  };
+
+  const handlePlaylistDeleted = () => {
+    // clear selection and navigate back to list
+    setSelectedPlaylistId(null);
+    const prefix = getRoutePrefix();
+    navigate(`${prefix}/playlists`, { replace: true });
+  };
+
+  const handlePlaylistEditCancelled = () => {
+    setEditMode(false);
   };
 
   return (
@@ -1020,8 +877,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                     <div
                       class="flex flex-col h-full relative"
                       style={{
-                        ...(thumbnailUrl() && {
-                          "background-image": `url('${thumbnailUrl()}')`,
+                        ...(backgroundImageUrl() && {
+                          "background-image": `url('${backgroundImageUrl()}')`,
                           "background-size": "cover",
                           "background-position": "center top",
                           "background-repeat": "no-repeat",
@@ -1029,7 +886,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                       }}
                     >
                       {/* background overlay */}
-                      <Show when={thumbnailUrl()}>
+                      <Show when={backgroundImageUrl()}>
                         <div class="absolute inset-0 bg-black/70 z-0" />
                       </Show>
 
@@ -1079,47 +936,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               </>
                             }
                           >
-                            <div class="space-y-2 mb-3">
-                              <input
-                                type="text"
-                                class="w-full px-2 py-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] text-xl font-bold focus:outline-none focus:border-[var(--color-accent-500)]"
-                                value={editTitle()}
-                                onInput={(e) =>
-                                  setEditTitle(e.currentTarget.value)
-                                }
-                                placeholder="playlist title"
-                              />
-                              <textarea
-                                class="w-full px-2 py-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-secondary)] text-sm focus:outline-none focus:border-[var(--color-accent-500)] resize-none"
-                                rows="2"
-                                value={editDescription()}
-                                onInput={(e) =>
-                                  setEditDescription(e.currentTarget.value)
-                                }
-                                placeholder="description (optional)"
-                              />
-                              <div class="flex gap-2">
-                                <Button
-                                  variant="primary"
-                                  onClick={handleSavePlaylist}
-                                >
-                                  save
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  onClick={handleCancelEdit}
-                                >
-                                  cancel
-                                </Button>
-                                <div class="flex-1" />
-                                <Button
-                                  variant="danger"
-                                  onClick={() => setShowDeleteConfirm(true)}
-                                >
-                                  delete
-                                </Button>
-                              </div>
-                            </div>
+                            <PlaylistEditor
+                              playlist={selectedPlaylist()!}
+                              onSaved={handlePlaylistSaved}
+                              onDeleted={handlePlaylistDeleted}
+                              onCancelled={handlePlaylistEditCancelled}
+                            />
                           </Show>
 
                           <Show when={!playlistSongsQuery.isLoading}>
@@ -1228,13 +1050,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                 >
                                   make local copy
                                 </Button>
-                                <IconButton
-                                  icon="delete"
-                                  variant="ghost"
-                                  onClick={() => setShowDeleteConfirm(true)}
-                                  title="delete playlist"
-                                  aria-label="delete playlist"
-                                />
                               </Show>
                             </div>
                           </Show>
@@ -1283,37 +1098,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                 <p class="text-sm text-[var(--color-error)]">
                                   error: {downloadProgress()?.error}
                                 </p>
-                              </Show>
-                            </div>
-                          </Show>
-
-                          {/* image upload controls (edit mode only) */}
-                          <Show when={editMode()}>
-                            <div class="mt-4 flex gap-2">
-                              <Show
-                                when={!uploadingImage()}
-                                fallback={
-                                  <div class="text-[var(--color-text-secondary)] text-sm">
-                                    uploading... {uploadProgress()}%
-                                  </div>
-                                }
-                              >
-                                <button
-                                  class="px-3 py-1 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white text-sm rounded"
-                                  onClick={handleImageUpload}
-                                >
-                                  {thumbnailUrl()
-                                    ? "change background"
-                                    : "upload background"}
-                                </button>
-                                <Show when={thumbnailUrl()}>
-                                  <button
-                                    class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded"
-                                    onClick={handleRemoveImage}
-                                  >
-                                    remove background
-                                  </button>
-                                </Show>
                               </Show>
                             </div>
                           </Show>
@@ -1438,20 +1222,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
           onClose={() => setShowImageCarousel(false)}
         />
       </Show>
-
-      {/* delete confirmation dialog */}
-      <ConfirmDialog
-        isOpen={showDeleteConfirm()}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleDeletePlaylist}
-        title="delete playlist"
-        message={`are you sure you want to delete "${selectedPlaylist()?.title}"? this action cannot be undone.`}
-        confirmText="delete"
-        cancelText="cancel"
-        variant="danger"
-        loading={isDeleting()}
-        alertVariant="warning"
-      />
     </div>
   );
 }
