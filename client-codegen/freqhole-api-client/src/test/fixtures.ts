@@ -93,9 +93,6 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
   label: null,
   genre: null,
   sub_genre: null,
-  thumbnail_blob_id: null,
-  thumbnail_from_file: null,
-  thumbnail_from_bytes: null,
   add_tags: null,
   remove_tags: null,
   replace_tags: null,
@@ -127,7 +124,6 @@ export const updatePlaylistRequest: s.UpdatePlaylistRequest = {
   title: "Updated Playlist",
   description: "Updated description",
   is_public: null,
-  thumbnail_blob_id: null,
   updated_by: null,
 };
 
