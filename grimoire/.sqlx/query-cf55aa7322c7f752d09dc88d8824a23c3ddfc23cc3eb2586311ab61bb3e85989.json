@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT DISTINCT mb.id as \"id!\"\n        FROM media_blobz mb\n        WHERE mb.id IN (\n            -- album images\n            SELECT media_blob_id FROM album_imagez WHERE album_id = ?\n            UNION\n            -- song images for this album\n            SELECT si.media_blob_id\n            FROM song_imagez si\n            JOIN album_songz asz ON si.song_id = asz.song_id\n            WHERE asz.album_id = ?\n        )\n        AND mb.blob_type != 'waveform'\n        AND mb.deleted_at IS NULL\n        ORDER BY mb.created_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "cf55aa7322c7f752d09dc88d8824a23c3ddfc23cc3eb2586311ab61bb3e85989"
+}

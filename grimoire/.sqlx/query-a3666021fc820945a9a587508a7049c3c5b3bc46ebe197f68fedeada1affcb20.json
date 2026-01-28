@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            genre.id as \"genre_id!: String\",\n            genre.name as \"genre_name!: String\",\n            fts.rank as \"fts_rank!: f64\",\n            COUNT(DISTINCT album.id) as \"song_count!: i64\"\n        FROM genrez_fts fts\n        JOIN genrez genre ON fts.genre_id = genre.id\n        LEFT JOIN albumz album ON album.genre_id = genre.id AND album.deleted_at IS NULL\n        WHERE genrez_fts MATCH ?\n            AND genre.deleted_at IS NULL\n        GROUP BY genre.id, genre.name, fts.rank\n        ORDER BY fts.rank DESC\n        LIMIT 100\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "genre_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "genre_name!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "fts_rank!: f64",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "song_count!: i64",
+        "ordinal": 3,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "a3666021fc820945a9a587508a7049c3c5b3bc46ebe197f68fedeada1affcb20"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO playlist_imagez (playlist_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "e6d27d563d7f88835bee9b24014ae1502dc82218d7637ac12648553815243966"
+}

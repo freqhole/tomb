@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            artist_id as \"id!\",\n            artist_name as \"name!\",\n            artist_bio as \"bio?\",\n            artist_created_at as \"created_at!\",\n            artist_updated_at as \"updated_at!\",\n            artist_deleted_at as \"deleted_at?\",\n            artist_deleted_by as \"deleted_by?\",\n            artist_created_by as \"created_by?\",\n            artist_updated_by as \"updated_by?\",\n            artist_images as \"images: JsonVec<ImageMetadata>\"\n           FROM artist_query_view\n           ORDER BY artist_name ASC\n           LIMIT ? OFFSET ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "bio?",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at?",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by?",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by?",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by?",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "images: JsonVec<ImageMetadata>",
+        "ordinal": 9,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7e4a3439e3d913c0c53faa946e1649121468dd438db3ac848db6b0b851539ff6"
+}

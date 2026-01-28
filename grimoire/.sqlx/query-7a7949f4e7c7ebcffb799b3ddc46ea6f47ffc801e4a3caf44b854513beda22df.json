@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO scanned_directories (path, recursive, last_scanned_at, file_count, created_by)\n        VALUES (?, 1, ?, ?, ?)\n        ON CONFLICT(path) DO UPDATE SET\n            last_scanned_at = excluded.last_scanned_at,\n            file_count = excluded.file_count,\n            updated_at = unixepoch()\n        RETURNING id as \"id!\", path as \"path!\", recursive as \"recursive!\",\n                  last_scanned_at as \"last_scanned_at!\", file_count as \"file_count!\",\n                  created_by, created_at as \"created_at!\", updated_at as \"updated_at!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "path!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "recursive!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_scanned_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "file_count!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "7a7949f4e7c7ebcffb799b3ddc46ea6f47ffc801e4a3caf44b854513beda22df"
+}

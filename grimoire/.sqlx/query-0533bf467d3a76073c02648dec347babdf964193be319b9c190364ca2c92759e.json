@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT cache_value FROM scan_cache WHERE session_id = ? AND cache_key = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "cache_value",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0533bf467d3a76073c02648dec347babdf964193be319b9c190364ca2c92759e"
+}

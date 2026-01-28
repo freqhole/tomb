@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT id as \"id!\", user_id as \"user_id!\", credential_id as \"credential_id!\", credential_data as \"credential_data!\", created_at as \"created_at!\", last_used_at, deleted_at\n            FROM user_credentialz\n            WHERE user_id = ?1 AND deleted_at IS NULL\n            ORDER BY created_at DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "credential_id!",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "credential_data!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "last_used_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "32baed7e5d451e07bb0974a0345bf16c5f77b043dbd2776927b2f89f6ae1bafc"
+}

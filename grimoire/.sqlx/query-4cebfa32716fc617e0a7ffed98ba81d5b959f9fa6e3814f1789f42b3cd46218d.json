@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) as count FROM album_imagez WHERE album_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "count",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4cebfa32716fc617e0a7ffed98ba81d5b959f9fa6e3814f1789f42b3cd46218d"
+}

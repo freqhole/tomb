@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                id as \"id!\",\n                name as \"name!\",\n                created_at as \"created_at!\",\n                NULL as \"images?: JsonVec<ImageMetadata>\"\n            FROM genrez\n            WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "images?: JsonVec<ImageMetadata>",
+        "ordinal": 3,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "62b2f4fe7c0f0723b5e80c5ead66876bd093529e33c4745a2fe6418f6bcd3798"
+}

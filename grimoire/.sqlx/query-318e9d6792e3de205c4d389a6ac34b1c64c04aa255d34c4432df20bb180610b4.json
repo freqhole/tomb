@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        UPDATE job_sessionz\n        SET progress = ?, last_checkpoint = ?\n        WHERE id = ?\n        RETURNING id as \"id!\", job_type as \"job_type!\", status as \"status!\",\n                  progress as \"progress!\", last_checkpoint, batch_size as \"batch_size!\",\n                  created_at as \"created_at!\", updated_at as \"updated_at!\", created_by\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "job_type!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "progress!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_checkpoint",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "batch_size!",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "318e9d6792e3de205c4d389a6ac34b1c64c04aa255d34c4432df20bb180610b4"
+}

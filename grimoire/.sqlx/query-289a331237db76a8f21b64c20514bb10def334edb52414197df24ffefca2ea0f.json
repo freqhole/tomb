@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE albumz SET deleted_at = NULL, deleted_by = NULL, updated_at = unixepoch(), updated_by = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "289a331237db76a8f21b64c20514bb10def334edb52414197df24ffefca2ea0f"
+}

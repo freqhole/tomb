@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            song.id as \"song_id!: String\",\n            song.title as \"song_title!: String\",\n            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))\n             FROM song_imagez si\n             JOIN media_blobz mb ON si.media_blob_id = mb.id\n             WHERE si.song_id = song.id) as \"images: String\",\n            (SELECT album_id FROM album_songz WHERE song_id = song.id LIMIT 1) as \"album_id: String\",\n            fts.rank as \"fts_rank!: f64\",\n            rating.rating as \"user_rating: i64\",\n            CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as \"is_favorite!: i64\"\n        FROM songz_fts fts\n        JOIN songz song ON fts.song_id = song.id\n        LEFT JOIN user_ratingz rating\n            ON rating.target_id = song.id\n            AND rating.target_type = 'song'\n            AND rating.user_id = ?\n        LEFT JOIN user_favoritez favorite\n            ON favorite.target_id = song.id\n            AND favorite.target_type = 'song'\n            AND favorite.user_id = ?\n        WHERE songz_fts MATCH ?\n            AND song.deleted_at IS NULL\n            AND (rating.rating IS NULL OR rating.rating != 0)\n        ORDER BY fts.rank DESC\n        LIMIT 100\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "song_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_title!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "images: String",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "album_id: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "fts_rank!: f64",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "user_rating: i64",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_favorite!: i64",
+        "ordinal": 6,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true,
+      false,
+      null,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "2f2be77c7d6a7d19e87bc6bc34aafb5f94e28b04bd85fa6953c153a02cd5833b"
+}

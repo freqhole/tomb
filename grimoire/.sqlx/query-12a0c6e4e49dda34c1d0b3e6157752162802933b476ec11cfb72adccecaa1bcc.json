@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE user_accountz\n            SET api_key = ?1, updated_at = ?2\n            WHERE id = ?3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "12a0c6e4e49dda34c1d0b3e6157752162802933b476ec11cfb72adccecaa1bcc"
+}

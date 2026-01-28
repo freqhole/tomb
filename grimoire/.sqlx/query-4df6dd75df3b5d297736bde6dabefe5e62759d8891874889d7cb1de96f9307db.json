@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!\" FROM media_blobz WHERE content_id = ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4df6dd75df3b5d297736bde6dabefe5e62759d8891874889d7cb1de96f9307db"
+}

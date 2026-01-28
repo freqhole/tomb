@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM album_imagez WHERE album_id = ? AND media_blob_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "af504e51d4aba08c220bb91774fbcbaa517095d2e8bfb704f3d8f3d8ff405684"
+}

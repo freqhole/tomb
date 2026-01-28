@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO scan_cache (session_id, cache_key, cache_value) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9378a451c5dfba70cceb3176b624ad140a17381be19cf547c0bd3f7180673ba1"
+}

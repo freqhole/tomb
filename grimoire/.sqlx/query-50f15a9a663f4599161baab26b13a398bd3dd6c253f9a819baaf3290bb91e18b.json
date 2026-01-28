@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT media_blob_id FROM playlist_imagez WHERE playlist_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "media_blob_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "50f15a9a663f4599161baab26b13a398bd3dd6c253f9a819baaf3290bb91e18b"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        UPDATE songz\n        SET metadata = json_patch(COALESCE(metadata, '{}'), ?)\n        WHERE id = ?\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "2db46041f9433b63a69b4a529263153afbb3aeaae2dedd53594be10b3e29593f"
+}

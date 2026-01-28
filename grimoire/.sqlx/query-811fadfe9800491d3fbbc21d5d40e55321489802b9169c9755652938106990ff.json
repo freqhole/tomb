@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE songz SET deleted_at = unixepoch() WHERE media_blob_id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "811fadfe9800491d3fbbc21d5d40e55321489802b9169c9755652938106990ff"
+}

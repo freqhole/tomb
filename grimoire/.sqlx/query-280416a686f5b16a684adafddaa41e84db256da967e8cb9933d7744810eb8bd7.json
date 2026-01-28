@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE songz\n            SET year = ?,\n                updated_at = unixepoch()\n            WHERE id IN (SELECT song_id FROM album_songz WHERE album_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "280416a686f5b16a684adafddaa41e84db256da967e8cb9933d7744810eb8bd7"
+}

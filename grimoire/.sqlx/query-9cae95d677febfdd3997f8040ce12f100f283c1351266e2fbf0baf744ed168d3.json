@@ -1,0 +1,92 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            p.id as \"id!\",\n            p.title as \"title!\",\n            p.description,\n            p.is_public as \"is_public!\",\n            NULL as \"images?: JsonVec<ImageMetadata>\",\n            p.created_by_id,\n            p.created_at as \"created_at!\",\n            p.updated_at as \"updated_at!\",\n            p.deleted_at,\n            p.deleted_by,\n            p.created_by,\n            p.updated_by,\n            COALESCE(COUNT(ps.song_id), 0) as \"song_count!: i64\"\n           FROM playlistz p\n           LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id\n           WHERE LOWER(p.title) = LOWER(?)\n           GROUP BY p.id\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "description",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_public!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "images?: JsonVec<ImageMetadata>",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "created_by_id",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "song_count!: i64",
+        "ordinal": 12,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "9cae95d677febfdd3997f8040ce12f100f283c1351266e2fbf0baf744ed168d3"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO album_imagez (album_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d3308d2c391bf8effea32a328322bed57e0740b82b682fd9ddb43893c008f5a1"
+}

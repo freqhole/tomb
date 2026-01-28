@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n                id as \"id!\",\n                name as \"name!\",\n                bio,\n                created_at as \"created_at!\",\n                updated_at as \"updated_at!\",\n                deleted_at,\n                deleted_by,\n                created_by,\n                updated_by,\n                NULL as \"images?: JsonVec<ImageMetadata>\"\n            FROM artistz WHERE id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "bio",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_by",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_by",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "images?: JsonVec<ImageMetadata>",
+        "ordinal": 9,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "21b62de3623d5e88dc281db7f268e19c8497e37947dfea2aef5f9fd6c03485af"
+}

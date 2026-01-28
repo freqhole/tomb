@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT album_id FROM album_songz WHERE song_id = ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "album_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "47ae1626994ea935694b3c2d1599fe93c3c289a562b65a674e2b1a1e4ae4dc17"
+}

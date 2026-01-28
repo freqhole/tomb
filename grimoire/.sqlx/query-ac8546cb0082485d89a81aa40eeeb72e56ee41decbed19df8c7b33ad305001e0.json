@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    UPDATE media_blobz\n                    SET metadata = json_patch(COALESCE(metadata, '{}'), ?)\n                    WHERE content_id = ?\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ac8546cb0082485d89a81aa40eeeb72e56ee41decbed19df8c7b33ad305001e0"
+}

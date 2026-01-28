@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE playlist_imagez SET is_primary = 0 WHERE playlist_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "b2ec92f5eb658abb58a171ffaf20a8766e5c4a0321b1395fa3fffaaed4f3859e"
+}

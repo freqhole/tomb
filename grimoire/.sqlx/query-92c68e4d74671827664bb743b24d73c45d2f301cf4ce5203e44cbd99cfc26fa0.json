@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE album_imagez SET is_primary = 0 WHERE album_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "92c68e4d74671827664bb743b24d73c45d2f301cf4ce5203e44cbd99cfc26fa0"
+}

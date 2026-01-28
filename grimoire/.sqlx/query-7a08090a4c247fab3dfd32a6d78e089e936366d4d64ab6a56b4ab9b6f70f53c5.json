@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT updated_at as \"updated_at!\" FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "updated_at!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7a08090a4c247fab3dfd32a6d78e089e936366d4d64ab6a56b4ab9b6f70f53c5"
+}

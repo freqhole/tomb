@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            sub_genre.id as \"sub_genre_id!: String\",\n            sub_genre.name as \"sub_genre_name!: String\",\n            parent_genre.name as \"parent_genre_name: Option<String>\",\n            fts.rank as \"fts_rank!: f64\",\n            COUNT(DISTINCT asg.album_id) as \"song_count!: i64\"\n        FROM sub_genrez_fts fts\n        JOIN sub_genrez sub_genre ON fts.sub_genre_id = sub_genre.id\n        LEFT JOIN genrez parent_genre ON sub_genre.parent_genre_id = parent_genre.id AND parent_genre.deleted_at IS NULL\n        LEFT JOIN album_sub_genrez asg ON asg.sub_genre_id = sub_genre.id\n        WHERE sub_genrez_fts MATCH ?\n            AND sub_genre.deleted_at IS NULL\n        GROUP BY sub_genre.id, sub_genre.name, parent_genre.name, fts.rank\n        ORDER BY fts.rank DESC\n        LIMIT 100\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "sub_genre_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "sub_genre_name!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "parent_genre_name: Option<String>",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "fts_rank!: f64",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "song_count!: i64",
+        "ordinal": 4,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "5f8ed6582d352f1c10bed2dc4caa32ea611ee25fd7771b0801a48c17fe8b1d40"
+}

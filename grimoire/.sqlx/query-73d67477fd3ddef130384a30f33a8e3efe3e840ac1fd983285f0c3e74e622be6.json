@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE playlistz SET\n            updated_at = unixepoch(),\n            title = COALESCE(?, title),\n            description = COALESCE(?, description),\n            is_public = COALESCE(?, is_public),\n            updated_by = COALESCE(?, updated_by)\n        WHERE id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "73d67477fd3ddef130384a30f33a8e3efe3e840ac1fd983285f0c3e74e622be6"
+}

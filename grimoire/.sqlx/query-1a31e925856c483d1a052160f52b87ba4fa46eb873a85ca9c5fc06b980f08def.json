@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            playlist.id as \"playlist_id!: String\",\n            playlist.title as \"playlist_title!: String\",\n            playlist.description as \"playlist_description: String\",\n            playlist.is_public as \"is_public!: i64\",\n            playlist.created_by as \"created_by!: String\",\n            fts.rank as \"fts_rank!: f64\",\n            (SELECT COUNT(DISTINCT ps2.song_id) FROM playlist_songz ps2 WHERE ps2.playlist_id = playlist.id) as \"song_count!: i64\"\n        FROM playlistz_fts fts\n        JOIN playlistz playlist ON fts.playlist_id = playlist.id\n\n        WHERE playlistz_fts MATCH ?\n            AND playlist.deleted_at IS NULL\n            AND (playlist.is_public = 1 OR playlist.created_by = ?)\n            -- tag include filter (OR logic - playlist must contain songs from albums with these tags)\n            AND (NOT ? OR EXISTS (\n                SELECT 1 FROM playlist_songz psong\n                JOIN album_songz alsong ON psong.song_id = alsong.song_id\n                JOIN album_tagz atag ON atag.album_id = alsong.album_id\n                WHERE psong.playlist_id = playlist.id\n                AND atag.tag_id IN (SELECT value FROM json_each(?))\n            ))\n            -- tag exclude filter (AND NOT logic - playlist must not contain songs from albums with these tags)\n            AND (NOT ? OR NOT EXISTS (\n                SELECT 1 FROM playlist_songz psong\n                JOIN album_songz alsong ON psong.song_id = alsong.song_id\n                JOIN album_tagz atag ON atag.album_id = alsong.album_id\n                WHERE psong.playlist_id = playlist.id\n                AND atag.tag_id IN (SELECT value FROM json_each(?))\n            ))\n        GROUP BY playlist.id, playlist.title, playlist.description, playlist.is_public, playlist.created_by, fts.rank\n        ORDER BY fts.rank DESC\n        LIMIT ? OFFSET ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "playlist_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "playlist_title!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "playlist_description: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_public!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_by!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "fts_rank!: f64",
+        "ordinal": 5,
+        "type_info": "Null"
+      },
+      {
+        "name": "song_count!: i64",
+        "ordinal": 6,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "1a31e925856c483d1a052160f52b87ba4fa46eb873a85ca9c5fc06b980f08def"
+}

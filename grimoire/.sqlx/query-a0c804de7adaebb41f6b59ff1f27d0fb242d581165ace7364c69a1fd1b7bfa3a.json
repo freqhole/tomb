@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                SELECT s.id as \"id!\", s.title as \"title!\", s.duration, mb.local_path\n                FROM songz s\n                JOIN artist_songz asz ON asz.song_id = s.id\n                JOIN artistz a ON a.id = asz.artist_id\n                JOIN album_songz als ON als.song_id = s.id\n                JOIN albumz alb ON alb.id = als.album_id\n                LEFT JOIN media_blobz mb ON mb.id = s.media_blob_id\n                WHERE LOWER(a.name) = LOWER(?)\n                  AND LOWER(alb.title) = LOWER(?)\n                  AND LOWER(s.title) = LOWER(?)\n                  AND s.track_number = ?\n                  AND s.disc_number = ?\n                  AND s.duration BETWEEN ? AND ?\n                  AND s.deleted_at IS NULL\n                LIMIT 1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "duration",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "local_path",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "a0c804de7adaebb41f6b59ff1f27d0fb242d581165ace7364c69a1fd1b7bfa3a"
+}

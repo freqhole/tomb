@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT COUNT(DISTINCT song.id) as \"count!: i64\"\n        FROM songz_fts fts\n        JOIN songz song ON fts.song_id = song.id\n        WHERE songz_fts MATCH ?\n            AND song.deleted_at IS NULL\n            -- tag include filter (OR logic - must have at least one of these tags)\n            AND (NOT ? OR EXISTS (\n                SELECT 1 FROM album_songz asong_filter\n                JOIN album_tagz atag ON atag.album_id = asong_filter.album_id\n                WHERE asong_filter.song_id = song.id\n                AND atag.tag_id IN (SELECT value FROM json_each(?))\n            ))\n            -- tag exclude filter (AND NOT logic - must not have any of these tags)\n            AND (NOT ? OR NOT EXISTS (\n                SELECT 1 FROM album_songz asong_filter\n                JOIN album_tagz atag ON atag.album_id = asong_filter.album_id\n                WHERE asong_filter.song_id = song.id\n                AND atag.tag_id IN (SELECT value FROM json_each(?))\n            ))\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9bea0bbc4c7be4cc18ddd5f8aa51a7b60d87b0691cd83bb3ffe06badb69ae90c"
+}

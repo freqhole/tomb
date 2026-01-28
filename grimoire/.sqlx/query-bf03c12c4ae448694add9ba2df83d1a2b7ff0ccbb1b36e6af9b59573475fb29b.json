@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT DISTINCT mb.id as \"id!\"\n        FROM media_blobz mb\n        WHERE mb.id IN (\n            -- playlist images\n            SELECT media_blob_id FROM playlist_imagez WHERE playlist_id = ?\n            UNION\n            -- artist images for songs in playlist (via artist_songz)\n            SELECT ai.media_blob_id\n            FROM artist_imagez ai\n            WHERE ai.artist_id IN (\n                SELECT DISTINCT asz.artist_id\n                FROM playlist_songz ps\n                JOIN artist_songz asz ON ps.song_id = asz.song_id\n                WHERE ps.playlist_id = ?\n            )\n            UNION\n            -- album images for songs in playlist (via album_songz)\n            SELECT ali.media_blob_id\n            FROM album_imagez ali\n            WHERE ali.album_id IN (\n                SELECT DISTINCT absz.album_id\n                FROM playlist_songz ps\n                JOIN album_songz absz ON ps.song_id = absz.song_id\n                WHERE ps.playlist_id = ?\n            )\n            UNION\n            -- song images in playlist\n            SELECT si.media_blob_id\n            FROM playlist_songz ps\n            JOIN song_imagez si ON ps.song_id = si.song_id\n            WHERE ps.playlist_id = ?\n        )\n        AND mb.blob_type != 'waveform'\n        AND mb.deleted_at IS NULL\n        ORDER BY mb.created_at DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "bf03c12c4ae448694add9ba2df83d1a2b7ff0ccbb1b36e6af9b59573475fb29b"
+}

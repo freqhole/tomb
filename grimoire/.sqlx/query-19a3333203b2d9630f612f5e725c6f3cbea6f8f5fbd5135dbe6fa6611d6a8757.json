@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            mpe.song_id,\n            mpe.created_at,\n            s.title,\n            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))\n             FROM song_imagez si\n             JOIN media_blobz mb ON si.media_blob_id = mb.id\n             WHERE si.song_id = s.id) as \"images?: String\",\n            (SELECT a.name FROM artist_songz asz\n             JOIN artistz a ON a.id = asz.artist_id\n             WHERE asz.song_id = mpe.song_id\n             LIMIT 1) as \"artist_name?\",\n            (SELECT alb.title FROM album_songz als\n             JOIN albumz alb ON alb.id = als.album_id\n             WHERE als.song_id = mpe.song_id\n             LIMIT 1) as \"album_title?\"\n        FROM music_play_eventz mpe\n        JOIN songz s ON s.id = mpe.song_id\n        WHERE mpe.session_id = ?\n        ORDER BY mpe.created_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "song_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "images?: String",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "artist_name?",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "album_title?",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "19a3333203b2d9630f612f5e725c6f3cbea6f8f5fbd5135dbe6fa6611d6a8757"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT artist_id FROM artist_songz WHERE song_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "artist_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2775d4708e54d809385626fc74ba887448ad802c39a4639cb5bc453746ff5405"
+}

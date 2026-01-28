@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            artist.id as \"artist_id!: String\",\n            artist.name as \"artist_name!: String\",\n            fts.rank as \"fts_rank!: f64\",\n            (SELECT COUNT(DISTINCT asong2.song_id) FROM artist_songz asong2 WHERE asong2.artist_id = artist.id) as \"song_count!: i64\",\n            (SELECT COUNT(DISTINCT alsong.album_id) FROM artist_songz asong3 JOIN album_songz alsong ON asong3.song_id = alsong.song_id WHERE asong3.artist_id = artist.id) as \"album_count!: i64\",\n            rating.rating as \"user_rating: i64\",\n            CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as \"is_favorite!: i64\",\n            (SELECT GROUP_CONCAT(name, ', ')\n             FROM (SELECT DISTINCT genre.name as name\n                   FROM artist_songz asong2\n                   JOIN album_songz alsong ON asong2.song_id = alsong.song_id\n                   JOIN albumz alb ON alsong.album_id = alb.id\n                   JOIN genrez genre ON alb.genre_id = genre.id\n                   WHERE asong2.artist_id = artist.id\n                     AND genre.deleted_at IS NULL\n                     AND alb.deleted_at IS NULL)\n            ) as \"genres: String\"\n        FROM artistz_fts fts\n        JOIN artistz artist ON fts.artist_id = artist.id\n\n        LEFT JOIN user_ratingz rating\n            ON rating.target_id = artist.id\n            AND rating.target_type = 'artist'\n            AND rating.user_id = ?\n        LEFT JOIN user_favoritez favorite\n            ON favorite.target_id = artist.id\n            AND favorite.target_type = 'artist'\n            AND favorite.user_id = ?\n        WHERE artistz_fts MATCH ?\n            AND artist.deleted_at IS NULL\n            AND (rating.rating IS NULL OR rating.rating != 0)\n            -- tag include filter (OR logic - artist must have at least one album with these tags)\n            AND (NOT ? OR EXISTS (\n                SELECT 1 FROM artist_songz asong_filter\n                JOIN album_songz alsong_filter ON asong_filter.song_id = alsong_filter.song_id\n                JOIN album_tagz atag ON atag.album_id = alsong_filter.album_id\n                WHERE asong_filter.artist_id = artist.id\n                AND atag.tag_id IN (SELECT value FROM json_each(?))\n            ))\n            -- tag exclude filter (AND NOT logic - artist must not have any albums with these tags)\n            AND (NOT ? OR NOT EXISTS (\n                SELECT 1 FROM artist_songz asong_filter\n                JOIN album_songz alsong_filter ON asong_filter.song_id = alsong_filter.song_id\n                JOIN album_tagz atag ON atag.album_id = alsong_filter.album_id\n                WHERE asong_filter.artist_id = artist.id\n                AND atag.tag_id IN (SELECT value FROM json_each(?))\n            ))\n        GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id\n        ORDER BY fts.rank DESC\n        LIMIT ? OFFSET ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "artist_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "artist_name!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "fts_rank!: f64",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "song_count!: i64",
+        "ordinal": 3,
+        "type_info": "Null"
+      },
+      {
+        "name": "album_count!: i64",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "user_rating: i64",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_favorite!: i64",
+        "ordinal": 6,
+        "type_info": "Null"
+      },
+      {
+        "name": "genres: String",
+        "ordinal": 7,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      null,
+      null,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "f7adb3b3acc9d340194fa46d2ae687ab36600ceb5700ff297d3a32e0389ea538"
+}
