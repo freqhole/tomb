@@ -39,8 +39,8 @@ pub struct FeedItem {
     pub title: String,
     /// Subtitle (artist name, album name, etc.)
     pub subtitle: Option<String>,
-    /// Thumbnail blob ID
-    pub thumbnail_blob_id: Option<String>,
+    /// Images for this item
+    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
     /// When this activity occurred (unix timestamp)
     pub created_at: i64,
     /// User who performed the action (nullable for system actions)
@@ -89,7 +89,10 @@ pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResponse<(Ve
         SELECT
             mpe.song_id as id,
             s.title,
-            s.thumbnail_blob_id,
+            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+             FROM song_imagez si
+             JOIN media_blobz mb ON si.media_blob_id = mb.id
+             WHERE si.song_id = s.id) as "images?: String",
             MAX(mpe.created_at) as "created_at!: i64",
             COUNT(*) as "play_count!: i64",
             (SELECT a.id FROM artist_songz asz
@@ -127,19 +130,23 @@ pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResponse<(Ve
 
     let items = rows
         .into_iter()
-        .map(|row| FeedItem {
-            id: row.id.clone(),
-            feed_type: FeedItemType::RecentListen,
-            song_id: Some(row.id),
-            album_id: row.album_id,
-            artist_id: row.artist_id,
-            title: row.title,
-            subtitle: row.artist_name,
-            thumbnail_blob_id: row.thumbnail_blob_id,
-            created_at: row.created_at,
-            user_id: row.user_id,
-            username: row.username,
-            play_count: Some(row.play_count),
+        .map(|row| {
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+            FeedItem {
+                id: row.id.clone(),
+                feed_type: FeedItemType::RecentListen,
+                song_id: Some(row.id),
+                album_id: row.album_id,
+                artist_id: row.artist_id,
+                title: row.title,
+                subtitle: row.artist_name,
+                images,
+                created_at: row.created_at,
+                user_id: row.user_id,
+                username: row.username,
+                play_count: Some(row.play_count),
+            }
         })
         .collect();
 
@@ -194,7 +201,10 @@ pub async fn get_recent_favorites(
             uf.id as "id!",
             uf.target_id as "song_id!",
             s.title,
-            s.thumbnail_blob_id,
+            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+             FROM song_imagez si
+             JOIN media_blobz mb ON si.media_blob_id = mb.id
+             WHERE si.song_id = s.id) as "images?: String",
             uf.created_at as "created_at!: i64",
             (SELECT a.id FROM artist_songz asz
              JOIN artistz a ON a.id = asz.artist_id
@@ -232,19 +242,23 @@ pub async fn get_recent_favorites(
 
     let items = rows
         .into_iter()
-        .map(|row| FeedItem {
-            id: row.id,
-            feed_type: FeedItemType::RecentFavorite,
-            song_id: Some(row.song_id),
-            album_id: row.album_id,
-            artist_id: row.artist_id,
-            title: row.title,
-            subtitle: row.artist_name,
-            thumbnail_blob_id: row.thumbnail_blob_id,
-            created_at: row.created_at,
-            user_id: Some(row.user_id),
-            username: row.username,
-            play_count: None,
+        .map(|row| {
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+            FeedItem {
+                id: row.id,
+                feed_type: FeedItemType::RecentFavorite,
+                song_id: Some(row.song_id),
+                album_id: row.album_id,
+                artist_id: row.artist_id,
+                title: row.title,
+                subtitle: row.artist_name,
+                images,
+                created_at: row.created_at,
+                user_id: Some(row.user_id),
+                username: row.username,
+                play_count: None,
+            }
         })
         .collect();
 
@@ -301,9 +315,10 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResponse<(Vec
              JOIN artistz a ON a.id = aa.artist_id
              WHERE aa.album_id = alb.id
              LIMIT 1) as "artist_name?",
-            (SELECT ai.media_blob_id FROM album_imagez ai
-             WHERE ai.album_id = alb.id AND ai.is_primary = 1
-             LIMIT 1) as "thumbnail_blob_id?"
+            (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+             FROM album_imagez ai
+             JOIN media_blobz mb ON ai.media_blob_id = mb.id
+             WHERE ai.album_id = alb.id) as "images?: String"
         FROM albumz alb
         WHERE alb.deleted_at IS NULL
         ORDER BY alb.created_at DESC
@@ -322,19 +337,23 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResponse<(Vec
 
     let items = rows
         .into_iter()
-        .map(|row| FeedItem {
-            id: row.id.clone(),
-            feed_type: FeedItemType::RecentAlbum,
-            song_id: None,
-            album_id: Some(row.id),
-            artist_id: row.artist_id,
-            title: row.title,
-            subtitle: row.artist_name,
-            thumbnail_blob_id: row.thumbnail_blob_id,
-            created_at: row.created_at,
-            user_id: None,
-            username: None,
-            play_count: None,
+        .map(|row| {
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+            FeedItem {
+                id: row.id.clone(),
+                feed_type: FeedItemType::RecentAlbum,
+                song_id: None,
+                album_id: Some(row.id),
+                artist_id: row.artist_id,
+                title: row.title,
+                subtitle: row.artist_name,
+                images,
+                created_at: row.created_at,
+                user_id: None,
+                username: None,
+                play_count: None,
+            }
         })
         .collect();
 
@@ -399,7 +418,10 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec
                  JOIN artistz a ON a.id = asz.artist_id
                  WHERE asz.song_id = mpe.song_id
                  LIMIT 1) as subtitle,
-                s.thumbnail_blob_id,
+                (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+                 FROM song_imagez si
+                 JOIN media_blobz mb ON si.media_blob_id = mb.id
+                 WHERE si.song_id = s.id) as "images?: String",
                 MAX(mpe.created_at) as created_at,
                 mpe.user_id,
                 (SELECT u.username FROM user_accountz u
@@ -430,7 +452,10 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec
                  JOIN artistz a ON a.id = asz.artist_id
                  WHERE asz.song_id = uf.target_id
                  LIMIT 1) as subtitle,
-                s.thumbnail_blob_id,
+                (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+                 FROM song_imagez si
+                 JOIN media_blobz mb ON si.media_blob_id = mb.id
+                 WHERE si.song_id = s.id) as "images?: String",
                 uf.created_at,
                 uf.user_id,
                 (SELECT u.username FROM user_accountz u
@@ -457,9 +482,10 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec
                  JOIN artistz a ON a.id = aa.artist_id
                  WHERE aa.album_id = alb.id
                  LIMIT 1) as subtitle,
-                (SELECT ai.media_blob_id FROM album_imagez ai
-                 WHERE ai.album_id = alb.id AND ai.is_primary = 1
-                 LIMIT 1) as thumbnail_blob_id,
+                (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+                 FROM album_imagez ai
+                 JOIN media_blobz mb ON ai.media_blob_id = mb.id
+                 WHERE ai.album_id = alb.id) as "images?: String",
                 alb.created_at,
                 NULL as user_id,
                 NULL as username,
@@ -491,6 +517,9 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec
                 _ => FeedItemType::RecentListen, // fallback
             };
 
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+
             FeedItem {
                 id: row.id,
                 feed_type,
@@ -499,7 +528,7 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec
                 artist_id: row.artist_id,
                 title: row.title,
                 subtitle: row.subtitle,
-                thumbnail_blob_id: row.thumbnail_blob_id,
+                images,
                 created_at: row.created_at,
                 user_id: row.user_id,
                 username: row.username,

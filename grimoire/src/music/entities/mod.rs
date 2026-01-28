@@ -5,6 +5,7 @@ pub mod albums;
 pub mod artists;
 pub mod genres;
 pub mod playlists;
+pub mod shared;
 pub mod songs;
 pub mod tags;
 
@@ -13,6 +14,7 @@ pub use albums::{Album, CreateAlbumRequest};
 pub use artists::{Artist, CreateArtistRequest};
 pub use genres::{CreateGenreRequest, Genre, GenreStat, SubGenre};
 pub use playlists::{CreatePlaylistRequest, Playlist};
+pub use shared::ImageMetadata;
 pub use songs::{CreateSongRequest, Song};
 pub use tags::Tag;
 

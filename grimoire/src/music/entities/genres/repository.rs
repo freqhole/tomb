@@ -18,8 +18,7 @@ pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResponse<Genre> {
         }
     };
 
-    let genre = match sqlx::query_as!(
-        Genre,
+    let row = match sqlx::query!(
         r#"INSERT INTO genrez (name, created_at)
          VALUES (?, unixepoch())
          RETURNING
@@ -31,10 +30,17 @@ pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResponse<Genre> {
     .fetch_one(&pool)
     .await
     {
-        Ok(g) => g,
+        Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure("Failed to create genre", vec![ErrorDetail::from(e)])
         }
+    };
+
+    let genre = Genre {
+        id: row.id,
+        name: row.name,
+        created_at: row.created_at,
+        images: None,
     };
 
     GrimoireResponse::success("Genre created successfully", genre)
@@ -52,8 +58,7 @@ pub async fn list_genres() -> GrimoireResponse<Vec<Genre>> {
         }
     };
 
-    let genres = match sqlx::query_as!(
-        Genre,
+    let rows = match sqlx::query!(
         r#"SELECT
             id as "id!",
             name as "name!",
@@ -65,11 +70,18 @@ pub async fn list_genres() -> GrimoireResponse<Vec<Genre>> {
     .fetch_all(&pool)
     .await
     {
-        Ok(g) => g,
+        Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure("Failed to list genres", vec![ErrorDetail::from(e)])
         }
     };
+
+    let genres = rows.into_iter().map(|row| Genre {
+        id: row.id,
+        name: row.name,
+        created_at: row.created_at,
+        images: None,
+    }).collect();
 
     GrimoireResponse::success("Genres retrieved successfully", genres)
 }
@@ -87,8 +99,7 @@ pub async fn query_genres(search: &str) -> GrimoireResponse<Vec<Genre>> {
     };
     let search_pattern = format!("%{}%", search);
 
-    let genres = match sqlx::query_as!(
-        Genre,
+    let rows = match sqlx::query!(
         r#"SELECT
             id as "id!",
             name as "name!",
@@ -102,11 +113,18 @@ pub async fn query_genres(search: &str) -> GrimoireResponse<Vec<Genre>> {
     .fetch_all(&pool)
     .await
     {
-        Ok(g) => g,
+        Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure("Failed to query genres", vec![ErrorDetail::from(e)])
         }
     };
+
+    let genres = rows.into_iter().map(|row| Genre {
+        id: row.id,
+        name: row.name,
+        created_at: row.created_at,
+        images: None,
+    }).collect();
 
     GrimoireResponse::success("Genre search completed successfully", genres)
 }
@@ -123,8 +141,7 @@ pub async fn get_genre(id: &str) -> GrimoireResponse<Genre> {
         }
     };
 
-    let genre_opt = match sqlx::query_as!(
-        Genre,
+    let row_opt = match sqlx::query!(
         r#"SELECT
             id as "id!",
             name as "name!",
@@ -136,14 +153,22 @@ pub async fn get_genre(id: &str) -> GrimoireResponse<Genre> {
     .fetch_optional(&pool)
     .await
     {
-        Ok(g) => g,
+        Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure("Failed to get genre", vec![ErrorDetail::from(e)])
         }
     };
 
-    match genre_opt {
-        Some(genre) => GrimoireResponse::success("Genre retrieved successfully", genre),
+    match row_opt {
+        Some(row) => {
+            let genre = Genre {
+                id: row.id,
+                name: row.name,
+                created_at: row.created_at,
+                images: None,
+            };
+            GrimoireResponse::success("Genre retrieved successfully", genre)
+        },
         None => {
             let err = GrimoireError::GenreNotFound { id: id.to_string() };
             GrimoireResponse::failure("Genre not found", vec![ErrorDetail::from(&err)])

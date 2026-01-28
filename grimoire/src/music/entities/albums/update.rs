@@ -1,6 +1,7 @@
 //! album update operations
 //! handles complex updates including artist re-scoping and date parsing
 
+use super::super::shared::ImageMetadata;
 use super::models::{Album, UpdateAlbumRequest};
 use crate::database;
 use crate::error::ErrorDetail;
@@ -8,6 +9,7 @@ use crate::music::crud::create_or_update::{
     find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
 };
 use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
+use crate::JsonVec;
 use crate::music::crud::ArtistImportRequest;
 use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::SubGenre;
@@ -110,6 +112,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             deleted_by: row.deleted_by,
             created_by: row.created_by,
             updated_by: row.updated_by,
+            images: None,
         },
         Ok(None) => {
             return GrimoireResponse::failure(
@@ -179,7 +182,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             r#"SELECT
                 id as "id!",
                 name as "name!",
-                created_at as "created_at!"
+                created_at as "created_at!",
+                NULL as "images?: JsonVec<ImageMetadata>"
             FROM genrez
             WHERE id = ?"#,
             genre_id
@@ -393,7 +397,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     deleted_at,
                     deleted_by,
                     created_by,
-                    updated_by
+                    updated_by,
+                    NULL as "images?: JsonVec<ImageMetadata>"
                 FROM artistz WHERE id = ?"#,
                 artist_id
             )
@@ -449,7 +454,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     deleted_at,
                     deleted_by,
                     created_by,
-                    updated_by
+                    updated_by,
+                    NULL as "images?: JsonVec<ImageMetadata>"
                 FROM artistz
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NOT NULL
                 LIMIT 1"#,
@@ -483,6 +489,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     deleted_by: None,
                     created_by: deleted.created_by,
                     updated_by: req.updated_by.clone(),
+                    images: None,
                 }
             } else {
                 // find or create new artist

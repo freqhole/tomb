@@ -9,9 +9,6 @@ use crate::error::GrimoireResult;
 pub struct MediaBlobReferences {
     pub blob_id: String,
     pub song_media_references: i64,
-    pub song_thumbnail_references: i64,
-    pub song_waveform_references: i64,
-    pub playlist_thumbnail_references: i64,
     pub playlist_image_references: i64,
     pub artist_image_references: i64,
     pub album_image_references: i64,
@@ -23,9 +20,6 @@ impl MediaBlobReferences {
     /// Check if this blob has any references (should not be deleted)
     pub fn has_references(&self) -> bool {
         self.song_media_references > 0
-            || self.song_thumbnail_references > 0
-            || self.song_waveform_references > 0
-            || self.playlist_thumbnail_references > 0
             || self.playlist_image_references > 0
             || self.artist_image_references > 0
             || self.album_image_references > 0
@@ -36,9 +30,6 @@ impl MediaBlobReferences {
     /// Get total reference count
     pub fn total_references(&self) -> i64 {
         self.song_media_references
-            + self.song_thumbnail_references
-            + self.song_waveform_references
-            + self.playlist_thumbnail_references
             + self.playlist_image_references
             + self.artist_image_references
             + self.album_image_references
@@ -54,33 +45,6 @@ pub async fn find_media_blob_references(blob_id: &str) -> GrimoireResult<MediaBl
     // Check song media blob references
     let song_media_refs = sqlx::query!(
         "SELECT COUNT(*) as count FROM songz WHERE media_blob_id = ? AND deleted_at IS NULL",
-        blob_id
-    )
-    .fetch_one(&pool)
-    .await?
-    .count;
-
-    // Check song thumbnail references
-    let song_thumbnail_refs = sqlx::query!(
-        "SELECT COUNT(*) as count FROM songz WHERE thumbnail_blob_id = ? AND deleted_at IS NULL",
-        blob_id
-    )
-    .fetch_one(&pool)
-    .await?
-    .count;
-
-    // Check song waveform references
-    let song_waveform_refs = sqlx::query!(
-        "SELECT COUNT(*) as count FROM songz WHERE waveform_blob_id = ? AND deleted_at IS NULL",
-        blob_id
-    )
-    .fetch_one(&pool)
-    .await?
-    .count;
-
-    // Check playlist thumbnail references
-    let playlist_thumbnail_refs = sqlx::query!(
-        "SELECT COUNT(*) as count FROM playlistz WHERE thumbnail_blob_id = ? AND deleted_at IS NULL",
         blob_id
     )
     .fetch_one(&pool)
@@ -135,9 +99,6 @@ pub async fn find_media_blob_references(blob_id: &str) -> GrimoireResult<MediaBl
     Ok(MediaBlobReferences {
         blob_id: blob_id.to_string(),
         song_media_references: song_media_refs,
-        song_thumbnail_references: song_thumbnail_refs,
-        song_waveform_references: song_waveform_refs,
-        playlist_thumbnail_references: playlist_thumbnail_refs,
         playlist_image_references: playlist_image_refs,
         artist_image_references: artist_image_refs,
         album_image_references: album_image_refs,

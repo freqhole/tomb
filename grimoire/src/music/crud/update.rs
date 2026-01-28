@@ -5,10 +5,8 @@ use super::models::{
     AlbumImportRequest, ArtistImportRequest, FavoriteTargetType, RatingTargetType,
     UpdateSongsRequest, UpdateSongsResult,
 };
-use crate::blob_data::{convert_to_webp, create_image_blob_from_webp_data};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
-use crate::media_blobz::BlobType;
 use crate::music::crud::create_or_update::{
     find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
     get_current_album_for_song, get_current_artist_for_song,
@@ -52,112 +50,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             );
         }
     }
-
-    // handle thumbnail if provided
-    let thumbnail_blob_id = if let Some(file_path) = req.thumbnail_from_file {
-        // read file and convert to webp
-        let image_data = match tokio::fs::read(&file_path).await {
-            Ok(data) => data,
-            Err(e) => {
-                return GrimoireResponse::failure(
-                    "Failed to read thumbnail file",
-                    vec![GrimoireError::ProcessingFailed {
-                        message: format!("Failed to read thumbnail file: {}", e),
-                    }
-                    .into()],
-                );
-            }
-        };
-
-        let webp_data = match convert_to_webp(&image_data) {
-            Ok(data) => data,
-            Err(err) => {
-                return GrimoireResponse::failure(
-                    "Failed to convert thumbnail to webp",
-                    vec![err.into()],
-                );
-            }
-        };
-
-        // create or find blob
-        let metadata = serde_json::json!({
-            "type": "thumbnail",
-            "source": "user_upload",
-            "format": "webp"
-        });
-
-        match create_image_blob_from_webp_data(
-            webp_data,
-            BlobType::Original,
-            None, // no parent blob
-            metadata,
-            req.updated_by.clone(),
-        )
-        .await
-        {
-            response if response.success => match response.data {
-                Some(blob_id) => Some(blob_id),
-                None => {
-                    return GrimoireResponse::failure(
-                        "Failed to create thumbnail blob: no data returned",
-                        vec![],
-                    );
-                }
-            },
-            response => {
-                return GrimoireResponse::failure(
-                    "Failed to create thumbnail blob",
-                    response.errors,
-                );
-            }
-        }
-    } else if let Some(bytes) = req.thumbnail_from_bytes {
-        let webp_data = match convert_to_webp(bytes.as_ref()) {
-            Ok(data) => data,
-            Err(err) => {
-                return GrimoireResponse::failure(
-                    "Failed to convert thumbnail to webp",
-                    vec![err.into()],
-                );
-            }
-        };
-
-        let metadata = serde_json::json!({
-            "type": "thumbnail",
-            "source": "user_upload",
-            "format": "webp"
-        });
-
-        match create_image_blob_from_webp_data(
-            webp_data,
-            BlobType::Original,
-            None, // no parent blob
-            metadata,
-            req.updated_by.clone(),
-        )
-        .await
-        {
-            response if response.success => match response.data {
-                Some(blob_id) => Some(blob_id),
-                None => {
-                    return GrimoireResponse::failure(
-                        "Failed to create thumbnail blob from bytes: no data returned",
-                        vec![],
-                    );
-                }
-            },
-            response => {
-                return GrimoireResponse::failure(
-                    "Failed to create thumbnail blob from bytes",
-                    response.errors,
-                );
-            }
-        }
-    } else if let Some(blob_id) = req.thumbnail_blob_id {
-        Some(blob_id)
-    } else {
-        None
-    };
 
     // resolve relationships first (find or create once, reuse for all songs)
     // track whether artist was explicitly provided (before moving req.artist)
@@ -421,8 +313,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         || req.bpm.is_some()
         || req.key_signature.is_some()
         || req.lyrics.is_some()
-        || req.metadata.is_some()
-        || thumbnail_blob_id.is_some();
+        || req.metadata.is_some();
 
     if has_song_updates {
         // build dynamic update using COALESCE pattern
@@ -447,7 +338,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                         WHEN ? IS NOT NULL THEN json_patch(COALESCE(metadata, '{}'), ?)
                         ELSE metadata
                     END,
-                    thumbnail_blob_id = COALESCE(?, thumbnail_blob_id),
                     updated_by = COALESCE(?, updated_by),
                     updated_at = unixepoch()
                 WHERE id = ?"#,
@@ -461,7 +351,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 req.lyrics,
                 metadata_str,
                 metadata_str,
-                thumbnail_blob_id,
                 req.updated_by,
                 song_id
             )
@@ -813,7 +702,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             album,
             genre,
             sub_genre,
-            thumbnail_blob_id,
             tags_modified,
         },
     )

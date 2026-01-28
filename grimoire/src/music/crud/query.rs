@@ -118,8 +118,6 @@ enum CommonColumns {
 pub struct SongViewRow {
     song_id: String,
     song_media_blob_id: String,
-    song_thumbnail_blob_id: Option<String>,
-    song_waveform_blob_id: Option<String>,
     song_images: Option<String>, // JSON array from view
     song_title: String,
     song_track_number: i64,
@@ -199,13 +197,13 @@ impl SongViewRow {
         // parse album sub_genres JSON array
         let album_sub_genres = self
             .album_sub_genres
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .map(crate::JsonVec);
 
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
-            thumbnail_blob_id: self.song_thumbnail_blob_id,
-            waveform_blob_id: self.song_waveform_blob_id,
+            images: None,
             title: self.song_title,
             track_number: self.song_track_number,
             disc_number: self.song_disc_number,
@@ -236,6 +234,7 @@ impl SongViewRow {
                 deleted_by: self.artist_deleted_by,
                 created_by: self.artist_created_by,
                 updated_by: self.artist_updated_by,
+                images: None,
             })
         } else {
             None
@@ -252,6 +251,7 @@ impl SongViewRow {
                 genre_id: self.album_genre_id,
                 genre: self.album_genre_name,
                 sub_genres: album_sub_genres,
+                images: None,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -366,6 +366,7 @@ impl ArtistViewRow {
             deleted_by: self.artist_deleted_by,
             created_by: self.artist_created_by,
             updated_by: self.artist_updated_by,
+            images: None,
         };
 
         // Determine user context fields based on user_id match
@@ -473,7 +474,7 @@ impl AlbumViewRow {
         // parse album sub_genres JSON array
         let album_sub_genres = self.album_sub_genres.and_then(|json_str| {
             match serde_json::from_str::<Vec<String>>(&json_str) {
-                Ok(sub_genres) => Some(sub_genres),
+                Ok(sub_genres) => Some(crate::JsonVec(sub_genres)),
                 Err(e) => {
                     tracing::warn!(
                         "failed to parse album sub_genres JSON: {} - error: {}",
@@ -495,6 +496,7 @@ impl AlbumViewRow {
             genre_id: self.album_genre_id,
             genre: self.album_genre_name,
             sub_genres: album_sub_genres,
+            images: None,
             song_count: self.album_song_count.unwrap_or(0),
             total_duration: self.album_total_duration.unwrap_or(0),
             created_at: self.album_created_at,
@@ -516,6 +518,7 @@ impl AlbumViewRow {
                 deleted_by: None,
                 created_by: None,
                 updated_by: None,
+                images: None,
             })
         } else {
             None
@@ -572,6 +575,7 @@ impl GenreViewRow {
         let genre = Genre {
             id: self.genre_id,
             name: self.genre_name,
+            images: None,
             created_at: self.genre_created_at,
         };
 

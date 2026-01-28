@@ -10,9 +10,10 @@ use crate::config;
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::entities::{
-    albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
-    CreateGenreRequest, CreateSongRequest, Genre, Playlist,
+    albums, artists, genres, songs, shared::ImageMetadata, Album, Artist, CreateAlbumRequest,
+    CreateArtistRequest, CreateGenreRequest, CreateSongRequest, Genre, Playlist,
 };
+use crate::JsonVec;
 use crate::GrimoireResponse;
 use std::sync::Mutex;
 
@@ -490,7 +491,8 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
             deleted_at,
             deleted_by,
             created_by,
-            updated_by
+            updated_by,
+            NULL as "images?: JsonVec<ImageMetadata>"
            FROM artistz
            WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL
            LIMIT 1"#,
@@ -547,7 +549,8 @@ pub async fn get_current_artist_for_song(song_id: &str) -> GrimoireResult<Option
                 deleted_at,
                 deleted_by,
                 created_by,
-                updated_by
+                updated_by,
+                NULL as "images?: JsonVec<ImageMetadata>"
             FROM artistz WHERE id = ? AND deleted_at IS NULL"#,
             artist_id
         )
@@ -605,6 +608,7 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             genre_id: row.genre_id,
             genre: None,
             sub_genres: None,
+            images: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,
@@ -634,7 +638,8 @@ pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool
         r#"SELECT
             id as "id!",
             name as "name!",
-            created_at as "created_at!"
+            created_at as "created_at!",
+            NULL as "images?: JsonVec<ImageMetadata>"
            FROM genrez
            WHERE LOWER(name) = LOWER(?)
            LIMIT 1"#,
@@ -754,6 +759,7 @@ pub async fn find_or_create_album_for_artist(
             genre_id: row.genre_id,
             genre: None,
             sub_genres: None,
+            images: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,
@@ -936,7 +942,7 @@ pub async fn get_or_create_playlist_by_name(
             p.title as "title!",
             p.description,
             p.is_public as "is_public!",
-            p.thumbnail_blob_id,
+            NULL as "images?: JsonVec<ImageMetadata>",
             p.created_by_id,
             p.created_at as "created_at!",
             p.updated_at as "updated_at!",

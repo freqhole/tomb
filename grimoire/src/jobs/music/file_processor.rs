@@ -385,28 +385,31 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 }
             };
 
-            let result = sqlx::query!(
-                r#"UPDATE songz
-                   SET thumbnail_blob_id = COALESCE(?, thumbnail_blob_id),
-                       waveform_blob_id = COALESCE(?, waveform_blob_id),
-                       updated_at = unixepoch()
-                   WHERE id = ?"#,
-                thumbnail_blob_id_opt,
-                waveform_blob_id_opt,
-                sid
-            )
-            .execute(&pool)
-            .await;
-
-            match result {
-                Ok(_) => {
-                    time_db_updates += step_start.elapsed();
-                    debug!("linked thumbnail/waveform blobs to song {}", sid);
-                }
-                Err(e) => {
-                    warn!("failed to link blobs to song {}: {}", sid, e);
-                }
+            // insert images into song_imagez table instead of updating singular fields
+            if let Some(thumbnail_id) = thumbnail_blob_id_opt {
+                let _ = sqlx::query!(
+                    r#"INSERT OR IGNORE INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, 1)"#,
+                    sid,
+                    thumbnail_id
+                )
+                .execute(&pool)
+                .await
+                .map_err(|e| warn!("failed to insert thumbnail to song_imagez for {}: {}", sid, e));
             }
+
+            if let Some(waveform_id) = waveform_blob_id_opt {
+                let _ = sqlx::query!(
+                    r#"INSERT OR IGNORE INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, 0)"#,
+                    sid,
+                    waveform_id
+                )
+                .execute(&pool)
+                .await
+                .map_err(|e| warn!("failed to insert waveform to song_imagez for {}: {}", sid, e));
+            }
+
+            time_db_updates += step_start.elapsed();
+            debug!("linked thumbnail/waveform blobs to song {}", sid);
         }
     }
 

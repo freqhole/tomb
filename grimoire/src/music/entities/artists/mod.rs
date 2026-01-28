@@ -7,5 +7,7 @@ mod repository;
 // re-export public types
 pub use models::{Artist, CreateArtistRequest, UpdateArtistRequest};
 pub use repository::{
-    create_artist, delete_artist, get_artist, get_artist_images, list_artists, update_artist,
+    add_artist_image, clear_artist_images, create_artist, delete_artist, get_artist,
+    get_artist_images, list_artists, remove_artist_image, set_primary_artist_image,
+    update_artist,
 };

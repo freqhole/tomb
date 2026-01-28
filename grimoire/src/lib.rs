@@ -109,3 +109,76 @@ impl DerefMut for Bytes {
         &mut self.0
     }
 }
+
+/// wrapper for Vec<T> that can be decoded from JSON columns and implements ZodSchema
+/// use this instead of sqlx::types::Json<Vec<T>> in API types
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsonVec<T>(pub Vec<T>);
+
+impl<T: ZodSchema> ZodSchema for JsonVec<T> {
+    fn zod_schema() -> String {
+        format!("z.array({})", T::zod_schema())
+    }
+}
+
+impl<T: serde::Serialize> serde::Serialize for JsonVec<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for JsonVec<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Vec::<T>::deserialize(deserializer).map(JsonVec)
+    }
+}
+
+impl<T> sqlx::Type<sqlx::Sqlite> for JsonVec<T> {
+    fn type_info() -> sqlx::sqlite::SqliteTypeInfo {
+        <sqlx::types::Json<Vec<T>> as sqlx::Type<sqlx::Sqlite>>::type_info()
+    }
+}
+
+impl<'r, T> sqlx::Decode<'r, sqlx::Sqlite> for JsonVec<T>
+where
+    T: serde::Deserialize<'r> + 'r,
+{
+    fn decode(
+        value: sqlx::sqlite::SqliteValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let json = <sqlx::types::Json<Vec<T>> as sqlx::Decode<sqlx::Sqlite>>::decode(value)?;
+        Ok(JsonVec(json.0))
+    }
+}
+
+impl<T> Deref for JsonVec<T> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for JsonVec<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> From<Vec<T>> for JsonVec<T> {
+    fn from(vec: Vec<T>) -> Self {
+        JsonVec(vec)
+    }
+}
+
+impl<T> From<JsonVec<T>> for Vec<T> {
+    fn from(json_vec: JsonVec<T>) -> Self {
+        json_vec.0
+    }
+}

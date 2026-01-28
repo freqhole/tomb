@@ -21,7 +21,7 @@ pub async fn get_song_suggestions(
     struct SongSuggestionRow {
         song_id: String,
         song_title: String,
-        thumbnail_blob_id: Option<String>,
+        images: Option<String>,  // JSON array
         album_id: Option<String>,
         fts_rank: f64,
         user_rating: Option<i64>,
@@ -37,7 +37,10 @@ pub async fn get_song_suggestions(
         SELECT
             song.id as "song_id!: String",
             song.title as "song_title!: String",
-            song.thumbnail_blob_id as "thumbnail_blob_id: String",
+            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+             FROM song_imagez si
+             JOIN media_blobz mb ON si.media_blob_id = mb.id
+             WHERE si.song_id = song.id) as "images: String",
             (SELECT album_id FROM album_songz WHERE song_id = song.id LIMIT 1) as "album_id: String",
             fts.rank as "fts_rank!: f64",
             rating.rating as "user_rating: i64",
@@ -86,7 +89,7 @@ pub async fn get_song_suggestions(
                 confidence,
                 metadata: Some(serde_json::json!({
                     "match_type": "title",
-                    "thumbnail_blob_id": row.thumbnail_blob_id,
+                    "images": row.images,
                     "album_id": row.album_id
                 })),
                 entity_id: row.song_id,
@@ -112,7 +115,7 @@ pub async fn get_artist_suggestions(
     struct ArtistSuggestionRow {
         artist_id: String,
         artist_name: String,
-        thumbnail_blob_id: Option<String>,
+        images: Option<String>,  // JSON array
         fts_rank: f64,
         song_count: i64,
         user_rating: Option<i64>,
@@ -128,7 +131,10 @@ pub async fn get_artist_suggestions(
         SELECT
             artist.id as "artist_id!: String",
             artist.name as "artist_name!: String",
-            (SELECT media_blob_id FROM artist_imagez WHERE artist_id = artist.id AND is_primary = 1 LIMIT 1) as "thumbnail_blob_id: String",
+            (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+             FROM artist_imagez ai
+             JOIN media_blobz mb ON ai.media_blob_id = mb.id
+             WHERE ai.artist_id = artist.id) as "images: String",
             fts.rank as "fts_rank!: f64",
             COUNT(DISTINCT artist_song.song_id) as "song_count!: i64",
             rating.rating as "user_rating: i64",
@@ -179,7 +185,7 @@ pub async fn get_artist_suggestions(
                 confidence,
                 metadata: Some(serde_json::json!({
                     "match_type": "name",
-                    "thumbnail_blob_id": row.thumbnail_blob_id
+                    "images": row.images
                 })),
                 entity_id: row.artist_id,
                 is_favorite: row.is_favorite != 0,
@@ -204,7 +210,7 @@ pub async fn get_album_suggestions(
     struct AlbumSuggestionRow {
         album_id: String,
         album_title: String,
-        thumbnail_blob_id: Option<String>,
+        images: Option<String>,  // JSON array
         fts_rank: f64,
         song_count: i64,
         user_rating: Option<i64>,
@@ -220,7 +226,10 @@ pub async fn get_album_suggestions(
         SELECT
             album.id as "album_id!: String",
             album.title as "album_title!: String",
-            (SELECT media_blob_id FROM album_imagez WHERE album_id = album.id AND is_primary = 1 LIMIT 1) as "thumbnail_blob_id: String",
+            (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+             FROM album_imagez ai
+             JOIN media_blobz mb ON ai.media_blob_id = mb.id
+             WHERE ai.album_id = album.id) as "images: String",
             fts.rank as "fts_rank!: f64",
             COUNT(DISTINCT album_song.song_id) as "song_count!: i64",
             rating.rating as "user_rating: i64",
@@ -271,7 +280,7 @@ pub async fn get_album_suggestions(
                 confidence,
                 metadata: Some(serde_json::json!({
                     "match_type": "title",
-                    "thumbnail_blob_id": row.thumbnail_blob_id
+                    "images": row.images
                 })),
                 entity_id: row.album_id,
                 is_favorite: row.is_favorite != 0,
@@ -420,7 +429,10 @@ pub async fn get_playlist_suggestions(
         SELECT
             playlist.id as "playlist_id!: String",
             playlist.title as "playlist_title!: String",
-            playlist.thumbnail_blob_id as "thumbnail_blob_id: String",
+            (SELECT json_group_array(json_object('media_blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
+             FROM playlist_imagez pi
+             JOIN media_blobz mb ON pi.media_blob_id = mb.id
+             WHERE pi.playlist_id = playlist.id) as "images: String",
             playlist.is_public as "is_public!: i64",
             playlist.created_by as "created_by!: String",
             fts.rank as "fts_rank!: f64",
@@ -436,7 +448,7 @@ pub async fn get_playlist_suggestions(
         WHERE playlistz_fts MATCH ?
             AND playlist.deleted_at IS NULL
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
-        GROUP BY playlist.id, playlist.title, playlist.thumbnail_blob_id, playlist.is_public, playlist.created_by, fts.rank, favorite.id
+        GROUP BY playlist.id, playlist.title, playlist.is_public, playlist.created_by, fts.rank, favorite.id
         ORDER BY fts.rank DESC
         LIMIT 100
         "#,
@@ -464,7 +476,7 @@ pub async fn get_playlist_suggestions(
                 metadata: Some(serde_json::json!({
                     "match_type": "title",
                     "is_public": row.is_public != 0,
-                    "thumbnail_blob_id": row.thumbnail_blob_id
+                    "images": row.images
                 })),
                 entity_id: row.playlist_id,
                 is_favorite: row.is_favorite != 0,

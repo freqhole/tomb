@@ -1,6 +1,8 @@
 //! album domain models
 
+use super::super::shared::ImageMetadata;
 use serde::{Deserialize, Serialize};
+use crate::JsonVec;
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
@@ -15,7 +17,9 @@ pub struct Album {
     pub label: Option<String>,
     pub genre_id: Option<String>,
     pub genre: Option<String>,
-    pub sub_genres: Option<Vec<String>>,
+    pub sub_genres: Option<JsonVec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<JsonVec<ImageMetadata>>,
     pub song_count: i64,
     pub total_duration: i64,
     pub created_at: i64,         // unix timestamp UTC

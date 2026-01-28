@@ -6,4 +6,7 @@ mod repository;
 
 // re-export public types
 pub use models::{CreateSongRequest, Song};
-pub use repository::{create_song, delete_song, get_song, get_song_media_blob_id, list_songs};
+pub use repository::{
+    add_song_image, clear_song_images, create_song, delete_song, get_song, get_song_media_blob_id,
+    list_songs, remove_song_image, set_primary_song_image,
+};

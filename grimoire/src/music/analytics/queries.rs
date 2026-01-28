@@ -136,8 +136,6 @@ pub async fn get_user_listening_history(
             s.disc_number,
             s.duration,
             s.year,
-            s.thumbnail_blob_id,
-            s.waveform_blob_id,
             me.event_data,
             -- Get artist name (first artist from join)
             (SELECT a.name FROM artist_songz asz
@@ -200,8 +198,6 @@ pub async fn get_user_listening_history(
                 duration: row.duration.map(|d| d as i32),
                 genre: row.genre_name,
                 year: row.year.map(|y| y as i32),
-                thumbnail_blob_id: row.thumbnail_blob_id,
-                waveform_blob_id: row.waveform_blob_id,
                 playlist_id: row.playlist_id,
                 playlist_name: row.playlist_name,
                 user_id: Some(user_id.to_string()),
@@ -364,7 +360,10 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
             mpe.song_id,
             mpe.created_at,
             s.title,
-            s.thumbnail_blob_id,
+            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+             FROM song_imagez si
+             JOIN media_blobz mb ON si.media_blob_id = mb.id
+             WHERE si.song_id = s.id) as "images?: String",
             (SELECT a.name FROM artist_songz asz
              JOIN artistz a ON a.id = asz.artist_id
              WHERE asz.song_id = mpe.song_id
@@ -389,13 +388,17 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
 
     let songs = songs_rows
         .into_iter()
-        .map(|row| SessionSong {
-            song_id: row.song_id,
-            title: row.title,
-            artist: row.artist_name,
-            album: row.album_title,
-            thumbnail_blob_id: row.thumbnail_blob_id,
-            played_at: row.created_at,
+        .map(|row| {
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+            SessionSong {
+                song_id: row.song_id,
+                title: row.title,
+                artist: row.artist_name,
+                album: row.album_title,
+                images,
+                played_at: row.created_at,
+            }
         })
         .collect();
 

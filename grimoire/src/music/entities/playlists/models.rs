@@ -1,17 +1,21 @@
 //! playlist domain models
 
+use super::super::shared::ImageMetadata;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use crate::JsonVec;
+use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
 /// playlist model for music domain
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Playlist {
     pub id: String,
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
-    pub thumbnail_blob_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<JsonVec<ImageMetadata>>,
     pub created_by_id: Option<String>,
     pub created_at: i64, // unix timestamp UTC
     pub updated_at: i64, // unix timestamp UTC
@@ -87,10 +91,6 @@ pub struct UpdatePlaylistRequest {
     /// Make playlist public or private
     #[arg(long)]
     pub is_public: Option<bool>,
-
-    /// Thumbnail blob ID
-    #[arg(long)]
-    pub thumbnail_blob_id: Option<String>,
 
     /// User ID performing the update
     #[arg(long)]

@@ -1,7 +1,6 @@
 //! models for compound music operations
 //! request/response types for high-level workflows
 
-use crate::Bytes;
 use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
@@ -461,16 +460,6 @@ pub struct UpdateSongsRequest {
     #[arg(long)]
     pub sub_genre: Option<String>,
 
-    // thumbnail handling (for songs)
-    #[arg(long)]
-    pub thumbnail_blob_id: Option<String>,
-
-    #[arg(long)]
-    pub thumbnail_from_file: Option<String>,
-
-    #[arg(skip)]
-    pub thumbnail_from_bytes: Option<Bytes>,
-
     // tag operations (album-level)
     /// Tags to add (comma-separated)
     #[arg(long, value_delimiter = ',')]
@@ -680,7 +669,6 @@ pub struct UpdateSongsResult {
     pub album: Option<Album>,
     pub genre: Option<Genre>,
     pub sub_genre: Option<SubGenre>,
-    pub thumbnail_blob_id: Option<String>,
     pub tags_modified: bool,
 }
 

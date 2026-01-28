@@ -1,10 +1,12 @@
 //! artist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
+use super::super::shared::ImageMetadata;
 use super::models::{Artist, CreateArtistRequest, UpdateArtistRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::response::GrimoireResponse;
+use crate::JsonVec;
 use time::OffsetDateTime;
 
 /// create a new artist
@@ -25,7 +27,8 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResponse<Artist>
          VALUES (?, ?, ?)
          RETURNING id as "id!", name as "name!", bio,
                    created_at as "created_at!", updated_at as "updated_at!",
-                   deleted_at, deleted_by, created_by, updated_by"#,
+                   deleted_at, deleted_by, created_by, updated_by,
+                   NULL as "images?: JsonVec<ImageMetadata>""#,
         req.name,
         req.created_by,
         req.created_by
@@ -61,12 +64,19 @@ pub async fn list_artists(
 
     let artists = match sqlx::query_as!(
         Artist,
-        r#"SELECT id as "id!", name as "name!", bio,
-                  created_at as "created_at!", updated_at as "updated_at!",
-                  deleted_at, deleted_by, created_by, updated_by
-           FROM artistz
-           WHERE deleted_at IS NULL
-           ORDER BY name ASC
+        r#"SELECT
+            artist_id as "id!",
+            artist_name as "name!",
+            artist_bio as "bio?",
+            artist_created_at as "created_at!",
+            artist_updated_at as "updated_at!",
+            artist_deleted_at as "deleted_at?",
+            artist_deleted_by as "deleted_by?",
+            artist_created_by as "created_by?",
+            artist_updated_by as "updated_by?",
+            artist_images as "images: JsonVec<ImageMetadata>"
+           FROM artist_query_view
+           ORDER BY artist_name ASC
            LIMIT ? OFFSET ?"#,
         limit,
         offset
@@ -74,7 +84,7 @@ pub async fn list_artists(
     .fetch_all(&pool)
     .await
     {
-        Ok(a) => a,
+        Ok(artists) => artists,
         Err(e) => {
             return GrimoireResponse::failure("Failed to list artists", vec![ErrorDetail::from(e)])
         }
@@ -97,17 +107,25 @@ pub async fn get_artist(id: &str) -> GrimoireResponse<Artist> {
 
     let artist_opt = match sqlx::query_as!(
         Artist,
-        r#"SELECT id as "id!", name as "name!", bio,
-                  created_at as "created_at!", updated_at as "updated_at!",
-                  deleted_at, deleted_by, created_by, updated_by
-           FROM artistz
-           WHERE id = ? AND deleted_at IS NULL"#,
+        r#"SELECT
+            artist_id as "id!",
+            artist_name as "name!",
+            artist_bio as "bio?",
+            artist_created_at as "created_at!",
+            artist_updated_at as "updated_at!",
+            artist_deleted_at as "deleted_at?",
+            artist_deleted_by as "deleted_by?",
+            artist_created_by as "created_by?",
+            artist_updated_by as "updated_by?",
+            artist_images as "images: JsonVec<ImageMetadata>"
+           FROM artist_query_view
+           WHERE artist_id = ?"#,
         id
     )
     .fetch_optional(&pool)
     .await
     {
-        Ok(a) => a,
+        Ok(opt) => opt,
         Err(e) => {
             return GrimoireResponse::failure("Failed to get artist", vec![ErrorDetail::from(e)])
         }
@@ -315,7 +333,8 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
                 deleted_at,
                 deleted_by,
                 created_by,
-                updated_by
+                updated_by,
+                NULL as "images?: JsonVec<ImageMetadata>"
             FROM artistz
             WHERE id = ?"#,
         req.artist_id
@@ -373,7 +392,8 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
                 deleted_at,
                 deleted_by,
                 created_by,
-                updated_by"#,
+                updated_by,
+                NULL as "images?: JsonVec<ImageMetadata>""#,
         req.name,
         req.bio,
         req.updated_by,
@@ -407,7 +427,7 @@ pub async fn get_artist_images(artist_id: &str) -> GrimoireResponse<Vec<String>>
     // fetch all image blob IDs:
     // 1. artist images from artist_imagez
     // 2. album images from album_imagez for albums by this artist
-    // 3. song thumbnails from songs linked to this artist
+    // 3. song images from song_imagez for songs by this artist
     let image_blob_ids = match sqlx::query_scalar!(
         r#"
         SELECT DISTINCT mb.id as "id!"
@@ -422,11 +442,11 @@ pub async fn get_artist_images(artist_id: &str) -> GrimoireResponse<Vec<String>>
             JOIN artist_albumz aa ON ai.album_id = aa.album_id
             WHERE aa.artist_id = ?
             UNION
-            -- song thumbnails for songs by this artist (via artist_songz)
-            SELECT s.thumbnail_blob_id
-            FROM songz s
-            JOIN artist_songz asz ON s.id = asz.song_id
-            WHERE asz.artist_id = ? AND s.deleted_at IS NULL AND s.thumbnail_blob_id IS NOT NULL
+            -- song images for songs by this artist (via artist_songz)
+            SELECT si.media_blob_id
+            FROM song_imagez si
+            JOIN artist_songz asz ON si.song_id = asz.song_id
+            WHERE asz.artist_id = ?
         )
         AND mb.blob_type != 'waveform'
         AND mb.deleted_at IS NULL
@@ -449,4 +469,154 @@ pub async fn get_artist_images(artist_id: &str) -> GrimoireResponse<Vec<String>>
     };
 
     GrimoireResponse::success("Artist images retrieved successfully", image_blob_ids)
+}
+/// add an image to an artist
+pub async fn add_artist_image(
+    artist_id: &str,
+    media_blob_id: &str,
+    is_primary: bool,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // if setting as primary, unset other primary images first
+    if is_primary {
+        if let Err(e) = sqlx::query!(
+            "UPDATE artist_imagez SET is_primary = 0 WHERE artist_id = ?",
+            artist_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to unset existing primary images",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    }
+
+    // insert new image
+    match sqlx::query!(
+        "INSERT INTO artist_imagez (artist_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+        artist_id,
+        media_blob_id,
+        is_primary
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("Image added to artist", ()),
+        Err(e) => GrimoireResponse::failure("Failed to add image to artist", vec![ErrorDetail::from(e)]),
+    }
+}
+
+/// remove an image from an artist
+pub async fn remove_artist_image(artist_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    match sqlx::query!(
+        "DELETE FROM artist_imagez WHERE artist_id = ? AND media_blob_id = ?",
+        artist_id,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                GrimoireResponse::failure("Image not found for artist", vec![])
+            } else {
+                GrimoireResponse::success("Image removed from artist", ())
+            }
+        }
+        Err(e) => {
+            GrimoireResponse::failure("Failed to remove image from artist", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// set an image as the primary image for an artist
+pub async fn set_primary_artist_image(artist_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // unset all primary flags
+    if let Err(e) = sqlx::query!(
+        "UPDATE artist_imagez SET is_primary = 0 WHERE artist_id = ?",
+        artist_id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to unset existing primary images",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    // set the specified image as primary
+    match sqlx::query!(
+        "UPDATE artist_imagez SET is_primary = 1 WHERE artist_id = ? AND media_blob_id = ?",
+        artist_id,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                GrimoireResponse::failure("Image not found for artist", vec![])
+            } else {
+                GrimoireResponse::success("Primary image updated", ())
+            }
+        }
+        Err(e) => {
+            GrimoireResponse::failure("Failed to set primary image", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// remove all images from an artist
+pub async fn clear_artist_images(artist_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    match sqlx::query!("DELETE FROM artist_imagez WHERE artist_id = ?", artist_id)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => GrimoireResponse::success("All images removed from artist", ()),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to clear artist images", vec![ErrorDetail::from(e)])
+        }
+    }
 }

@@ -12,6 +12,7 @@ use clap::Subcommand;
 use grimoire::music::crud::QueryParams;
 
 mod fetch;
+mod images;
 mod maintenance;
 mod musicbrainz;
 mod playlists;
@@ -22,6 +23,7 @@ mod user_favorites;
 mod user_ratings;
 
 pub use fetch::FetchAction;
+pub use images::ImageAction;
 pub use musicbrainz::MusicBrainzAction;
 pub use scan::ScanAction;
 pub use user_favorites::FavoritesAction;
@@ -184,6 +186,11 @@ pub enum MusicAction {
     MusicBrainz {
         #[command(subcommand)]
         action: MusicBrainzAction,
+    },
+    /// Image management operations
+    Images {
+        #[command(subcommand)]
+        action: ImageAction,
     },
 
     // Album operations
@@ -500,6 +507,9 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
         MusicAction::MusicBrainz { action } => {
             musicbrainz::handle_command(action).await
         }
+
+        // Image management commands
+        MusicAction::Images { action } => action.execute().await,
 
         // User favorites commands
         MusicAction::Favorites { action } => {

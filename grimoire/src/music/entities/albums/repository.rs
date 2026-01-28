@@ -2,10 +2,12 @@
 //! album repository
 //! clean business logic using sqlx::query_as! with no fallbacks
 
+use super::super::shared::ImageMetadata;
 use super::models::{Album, CreateAlbumRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::response::GrimoireResponse;
+use crate::JsonVec;
 use time::OffsetDateTime;
 
 /// create a new album
@@ -71,28 +73,29 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
     let limit = limit.unwrap_or(100).min(1000) as i64;
     let offset = offset.unwrap_or(0) as i64;
 
-    let mut albums: Vec<Album> = match sqlx::query!(
+    let albums: Vec<Album> = match sqlx::query_as!(
+        Album,
         r#"SELECT
-            al.id as "id!",
-            al.title as "title!",
-            al.album_type as "album_type!",
-            al.release_date,
-            al.release_date_precision,
-            al.label,
-            al.genre_id,
-            g.name as "genre?",
-            al.song_count as "song_count!",
-            al.total_duration as "total_duration!",
-            al.created_at as "created_at!",
-            al.updated_at as "updated_at!",
-            al.deleted_at,
-            al.deleted_by,
-            al.created_by,
-            al.updated_by
-           FROM albumz al
-           LEFT JOIN genrez g ON al.genre_id = g.id
-           WHERE al.deleted_at IS NULL
-           ORDER BY al.title ASC
+            album_id as "id!",
+            album_title as "title!",
+            album_album_type as "album_type!",
+            album_release_date as "release_date?",
+            album_release_date_precision as "release_date_precision?",
+            album_label as "label?",
+            album_genre_id as "genre_id?",
+            album_genre_name as "genre?",
+            album_sub_genres as "sub_genres: crate::JsonVec<String>",
+            album_song_count as "song_count!",
+            album_total_duration as "total_duration!",
+            album_created_at as "created_at!",
+            album_updated_at as "updated_at!",
+            album_deleted_at as "deleted_at?",
+            album_deleted_by as "deleted_by?",
+            album_created_by as "created_by?",
+            album_updated_by as "updated_by?",
+            album_images as "images: JsonVec<ImageMetadata>"
+           FROM album_query_view
+           ORDER BY album_title ASC
            LIMIT ? OFFSET ?"#,
         limit,
         offset
@@ -100,50 +103,11 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
     .fetch_all(&pool)
     .await
     {
-        Ok(rows) => rows.into_iter().map(|row| Album {
-            id: row.id,
-            title: row.title,
-            album_type: row.album_type,
-            release_date: row.release_date,
-            release_date_precision: row.release_date_precision,
-            label: row.label,
-            genre_id: row.genre_id,
-            genre: row.genre,
-            sub_genres: None,
-            song_count: row.song_count,
-            total_duration: row.total_duration,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            deleted_at: row.deleted_at,
-            deleted_by: row.deleted_by,
-            created_by: row.created_by,
-            updated_by: row.updated_by,
-        }).collect(),
+        Ok(albums) => albums,
         Err(e) => {
             return GrimoireResponse::failure("failed to list albums", vec![ErrorDetail::from(e)])
         }
     };
-
-    // fetch sub-genres for each album
-    for album in albums.iter_mut() {
-        let sub_genres: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT sg.name
-               FROM album_sub_genrez asg
-               INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
-               WHERE asg.album_id = ?
-               ORDER BY sg.name ASC"#,
-            album.id
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
-
-        album.sub_genres = if sub_genres.is_empty() {
-            None
-        } else {
-            Some(sub_genres)
-        };
-    }
 
     GrimoireResponse::success("albums retrieved successfully", albums)
 }
@@ -160,34 +124,36 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
         }
     };
 
-    // fetch base album data
-    let row = match sqlx::query!(
+    // fetch album from view
+    let album = match sqlx::query_as!(
+        Album,
         r#"SELECT
-            al.id as "id!",
-            al.title as "title!",
-            al.album_type as "album_type!",
-            al.release_date,
-            al.release_date_precision,
-            al.label,
-            al.genre_id,
-            g.name as "genre?",
-            al.song_count as "song_count!",
-            al.total_duration as "total_duration!",
-            al.created_at as "created_at!",
-            al.updated_at as "updated_at!",
-            al.deleted_at,
-            al.deleted_by,
-            al.created_by,
-            al.updated_by
-           FROM albumz al
-           LEFT JOIN genrez g ON al.genre_id = g.id
-           WHERE al.id = ? AND al.deleted_at IS NULL"#,
+            album_id as "id!",
+            album_title as "title!",
+            album_album_type as "album_type!",
+            album_release_date as "release_date?",
+            album_release_date_precision as "release_date_precision?",
+            album_label as "label?",
+            album_genre_id as "genre_id?",
+            album_genre_name as "genre?",
+            album_sub_genres as "sub_genres: crate::JsonVec<String>",
+            album_song_count as "song_count!",
+            album_total_duration as "total_duration!",
+            album_created_at as "created_at!",
+            album_updated_at as "updated_at!",
+            album_deleted_at as "deleted_at?",
+            album_deleted_by as "deleted_by?",
+            album_created_by as "created_by?",
+            album_updated_by as "updated_by?",
+            album_images as "images: JsonVec<ImageMetadata>"
+           FROM album_query_view
+           WHERE album_id = ?"#,
         id
     )
     .fetch_optional(&pool)
     .await
     {
-        Ok(Some(r)) => r,
+        Ok(Some(album)) => album,
         Ok(None) => {
             let err = GrimoireError::AlbumNotFound { id: id.to_string() };
             return GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)]);
@@ -195,54 +161,6 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
         Err(e) => {
             return GrimoireResponse::failure("failed to get album", vec![ErrorDetail::from(e)])
         }
-    };
-
-    let mut album = Album {
-        id: row.id,
-        title: row.title,
-        album_type: row.album_type,
-        release_date: row.release_date,
-        release_date_precision: row.release_date_precision,
-        label: row.label,
-        genre_id: row.genre_id,
-        genre: row.genre,
-        sub_genres: None,
-        song_count: row.song_count,
-        total_duration: row.total_duration,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        deleted_at: row.deleted_at,
-        deleted_by: row.deleted_by,
-        created_by: row.created_by,
-        updated_by: row.updated_by,
-    };
-
-    // fetch sub-genres for this album
-    let sub_genres: Vec<String> = match sqlx::query_scalar!(
-        r#"SELECT sg.name
-           FROM album_sub_genrez asg
-           INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
-           WHERE asg.album_id = ?
-           ORDER BY sg.name ASC"#,
-        id
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        Ok(names) => names,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to fetch sub-genres",
-                vec![ErrorDetail::from(e)],
-            )
-        }
-    };
-
-    // populate sub_genres if not empty
-    album.sub_genres = if sub_genres.is_empty() {
-        None
-    } else {
-        Some(sub_genres)
     };
 
     GrimoireResponse::success("album retrieved successfully", album)
@@ -348,7 +266,7 @@ pub async fn get_album_images(album_id: &str) -> GrimoireResponse<Vec<String>> {
 
     // fetch all image blob IDs:
     // 1. album images from album_imagez
-    // 2. song thumbnails from songz for this album
+    // 2. song images from song_imagez for this album
     let image_blob_ids = match sqlx::query_scalar!(
         r#"
         SELECT DISTINCT mb.id as "id!"
@@ -357,11 +275,11 @@ pub async fn get_album_images(album_id: &str) -> GrimoireResponse<Vec<String>> {
             -- album images
             SELECT media_blob_id FROM album_imagez WHERE album_id = ?
             UNION
-            -- song thumbnails for this album
-            SELECT s.thumbnail_blob_id
-            FROM songz s
-            JOIN album_songz asz ON s.id = asz.song_id
-            WHERE asz.album_id = ? AND s.deleted_at IS NULL AND s.thumbnail_blob_id IS NOT NULL
+            -- song images for this album
+            SELECT si.media_blob_id
+            FROM song_imagez si
+            JOIN album_songz asz ON si.song_id = asz.song_id
+            WHERE asz.album_id = ?
         )
         AND mb.blob_type != 'waveform'
         AND mb.deleted_at IS NULL
@@ -383,4 +301,154 @@ pub async fn get_album_images(album_id: &str) -> GrimoireResponse<Vec<String>> {
     };
 
     GrimoireResponse::success("Album images retrieved successfully", image_blob_ids)
+}
+/// add an image to an album
+pub async fn add_album_image(
+    album_id: &str,
+    media_blob_id: &str,
+    is_primary: bool,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // if setting as primary, unset other primary images first
+    if is_primary {
+        if let Err(e) = sqlx::query!(
+            "UPDATE album_imagez SET is_primary = 0 WHERE album_id = ?",
+            album_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to unset existing primary images",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    }
+
+    // insert new image
+    match sqlx::query!(
+        "INSERT INTO album_imagez (album_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+        album_id,
+        media_blob_id,
+        is_primary
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("Image added to album", ()),
+        Err(e) => GrimoireResponse::failure("Failed to add image to album", vec![ErrorDetail::from(e)]),
+    }
+}
+
+/// remove an image from an album
+pub async fn remove_album_image(album_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    match sqlx::query!(
+        "DELETE FROM album_imagez WHERE album_id = ? AND media_blob_id = ?",
+        album_id,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                GrimoireResponse::failure("Image not found for album", vec![])
+            } else {
+                GrimoireResponse::success("Image removed from album", ())
+            }
+        }
+        Err(e) => {
+            GrimoireResponse::failure("Failed to remove image from album", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// set an image as the primary image for an album
+pub async fn set_primary_album_image(album_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // unset all primary flags
+    if let Err(e) = sqlx::query!(
+        "UPDATE album_imagez SET is_primary = 0 WHERE album_id = ?",
+        album_id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to unset existing primary images",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    // set the specified image as primary
+    match sqlx::query!(
+        "UPDATE album_imagez SET is_primary = 1 WHERE album_id = ? AND media_blob_id = ?",
+        album_id,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                GrimoireResponse::failure("Image not found for album", vec![])
+            } else {
+                GrimoireResponse::success("Primary image updated", ())
+            }
+        }
+        Err(e) => {
+            GrimoireResponse::failure("Failed to set primary image", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// remove all images from an album
+pub async fn clear_album_images(album_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    match sqlx::query!("DELETE FROM album_imagez WHERE album_id = ?", album_id)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => GrimoireResponse::success("All images removed from album", ()),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to clear album images", vec![ErrorDetail::from(e)])
+        }
+    }
 }

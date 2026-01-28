@@ -40,8 +40,8 @@ pub struct TopSong {
     pub artist_name: Option<String>,
     /// Album title
     pub album_title: Option<String>,
-    /// Thumbnail blob ID
-    pub thumbnail_blob_id: Option<String>,
+    /// Images for this song
+    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
     /// Total play count
     pub play_count: i64,
     /// Number of unique users who played this
@@ -59,8 +59,8 @@ pub struct TopAlbum {
     pub title: String,
     /// Artist name
     pub artist_name: Option<String>,
-    /// Thumbnail blob ID (from album_imagez)
-    pub thumbnail_blob_id: Option<String>,
+    /// Images for this album
+    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
     /// Total plays across all songs in album
     pub total_plays: i64,
     /// Number of songs in album
@@ -168,7 +168,10 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResponse<Vec<TopSong>> {
         SELECT
             mpe.song_id,
             s.title,
-            s.thumbnail_blob_id,
+            (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+             FROM song_imagez si
+             JOIN media_blobz mb ON si.media_blob_id = mb.id
+             WHERE si.song_id = s.id) as "images?: String",
             COUNT(*) as "play_count!: i64",
             COUNT(DISTINCT mpe.user_id) as "unique_users!: i64",
             MAX(mpe.created_at) as "last_played_at?: i64",
@@ -198,15 +201,19 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResponse<Vec<TopSong>> {
 
     let songs = rows
         .into_iter()
-        .map(|row| TopSong {
-            song_id: row.song_id,
-            title: row.title,
-            artist_name: row.artist_name,
-            album_title: row.album_title,
-            thumbnail_blob_id: row.thumbnail_blob_id,
-            play_count: row.play_count,
-            unique_users: row.unique_users,
-            last_played_at: row.last_played_at,
+        .map(|row| {
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+            TopSong {
+                song_id: row.song_id,
+                title: row.title,
+                artist_name: row.artist_name,
+                album_title: row.album_title,
+                images,
+                play_count: row.play_count,
+                unique_users: row.unique_users,
+                last_played_at: row.last_played_at,
+            }
         })
         .collect();
 
@@ -236,9 +243,10 @@ pub async fn get_top_albums(limit: i64) -> GrimoireResponse<Vec<TopAlbum>> {
              JOIN artistz a ON a.id = aa.artist_id
              WHERE aa.album_id = alb.id
              LIMIT 1) as "artist_name?",
-            (SELECT ai.media_blob_id FROM album_imagez ai
-             WHERE ai.album_id = alb.id AND ai.is_primary = 1
-             LIMIT 1) as "thumbnail_blob_id?"
+            (SELECT json_group_array(json_object('media_blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+             FROM album_imagez ai
+             JOIN media_blobz mb ON ai.media_blob_id = mb.id
+             WHERE ai.album_id = alb.id) as "images?: String"
         FROM music_play_eventz mpe
         JOIN album_songz als ON als.song_id = mpe.song_id
         JOIN albumz alb ON alb.id = als.album_id
@@ -258,14 +266,18 @@ pub async fn get_top_albums(limit: i64) -> GrimoireResponse<Vec<TopAlbum>> {
 
     let albums = rows
         .into_iter()
-        .map(|row| TopAlbum {
-            album_id: row.album_id,
-            title: row.title,
-            artist_name: row.artist_name,
-            thumbnail_blob_id: row.thumbnail_blob_id,
-            total_plays: row.total_plays,
-            song_count: row.song_count,
-            unique_users: row.unique_users,
+        .map(|row| {
+            let images = row.images
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+            TopAlbum {
+                album_id: row.album_id,
+                title: row.title,
+                artist_name: row.artist_name,
+                images,
+                total_plays: row.total_plays,
+                song_count: row.song_count,
+                unique_users: row.unique_users,
+            }
         })
         .collect();
 

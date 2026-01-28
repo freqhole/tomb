@@ -24,8 +24,6 @@ enum PlaylistView {
     PlaylistDescription,
     #[iden = "playlist_is_public"]
     PlaylistIsPublic,
-    #[iden = "playlist_thumbnail_blob_id"]
-    PlaylistThumbnailBlobId,
     #[iden = "playlist_created_by_id"]
     PlaylistCreatedById,
     #[iden = "playlist_created_at"]
@@ -79,7 +77,6 @@ pub struct PlaylistViewRow {
     playlist_title: String,
     playlist_description: Option<String>,
     playlist_is_public: i64,
-    playlist_thumbnail_blob_id: Option<String>,
     playlist_created_by_id: Option<String>,
     playlist_created_at: i64,
     playlist_updated_at: i64,
@@ -101,7 +98,7 @@ impl PlaylistViewRow {
             title: self.playlist_title,
             description: self.playlist_description,
             is_public: self.playlist_is_public,
-            thumbnail_blob_id: self.playlist_thumbnail_blob_id,
+            images: None,
             created_by_id: self.playlist_created_by_id,
             created_at: self.playlist_created_at,
             updated_at: self.playlist_updated_at,
@@ -138,8 +135,6 @@ pub struct PlaylistSongViewRow {
     // Full song data (same as SongViewRow but from playlist context)
     song_id: String,
     song_media_blob_id: String,
-    song_thumbnail_blob_id: Option<String>,
-    song_waveform_blob_id: Option<String>,
     song_images: Option<String>, // JSON array from view
     song_title: String,
     song_track_number: i64,
@@ -215,8 +210,7 @@ impl PlaylistSongViewRow {
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
-            thumbnail_blob_id: self.song_thumbnail_blob_id,
-            waveform_blob_id: self.song_waveform_blob_id,
+            images: None,
             title: self.song_title,
             track_number: self.song_track_number,
             disc_number: self.song_disc_number,
@@ -247,6 +241,7 @@ impl PlaylistSongViewRow {
                 deleted_by: self.artist_deleted_by,
                 created_by: self.artist_created_by,
                 updated_by: self.artist_updated_by,
+                images: None,
             })
         } else {
             None
@@ -263,6 +258,7 @@ impl PlaylistSongViewRow {
                 genre_id: self.album_genre_id,
                 genre: None,
                 sub_genres: None,
+                images: None,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -386,7 +382,6 @@ pub async fn query_playlists(
         .column(PlaylistView::PlaylistTitle)
         .column(PlaylistView::PlaylistDescription)
         .column(PlaylistView::PlaylistIsPublic)
-        .column(PlaylistView::PlaylistThumbnailBlobId)
         .column(PlaylistView::PlaylistCreatedById)
         .column(PlaylistView::PlaylistCreatedAt)
         .column(PlaylistView::PlaylistUpdatedAt)

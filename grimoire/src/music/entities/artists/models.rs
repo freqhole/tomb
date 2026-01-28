@@ -1,6 +1,8 @@
 //! artist domain models
 
+use super::super::shared::ImageMetadata;
 use serde::{Deserialize, Serialize};
+use crate::JsonVec;
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
@@ -10,6 +12,8 @@ pub struct Artist {
     pub id: String,
     pub name: String,
     pub bio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<JsonVec<ImageMetadata>>,
     pub created_at: i64,         // unix timestamp UTC
     pub updated_at: i64,         // unix timestamp UTC
     pub deleted_at: Option<i64>, // unix timestamp UTC

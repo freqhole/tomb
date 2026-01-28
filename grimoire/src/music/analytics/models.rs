@@ -128,10 +128,6 @@ pub struct ListeningHistoryItem {
     pub genre: Option<String>,
     /// Year
     pub year: Option<i32>,
-    /// Thumbnail blob ID
-    pub thumbnail_blob_id: Option<String>,
-    /// Waveform blob ID
-    pub waveform_blob_id: Option<String>,
     /// Playlist ID if played from playlist
     pub playlist_id: Option<String>,
     /// Playlist name if played from playlist
@@ -180,8 +176,8 @@ pub struct SessionSong {
     pub artist: Option<String>,
     /// Album title
     pub album: Option<String>,
-    /// Thumbnail blob ID
-    pub thumbnail_blob_id: Option<String>,
+    /// Images for this song
+    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
     /// When played in session
     pub played_at: i64,
 }

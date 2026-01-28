@@ -10,6 +10,10 @@ use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::update_blob_local_path;
+use crate::music::entities::albums::add_album_image;
+use crate::music::entities::artists::add_artist_image;
+use crate::music::entities::playlists::add_playlist_image;
+use crate::music::entities::songs::add_song_image;
 use crate::music::scanner::extract_and_import;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -26,7 +30,7 @@ use tracing::{error, info};
 /// 1. check if blob already has WebP data in blob_data table
 /// 2. if not, get original image data and convert to WebP
 /// 3. store WebP data back to blob_data
-/// 4. if associate_with is present, update the entity's thumbnail_blob_id field
+/// 4. if associate_with is present, insert images into entity's *_imagez junction table
 pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing ConvertWebp job: {}", job.id);
 
@@ -151,95 +155,23 @@ async fn associate_image_with_entity(
         is_primary_hint.unwrap_or(false) // use hint, default to false
     };
 
-    // if this is being set as primary and there are existing images, unset old primary
-    if is_primary && existing_count > 0 {
-        unset_primary_images(entity_type, entity_id, &pool).await?;
-    }
-
-    match entity_type {
-        "album" => {
-            // insert into album_imagez
-            let is_primary_int = if is_primary { 1 } else { 0 };
-            sqlx::query!(
-                "INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
-                 VALUES (?, ?, ?)
-                 ON CONFLICT(album_id, media_blob_id) DO UPDATE SET is_primary = excluded.is_primary",
-                entity_id,
-                blob_id,
-                is_primary_int
-            )
-            .execute(&pool)
-            .await?;
-        }
-        "playlist" => {
-            // insert into playlist_imagez
-            let is_primary_int = if is_primary { 1 } else { 0 };
-            sqlx::query!(
-                "INSERT INTO playlist_imagez (playlist_id, media_blob_id, is_primary)
-                 VALUES (?, ?, ?)
-                 ON CONFLICT(playlist_id, media_blob_id) DO UPDATE SET is_primary = excluded.is_primary",
-                entity_id,
-                blob_id,
-                is_primary_int
-            )
-            .execute(&pool)
-            .await?;
-
-            // if primary, also update thumbnail_blob_id column
-            if is_primary {
-                sqlx::query!(
-                    "UPDATE playlistz SET thumbnail_blob_id = ? WHERE id = ?",
-                    blob_id,
-                    entity_id
-                )
-                .execute(&pool)
-                .await?;
-            }
-        }
-        "song" => {
-            // insert into song_imagez
-            let is_primary_int = if is_primary { 1 } else { 0 };
-            sqlx::query!(
-                "INSERT INTO song_imagez (song_id, media_blob_id, is_primary)
-                 VALUES (?, ?, ?)
-                 ON CONFLICT(song_id, media_blob_id) DO UPDATE SET is_primary = excluded.is_primary",
-                entity_id,
-                blob_id,
-                is_primary_int
-            )
-            .execute(&pool)
-            .await?;
-
-            // if primary, also update thumbnail_blob_id column
-            if is_primary {
-                sqlx::query!(
-                    "UPDATE songz SET thumbnail_blob_id = ? WHERE id = ?",
-                    blob_id,
-                    entity_id
-                )
-                .execute(&pool)
-                .await?;
-            }
-        }
-        "artist" => {
-            // insert into artist_imagez
-            let is_primary_int = if is_primary { 1 } else { 0 };
-            sqlx::query!(
-                "INSERT INTO artist_imagez (artist_id, media_blob_id, is_primary)
-                 VALUES (?, ?, ?)
-                 ON CONFLICT(artist_id, media_blob_id) DO UPDATE SET is_primary = excluded.is_primary",
-                entity_id,
-                blob_id,
-                is_primary_int
-            )
-            .execute(&pool)
-            .await?;
-        }
+    // use the new image management functions instead of raw SQL
+    let response = match entity_type {
+        "album" => add_album_image(entity_id, blob_id, is_primary).await,
+        "playlist" => add_playlist_image(entity_id, blob_id, is_primary).await,
+        "song" => add_song_image(entity_id, blob_id, is_primary).await,
+        "artist" => add_artist_image(entity_id, blob_id, is_primary).await,
         _ => {
             return Err(GrimoireError::ProcessingFailed {
                 message: format!("unknown entity type: {}", entity_type),
             });
         }
+    };
+
+    if !response.success {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("failed to add image: {}", response.message),
+        });
     }
 
     Ok(())
@@ -288,51 +220,6 @@ async fn count_entity_images(
     };
 
     Ok(count)
-}
-
-/// unset primary flag on all existing images for an entity
-async fn unset_primary_images(
-    entity_type: &str,
-    entity_id: &str,
-    pool: &sqlx::SqlitePool,
-) -> Result<(), GrimoireError> {
-    match entity_type {
-        "album" => {
-            sqlx::query!(
-                "UPDATE album_imagez SET is_primary = 0 WHERE album_id = ?",
-                entity_id
-            )
-            .execute(pool)
-            .await?;
-        }
-        "playlist" => {
-            sqlx::query!(
-                "UPDATE playlist_imagez SET is_primary = 0 WHERE playlist_id = ?",
-                entity_id
-            )
-            .execute(pool)
-            .await?;
-        }
-        "song" => {
-            sqlx::query!(
-                "UPDATE song_imagez SET is_primary = 0 WHERE song_id = ?",
-                entity_id
-            )
-            .execute(pool)
-            .await?;
-        }
-        "artist" => {
-            sqlx::query!(
-                "UPDATE artist_imagez SET is_primary = 0 WHERE artist_id = ?",
-                entity_id
-            )
-            .execute(pool)
-            .await?;
-        }
-        _ => {}
-    }
-
-    Ok(())
 }
 
 /// process music import job

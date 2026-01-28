@@ -1,10 +1,12 @@
 //! playlist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
+use super::super::shared::ImageMetadata;
 use super::models::{CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::response::GrimoireResponse;
+use crate::JsonVec;
 
 /// create a new playlist
 pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Playlist> {
@@ -43,23 +45,21 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Pla
     let playlist = match sqlx::query_as!(
         Playlist,
         r#"SELECT
-            p.id as "id!",
-            p.title as "title!",
-            p.description,
-            p.is_public as "is_public!",
-            p.thumbnail_blob_id,
-            p.created_by_id,
-            p.created_at as "created_at!",
-            p.updated_at as "updated_at!",
-            p.deleted_at,
-            p.deleted_by,
-            p.created_by,
-            p.updated_by,
-            COALESCE(COUNT(ps.song_id), 0) as "song_count!: i64"
-        FROM playlistz p
-        LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
-        WHERE p.id = ?
-        GROUP BY p.id"#,
+            playlist_id as "id!",
+            playlist_title as "title!",
+            playlist_description as "description?",
+            playlist_is_public as "is_public!",
+            playlist_created_by_id as "created_by_id?",
+            playlist_created_at as "created_at!",
+            playlist_updated_at as "updated_at!",
+            playlist_deleted_at as "deleted_at?",
+            playlist_deleted_by as "deleted_by?",
+            playlist_created_by as "created_by?",
+            playlist_updated_by as "updated_by?",
+            playlist_song_count as "song_count!: i64",
+            playlist_images as "images: JsonVec<ImageMetadata>"
+        FROM playlist_query_view
+        WHERE playlist_id = ?"#,
         playlist_id
     )
     .fetch_one(&pool)
@@ -93,29 +93,26 @@ pub async fn list_playlists() -> GrimoireResponse<Vec<Playlist>> {
     let playlists = match sqlx::query_as!(
         Playlist,
         r#"SELECT
-            p.id as "id!",
-            p.title as "title!",
-            p.description,
-            p.is_public as "is_public!",
-            p.thumbnail_blob_id,
-            p.created_by_id,
-            p.created_at as "created_at!",
-            p.updated_at as "updated_at!",
-            p.deleted_at,
-            p.deleted_by,
-            p.created_by,
-            p.updated_by,
-            COALESCE(COUNT(ps.song_id), 0) as "song_count: i64"
-        FROM playlistz p
-        LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
-        WHERE p.deleted_at IS NULL
-        GROUP BY p.id
-        ORDER BY p.created_at DESC"#
+            playlist_id as "id!",
+            playlist_title as "title!",
+            playlist_description as "description?",
+            playlist_is_public as "is_public!",
+            playlist_created_by_id as "created_by_id?",
+            playlist_created_at as "created_at!",
+            playlist_updated_at as "updated_at!",
+            playlist_deleted_at as "deleted_at?",
+            playlist_deleted_by as "deleted_by?",
+            playlist_created_by as "created_by?",
+            playlist_updated_by as "updated_by?",
+            playlist_song_count as "song_count!: i64",
+            playlist_images as "images: JsonVec<ImageMetadata>"
+        FROM playlist_query_view
+        ORDER BY playlist_created_at DESC"#
     )
     .fetch_all(&pool)
     .await
     {
-        Ok(p) => p,
+        Ok(playlists) => playlists,
         Err(e) => {
             return GrimoireResponse::failure(
                 "Failed to list playlists",
@@ -142,29 +139,27 @@ pub async fn get_playlist(id: &str) -> GrimoireResponse<Playlist> {
     let playlist_opt = match sqlx::query_as!(
         Playlist,
         r#"SELECT
-            p.id as "id!",
-            p.title as "title!",
-            p.description,
-            p.is_public as "is_public!",
-            p.thumbnail_blob_id,
-            p.created_by_id,
-            p.created_at as "created_at!",
-            p.updated_at as "updated_at!",
-            p.deleted_at,
-            p.deleted_by,
-            p.created_by,
-            p.updated_by,
-            COALESCE(COUNT(ps.song_id), 0) as "song_count!: i64"
-          FROM playlistz p
-          LEFT JOIN playlist_songz ps ON p.id = ps.playlist_id
-          WHERE p.id = ? AND p.deleted_at IS NULL
-          GROUP BY p.id"#,
+            playlist_id as "id!",
+            playlist_title as "title!",
+            playlist_description as "description?",
+            playlist_is_public as "is_public!",
+            playlist_created_by_id as "created_by_id?",
+            playlist_created_at as "created_at!",
+            playlist_updated_at as "updated_at!",
+            playlist_deleted_at as "deleted_at?",
+            playlist_deleted_by as "deleted_by?",
+            playlist_created_by as "created_by?",
+            playlist_updated_by as "updated_by?",
+            playlist_song_count as "song_count!: i64",
+            playlist_images as "images: JsonVec<ImageMetadata>"
+          FROM playlist_query_view
+          WHERE playlist_id = ?"#,
         id
     )
     .fetch_optional(&pool)
     .await
     {
-        Ok(p) => p,
+        Ok(opt) => opt,
         Err(e) => {
             return GrimoireResponse::failure("Failed to get playlist", vec![ErrorDetail::from(e)])
         }
@@ -195,53 +190,39 @@ pub async fn remove_playlist_thumbnail(
         }
     };
 
-    // Get current thumbnail blob ID before removing it
-    let current_thumbnail_blob_id_opt = match sqlx::query!(
-        "SELECT thumbnail_blob_id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+    // Get current thumbnail blob IDs before removing them
+    let current_thumbnail_blob_ids: Vec<String> = match sqlx::query_scalar!(
+        "SELECT media_blob_id FROM playlist_imagez WHERE playlist_id = ?",
         id
     )
-    .fetch_optional(&pool)
+    .fetch_all(&pool)
     .await
     {
-        Ok(row) => row,
+        Ok(ids) => ids,
         Err(e) => {
             return GrimoireResponse::failure(
-                "Failed to query playlist",
+                "Failed to query playlist images",
                 vec![ErrorDetail::from(e)],
             )
         }
     };
 
-    let current_thumbnail_blob_id = match current_thumbnail_blob_id_opt {
-        Some(row) => row.thumbnail_blob_id,
-        None => {
-            let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
-            return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
-        }
-    };
-
-    // Remove thumbnail from playlist
-    let rows_affected = match sqlx::query!(
-        "UPDATE playlistz SET updated_at = unixepoch(), thumbnail_blob_id = NULL, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
-        deleted_by,
+    // Remove all thumbnails from playlist
+    match sqlx::query!(
+        "DELETE FROM playlist_imagez WHERE playlist_id = ?",
         id
     )
     .execute(&pool)
     .await {
-        Ok(result) => result.rows_affected(),
-        Err(e) => return GrimoireResponse::failure("Failed to remove thumbnail", vec![ErrorDetail::from(e)]),
+        Ok(_) => {},
+        Err(e) => return GrimoireResponse::failure("Failed to remove thumbnails", vec![ErrorDetail::from(e)]),
     };
 
-    if rows_affected == 0 {
-        let err = GrimoireError::PlaylistNotFound { id: id.to_string() };
-        return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
-    }
-
-    // Optionally clean up unused media blob
+    // Optionally clean up unused media blobs
     if cleanup_unused_blob {
-        if let Some(blob_id) = current_thumbnail_blob_id {
+        for blob_id in current_thumbnail_blob_ids {
             use crate::media_blobz::delete_media_blob_if_unused;
-            match delete_media_blob_if_unused(&blob_id, deleted_by).await {
+            match delete_media_blob_if_unused(&blob_id, deleted_by.clone()).await {
                 Ok(deleted) => {
                     if deleted {
                         println!("Cleaned up unused media blob: {}", blob_id);
@@ -282,13 +263,11 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
             title = COALESCE(?, title),
             description = COALESCE(?, description),
             is_public = COALESCE(?, is_public),
-            thumbnail_blob_id = COALESCE(?, thumbnail_blob_id),
             updated_by = COALESCE(?, updated_by)
         WHERE id = ? AND deleted_at IS NULL",
         req.title,
         req.description,
         is_public_int,
-        req.thumbnail_blob_id,
         req.updated_by,
         id
     )
@@ -344,6 +323,158 @@ pub async fn delete_playlist(id: &str, deleted_by: Option<String>) -> GrimoireRe
 
     GrimoireResponse::success("Playlist deleted successfully", ())
 }
+
+/// add an image to a playlist
+pub async fn add_playlist_image(
+    playlist_id: &str,
+    media_blob_id: &str,
+    is_primary: bool,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // if setting as primary, unset other primary images first
+    if is_primary {
+        if let Err(e) = sqlx::query!(
+            "UPDATE playlist_imagez SET is_primary = 0 WHERE playlist_id = ?",
+            playlist_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to unset existing primary images",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    }
+
+    // insert new image
+    match sqlx::query!(
+        "INSERT INTO playlist_imagez (playlist_id, media_blob_id, is_primary) VALUES (?, ?, ?)",
+        playlist_id,
+        media_blob_id,
+        is_primary
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("Image added to playlist", ()),
+        Err(e) => GrimoireResponse::failure("Failed to add image to playlist", vec![ErrorDetail::from(e)]),
+    }
+}
+
+/// remove an image from a playlist
+pub async fn remove_playlist_image(playlist_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    match sqlx::query!(
+        "DELETE FROM playlist_imagez WHERE playlist_id = ? AND media_blob_id = ?",
+        playlist_id,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                GrimoireResponse::failure("Image not found for playlist", vec![])
+            } else {
+                GrimoireResponse::success("Image removed from playlist", ())
+            }
+        }
+        Err(e) => {
+            GrimoireResponse::failure("Failed to remove image from playlist", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// set an image as the primary image for a playlist
+pub async fn set_primary_playlist_image(playlist_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // unset all primary flags
+    if let Err(e) = sqlx::query!(
+        "UPDATE playlist_imagez SET is_primary = 0 WHERE playlist_id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to unset existing primary images",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    // set the specified image as primary
+    match sqlx::query!(
+        "UPDATE playlist_imagez SET is_primary = 1 WHERE playlist_id = ? AND media_blob_id = ?",
+        playlist_id,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(result) => {
+            if result.rows_affected() == 0 {
+                GrimoireResponse::failure("Image not found for playlist", vec![])
+            } else {
+                GrimoireResponse::success("Primary image updated", ())
+            }
+        }
+        Err(e) => {
+            GrimoireResponse::failure("Failed to set primary image", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// remove all images from a playlist
+pub async fn clear_playlist_images(playlist_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    match sqlx::query!("DELETE FROM playlist_imagez WHERE playlist_id = ?", playlist_id)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => GrimoireResponse::success("All images removed from playlist", ()),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to clear playlist images", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
 /// get all image blob IDs for a playlist and its related entities
 /// includes: playlist images, and all artist/album/song images from playlist songs
 /// excludes waveform type blobs
@@ -391,11 +522,11 @@ pub async fn get_playlist_images(playlist_id: &str) -> GrimoireResponse<Vec<Stri
                 WHERE ps.playlist_id = ?
             )
             UNION
-            -- song thumbnails in playlist
-            SELECT s.thumbnail_blob_id
+            -- song images in playlist
+            SELECT si.media_blob_id
             FROM playlist_songz ps
-            JOIN songz s ON ps.song_id = s.id
-            WHERE ps.playlist_id = ? AND s.deleted_at IS NULL AND s.thumbnail_blob_id IS NOT NULL
+            JOIN song_imagez si ON ps.song_id = si.song_id
+            WHERE ps.playlist_id = ?
         )
         AND mb.blob_type != 'waveform'
         AND mb.deleted_at IS NULL
