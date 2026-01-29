@@ -1,123 +1,111 @@
-import { createEffect, createSignal, JSX, onCleanup, onMount } from "solid-js";
+// marquee text - scrolls long text on hover
+// supports both internal hover tracking and external isHovering prop for virtualized lists
+
+import { createEffect, createSignal, JSX, onMount } from "solid-js";
 
 interface MarqueeTextProps {
   /** text content to display */
   text: string;
   /** additional css classes */
   class?: string;
+  /** padding class applied inside the overflow container (e.g. 'px-2') for virtualized lists */
+  padClass?: string;
   /** hover-specific css classes (applied to inner span on hover) */
   hoverClass?: string;
   /** tooltip text (defaults to the text content) */
   title?: string;
-  /** only marquee on hover (default: false = always marquee when overflow) */
+  /** only marquee on hover (default: true) - when false, always animates if overflow */
   hoverOnly?: boolean;
+  /** externally controlled hover state - when provided, skips internal mouse listeners */
+  isHovering?: boolean;
+}
+
+// inject styles once globally
+let stylesInjected = false;
+function injectStyles() {
+  if (stylesInjected) return;
+  stylesInjected = true;
+  const style = document.createElement("style");
+  style.id = "marquee-styles";
+  style.textContent = `
+    @keyframes marquee-scroll {
+      0%, 5% { transform: translateX(0); }
+      45%, 55% { transform: translateX(var(--marquee-offset)); }
+      95%, 100% { transform: translateX(0); }
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 export function MarqueeText(props: MarqueeTextProps): JSX.Element {
-  const [shouldMarquee, setShouldMarquee] = createSignal(false);
-  const [animationDuration, setAnimationDuration] = createSignal(4);
-  const [isHovering, setIsHovering] = createSignal(false);
+  const [overflows, setOverflows] = createSignal(false);
+  const [offset, setOffset] = createSignal(0);
+  const [internalHover, setInternalHover] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
   let textRef: HTMLSpanElement | undefined;
 
-  const shouldAnimate = () => {
-    if (!shouldMarquee()) return false;
-    if (props.hoverOnly) return isHovering();
-    return true;
+  // use external isHovering if provided, otherwise internal
+  const isHovering = () => props.isHovering ?? internalHover();
+  
+  // check if we should use internal hover tracking
+  const useInternalHover = () => props.isHovering === undefined;
+
+  // check overflow on mount and when text changes
+  const checkOverflow = () => {
+    if (!containerRef || !textRef) return;
+    const containerWidth = containerRef.offsetWidth;
+    const textWidth = textRef.scrollWidth;
+    const doesOverflow = textWidth > containerWidth;
+    setOverflows(doesOverflow);
+    if (doesOverflow) {
+      setOffset(containerWidth - textWidth - 8); // 8px end padding
+    }
   };
 
   onMount(() => {
-    // add css keyframes for marquee animation if not exists
-    if (!document.querySelector("#marquee-styles")) {
-      const style = document.createElement("style");
-      style.id = "marquee-styles";
-      style.textContent = `
-        @keyframes marquee-bounce {
-          0%, 25% { transform: translateX(0%); }
-          50%, 75% { transform: translateX(calc(-100% + var(--container-width))); }
-          100% { transform: translateX(0%); }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-
-    // check if text overflows and calculate timing
-    const checkOverflow = () => {
-      if (containerRef && textRef) {
-        const containerWidth = containerRef.offsetWidth;
-        const textWidth = textRef.scrollWidth;
-        const shouldScroll = textWidth > containerWidth;
-        setShouldMarquee(shouldScroll);
-
-        if (shouldScroll) {
-          containerRef.style.setProperty(
-            "--container-width",
-            `${containerWidth}px`,
-          );
-
-          // calculate duration based on text length for consistent speed
-          const baseDuration = 2; // seconds for short text
-          const extraTimePerChar = 0.03; // additional seconds per character
-          const calculatedDuration =
-            baseDuration + props.text.length * extraTimePerChar;
-          setAnimationDuration(Math.max(calculatedDuration, 2)); // minimum 2 seconds
-        }
-      }
-    };
-
-    setTimeout(checkOverflow, 10);
-    window.addEventListener("resize", checkOverflow);
-    onCleanup(() => window.removeEventListener("resize", checkOverflow));
+    injectStyles();
+    requestAnimationFrame(checkOverflow);
   });
 
-  // recheck overflow whenever text changes
+  // recheck when text changes
   createEffect(() => {
-    props.text; // track text changes
-    setTimeout(() => {
-      if (containerRef && textRef) {
-        const containerWidth = containerRef.offsetWidth;
-        const textWidth = textRef.scrollWidth;
-        const shouldScroll = textWidth > containerWidth;
-        setShouldMarquee(shouldScroll);
-
-        if (shouldScroll) {
-          containerRef.style.setProperty(
-            "--container-width",
-            `${containerWidth}px`,
-          );
-
-          const baseDuration = 2;
-          const extraTimePerChar = 0.03;
-          const calculatedDuration =
-            baseDuration + props.text.length * extraTimePerChar;
-          setAnimationDuration(Math.max(calculatedDuration, 2));
-        }
-      }
-    }, 10);
+    props.text;
+    requestAnimationFrame(checkOverflow);
   });
+
+  // calculate duration based on scroll distance
+  const duration = () => {
+    const distance = Math.abs(offset());
+    // base 2s + 0.02s per pixel of scroll distance
+    return Math.max(2, 2 + distance * 0.02);
+  };
+
+  // default hoverOnly to true (most common use case)
+  const hoverOnly = () => props.hoverOnly !== false;
+  
+  const shouldAnimate = () => {
+    if (!overflows()) return false;
+    if (hoverOnly()) return isHovering();
+    return true; // always animate if hoverOnly is false
+  };
 
   return (
     <div
       ref={containerRef!}
-      class={`relative overflow-hidden ${props.class || ""}`}
+      class={`overflow-hidden ${props.class || ""}`}
       title={props.title || props.text}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
+      onMouseEnter={useInternalHover() ? () => setInternalHover(true) : undefined}
+      onMouseLeave={useInternalHover() ? () => setInternalHover(false) : undefined}
     >
       <span
         ref={textRef!}
-        class={`${
-          shouldMarquee()
-            ? "inline-block whitespace-nowrap pr-4"
-            : "truncate block"
-        } ${props.hoverClass && isHovering() ? props.hoverClass : ""}`}
-        style={
-          shouldAnimate()
-            ? {
-                animation: `marquee-bounce ${animationDuration()}s ease-in-out infinite`,
-              }
-            : {}
-        }
+        class={`block whitespace-nowrap ${props.padClass || ""} ${props.hoverClass && isHovering() ? props.hoverClass : ""}`}
+        style={{
+          "--marquee-offset": `${offset()}px`,
+          animation: shouldAnimate()
+            ? `marquee-scroll ${duration()}s ease-in-out infinite`
+            : "none",
+        }}
       >
         {props.text}
       </span>

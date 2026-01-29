@@ -5,7 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "
 import type { Song } from "../../music/data/types";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MediaThumbnail } from "../media/MediaThumbnail";
-import { MarqueeText2 } from "../text/MarqueeText2";
+import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 
@@ -312,26 +312,26 @@ export function VirtualSongList(props: VirtualSongListProps) {
                   showPlayIcon={true}
                 />
               </div>
-              <MarqueeText2
+              <MarqueeText
                 text={song.title || "untitled"}
                 class={`flex-1 min-w-0 text-sm text-[var(--color-text-primary)]`}
                 padClass={CELL_PAD}
                 isHovering={isHovered()}
               />
-              <MarqueeText2
+              <MarqueeText
                 text={song.artist_name || "unknown artist"}
                 class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
                 padClass={CELL_PAD}
                 isHovering={isHovered()}
               />
-              <MarqueeText2
+              <MarqueeText
                 text={song.album_title || "unknown album"}
                 class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
                 padClass={CELL_PAD}
                 isHovering={isHovered()}
               />
               {/* genre */}
-              <MarqueeText2
+              <MarqueeText
                 text={song.album_primary_genre_name || ""}
                 class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
                 padClass={CELL_PAD}
@@ -346,7 +346,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                 {formatDuration(song.duration_seconds)}
               </div>
               {/* tags */}
-              <MarqueeText2
+              <MarqueeText
                 text={song.album_tags?.join(", ") || ""}
                 class={`w-32 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
                 padClass={CELL_PAD}
