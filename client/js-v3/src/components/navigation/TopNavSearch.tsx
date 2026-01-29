@@ -120,7 +120,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const handleClear = () => {
     setSearchValue("");
     // if on a filterable view with query param, clear it by navigating to the route without query
-    const pathname = props.currentPath || "";
+    const fullPath = props.currentPath || "";
+    const pathname = fullPath.split("?")[0];
+    const hasQueryParams = fullPath.includes("?");
     const filterableRoutes = [
       "songs",
       "albums",
@@ -131,9 +133,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const currentRoute = filterableRoutes.find((route) =>
       pathname.endsWith(`/${route}`),
     );
-    if (currentRoute && pathname.includes('?')) {
-      // strip query params
-      props.onNavigate?.(pathname.split('?')[0]);
+    if (currentRoute && hasQueryParams) {
+      // strip query params by navigating to just the pathname
+      props.onNavigate?.(pathname);
     }
     // keep expanded even after clearing
   };
@@ -232,7 +234,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (query.length < 2) return;
 
     // apply filter to current view
-    const pathname = props.currentPath || "";
+    // strip query string from currentPath to get just the pathname
+    const fullPath = props.currentPath || "";
+    const pathname = fullPath.split("?")[0];
     const filterableRoutes = [
       "songs",
       "albums",
@@ -245,7 +249,6 @@ export function TopNavSearch(props: TopNavSearchProps) {
     );
 
     if (currentRoute) {
-      // add query param to current view (don't clear search input)
       props.onNavigate?.(`${pathname}?q=${encodeURIComponent(query)}`);
     }
     // if not on a filterable view, do nothing (suggestions already work)

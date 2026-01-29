@@ -3,7 +3,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
+  Index,
   JSX,
   onMount,
   Show,
@@ -132,14 +132,12 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
   // track last triggered count to prevent infinite loops
   const [lastTriggeredAtCount, setLastTriggeredAtCount] = createSignal(0);
 
-  // create virtualizer instance - preserve scroll offset across recreations
+  // create virtualizer instance - only recreate when necessary (not on songs length change)
   const rowVirtualizer = createMemo((prev) => {
     // save current scroll position before virtualizer recreation
     if (prev && parentRef) {
       setSavedScrollOffset(parentRef.scrollTop);
     }
-
-    props.songs.length; // track for reactivity
     
     const virtualizer = createVirtualizer({
       count: props.songs.length,
@@ -354,10 +352,10 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
           "min-width": "fit-content",
         }}
       >
-        <For each={rowVirtualizer().getVirtualItems()}>
+        <Index each={rowVirtualizer().getVirtualItems()}>
           {(virtualRow) => {
             // make song access reactive so changes to song data trigger re-renders
-            const song = () => props.songs[virtualRow.index];
+            const song = () => props.songs[virtualRow().index];
             const isPlaying = () => props.playingSongId === song().sha256;
             const isSelected = () => props.selectedSongIds?.has(song().id);
 
@@ -375,9 +373,9 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   "grid-template-columns": getGridTemplate(),
                   "align-items": "center",
                 }}
-                onClick={() => handleRowClick(song(), virtualRow.index)}
+                onClick={() => handleRowClick(song(), virtualRow().index)}
                 onDblClick={() =>
-                  handleRowDoubleClick(song(), virtualRow.index)
+                  handleRowDoubleClick(song(), virtualRow().index)
                 }
               >
                 {/* thumbnail with track number overlay */}
@@ -385,10 +383,10 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
                   <div class="px-3 flex justify-center">
                     <MediaThumbnail
                       images={song().images}
-                      indexText={getTrackNumber(song(), virtualRow.index)}
+                      indexText={getTrackNumber(song(), virtualRow().index)}
                       hideIndex={false}
                       onPlayClick={() =>
-                        handleRowDoubleClick(song(), virtualRow.index)
+                        handleRowDoubleClick(song(), virtualRow().index)
                       }
                       size={40}
                     />
@@ -477,21 +475,21 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
 
             return (
               <div
-                data-index={virtualRow.index}
+                data-index={virtualRow().index}
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  height: `${virtualRow().size}px`,
+                  transform: `translateY(${virtualRow().start}px)`,
                 }}
               >
                 {props.getContextMenuActions ? (
                   <ContextMenu
                     actions={props.getContextMenuActions(
                       song(),
-                      virtualRow.index,
+                      virtualRow().index,
                     )}
                   >
                     {rowContent}
@@ -502,7 +500,7 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
               </div>
             );
           }}
-        </For>
+        </Index>
       </div>
     </div>
   );

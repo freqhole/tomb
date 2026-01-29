@@ -7,17 +7,13 @@ import { getBlobObjectURL } from "../services/storage/blobs";
 /**
  * resolve local blob ID to object URL
  * only for local OPFS/Cache blobs - remote sources handle their own URLs
- * 
- * creates a fresh blob URL each time - URLs are stored on data objects (song.thumbnail_url)
- * so no need for global caching
  */
 export async function resolveLocalBlobUrl(
   blobId: string | null | undefined,
 ): Promise<string | null> {
   if (!blobId) return null;
-  const blob = await getBlobObjectURL(blobId);
-  if (!blob) return null;
-  return URL.createObjectURL(blob);
+  // getBlobObjectURL already returns a cached URL string
+  return await getBlobObjectURL(blobId);
 }
 
 

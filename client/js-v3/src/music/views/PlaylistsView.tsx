@@ -418,10 +418,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     }
     
     // otherwise it's a blob ID, need to resolve it to a blob URL
-    getBlobObjectURL(url).then(blob => {
-      if (blob) {
-        const blobUrl = URL.createObjectURL(blob);
-        setBackgroundImageUrl(blobUrl);
+    getBlobObjectURL(url).then(objectUrl => {
+      if (objectUrl) {
+        // getBlobObjectURL already returns an object URL string
+        setBackgroundImageUrl(objectUrl);
       } else {
         setBackgroundImageUrl(null);
       }

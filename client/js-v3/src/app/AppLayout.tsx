@@ -61,7 +61,7 @@ interface AppLayoutProps {
 
 export function AppLayout(props: AppLayoutProps) {
   const navigate = useNavigate();
-  // const location = useLocation();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();

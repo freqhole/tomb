@@ -175,14 +175,25 @@ export async function getBlob(blobId: string): Promise<Blob | null> {
 }
 
 /**
- * get blob by ID (cached to avoid repeated OPFS reads)
- * returns blob data - caller creates object URL if needed
+ * get blob object URL by ID (cached to avoid repeated OPFS reads and URL creations)
+ * returns object URL string that can be used directly in img src
+ * URLs are cached for the session and automatically cleaned up on page unload
  */
-export async function getBlobObjectURL(blobId: string): Promise<Blob | null> {
+export async function getBlobObjectURL(blobId: string): Promise<string | null> {
   if (!blobId) return null;
   
-  // just return the blob, don't create URLs here
-  return await getBlob(blobId);
+  // check cache first
+  const cachedUrl = BLOB_URL_CACHE.get(blobId);
+  if (cachedUrl) return cachedUrl;
+  
+  // fetch blob and create object URL
+  const blob = await getBlob(blobId);
+  if (!blob) return null;
+  
+  const objectUrl = URL.createObjectURL(blob);
+  BLOB_URL_CACHE.set(blobId, objectUrl);
+  
+  return objectUrl;
 }
 
 

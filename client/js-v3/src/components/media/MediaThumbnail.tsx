@@ -1,31 +1,55 @@
 // reusable media thumbnail with index overlay and play icon hover
-import { createEffect, createSignal, Show, type JSX, onCleanup } from "solid-js";
+import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
+// extended type to handle IDB data that may have 'type' instead of 'blob_type'
+type ImageData = ImageMetadata & { type?: string };
+
 /**
- * pick the best image from an array of ImageMetadata
- * priority: primary thumbnail → first thumbnail → first available → null
+ * pick the best image from an array of images
+ * handles both ImageMetadata (blob_type) and raw IDB data (type)
  */
-function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
-  if (!images || images.length === 0) {
-    return null;
-  }
+function pickBestImage(images?: ImageData[]): ImageData | null {
+  if (!images || images.length === 0) return null;
   
-  // priority: primary (thumbnail or original) → any thumbnail → any original → waveform
-  const primary = images.find(img => img.is_primary && (img.blob_type === 'thumbnail' || img.blob_type === 'original'));
+  // spread to unwrap SolidJS store proxies
+  const arr = [...images];
+  if (arr.length === 0) return null;
+  
+  const getType = (img: ImageData) => img.blob_type || img.type;
+  
+  // priority: primary thumbnail → any thumbnail → first available
+  const primaryThumb = arr.find(img => img.is_primary && getType(img) === 'thumbnail');
+  if (primaryThumb) return primaryThumb;
+  
+  const anyThumb = arr.find(img => getType(img) === 'thumbnail');
+  if (anyThumb) return anyThumb;
+  
+  const primary = arr.find(img => img.is_primary);
   if (primary) return primary;
   
-  const thumbnail = images.find(img => img.blob_type === 'thumbnail');
-  if (thumbnail) return thumbnail;
+  return arr[0] || null;
+}
+
+/**
+ * get the URL for an image - handles local_blob_id, remote_url, or legacy thumbnailUrl
+ */
+async function resolveImageUrl(
+  image: ImageData | null,
+  legacyBlobId?: string | null,
+  legacyUrl?: string | null
+): Promise<string | null> {
+  // try remote_url first (already a usable URL)
+  if (image?.remote_url) return image.remote_url;
+  if (legacyUrl) return legacyUrl;
   
-  const original = images.find(img => img.blob_type === 'original');
-  if (original) return original;
-  
-  // fallback to waveform as last resort
-  const waveform = images.find(img => img.blob_type === 'waveform');
-  if (waveform) return waveform;
+  // try local_blob_id (needs OPFS lookup)
+  const blobId = image?.local_blob_id || legacyBlobId;
+  if (blobId) {
+    return await getBlobObjectURL(blobId);
+  }
   
   return null;
 }
@@ -33,19 +57,19 @@ function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
 export interface MediaThumbnailProps {
   /** structured image metadata array (preferred) */
   images?: ImageMetadata[];
-  /** thumbnail blob ID to resolve (legacy, for backward compatibility) */
+  /** thumbnail blob ID to resolve (legacy) */
   thumbnailBlobId?: string | null;
-  /** thumbnail image url (legacy, for backward compatibility or remote images) */
+  /** thumbnail image url (legacy) */
   thumbnailUrl?: string | null;
-  /** index number to display (will be zero-padded to 3 digits) */
+  /** index number to display */
   index?: number;
-  /** custom text to display instead of formatted index (e.g. track numbers like "1", "2-5") */
+  /** custom text to display instead of formatted index */
   indexText?: string;
-  /** whether to hide the index overlay (e.g. on parent row hover) */
+  /** whether to hide the index overlay */
   hideIndex?: boolean;
   /** callback when thumbnail/play icon is clicked */
   onPlayClick?: () => void;
-  /** whether to enable click handling (disable for draggable contexts) */
+  /** whether to enable click handling */
   enablePlayClick?: boolean;
   /** whether to show play icon on hover (default: true) */
   showPlayIcon?: boolean;
@@ -55,69 +79,14 @@ export interface MediaThumbnailProps {
   class?: string;
 }
 
-/**
- * media thumbnail component with index overlay and play icon
- *
- * features:
- * - displays artwork for songs, albums, artists, or playlists
- * - shows zero-padded index number (e.g. "001") on thumbnail
- * - index fades out when hideIndex is true (controlled by parent row hover)
- * - play icon appears on thumbnail hover with dark overlay
- * - clicking thumbnail triggers onPlayClick callback
- *
- * used in: queue sidebar, playlist rows, song rows, search results
- */
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
-  const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
+  const [imageUrl, setImageUrl] = createSignal<string | null>(null);
   
-  // resolve blob URL reactively when props.images changes
-  // this ensures images update when virtualized rows are reused with different data
-  createEffect(async () => {
-    // track dependencies explicitly
-    const images = props.images;
-    const thumbnailBlobId = props.thumbnailBlobId;
-    
-    // clean up previous object URL to prevent memory leaks
-    const previousUrl = resolvedUrl();
-    if (previousUrl && previousUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(previousUrl);
-    }
-    
-    // priority: images array → legacy thumbnailBlobId
-    const bestImage = pickBestImage(images);
-    
-    if (bestImage?.local_blob_id) {
-      // local image: create blob URL
-      const blob = await getBlobObjectURL(bestImage.local_blob_id);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        setResolvedUrl(url);
-      }
-    } else if (bestImage?.remote_url) {
-      // remote image: use directly
-      setResolvedUrl(bestImage.remote_url);
-    } else if (thumbnailBlobId) {
-      // legacy path: use thumbnailBlobId prop
-      const blob = await getBlobObjectURL(thumbnailBlobId);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        setResolvedUrl(url);
-      }
-    } else {
-      setResolvedUrl(null);
-    }
+  // resolve image URL when props change
+  createEffect(() => {
+    const image = pickBestImage(props.images as ImageData[]);
+    resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl).then(setImageUrl);
   });
-  
-  // clean up object URLs on unmount
-  onCleanup(() => {
-    const url = resolvedUrl();
-    if (url && url.startsWith('blob:')) {
-      URL.revokeObjectURL(url);
-    }
-  });
-  
-  // use resolved blob URL or fallback to legacy thumbnailUrl prop
-  const imageUrl = () => resolvedUrl() || props.thumbnailUrl;
   
   const size = () => props.size ?? 48;
   const showPlayIcon = () => props.showPlayIcon !== false;
@@ -168,6 +137,7 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
             alt=""
             class="w-full h-full object-cover"
             loading="lazy"
+            decoding="async"
           />
         </Show>
       </div>

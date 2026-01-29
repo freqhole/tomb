@@ -1,27 +1,36 @@
-import { createEffect, createSignal, JSX, Show, onCleanup } from "solid-js";
+import { createEffect, createSignal, JSX, Show } from "solid-js";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { Icon } from "../icons/registry";
 
-function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
-  if (!images || images.length === 0) {
-    return null;
-  }
-  // priority: primary (thumbnail or original) → any thumbnail → any original → waveform
-  const primary = images.find(img => img.is_primary && (img.blob_type === 'thumbnail' || img.blob_type === 'original'));
+// handle IDB data that may have 'type' instead of 'blob_type'
+type ImageData = ImageMetadata & { type?: string };
+
+function pickBestImage(images?: ImageData[]): ImageData | null {
+  if (!images || images.length === 0) return null;
+  
+  // spread to unwrap SolidJS store proxies
+  const arr = [...images];
+  if (arr.length === 0) return null;
+  
+  const getType = (img: ImageData) => img.blob_type || img.type;
+  
+  // priority: primary thumbnail/original → any thumbnail → any original → waveform
+  const primary = arr.find(img => img.is_primary && (getType(img) === 'thumbnail' || getType(img) === 'original'));
   if (primary) return primary;
   
-  const thumbnail = images.find(img => img.blob_type === 'thumbnail');
+  const thumbnail = arr.find(img => getType(img) === 'thumbnail');
   if (thumbnail) return thumbnail;
   
-  const original = images.find(img => img.blob_type === 'original');
+  const original = arr.find(img => getType(img) === 'original');
   if (original) return original;
   
   // fallback to waveform as last resort
-  const waveform = images.find(img => img.blob_type === 'waveform');
+  const waveform = arr.find(img => getType(img) === 'waveform');
   if (waveform) return waveform;
   
-  return null;
+  // fallback to first available
+  return arr[0] || null;
 }
 
 interface MediaImageProps {
@@ -42,27 +51,19 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
   
-  let blobUrlToCleanup: string | null = null;
-  
   createEffect(() => {
-    const bestImage = pickBestImage(props.images);
+    const bestImage = pickBestImage(props.images as ImageData[]);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-    
-    if (blobUrlToCleanup) {
-      URL.revokeObjectURL(blobUrlToCleanup);
-      blobUrlToCleanup = null;
-    }
     
     setResolvedUrl(null);
     
     if (blobId) {
       setIsLoading(true);
-      getBlobObjectURL(blobId).then(blob => {
-        if (blob) {
-          const newBlobUrl = URL.createObjectURL(blob);
-          blobUrlToCleanup = newBlobUrl;
-          setResolvedUrl(newBlobUrl);
+      getBlobObjectURL(blobId).then(objectUrl => {
+        if (objectUrl) {
+          // getBlobObjectURL already returns an object URL string, no need to create again
+          setResolvedUrl(objectUrl);
         }
         setIsLoading(false);
       });
@@ -83,11 +84,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     return url;
   });
   
-  onCleanup(() => {
-    if (blobUrlToCleanup) {
-      URL.revokeObjectURL(blobUrlToCleanup);
-    }
-  });
+  // note: blob URL cleanup is handled by the blobs.ts cache, no need to cleanup here
 
   const getSizeClasses = (): string => {
     switch (props.size) {
