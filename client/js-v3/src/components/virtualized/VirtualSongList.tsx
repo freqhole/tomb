@@ -1,34 +1,26 @@
+// virtualized song list - optimized for large lists with infinite scroll
+
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  Index,
-  JSX,
-  onMount,
-  Show,
-  untrack,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Song } from "../../music/data/types";
-import { formatDuration } from "../../utils/formatDuration";
-import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { MediaThumbnail } from "../media/MediaThumbnail";
+import { MarqueeText2 } from "../text/MarqueeText2";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
-import { MarqueeText } from "../text/MarqueeText";
-import { useScrollRestore } from "../../utils/scrollRestore";
 
-export type SortField =
-  | "track"
-  | "title"
-  | "artist"
-  | "album"
-  | "genre"
-  | "year"
-  | "duration"
-  | "favorite"
-  | "rating";
+const ROW_HEIGHT = 48;
+const OVERSCAN = 5;
+const IMAGE_SIZE = 40;
 
+// horizontal padding for cells - adjust this value to change spacing
+const CELL_PAD = "px-2";
+
+// simple scroll position cache keyed by scrollKey prop
+const scrollCache = new Map<string, number>();
+
+// sort field types matching query params
+export type SortField = "title" | "artist" | "album" | "genre" | "year" | "duration" | "added_at";
 export type SortDirection = "asc" | "desc" | null;
 
 export interface SortState {
@@ -37,150 +29,134 @@ export interface SortState {
 }
 
 export interface VirtualSongListProps {
-  /** array of songs to display */
   songs: Song[];
+  height: number;
+  onSongClick?: (song: Song, index: number) => void;
+  onSongDoubleClick?: (song: Song, index: number) => void;
+  onNearEnd?: () => void;
+  /** function to get context menu actions for a song */
+  getContextMenuActions?: (song: Song, index: number) => MenuAction[];
+  /** unique key for scroll position persistence (e.g. "songs-view" or "playlist-123") */
+  scrollKey?: string;
+  /** sha256 of currently playing song (for highlight) */
+  playingSongId?: string;
+  /** callback when thumbnail play button is clicked */
+  onPlayClick?: (song: Song, index: number) => void;
   /** current sort state */
   sortState?: SortState;
-  /** callback when sort changes (for server-side sorting) */
+  /** callback when sort changes */
   onSortChange?: (field: SortField, direction: SortDirection) => void;
-  /** callback when a song is clicked */
-  onSongClick?: (song: Song, index: number) => void;
-  /** callback when a song is double-clicked (for play action) */
-  onSongDoubleClick?: (song: Song, index: number) => void;
   /** callback when favorite is toggled */
   onFavoriteToggle?: (song: Song, isFavorite: boolean) => void;
   /** callback when rating changes */
   onRatingChange?: (song: Song, rating: number) => void;
-  /** callback to get context menu actions for a song */
-  getContextMenuActions?: (song: Song, index: number) => MenuAction[];
-  /** callback when virtualizer is rendering items near end (for infinite scroll) */
-  onNearEnd?: () => void;
-  /** currently playing song sha256 (content hash) */
-  playingSongId?: string;
-  /** selected song ids */
-  selectedSongIds?: Set<string>;
-  /** height of the container */
-  height?: number;
-  /** show track numbers (computed from disc + track) */
-  showTrackNumber?: boolean;
-  /** show favorites column */
-  showFavorites?: boolean;
-  /** show rating column */
-  showRating?: boolean;
-  /** show tags column */
-  showTags?: boolean;
-  /** variant for different contexts */
-  variant?: "default" | "playlist" | "queue" | "album" | "artist";
-  /** additional css classes */
-  class?: string;
-  /** unique key for scroll position restoration */
-  scrollRestoreKey?: string;
 }
 
-export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
-  let parentRef: HTMLDivElement | undefined;
-  const height = () => props.height || 600;
-  const variant = () => props.variant || "default";
+export function VirtualSongList(props: VirtualSongListProps) {
+  let scrollContainerRef: HTMLDivElement | undefined;
 
-  // scroll restoration
-  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
-  const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "song-list");
+  // track which row is hovered for marquee text
+  const [hoveredRowIndex, setHoveredRowIndex] = createSignal<number | null>(null);
 
-  // determine which columns to show based on variant
-  const showTrackNumber = () => {
-    if (props.showTrackNumber !== undefined) return props.showTrackNumber;
-    return true; // always show track number by default
-  };
+  // stable count accessor - only updates when length actually changes
+  const count = createMemo(() => props.songs.length);
 
-  const showArtist = () => variant() !== "artist";
-  const showAlbum = () => variant() !== "album";
-  const showFavorites = () => props.showFavorites !== false;
-  const showRating = () => props.showRating !== false;
-  const showTags = () => props.showTags !== false;
+  const virtualizer = createVirtualizer({
+    get count() {
+      return count();
+    },
+    getScrollElement: () => scrollContainerRef ?? null,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: OVERSCAN,
+  });
 
-  // compute track number from disc + track
-  const getTrackNumber = (song: Song, index: number): string => {
-    // for queue or playlist with position field, use position/index
-    if (variant() === "queue" || variant() === "playlist") {
-      return String(index + 1);
+  // restore scroll position on mount
+  onMount(() => {
+    if (props.scrollKey && scrollContainerRef) {
+      const savedPos = scrollCache.get(props.scrollKey);
+      if (savedPos !== undefined && savedPos > 0) {
+        // small delay to let virtualizer initialize
+        requestAnimationFrame(() => {
+          scrollContainerRef?.scrollTo({ top: savedPos });
+        });
+      }
     }
+  });
 
-    // if song has disc + track, compute the absolute track number
-    // by counting all tracks from previous discs
-    if (song.disc_number && song.track_number) {
-      // count how many tracks are in previous discs for this album
-      let trackOffset = 0;
-      for (let i = 0; i < index; i++) {
-        const prevSong = props.songs[i];
-        // same album/artist and earlier disc
-        if (
-          prevSong.album_title === song.album_title &&
-          prevSong.artist_name === song.artist_name &&
-          prevSong.disc_number &&
-          prevSong.disc_number < song.disc_number
-        ) {
-          trackOffset++;
+  // save scroll position on cleanup
+  onCleanup(() => {
+    if (props.scrollKey && scrollContainerRef) {
+      scrollCache.set(props.scrollKey, scrollContainerRef.scrollTop);
+    }
+  });
+
+  // scroll to top when sort changes
+  createEffect(
+    on(
+      () => props.sortState,
+      (current, prev) => {
+        // skip initial run (prev is undefined)
+        if (prev === undefined) return;
+        // scroll to top when sort field or direction changes
+        if (current?.field !== prev?.field || current?.direction !== prev?.direction) {
+          scrollContainerRef?.scrollTo({ top: 0, behavior: "instant" });
+          // also clear the saved scroll position
+          if (props.scrollKey) {
+            scrollCache.delete(props.scrollKey);
+          }
         }
       }
-      return String(trackOffset + song.track_number);
-    }
+    )
+  );
 
-    // fallback to track number or index
-    return song.track_number ? String(song.track_number) : String(index + 1);
+  // near-end detection for infinite scroll
+  const checkNearEnd = () => {
+    if (!props.onNearEnd) return;
+    const items = virtualizer.getVirtualItems();
+    if (items.length === 0) return;
+    const lastItem = items[items.length - 1];
+    if (lastItem && lastItem.index >= count() - 20) {
+      props.onNearEnd();
+    }
   };
 
-  // track last triggered count to prevent infinite loops
-  const [lastTriggeredAtCount, setLastTriggeredAtCount] = createSignal(0);
-
-  // create virtualizer instance - only recreate when necessary (not on songs length change)
-  const rowVirtualizer = createMemo((prev) => {
-    // save current scroll position before virtualizer recreation
-    if (prev && parentRef) {
-      setSavedScrollOffset(parentRef.scrollTop);
+  // event delegation - single handler for all clicks
+  const handleContainerClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    
+    // ignore clicks on thumbnail (MediaThumbnail handles its own clicks)
+    if (target.closest("[data-thumbnail]")) {
+      return;
     }
     
-    const virtualizer = createVirtualizer({
-      count: props.songs.length,
-      getScrollElement: () => parentRef,
-      estimateSize: () => 48,
-      overscan: 20,
-      measureElement:
-        typeof window !== "undefined" &&
-        navigator.userAgent.indexOf("Firefox") === -1
-          ? (element) => element?.getBoundingClientRect().height
-          : undefined,
-    });
+    const row = target.closest("[data-row-index]") as HTMLElement | null;
+    if (!row) return;
 
-    // restore scroll position after virtualizer is created
-    if (savedScrollOffset() > 0 && parentRef) {
-      queueMicrotask(() => {
-        if (parentRef) {
-          parentRef.scrollTop = savedScrollOffset();
-        }
-      });
+    const index = parseInt(row.dataset.rowIndex!, 10);
+    const song = props.songs[index];
+    if (!song) return;
+
+    // regular row click handling
+    if (e.detail === 2) {
+      props.onSongDoubleClick?.(song, index);
+    } else {
+      props.onSongClick?.(song, index);
     }
+  };
 
-    return virtualizer;
-  });
-
-  // detect when virtualizer is rendering items near end (for infinite scroll)
-  createEffect(() => {
-    const items = rowVirtualizer().getVirtualItems();
-    if (items.length === 0) return;
-
-    const lastItem = items[items.length - 1];
-    const totalCount = props.songs.length;
-
-    // only trigger once per data length milestone
-    // trigger when within last 30 items OR last 25% (whichever is larger)
-    const threshold = Math.max(totalCount - 30, Math.floor(totalCount * 0.75));
-
-    if (lastItem.index >= threshold && totalCount > lastTriggeredAtCount()) {
-      setLastTriggeredAtCount(totalCount);
-      // untrack to prevent this call from causing re-runs
-      untrack(() => props.onNearEnd?.());
+  // event delegation for hover - track which row is hovered
+  const handleContainerMouseOver = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const row = target.closest("[data-row-index]") as HTMLElement | null;
+    if (row) {
+      const index = parseInt(row.dataset.rowIndex!, 10);
+      setHoveredRowIndex(index);
     }
-  });
+  };
+
+  const handleContainerMouseLeave = () => {
+    setHoveredRowIndex(null);
+  };
 
   // handle sort cycling: null -> asc -> desc -> null
   const handleSort = (field: SortField) => {
@@ -200,7 +176,8 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     }
   };
 
-  const getSortIcon = (field: SortField): string => {
+  // get sort indicator for a column
+  const getSortIndicator = (field: SortField): string => {
     const current = props.sortState;
     if (!current || current.field !== field || !current.direction) {
       return "↕";
@@ -208,302 +185,207 @@ export function VirtualSongList(props: VirtualSongListProps): JSX.Element {
     return current.direction === "asc" ? "↑" : "↓";
   };
 
-  const handleRowClick = (song: Song, index: number) => {
-    props.onSongClick?.(song, index);
+  // format duration as mm:ss
+  const formatDuration = (seconds: number | null | undefined): string => {
+    if (!seconds) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleRowDoubleClick = (song: Song, index: number) => {
-    props.onSongDoubleClick?.(song, index);
+  // get images for a song - tries song images first, then album images
+  const getImages = (song: Song) => {
+    if (song.images && song.images.length > 0) return song.images;
+    if (song.album_images && song.album_images.length > 0) return song.album_images;
+    return undefined;
   };
 
-  const handleFavoriteClick = (e: MouseEvent, song: Song) => {
-    e.stopPropagation();
-    props.onFavoriteToggle?.(song, !song.is_favorite);
-  };
-
-  // grid template based on visible columns
-  const getGridTemplate = () => {
-    const cols: string[] = [];
-
-    if (showTrackNumber()) cols.push("60px"); // #
-    cols.push("minmax(200px, 3fr)"); // title - wider
-    if (showArtist()) cols.push("minmax(150px, 1.5fr)"); // artist
-    if (showAlbum()) cols.push("minmax(150px, 1.5fr)"); // album
-    cols.push("minmax(100px, 0.8fr)"); // genre - narrower
-    cols.push("70px"); // year - wider to fit "year ↕"
-    cols.push("70px"); // duration - wider to fit "time ↕"
-    if (showFavorites()) cols.push("25px"); // favorite - narrower
-    if (showRating()) cols.push("25px"); // rating - narrower
-    if (showTags()) cols.push("minmax(150px, 1fr)"); // tags
-
-    return cols.join(" ");
-  };
-
-  const handleScroll = () => {
-    if (parentRef) {
-      saveScroll(parentRef);
+  // format track number with optional disc
+  const getTrackText = (song: Song, fallbackIndex: number) => {
+    if (song.disc_number > 1) {
+      return `${song.disc_number}-${song.track_number}`;
     }
+    return String(song.track_number || fallbackIndex + 1);
   };
-
-  // restore scroll position on mount
-  onMount(() => {
-    if (parentRef) {
-      // use double RAF to ensure virtualizer has calculated sizes and rendered
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (parentRef) {
-            restoreScroll(parentRef);
-          }
-        });
-      });
-    }
-  });
 
   return (
     <div
-      ref={parentRef!}
-      class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
-      style={{ height: `${height()}px` }}
-      onScroll={handleScroll}
+      ref={scrollContainerRef}
+      class="overflow-auto"
+      style={{ height: `${props.height}px` }}
+      onScroll={checkNearEnd}
     >
-      {/* sticky header row with grid layout */}
+      {/* header row */}
       <div
-        class="sticky top-0 z-10 bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] text-xs text-[var(--color-text-tertiary)] font-medium uppercase tracking-wide"
-        style={{
-          display: "grid",
-          "grid-template-columns": getGridTemplate(),
-          "min-width": "fit-content",
-        }}
+        class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
+        style={{ height: `${ROW_HEIGHT}px` }}
       >
-        <Show when={showTrackNumber()}>
-          <button
-            class="px-3 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-            onClick={() => handleSort("track")}
-          >
-            # {getSortIcon("track")}
-          </button>
-        </Show>
-
-        <button
-          class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+        <div class="w-12 shrink-0"></div>
+        <div 
+          class={`flex-1 min-w-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
           onClick={() => handleSort("title")}
         >
-          title {getSortIcon("title")}
-        </button>
-
-        <Show when={showArtist()}>
-          <button
-            class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-            onClick={() => handleSort("artist")}
-          >
-            artist {getSortIcon("artist")}
-          </button>
-        </Show>
-
-        <Show when={showAlbum()}>
-          <button
-            class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-            onClick={() => handleSort("album")}
-          >
-            album {getSortIcon("album")}
-          </button>
-        </Show>
-
-        <button
-          class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+          title <span class="text-[10px]">{getSortIndicator("title")}</span>
+        </div>
+        <div 
+          class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+          onClick={() => handleSort("artist")}
+        >
+          artist <span class="text-[10px]">{getSortIndicator("artist")}</span>
+        </div>
+        <div 
+          class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+          onClick={() => handleSort("album")}
+        >
+          album <span class="text-[10px]">{getSortIndicator("album")}</span>
+        </div>
+        <div 
+          class={`w-24 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
           onClick={() => handleSort("genre")}
         >
-          genre {getSortIcon("genre")}
-        </button>
-
-        <button
-          class="px-4 py-3 text-left hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+          genre <span class="text-[10px]">{getSortIndicator("genre")}</span>
+        </div>
+        <div 
+          class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
           onClick={() => handleSort("year")}
         >
-          year {getSortIcon("year")}
-        </button>
-
-        <button
-          class="px-4 py-3 text-right hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+          year <span class="text-[10px]">{getSortIndicator("year")}</span>
+        </div>
+        <div 
+          class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
           onClick={() => handleSort("duration")}
         >
-          time {getSortIcon("duration")}
-        </button>
-
-        <Show when={showFavorites()}>
-          <div class="px-3 py-3"></div>
-        </Show>
-
-        <Show when={showRating()}>
-          <div class="px-3 py-3"></div>
-        </Show>
-
-        <Show when={showTags()}>
-          <div class="px-4 py-3 text-left">tags</div>
-        </Show>
+          time <span class="text-[10px]">{getSortIndicator("duration")}</span>
+        </div>
+        {/* tags column header */}
+        <div class={`w-32 shrink-0 ${CELL_PAD} text-center`} title="tags (not sortable)">
+          tags
+        </div>
+        {/* favorite column header */}
+        <div class="w-8 shrink-0 flex items-center justify-center" title="favorite">
+          ♡
+        </div>
+        {/* rating column header */}
+        <div class="w-10 shrink-0 flex items-center justify-center" title="rating">
+          ★
+        </div>
       </div>
 
-      {/* virtual list container */}
+      {/* virtual container */}
       <div
         style={{
-          height: `${rowVirtualizer().getTotalSize()}px`,
-          width: "100%",
+          height: `${virtualizer.getTotalSize()}px`,
           position: "relative",
-          "min-width": "fit-content",
         }}
+        onClick={handleContainerClick}
+        onMouseOver={handleContainerMouseOver}
+        onMouseLeave={handleContainerMouseLeave}
       >
-        <Index each={rowVirtualizer().getVirtualItems()}>
-          {(virtualRow) => {
-            // make song access reactive so changes to song data trigger re-renders
-            const song = () => props.songs[virtualRow().index];
-            const isPlaying = () => props.playingSongId === song().sha256;
-            const isSelected = () => props.selectedSongIds?.has(song().id);
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const song = props.songs[virtualRow.index];
+          if (!song) return null;
 
-            const rowContent = (
-              <div
-                class={`
-                  h-full cursor-pointer
-                  border-b border-[var(--color-border-subtle)]
-                  transition-colors
-                  ${isPlaying() ? "bg-[var(--color-bg-active)] text-[var(--color-text-primary)]" : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]"}
-                  ${isSelected() ? "bg-[var(--color-bg-hover)]" : ""}
-                `}
-                style={{
-                  display: "grid",
-                  "grid-template-columns": getGridTemplate(),
-                  "align-items": "center",
-                }}
-                onClick={() => handleRowClick(song(), virtualRow().index)}
-                onDblClick={() =>
-                  handleRowDoubleClick(song(), virtualRow().index)
-                }
-              >
-                {/* thumbnail with track number overlay */}
-                <Show when={showTrackNumber()}>
-                  <div class="px-3 flex justify-center">
-                    <MediaThumbnail
-                      images={song().images}
-                      indexText={getTrackNumber(song(), virtualRow().index)}
-                      hideIndex={false}
-                      onPlayClick={() =>
-                        handleRowDoubleClick(song(), virtualRow().index)
-                      }
-                      size={40}
-                    />
-                  </div>
-                </Show>
+          const isPlaying = props.playingSongId === song.sha256;
+          const isHovered = () => hoveredRowIndex() === virtualRow.index;
 
-                {/* title */}
-                <div class="px-4 min-w-0">
-                  <div class="font-medium">
-                    <MarqueeText text={song().title} hoverOnly={true} />
-                  </div>
-                </div>
-
-                {/* artist */}
-                <Show when={showArtist()}>
-                  <div class="px-4 min-w-0">
-                    <div class="text-sm text-[var(--color-text-secondary)]">
-                      <MarqueeText text={song().artist_name} hoverOnly={true} />
-                    </div>
-                  </div>
-                </Show>
-
-                {/* album */}
-                <Show when={showAlbum()}>
-                  <div class="px-4 min-w-0">
-                    <div class="text-sm text-[var(--color-text-secondary)]">
-                      <MarqueeText text={song().album_title} hoverOnly={true} />
-                    </div>
-                  </div>
-                </Show>
-
-                {/* genre */}
-                <div class="px-4 min-w-0">
-                  <div class="text-[var(--color-text-tertiary)] text-sm">
-                    <MarqueeText text={song().album_primary_genre_name || "—"} hoverOnly={true} />
-                  </div>
-                </div>
-
-                {/* year */}
-                <div class="px-4 text-left text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                  {song().year || "—"}
-                </div>
-
-                {/* duration */}
-                <div class="px-4 text-right text-[var(--color-text-tertiary)] text-sm tabular-nums">
-                  {formatDuration(song().duration_seconds)}
-                </div>
-
-                {/* favorite */}
-                <Show when={showFavorites()}>
-                  <div class="px-3 flex items-center justify-center">
-                    <FavoriteHeart
-                      isFavorite={song().is_favorite ?? false}
-                      onToggle={(isFavorite) => props.onFavoriteToggle?.(song(), isFavorite)}
-                      size="sm"
-                    />
-                  </div>
-                </Show>
-
-                {/* rating */}
-                <Show when={showRating()}>
-                  <div class="px-3 flex items-center justify-center">
-                    <Rating
-                      rating={song().user_rating}
-                      size="sm"
-                      onRatingChange={(newRating) => {
-                        props.onRatingChange?.(song(), newRating);
-                      }}
-                    />
-                  </div>
-                </Show>
-
-                {/* tags */}
-                <Show when={showTags()}>
-                  <div class="px-4 min-w-0">
-                    <div class="text-xs text-[var(--color-text-muted)]">
-                      <MarqueeText
-                        text={song().album_tags?.join(", ") || ""}
-                        hoverOnly={true}
-                      />
-                    </div>
-                  </div>
-                </Show>
+          const rowContent = (
+            <div
+              data-row-index={virtualRow.index}
+              class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer border-b border-[var(--color-border-subtle)] ${
+                isPlaying
+                  ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                  : "hover:bg-[var(--color-bg-tertiary)]"
+              }`}
+              style={{
+                height: `${ROW_HEIGHT}px`,
+                top: `${virtualRow.start}px`,
+              }}
+            >
+              {/* thumbnail with track number overlay and play hover */}
+              <div class="w-12 shrink-0 flex items-center justify-center">
+                <MediaThumbnail
+                  images={getImages(song)}
+                  indexText={getTrackText(song, virtualRow.index)}
+                  size={IMAGE_SIZE}
+                  onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
+                  enablePlayClick={!!props.onPlayClick}
+                  showPlayIcon={true}
+                />
               </div>
-            );
+              <MarqueeText2
+                text={song.title || "untitled"}
+                class={`flex-1 min-w-0 text-sm text-[var(--color-text-primary)]`}
+                padClass={CELL_PAD}
+                isHovering={isHovered()}
+              />
+              <MarqueeText2
+                text={song.artist_name || "unknown artist"}
+                class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                padClass={CELL_PAD}
+                isHovering={isHovered()}
+              />
+              <MarqueeText2
+                text={song.album_title || "unknown album"}
+                class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                padClass={CELL_PAD}
+                isHovering={isHovered()}
+              />
+              {/* genre */}
+              <MarqueeText2
+                text={song.album_primary_genre_name || ""}
+                class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
+                padClass={CELL_PAD}
+                isHovering={isHovered()}
+              />
+              {/* year */}
+              <div class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}>
+                {song.year || ""}
+              </div>
+              {/* duration */}
+              <div class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}>
+                {formatDuration(song.duration_seconds)}
+              </div>
+              {/* tags */}
+              <MarqueeText2
+                text={song.album_tags?.join(", ") || ""}
+                class={`w-32 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
+                padClass={CELL_PAD}
+                isHovering={isHovered()}
+              />
+              {/* favorite */}
+              <div class="w-8 shrink-0 flex items-center justify-center">
+                <FavoriteHeart
+                  isFavorite={song.is_favorite ?? false}
+                  onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
+                  size="sm"
+                  readonly={!props.onFavoriteToggle}
+                />
+              </div>
+              {/* rating */}
+              <div class="w-10 shrink-0 flex items-center justify-center">
+                <Rating
+                  rating={song.user_rating}
+                  size="sm"
+                  onRatingChange={props.onRatingChange 
+                    ? (rating) => props.onRatingChange?.(song, rating) 
+                    : undefined}
+                />
+              </div>
+            </div>
+          );
 
+          // wrap with context menu if actions provided
+          if (props.getContextMenuActions) {
             return (
-              <div
-                data-index={virtualRow().index}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: `${virtualRow().size}px`,
-                  transform: `translateY(${virtualRow().start}px)`,
-                }}
-              >
-                {props.getContextMenuActions ? (
-                  <ContextMenu
-                    actions={props.getContextMenuActions(
-                      song(),
-                      virtualRow().index,
-                    )}
-                  >
-                    {rowContent}
-                  </ContextMenu>
-                ) : (
-                  rowContent
-                )}
-              </div>
+              <ContextMenu actions={props.getContextMenuActions(song, virtualRow.index)}>
+                {rowContent}
+              </ContextMenu>
             );
-          }}
-        </Index>
+          }
+
+          return rowContent;
+        })}
       </div>
     </div>
   );
 }
-
-export default VirtualSongList;

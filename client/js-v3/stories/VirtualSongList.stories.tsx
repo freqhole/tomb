@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
-  SortDirection,
-  SortField,
   VirtualSongList,
+  type SortDirection,
+  type SortField,
 } from "../src/components/virtualized/VirtualSongList";
 import type { Song } from "../src/music/data/types";
 import { generateBulkSongs } from "./mockData";
@@ -17,27 +17,6 @@ const meta = {
       control: "number",
       description: "height of the container in pixels",
     },
-    variant: {
-      control: "select",
-      options: ["default", "playlist", "queue", "album", "artist"],
-      description: "display variant for different contexts",
-    },
-    showTrackNumber: {
-      control: "boolean",
-      description: "show track numbers",
-    },
-    showFavorites: {
-      control: "boolean",
-      description: "show favorites column",
-    },
-    showRating: {
-      control: "boolean",
-      description: "show rating column",
-    },
-    showTags: {
-      control: "boolean",
-      description: "show tags column",
-    },
   },
 } satisfies Meta<typeof VirtualSongList>;
 
@@ -49,50 +28,11 @@ const generateSongs = (count: number): Song[] => {
   return generateBulkSongs(count) as Song[];
 };
 
-// default view - all columns
+// default view
 export const Default: Story = {
   args: {
     songs: generateSongs(100),
     height: 600,
-    variant: "default",
-  },
-};
-
-// album view - no album column, with track numbers
-export const AlbumView: Story = {
-  args: {
-    songs: generateSongs(50),
-    height: 600,
-    variant: "album",
-    showTrackNumber: true,
-  },
-};
-
-// artist view - no artist column
-export const ArtistView: Story = {
-  args: {
-    songs: generateSongs(80),
-    height: 600,
-    variant: "artist",
-  },
-};
-
-// queue view - track numbers as queue position
-export const QueueView: Story = {
-  args: {
-    songs: generateSongs(25),
-    height: 600,
-    variant: "queue",
-    showTrackNumber: true,
-  },
-};
-
-// playlist view
-export const PlaylistView: Story = {
-  args: {
-    songs: generateSongs(60),
-    height: 600,
-    variant: "playlist",
   },
 };
 
@@ -146,9 +86,6 @@ export const InteractiveSorting: Story = {
 export const FullyInteractive: Story = {
   render: () => {
     const [songs, setSongs] = createSignal(generateSongs(200));
-    const [selectedSongIds, setSelectedSongIds] = createSignal(
-      new Set<string>(),
-    );
     const [playingSongId, setPlayingSongId] = createSignal<string | null>(null);
     const [actionLog, setActionLog] = createSignal<string[]>([]);
 
@@ -157,17 +94,10 @@ export const FullyInteractive: Story = {
     };
 
     const handleClick = (song: Song, index: number) => {
-      const newSelected = new Set(selectedSongIds());
-      if (newSelected.has(song.id)) {
-        newSelected.delete(song.id);
-      } else {
-        newSelected.add(song.id);
-      }
-      setSelectedSongIds(newSelected);
       addLog(`clicked: ${song.title} (${index + 1})`);
     };
 
-    const handleDoubleClick = (song: Song) => {
+    const handleDoubleClick = (song: Song, _index: number) => {
       setPlayingSongId(song.id);
       addLog(`playing: ${song.title}`);
     };
@@ -194,10 +124,6 @@ export const FullyInteractive: Story = {
       <div class="space-y-4">
         <div class="p-4 bg-dark-800 rounded space-y-2">
           <div class="text-white text-sm">
-            <span class="text-gray-400">selected:</span>{" "}
-            <span class="text-magenta-400">{selectedSongIds().size} songs</span>
-          </div>
-          <div class="text-white text-sm">
             <span class="text-gray-400">playing:</span>{" "}
             <span class="text-magenta-400">
               {playingSongId()
@@ -214,7 +140,6 @@ export const FullyInteractive: Story = {
           songs={songs()}
           height={500}
           playingSongId={playingSongId() || undefined}
-          selectedSongIds={selectedSongIds()}
           onSongClick={handleClick}
           onSongDoubleClick={handleDoubleClick}
           onFavoriteToggle={handleFavoriteToggle}
@@ -258,60 +183,11 @@ export const HugeList: Story = {
   },
 };
 
-// minimal columns (for narrow screens)
-export const MinimalColumns: Story = {
-  args: {
-    songs: generateSongs(100),
-    height: 600,
-    showFavorites: false,
-    showRating: false,
-    showTags: false,
-    showTrackNumber: false,
-  },
-};
-
-// all favorites
-export const AllFavorites: Story = {
-  args: {
-    songs: generateSongs(50).map((s) => ({ ...s, userIsFavorite: true })),
-    height: 600,
-  },
-};
-
-// all rated
-export const AllRated: Story = {
-  args: {
-    songs: generateSongs(50).map((s) => ({
-      ...s,
-      userRating: Math.floor(Math.random() * 5) + 1,
-    })),
-    height: 600,
-  },
-};
-
 // empty list
 export const EmptyList: Story = {
   args: {
     songs: [],
     height: 400,
-  },
-};
-
-// horizontal scrolling test (narrow container)
-export const HorizontalScrolling: Story = {
-  render: () => {
-    const songs = generateSongs(50);
-
-    return (
-      <div class="space-y-4">
-        <div class="p-4 bg-dark-800 rounded text-sm text-gray-400">
-          narrow container (600px) - scroll horizontally to see all columns
-        </div>
-        <div style={{ width: "600px" }}>
-          <VirtualSongList songs={songs} height={600} />
-        </div>
-      </div>
-    );
   },
 };
 

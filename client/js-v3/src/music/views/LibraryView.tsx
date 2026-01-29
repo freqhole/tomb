@@ -2,7 +2,7 @@ import { createResource, Show } from "solid-js";
 import { Button } from "../../components/buttons/Button";
 import { VirtualSongList } from "../../components/virtualized/VirtualSongList";
 import { getDataSource } from "../data";
-import type { Song } from "../services/storage/types";
+import type { Song } from "../data/types";
 
 export interface LibraryViewProps {
   onAddMusic: () => void;
@@ -23,11 +23,11 @@ export function LibraryView(props: LibraryViewProps) {
 
   const songs = () => songsData()?.items ?? [];
 
-  const handleSongClick = (song: Song) => {
+  const handleSongClick = (song: Song, _index: number) => {
     props.onSongClick?.(song);
   };
 
-  const handleSongDoubleClick = (song: Song) => {
+  const handleSongDoubleClick = (song: Song, _index: number) => {
     props.onSongDoubleClick?.(song);
     console.log("play song:", song.title);
   };

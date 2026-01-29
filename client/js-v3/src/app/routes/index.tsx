@@ -14,7 +14,6 @@ import { FavoritesView } from "../../music/views/FavoritesView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
-import { SongsView2 } from "../../music/views/SongsView2";
 import { AppLayout } from "../AppLayout";
 
 interface RoutesProps {
@@ -61,7 +60,7 @@ export function routes(props: RoutesProps) {
         <Route
           path="/songs"
           component={() => (
-            <SongsView2
+            <SongsView
               onAddMusic={props.onAddMusic}
               onSongDoubleClick={props.onSongDoubleClick}
             />
@@ -102,7 +101,7 @@ export function routes(props: RoutesProps) {
         <Route
           path="/songs"
           component={() => (
-            <SongsView2
+            <SongsView
               onAddMusic={props.onAddMusic}
               onSongDoubleClick={props.onSongDoubleClick}
             />
