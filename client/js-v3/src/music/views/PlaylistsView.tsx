@@ -449,26 +449,33 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!playlist) return;
 
     const songs = playlistSongs();
-    const images: string[] = [];
+    const imageMap = new Map<string, string>();
 
-    // add playlist thumbnail from images array
+    // add all playlist images (except waveforms), deduplicate by blob_id
     if (playlist.images?.length) {
-      const primaryImage = playlist.images.find(img => img.is_primary) || playlist.images[0];
-      const url = primaryImage.remote_url || primaryImage.local_blob_id;
-      if (url) images.push(url);
-    }
-
-    // collect all unique images from songs
-    const imageSet = new Set<string>();
-    for (const song of songs) {
-      if (song.images?.length) {
-        const primaryImage = song.images.find(img => img.is_primary) || song.images[0];
-        const url = primaryImage.remote_url || primaryImage.local_blob_id;
-        if (url) imageSet.add(url);
+      for (const img of playlist.images) {
+        if (img.blob_type !== 'waveform') {
+          const blobId = img.remote_blob_id || img.local_blob_id;
+          const url = img.remote_url || img.local_blob_id;
+          if (blobId && url) imageMap.set(blobId, url);
+        }
       }
     }
 
-    images.push(...Array.from(imageSet));
+    // collect all song and album images (except waveforms), deduplicate by blob_id
+    for (const song of songs) {
+      if (song.images?.length) {
+        for (const img of song.images) {
+          if (img.blob_type !== 'waveform') {
+            const blobId = img.remote_blob_id || img.local_blob_id;
+            const url = img.remote_url || img.local_blob_id;
+            if (blobId && url) imageMap.set(blobId, url);
+          }
+        }
+      }
+    }
+
+    const images = Array.from(imageMap.values());
 
     if (images.length === 0) {
       toast.info("no images available for this playlist");

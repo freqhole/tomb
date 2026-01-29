@@ -1671,6 +1671,13 @@ export const SetFavoriteResponseSchema = z.object({
 });
 export type SetFavoriteResponse = z.infer<typeof SetFavoriteResponseSchema>;
 
+export const SetPrimaryImageRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  blob_id: z.string()
+});
+export type SetPrimaryImageRequest = z.infer<typeof SetPrimaryImageRequestSchema>;
+
 export const SetRatingRequestSchema = z.object({
   user_id: z.string().nullable(),
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album")]),

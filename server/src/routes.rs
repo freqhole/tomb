@@ -298,6 +298,10 @@ pub fn build_router() -> Router<AppState> {
             post(upload::delete_image_handler),
         )
         .route(
+            routes["music"]["set_primary_image"].path,
+            post(upload::set_primary_image_handler),
+        )
+        .route(
             routes["music"]["upload_music"].path,
             post(upload::upload_music_handler),
         )

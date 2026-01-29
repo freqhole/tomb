@@ -92,3 +92,14 @@ pub struct DeleteImageRequest {
     /// Blob ID to unlink
     pub blob_id: String,
 }
+
+/// request to set an image as primary for an entity
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetPrimaryImageRequest {
+    /// Entity type (song, album, artist, playlist)
+    pub entity_type: String,
+    /// Entity ID
+    pub entity_id: String,
+    /// Blob ID to set as primary
+    pub blob_id: String,
+}

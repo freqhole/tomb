@@ -162,9 +162,9 @@ export async function runIntegrationTests() {
         music.reorderPlaylistSongs(baseUrl, fixtures.reorderPlaylistSongs),
     },
     {
-      name: "music.removePlaylistThumbnail",
+      name: "music.deleteImage (legacy test)",
       fn: () =>
-        music.removePlaylistThumbnail(
+        music.deleteImage(
           baseUrl,
           fixtures.removePlaylistThumbnail,
         ),

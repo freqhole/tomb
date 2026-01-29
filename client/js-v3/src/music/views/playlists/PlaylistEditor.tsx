@@ -85,14 +85,28 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   };
 
   const handleTogglePrimary = async (index: number) => {
-    const updated = playlistImages().map((img, i) => ({
-      ...img,
-      is_primary: i === index,
-    }));
-    setPlaylistImages(updated);
+    const imageToSet = playlistImages()[index];
+    const blobId = imageToSet.remote_blob_id || imageToSet.local_blob_id;
+    
+    if (!blobId) {
+      toast.error("no blob ID found for this image");
+      return;
+    }
 
-    // TODO: implement setPrimaryImage API endpoint
     try {
+      const datasource = getDataSource();
+      await datasource.setPrimaryImage?.({
+        entityType: "playlist",
+        entityId: props.playlist.playlist_id,
+        blobId,
+      });
+
+      const updated = playlistImages().map((img, i) => ({
+        ...img,
+        is_primary: i === index,
+      }));
+      setPlaylistImages(updated);
+
       toast.success("primary image updated");
 
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
@@ -103,16 +117,29 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   };
 
   const handleRemoveImage = async (index: number) => {
-    const updated = playlistImages().filter((_, i) => i !== index);
-
-    if (updated.length > 0 && !updated.some((img) => img.is_primary)) {
-      updated[0].is_primary = true;
+    const imageToRemove = playlistImages()[index];
+    const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
+    
+    if (!blobId) {
+      toast.error("no blob ID found for this image");
+      return;
     }
 
-    setPlaylistImages(updated);
-
-    // TODO: implement removeImage API endpoint for playlists
     try {
+      const datasource = getDataSource();
+      await datasource.removeImage?.({
+        entityType: "playlist",
+        entityId: props.playlist.playlist_id,
+        blobId,
+      });
+
+      const updated = playlistImages().filter((_, i) => i !== index);
+
+      if (updated.length > 0 && !updated.some((img) => img.is_primary)) {
+        updated[0].is_primary = true;
+      }
+
+      setPlaylistImages(updated);
       toast.success("image removed");
 
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });

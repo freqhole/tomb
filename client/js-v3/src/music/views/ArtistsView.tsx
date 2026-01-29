@@ -406,31 +406,49 @@ export function ArtistsView(props: ArtistsViewProps) {
     });
   };
 
-  // show artist image carousel
+  // show artist image carousel with all artist, album, and song images (no waveforms)
   const handleArtistImageClick = async () => {
     const artist = selectedArtist();
     if (!artist) return;
 
-    try {
-      const datasource = await getDataSource();
-      
-      const imageUrls = await datasource.getEntityImages?.({
-        entityType: "artist",
-        entityId: artist.artist_id,
-      });
-      
-      if (!imageUrls || imageUrls.length === 0) {
-        console.warn("no images found for artist");
-        return;
+    const songs = artistSongs();
+    const imageMap = new Map<string, string>();
+
+    // add all artist images (except waveforms), deduplicate by blob_id
+    if (artist.images?.length) {
+      for (const img of artist.images) {
+        if (img.blob_type !== 'waveform') {
+          const blobId = img.remote_blob_id || img.local_blob_id;
+          const url = img.remote_url || img.local_blob_id;
+          if (blobId && url) imageMap.set(blobId, url);
+        }
       }
-      
-      showImageCarousel({
-        images: imageUrls,
-        title: `${artist.name} images`,
-      });
-    } catch (err) {
-      console.error("failed to fetch artist images:", err);
     }
+
+    // collect all song and album images (except waveforms), deduplicate by blob_id
+    for (const song of songs) {
+      if (song.images?.length) {
+        for (const img of song.images) {
+          if (img.blob_type !== 'waveform') {
+            const blobId = img.remote_blob_id || img.local_blob_id;
+            const url = img.remote_url || img.local_blob_id;
+            if (blobId && url) imageMap.set(blobId, url);
+          }
+        }
+      }
+    }
+
+    const imageUrls = Array.from(imageMap.values());
+
+    if (imageUrls.length === 0) {
+      console.warn("no images found for artist");
+      return;
+    }
+
+    showImageCarousel({
+      images: imageUrls,
+      title: `${artist.name} images`,
+    });
   };
 
   // navigate to genre detail

@@ -11,6 +11,7 @@ use grimoire::music::entities::{albums, artists, playlists, songs};
 use grimoire::response::GrimoireResponse;
 use grimoire::upload::{
     AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
+    SetPrimaryImageRequest,
 };
 use grimoire::{media_blobz::CreateMediaBlobRequest, Bytes};
 use serde_json::json;
@@ -38,6 +39,17 @@ inventory::submit! {
         method: Method::POST,
         domain: Domain::Music,
         request_type: "DeleteImageRequest",
+        response_type: "EmptyResponse",
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "set_primary_image",
+        path: "/api/music/images/set-primary",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetPrimaryImageRequest",
         response_type: "EmptyResponse",
     }
 }
@@ -270,6 +282,52 @@ pub async fn delete_image_handler(
 
     Ok(Json(GrimoireResponse::success(
         "image unlinked from entity",
+        (),
+    )))
+}
+
+/// set an image as primary for an entity
+///
+/// POST /api/music/images/set-primary
+///
+/// request body:
+/// - entity_type: "song" | "album" | "artist" | "playlist"
+/// - entity_id: entity identifier
+/// - blob_id: media blob id to set as primary
+pub async fn set_primary_image_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<SetPrimaryImageRequest>,
+) -> Result<Json<GrimoireResponse<()>>, ApiError> {
+    // check user role - only member (20) or lower can modify images
+    if user.role.level() > grimoire::users::UserRole::Member.level() {
+        return Err(ApiError::Forbidden);
+    }
+
+    tracing::info!(
+        "setting primary image for {} {} with blob {}",
+        req.entity_type, req.entity_id, req.blob_id
+    );
+
+    // call the appropriate set_primary_*_image function based on entity type
+    let response = match req.entity_type.as_str() {
+        "song" => songs::set_primary_song_image(&req.entity_id, &req.blob_id).await,
+        "album" => albums::set_primary_album_image(&req.entity_id, &req.blob_id).await,
+        "artist" => artists::set_primary_artist_image(&req.entity_id, &req.blob_id).await,
+        "playlist" => playlists::set_primary_playlist_image(&req.entity_id, &req.blob_id).await,
+        _ => {
+            return Err(ApiError::BadRequest(format!(
+                "unsupported entity type: {}",
+                req.entity_type
+            )))
+        }
+    };
+
+    if !response.success {
+        return Err(ApiError::Internal(response.message));
+    }
+
+    Ok(Json(GrimoireResponse::success(
+        "primary image updated",
         (),
     )))
 }

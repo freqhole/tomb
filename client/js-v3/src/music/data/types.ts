@@ -394,6 +394,12 @@ export interface MusicDataSource {
     blobId: string;
   }): Promise<void>;
 
+  setPrimaryImage?(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    blobId: string;
+  }): Promise<void>;
+
   // source metadata
   getSourceInfo(): Promise<{
     type: "local" | "remote";

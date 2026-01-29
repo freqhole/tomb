@@ -1,5 +1,5 @@
 // reusable media thumbnail with index overlay and play icon hover
-import { onMount, createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, Show, type JSX, onCleanup } from "solid-js";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -70,10 +70,21 @@ export interface MediaThumbnailProps {
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
   
-  // resolve blob URL on mount - create object URL once per component instance
-  onMount(async () => {
+  // resolve blob URL reactively when props.images changes
+  // this ensures images update when virtualized rows are reused with different data
+  createEffect(async () => {
+    // track dependencies explicitly
+    const images = props.images;
+    const thumbnailBlobId = props.thumbnailBlobId;
+    
+    // clean up previous object URL to prevent memory leaks
+    const previousUrl = resolvedUrl();
+    if (previousUrl && previousUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previousUrl);
+    }
+    
     // priority: images array → legacy thumbnailBlobId
-    const bestImage = pickBestImage(props.images);
+    const bestImage = pickBestImage(images);
     
     if (bestImage?.local_blob_id) {
       // local image: create blob URL
@@ -85,13 +96,23 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
     } else if (bestImage?.remote_url) {
       // remote image: use directly
       setResolvedUrl(bestImage.remote_url);
-    } else if (props.thumbnailBlobId) {
+    } else if (thumbnailBlobId) {
       // legacy path: use thumbnailBlobId prop
-      const blob = await getBlobObjectURL(props.thumbnailBlobId);
+      const blob = await getBlobObjectURL(thumbnailBlobId);
       if (blob) {
         const url = URL.createObjectURL(blob);
         setResolvedUrl(url);
       }
+    } else {
+      setResolvedUrl(null);
+    }
+  });
+  
+  // clean up object URLs on unmount
+  onCleanup(() => {
+    const url = resolvedUrl();
+    if (url && url.startsWith('blob:')) {
+      URL.revokeObjectURL(url);
     }
   });
   

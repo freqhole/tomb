@@ -1251,6 +1251,24 @@ export function deleteImage(
   );
 }
 
+export function setPrimaryImage(
+  baseUrl: string,
+  params: s.SetPrimaryImageRequest,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "set_primary_image",
+    routes.music.set_primary_image.resp,
+    routes.music.set_primary_image.req,
+    routes.music.set_primary_image.method,
+    routes.music.set_primary_image.path,
+    params,
+    apiKey,
+  );
+}
+
 export function uploadMusic(
   baseUrl: string,
   params: FormData,

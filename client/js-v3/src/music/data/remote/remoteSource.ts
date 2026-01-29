@@ -318,10 +318,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
         images: (item.playlist.images || []).map((img) => ({
-          blob_id: img.blob_id,
+          remote_blob_id: img.blob_id,
           remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
           is_primary: img.is_primary === 1,
-          blob_type: img.blob_type as 'thumbnail' | 'waveform',
+          blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original',
         })),
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
@@ -911,6 +911,22 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!result.success) {
       console.error('deleteImage failed:', result);
       throw new Error("failed to remove image");
+    }
+  }
+
+  async setPrimaryImage(params: {
+    entityType: 'song' | 'artist' | 'album' | 'playlist';
+    entityId: string;
+    blobId: string;
+  }): Promise<void> {
+    const result = await apiClient.music.setPrimaryImage(this.baseUrl, {
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      blob_id: params.blobId,
+    });
+    
+    if (!result.success) {
+      throw new Error("failed to set primary image");
     }
   }
 }

@@ -272,14 +272,28 @@ export function SongEditorModal(props: SongEditorModalProps) {
   };
 
   const handleTogglePrimary = async (index: number) => {
-    const updated = images().map((img, i) => ({
-      ...img,
-      is_primary: i === index,
-    }));
-    setImages(updated);
+    const imageToSet = images()[index];
+    const blobId = imageToSet.remote_blob_id || imageToSet.local_blob_id;
+    
+    if (!blobId) {
+      toast.error("no blob ID found for this image");
+      return;
+    }
 
-    // TODO: implement setPrimaryImage API endpoint
     try {
+      const datasource = getDataSource();
+      await datasource.setPrimaryImage?.({
+        entityType: "song",
+        entityId: props.songId,
+        blobId,
+      });
+
+      const updated = images().map((img, i) => ({
+        ...img,
+        is_primary: i === index,
+      }));
+      setImages(updated);
+
       toast.success("primary image updated");
       songQuery.refetch();
     } catch (err) {

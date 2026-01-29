@@ -254,14 +254,28 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   };
 
   const handleTogglePrimary = async (index: number) => {
+    const imageToSet = images()[index];
+    const blobId = imageToSet.remote_blob_id || imageToSet.local_blob_id;
+    
+    if (!blobId) {
+      toast.error("no blob ID found for this image");
+      return;
+    }
+
     try {
+      const datasource = getDataSource();
+      await datasource.setPrimaryImage?.({
+        entityType: "album",
+        entityId: props.albumId,
+        blobId,
+      });
+
       const updatedImages = images().map((img, i) => ({
         ...img,
         is_primary: i === index,
       }));
       setImages(updatedImages);
 
-      // TODO: implement setPrimaryImage API endpoint
       toast.success("primary image updated");
       albumQuery.refetch();
     } catch (err) {
