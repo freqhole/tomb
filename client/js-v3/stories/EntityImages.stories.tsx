@@ -19,31 +19,31 @@ const mockImages: ImageMetadata[] = [
     local_blob_id: null,
     remote_url: "https://picsum.photos/seed/1/200",
     is_primary: true,
-    type: "thumbnail",
+    blob_type: "thumbnail",
   },
   {
     local_blob_id: null,
     remote_url: "https://picsum.photos/seed/2/200",
     is_primary: false,
-    type: "thumbnail",
+    blob_type: "thumbnail",
   },
   {
     local_blob_id: null,
     remote_url: "https://picsum.photos/seed/3/200",
     is_primary: false,
-    type: "thumbnail",
+    blob_type: "thumbnail",
   },
   {
     local_blob_id: null,
     remote_url: "https://picsum.photos/seed/4/200",
     is_primary: false,
-    type: "thumbnail",
+    blob_type: "thumbnail",
   },
   {
     local_blob_id: null,
     remote_url: "https://picsum.photos/seed/5/200",
     is_primary: false,
-    type: "thumbnail",
+    blob_type: "thumbnail",
   },
 ];
 
@@ -62,7 +62,7 @@ export const Empty: Story = {
           local_blob_id: null,
           remote_url: `https://picsum.photos/seed/${Date.now()}/200`,
           is_primary: images().length === 0,
-          type: "thumbnail",
+          blob_type: "thumbnail",
         },
       ]);
       setUploading(false);
@@ -95,7 +95,7 @@ export const WithImages: Story = {
           local_blob_id: null,
           remote_url: `https://picsum.photos/seed/${Date.now()}/200`,
           is_primary: false,
-          type: "thumbnail" as const,
+          blob_type: "thumbnail" as const,
         },
       ]);
       setUploading(false);
@@ -146,7 +146,7 @@ export const Compact: Story = {
           local_blob_id: null,
           remote_url: `https://picsum.photos/seed/${Date.now()}/200`,
           is_primary: false,
-          type: "thumbnail",
+          blob_type: "thumbnail",
         },
       ]);
       setUploading(false);

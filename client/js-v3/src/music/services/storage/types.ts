@@ -7,8 +7,9 @@ export type MusicSourceType = "local" | "downloaded" | "remote";
 export interface ImageMetadata {
   local_blob_id?: string; // for local/downloaded images
   remote_url?: string; // for remote images (already includes base URL)
+  blob_id?: string; // server blob ID
   is_primary: boolean; // primary/featured image
-  type: 'thumbnail' | 'waveform'; // image type
+  blob_type: 'thumbnail' | 'waveform'; // image type
 }
 
 // ===== ARTISTS TABLE =====

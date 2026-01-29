@@ -246,7 +246,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       const newImage: ImageMetadata = {
         local_blob_id: blobId,
         is_primary: images().length === 0,
-        type: "thumbnail",
+        blob_type: "thumbnail",
       };
       const updatedImages = [...images(), newImage];
       setImages(updatedImages);

@@ -131,30 +131,30 @@ export async function downloadPlaylist(
       downloadedSongs: 0,
     });
 
-    // download thumbnail if present and construct images array
-    let images: Array<{ local_blob_id: string; is_primary: boolean; type: 'thumbnail' }> = [];
-    if (remotePlaylist.thumbnail_blob_id) {
+    // download images if present and construct images array
+    let images: Array<{ local_blob_id: string; is_primary: boolean; blob_type: 'thumbnail' | 'waveform' }> = [];
+    if (remotePlaylist.images && remotePlaylist.images.length > 0) {
       try {
-        const thumbnailBlobUrl = `${remoteUrl}/api/blobs/${remotePlaylist.thumbnail_blob_id}`;
-        const thumbnailResponse = await fetch(thumbnailBlobUrl, {
-          credentials: "include",
-        });
+        for (const image of remotePlaylist.images) {
+          const imageUrl = `${remoteUrl}/api/blobs/${image.blob_id}`;
+          const imageResponse = await fetch(imageUrl, {
+            credentials: "include",
+          });
 
-        if (thumbnailResponse.ok) {
-          const thumbnailBlob = await thumbnailResponse.blob();
-          const localThumbnailId = generateUUID();
-          await writeThumbnailToOPFS(thumbnailBlob, localThumbnailId);
-          images = [
-            {
-              local_blob_id: localThumbnailId,
-              is_primary: true,
-              type: 'thumbnail' as const,
-            },
-          ];
+          if (imageResponse.ok) {
+            const imageBlob = await imageResponse.blob();
+            const localImageId = generateUUID();
+            await writeThumbnailToOPFS(imageBlob, localImageId);
+            images.push({
+              local_blob_id: localImageId,
+              is_primary: image.is_primary === 1,
+              blob_type: image.blob_type as 'thumbnail' | 'waveform',
+            });
+          }
         }
       } catch (error) {
-        console.warn("failed to download playlist thumbnail:", error);
-        // continue without thumbnail
+        console.warn("failed to download playlist images:", error);
+        // continue without images
       }
     }
 

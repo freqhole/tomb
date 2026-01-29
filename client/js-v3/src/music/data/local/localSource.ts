@@ -89,7 +89,7 @@ function adaptDatabaseImages(dbImages?: Array<{ blob_id?: string; local_blob_id?
     local_blob_id: img.local_blob_id || img.blob_id || null,
     remote_url: img.remote_url || null,
     is_primary: typeof img.is_primary === 'boolean' ? img.is_primary : img.is_primary === 1,
-    type: (img.type as 'thumbnail' | 'waveform') || 'thumbnail',
+    blob_type: (img.type as 'thumbnail' | 'waveform') || 'thumbnail',
   }));
 }
 
@@ -1014,7 +1014,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     const imageMetadata: ImageMetadata = {
       local_blob_id: blobId,
       is_primary: params.isPrimary ?? false,
-      type: 'thumbnail',
+      blob_type: 'thumbnail',
     };
 
     if (params.entityType === "album") {

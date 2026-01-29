@@ -32,6 +32,8 @@ enum PlaylistView {
     PlaylistUpdatedAt,
     #[iden = "playlist_deleted_at"]
     PlaylistDeletedAt,
+    #[iden = "playlist_images"]
+    PlaylistImages,
     #[iden = "playlist_song_count"]
     PlaylistSongCount,
     #[iden = "playlist_total_duration"]
@@ -409,6 +411,7 @@ pub async fn query_playlists(
         .column(PlaylistView::PlaylistTitle)
         .column(PlaylistView::PlaylistDescription)
         .column(PlaylistView::PlaylistIsPublic)
+        .column(PlaylistView::PlaylistImages)
         .column(PlaylistView::PlaylistCreatedById)
         .column(PlaylistView::PlaylistCreatedAt)
         .column(PlaylistView::PlaylistUpdatedAt)

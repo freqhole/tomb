@@ -214,7 +214,7 @@ export function generateBulkSongs(count: number): DomainSong[] {
       year: 1970 + Math.floor(Math.random() * 50),
       disc_number: discNumber,
       track_number: trackNumber,
-      thumbnail_blob_id: null,
+      images: [],
       is_favorite: Math.random() > 0.7,
       user_rating: Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : null,
       album_rating: Math.random() > 0.6 ? Math.floor(Math.random() * 5) + 1 : null,

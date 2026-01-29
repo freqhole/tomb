@@ -464,7 +464,6 @@ LEFT JOIN albumz al ON als.album_id = al.id
 LEFT JOIN genrez g ON al.genre_id = g.id
 LEFT JOIN user_favoritez uf ON uf.target_type = 'song' AND uf.target_id = s.id
 LEFT JOIN user_ratingz ur ON ur.target_type = 'song' AND ur.target_id = s.id
-LEFT JOIN genrez g ON al.genre_id = g.id
 WHERE s.deleted_at IS NULL
 ORDER BY ps.playlist_id, ps.position;
 

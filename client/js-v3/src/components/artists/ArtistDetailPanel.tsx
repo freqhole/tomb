@@ -30,8 +30,6 @@ export interface ArtistDetailPanelArtist {
   album_count: number;
   total_duration: number;
   images?: import("../../music/services/storage/types").ImageMetadata[];
-  thumbnail_url?: string | null; // pre-resolved image URL (legacy, for backward compatibility)
-  thumbnail_blob_id?: string | null; // pre-resolved image blob ID (legacy, for backward compatibility)
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -214,8 +212,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             >
               <MediaImage
                 images={props.artist.images}
-                imageUrl={props.artist.thumbnail_url ?? null}
-                blobId={props.artist.thumbnail_blob_id ?? null}
                 alt={props.artist.name}
                 class="w-full h-full object-cover"
                 domainType="artist"

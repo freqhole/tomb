@@ -165,7 +165,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       const newImage: ImageMetadata = {
         local_blob_id: blobId,
         is_primary: images().length === 0,
-        type: "thumbnail",
+        blob_type: "thumbnail",
       };
 
       const updatedImages = [...images(), newImage];

@@ -137,7 +137,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             ? item.images.map((img) => ({
                 remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
                 is_primary: img.is_primary ? true : false,
-                type: 'thumbnail' as const,
+                blob_type: 'thumbnail' as const,
               }))
             : undefined,
           is_favorite: item.is_favorite,
@@ -203,7 +203,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
             ? item.images.map((img) => ({
                 remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
                 is_primary: img.is_primary ? true : false,
-                type: 'thumbnail' as const,
+                blob_type: 'thumbnail' as const,
               }))
             : undefined,
           is_favorite: item.is_favorite,
@@ -315,15 +315,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.playlist.title,
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
-        images: item.playlist.thumbnail_blob_id
-          ? [
-              {
-                remote_url: `${this.baseUrl}/api/blobs/${item.playlist.thumbnail_blob_id}`,
-                is_primary: true,
-                type: 'thumbnail' as const,
-              },
-            ]
-          : [],
+        images: (item.playlist.images || []).map((img) => ({
+          blob_id: img.blob_id,
+          remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+          is_primary: img.is_primary === 1,
+          blob_type: img.blob_type as 'thumbnail' | 'waveform',
+        })),
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
@@ -407,7 +404,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: params.title || null,
       description: params.description || null,
       is_public: params.is_public ?? null,
-      thumbnail_blob_id: null,
       updated_by: null, // server will use authenticated user
     });
 
@@ -577,7 +573,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
                 ? apiFav.album.images.map((img) => ({
                     remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
                     is_primary: img.is_primary ? true : false,
-                    type: 'thumbnail' as const,
+                    blob_type: 'thumbnail' as const,
                   }))
                 : undefined,
               is_favorite: apiFav.album.is_favorite,
@@ -600,7 +596,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
                 ? apiFav.artist.images.map((img) => ({
                     remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
                     is_primary: img.is_primary ? true : false,
-                    type: 'thumbnail' as const,
+                    blob_type: 'thumbnail' as const,
                   }))
                 : undefined,
               is_favorite: apiFav.artist.is_favorite,
@@ -616,15 +612,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
               title: apiFav.playlist.playlist.title,
               description: apiFav.playlist.playlist.description,
               is_public: apiFav.playlist.playlist.is_public === 1,
-              images: apiFav.playlist.playlist.thumbnail_blob_id
-                ? [
-                    {
-                      remote_url: `${this.baseUrl}/api/blobs/${apiFav.playlist.playlist.thumbnail_blob_id}`,
-                      is_primary: true,
-                      type: 'thumbnail' as const,
-                    },
-                  ]
-                : [],
+              images: (apiFav.playlist.playlist.images || []).map((img) => ({
+                blob_id: img.blob_id,
+                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                is_primary: img.is_primary === 1,
+                blob_type: img.blob_type as 'thumbnail' | 'waveform',
+              })),
               song_count: apiFav.playlist.song_count,
               created_at: apiFav.playlist.playlist.created_at * 1000,
               updated_at: apiFav.playlist.playlist.updated_at * 1000,

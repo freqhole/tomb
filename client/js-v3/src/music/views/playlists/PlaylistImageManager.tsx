@@ -52,7 +52,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
       const newImage: ImageMetadata = {
         local_blob_id: blobId,
         is_primary: props.images.length === 0,
-        type: "thumbnail",
+        blob_type: "thumbnail",
       };
       const updatedImages = [...props.images, newImage];
       props.onImagesChange(updatedImages);
@@ -140,9 +140,9 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
                     class="w-full aspect-square object-cover rounded"
                   />
                   <div class="absolute top-1 left-1 flex gap-1">
-                    <Show when={image.type}>
+                    <Show when={image.blob_type}>
                       <span class="px-1.5 py-0.5 text-xs bg-black/70 text-white rounded">
-                        {image.type}
+                        {image.blob_type}
                       </span>
                     </Show>
                     <Show when={image.is_primary}>

@@ -66,7 +66,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         local_blob_id: blobId,
         remote_url: null,
         is_primary: currentImages.length === 0,
-        type: "thumbnail",
+        blob_type: "thumbnail",
       };
       const updatedImages = [...currentImages, newImage];
       setPlaylistImages(updatedImages);

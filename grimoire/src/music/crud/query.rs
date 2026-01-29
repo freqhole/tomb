@@ -446,6 +446,8 @@ pub struct AlbumViewRow {
     artist_created_at: Option<i64>,
     artist_updated_at: Option<i64>,
     // User context fields from view joins
+    #[allow(dead_code)]
+    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
     rating_user_id: Option<String>,
@@ -593,6 +595,8 @@ pub struct GenreViewRow {
     song_count: i64,
     album_count: i64,
     // User context fields from view joins (no ratings for genres)
+    #[allow(dead_code)]
+    favorite_id: Option<String>,
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
 }

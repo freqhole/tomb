@@ -5,9 +5,9 @@ import { Icon } from "../icons/registry";
 
 function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
   if (!images || images.length === 0) return null;
-  const primary = images.find(img => img.is_primary && img.type === 'thumbnail');
+  const primary = images.find(img => img.is_primary && img.blob_type === 'thumbnail');
   if (primary) return primary;
-  const thumbnail = images.find(img => img.type === 'thumbnail');
+  const thumbnail = images.find(img => img.blob_type === 'thumbnail');
   if (thumbnail) return thumbnail;
   return images[0];
 }

@@ -38,7 +38,6 @@ export interface ApiSongQueryItem {
     key_signature?: string | null;
     lyrics?: string | null;
     metadata?: string | null;
-    thumbnail_blob_id?: string | null;
     created_at: number;
     updated_at: number;
   };
@@ -120,7 +119,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_images: item.images?.map((img: any) => ({
       remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
       is_primary: !!img.is_primary,
-      type: 'thumbnail' as const,
+      blob_type: 'thumbnail' as const,
     })) || undefined,
 
     // remote source type
