@@ -611,6 +611,24 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             );
         }
 
+        // copy sub-genres from old album to new album
+        if let Err(e) = sqlx::query!(
+            "INSERT OR IGNORE INTO album_sub_genrez (album_id, sub_genre_id)
+             SELECT ?, sub_genre_id
+             FROM album_sub_genrez
+             WHERE album_id = ?",
+            new_album.id,
+            existing_album.id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to copy sub-genres to new album",
+                vec![e.into()],
+            );
+        }
+
         // move all songs to new album and new artist
         for song_id in &song_ids {
             // update artist relationship
