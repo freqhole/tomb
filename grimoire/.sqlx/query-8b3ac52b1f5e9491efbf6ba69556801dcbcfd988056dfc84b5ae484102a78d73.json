@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            id as \"id!\",\n            sha256 as \"sha256!\",\n            size,\n            mime,\n            source_client_id,\n            local_path,\n            filename,\n            parent_blob_id,\n            blob_type as \"blob_type!\",\n            metadata,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by\n         FROM media_blobz\n         WHERE sha256 = ?\n         LIMIT 1",
+  "query": "SELECT\n            id as \"id!\",\n            sha256 as \"sha256!\",\n            size,\n            mime,\n            source_client_id,\n            local_path,\n            filename,\n            parent_blob_id,\n            blob_type as \"blob_type!\",\n            metadata,\n            created_at as \"created_at!\",\n            updated_at as \"updated_at!\",\n            deleted_at,\n            deleted_by,\n            created_by,\n            updated_by\n         FROM media_blobz\n         WHERE sha256 = ? \n           AND blob_type = ? \n           AND (\n             (parent_blob_id IS NULL AND ? IS NULL) OR\n             (parent_blob_id = ?)\n           )\n         LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -85,7 +85,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 4
     },
     "nullable": [
       true,
@@ -106,5 +106,5 @@
       true
     ]
   },
-  "hash": "471d558e599e53fe76978a0e7d65de50fbd06af0f1e8032fbe250c8f701cb915"
+  "hash": "8b3ac52b1f5e9491efbf6ba69556801dcbcfd988056dfc84b5ae484102a78d73"
 }

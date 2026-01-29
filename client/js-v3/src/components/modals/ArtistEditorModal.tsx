@@ -174,6 +174,8 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       setProcessingJob(null);
       toast.success("image uploaded");
       artistQuery.refetch();
+      // invalidate artist queries to update all views
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
       input.value = "";
     } catch (err) {
       console.error("failed to upload image:", err);
@@ -207,6 +209,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
       toast.success("primary image updated");
       artistQuery.refetch();
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");

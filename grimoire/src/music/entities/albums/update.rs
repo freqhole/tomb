@@ -492,7 +492,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 }
             } else {
                 // find or create new artist
-                match find_or_create_artist(ArtistImportRequest {
+                let new_artist_result = match find_or_create_artist(ArtistImportRequest {
                     name: artist_name.clone(),
                     created_by: req.updated_by.clone(),
                 })
@@ -500,16 +500,56 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 {
                     GrimoireResponse {
                         success: true,
-                        data: Some((artist, _)),
+                        data: Some((artist, was_created)),
                         ..
-                    } => artist,
+                    } => (artist, was_created),
                     response => {
                         return GrimoireResponse::failure(
                             "Failed to find or create artist",
                             response.errors,
                         )
                     }
+                };
+
+                // if a new artist was created, copy bio and images from old artist(s)
+                if new_artist_result.1 && !old_artist_ids.is_empty() {
+                    // try to find an old artist with bio or images to copy from
+                    for old_artist_id in &old_artist_ids {
+                        // copy bio from first old artist that has one
+                        if let Ok(Some(old_bio)) = sqlx::query_scalar!(
+                            "SELECT bio FROM artistz WHERE id = ? AND bio IS NOT NULL",
+                            old_artist_id
+                        )
+                        .fetch_optional(&pool)
+                        .await
+                        {
+                            let _ = sqlx::query!(
+                                "UPDATE artistz SET bio = ? WHERE id = ?",
+                                old_bio,
+                                new_artist_result.0.id
+                            )
+                            .execute(&pool)
+                            .await;
+                            break;
+                        }
+                    }
+
+                    // copy images from all old artists
+                    for old_artist_id in &old_artist_ids {
+                        let _ = sqlx::query!(
+                            "INSERT OR IGNORE INTO artist_imagez (artist_id, media_blob_id, is_primary)
+                             SELECT ?, media_blob_id, is_primary
+                             FROM artist_imagez
+                             WHERE artist_id = ?",
+                            new_artist_result.0.id,
+                            old_artist_id
+                        )
+                        .execute(&pool)
+                        .await;
+                    }
                 }
+
+                new_artist_result.0
             }
         } else {
             unreachable!("either artist_id or artist_name must be Some");
@@ -552,6 +592,24 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 )
             }
         };
+
+        // copy images from old album to new album
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
+             SELECT ?, media_blob_id, is_primary
+             FROM album_imagez
+             WHERE album_id = ?",
+            new_album.id,
+            existing_album.id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to copy images to new album",
+                vec![e.into()],
+            );
+        }
 
         // move all songs to new album and new artist
         for song_id in &song_ids {

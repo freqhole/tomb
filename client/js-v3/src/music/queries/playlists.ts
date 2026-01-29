@@ -50,7 +50,7 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
   const pageSize = options?.pageSize || 50;
 
   return createInfiniteQuery(() => ({
-    queryKey: [...queryKeys.playlists.all, "infinite", search?.()],
+    queryKey: [...queryKeys.playlists.all(), "infinite", search?.()],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
 
@@ -154,7 +154,7 @@ export function useCreatePlaylistMutation() {
     },
     onSuccess: () => {
       // invalidate playlists queries to refetch
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
     },
   }));
 }
@@ -181,7 +181,7 @@ export function useUpdatePlaylistMutation() {
     },
     onSuccess: (_, variables) => {
       // invalidate playlists queries and specific playlist songs
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
       queryClient.invalidateQueries({
         queryKey: ["playlists", variables.playlistId],
       });

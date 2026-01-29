@@ -42,9 +42,9 @@ export function useUpdateArtistMutation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.artists.detail(variables.artist_id),
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
 
       toast.success("artist updated");
     },
@@ -72,9 +72,9 @@ export function useUpdateAlbumMutation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.albums.detail(variables.album_id),
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
 
       toast.success("album updated");
     },

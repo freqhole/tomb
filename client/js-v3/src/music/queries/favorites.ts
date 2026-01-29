@@ -201,30 +201,30 @@ function getQueryKeysToInvalidate(
     case "song":
       // invalidate all queries that might contain songs
       return [
-        queryKeys.songs.all,
-        queryKeys.favorites.all, // favorites list
-        queryKeys.playlists.all, // playlist songs
+        queryKeys.songs.all(),
+        queryKeys.favorites.all(), // favorites list
+        queryKeys.playlists.all(), // playlist songs
         ["album", "songs"], // album songs (prefix match all album detail views)
         ["artist", "songs"], // artist songs
         ["genre", "songs"], // genre songs
       ];
     case "album":
       return [
-        queryKeys.albums.all, // album lists and detail views (all nested queries)
-        queryKeys.favorites.all, // favorites list
+        queryKeys.albums.all(), // album lists and detail views (all nested queries)
+        queryKeys.favorites.all(), // favorites list
         ["artist", "songs"], // artist songs contain album_is_favorite
         ["album", "songs"], // album detail views show album favorite status
       ];
     case "artist":
       return [
-        queryKeys.artists.all, // artist lists and detail views (all nested queries)
-        queryKeys.favorites.all, // favorites list
+        queryKeys.artists.all(), // artist lists and detail views (all nested queries)
+        queryKeys.favorites.all(), // favorites list
         ["artist", "songs"], // artist songs contain artist data with is_favorite
       ];
     case "playlist":
       return [
-        queryKeys.playlists.all, // playlist lists and detail views
-        queryKeys.favorites.all, // favorites list
+        queryKeys.playlists.all(), // playlist lists and detail views
+        queryKeys.favorites.all(), // favorites list
       ];
   }
 }

@@ -24,9 +24,9 @@ export function showTagSelector(albumIds: string[], albumTitle?: string): void {
 
   // callback to invalidate queries after save
   const handleSave = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.tags.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.tags.all() });
   };
 
   // render modal wrapped in QueryClientProvider

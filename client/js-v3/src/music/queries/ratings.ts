@@ -87,20 +87,20 @@ function getQueryKeysToInvalidate(
     case "song":
       // invalidate all queries that might contain songs
       return [
-        queryKeys.songs.all,
-        queryKeys.playlists.all, // playlist songs
+        queryKeys.songs.all(),
+        queryKeys.playlists.all(), // playlist songs
         ["album", "songs"], // album songs
         ["artist", "songs"], // artist songs
         ["genre", "songs"], // genre songs
       ];
     case "album":
       return [
-        queryKeys.albums.all,
+        queryKeys.albums.all(),
         ["artist", "songs"], // artist songs contain album data with ratings
       ];
     case "artist":
       return [
-        queryKeys.artists.all,
+        queryKeys.artists.all(),
         ["artist", "songs"], // artist songs contain artist data with ratings
       ];
   }

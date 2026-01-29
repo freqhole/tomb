@@ -245,6 +245,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setProcessingJob(null);
       toast.success("image uploaded");
       albumQuery.refetch();
+      // invalidate album queries to update all views
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
       input.value = "";
     } catch (err) {
       console.error("failed to upload image:", err);
@@ -278,6 +280,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       toast.success("primary image updated");
       albumQuery.refetch();
+      // invalidate album queries to update all views
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");

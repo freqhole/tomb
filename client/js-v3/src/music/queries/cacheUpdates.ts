@@ -50,7 +50,7 @@ export function updateSongInCache(
     }>;
     pageParams: unknown[];
   }>({
-    queryKey: [...queryKeys.songs.all, "infinite"],
+    queryKey: [...queryKeys.songs.all(), "infinite"],
     exact: false,
   });
 
@@ -157,7 +157,7 @@ export function updateSongInCache(
   const searchQueries = queryClient.getQueriesData<{
     pages: Array<{ songs?: Song[] }>;
   }>({
-    queryKey: queryKeys.search.all,
+    queryKey: queryKeys.search.all(),
     exact: false,
   });
 
@@ -211,7 +211,7 @@ export function updateAlbumInCache(
     }>;
     pageParams: unknown[];
   }>({
-    queryKey: [...queryKeys.albums.all, "list"],
+    queryKey: [...queryKeys.albums.all(), "list"],
     exact: false,
   });
 
@@ -319,7 +319,7 @@ export function updateArtistInCache(
   const artistsQueries = queryClient.getQueriesData<{
     pages: Array<{ items: Artist[] }>;
   }>({
-    queryKey: queryKeys.artists.all,
+    queryKey: queryKeys.artists.all(),
     exact: false,
   });
 
@@ -373,7 +373,7 @@ export function updatePlaylistInCache(
     }>;
     pageParams: unknown[];
   }>({
-    queryKey: [...queryKeys.playlists.all, "infinite"],
+    queryKey: [...queryKeys.playlists.all(), "infinite"],
     exact: false,
   });
 
@@ -394,7 +394,7 @@ export function updatePlaylistInCache(
 
   // 3. update playlists list queries (legacy/simple queries if any)
   const playlistsQueries = queryClient.getQueriesData<Playlist[]>({
-    queryKey: queryKeys.playlists.all,
+    queryKey: queryKeys.playlists.all(),
     exact: false,
   });
 
@@ -427,7 +427,7 @@ export function invalidateEntityQueries(
     case "album":
       // albums might have computed fields like song_count that need refresh
       queryClient.invalidateQueries({
-        queryKey: queryKeys.albums.all,
+        queryKey: queryKeys.albums.all(),
         exact: false,
       });
       break;
@@ -435,7 +435,7 @@ export function invalidateEntityQueries(
     case "artist":
       // artists might have computed fields like album_count that need refresh
       queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.all,
+        queryKey: queryKeys.artists.all(),
         exact: false,
       });
       break;
@@ -443,7 +443,7 @@ export function invalidateEntityQueries(
     case "playlist":
       // playlists might have computed fields like song_count that need refresh
       queryClient.invalidateQueries({
-        queryKey: queryKeys.playlists.all,
+        queryKey: queryKeys.playlists.all(),
         exact: false,
       });
       break;

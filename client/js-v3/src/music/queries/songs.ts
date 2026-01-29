@@ -418,9 +418,9 @@ export function useUpdateSongsMutation() {
     },
     onSuccess: () => {
       // invalidate all music queries to refresh data
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
       toast.success("song updated");
     },
     onError: (error) => {

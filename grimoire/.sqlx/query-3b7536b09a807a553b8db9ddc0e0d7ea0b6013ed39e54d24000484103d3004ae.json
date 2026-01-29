@@ -101,7 +101,7 @@
       {
         "name": "images?: JsonVec<ImageMetadata>",
         "ordinal": 19,
-        "type_info": "Null"
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -127,7 +127,7 @@
       true,
       true,
       true,
-      true
+      false
     ]
   },
   "hash": "3b7536b09a807a553b8db9ddc0e0d7ea0b6013ed39e54d24000484103d3004ae"

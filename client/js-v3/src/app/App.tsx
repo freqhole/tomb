@@ -93,7 +93,7 @@ export function App() {
       if (result.addedCount > 0) {
         setHasSongs(true);
         // invalidate songs query to show new songs
-        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all });
+        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
       }
       setIsAddMusicOpen(false);
     } catch (error) {
