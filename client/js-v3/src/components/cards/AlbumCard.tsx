@@ -17,6 +17,16 @@ export interface AlbumCardProps {
 export function AlbumCard(props: AlbumCardProps) {
   const [isCardHovered, setIsCardHovered] = createSignal(false);
 
+  const handleMouseEnter = () => {
+    console.log(`[AlbumCard] hover enter: ${props.album.title}`);
+    setIsCardHovered(true);
+  };
+  
+  const handleMouseLeave = () => {
+    console.log(`[AlbumCard] hover leave: ${props.album.title}`);
+    setIsCardHovered(false);
+  };
+
   return (
     <div 
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
@@ -25,8 +35,8 @@ export function AlbumCard(props: AlbumCardProps) {
         e.preventDefault();
         props.onContextMenu?.(e, props.album);
       }}
-      onMouseEnter={() => setIsCardHovered(true)}
-      onMouseLeave={() => setIsCardHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
@@ -71,7 +81,7 @@ export function AlbumCard(props: AlbumCardProps) {
           <MarqueeText
             text={props.album.title}
             class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"
-            hoverOnly={!isCardHovered()}
+            isHovering={isCardHovered}
           />
         </div>
         <Show when={props.album.artist_name}>
@@ -87,7 +97,7 @@ export function AlbumCard(props: AlbumCardProps) {
                 text={props.album.artist_name}
                 class="text-sm text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)] transition-colors"
                 hoverClass="text-[var(--color-accent-500)] underline"
-                hoverOnly={!isCardHovered()}
+                isHovering={isCardHovered}
               />
             </a>
           </div>

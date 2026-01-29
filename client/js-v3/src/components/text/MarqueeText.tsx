@@ -1,7 +1,7 @@
 // marquee text - scrolls long text on hover
 // supports both internal hover tracking and external isHovering prop for virtualized lists
 
-import { createEffect, createSignal, JSX, onMount } from "solid-js";
+import { Accessor, createEffect, createMemo, createSignal, JSX, onMount } from "solid-js";
 
 interface MarqueeTextProps {
   /** text content to display */
@@ -16,8 +16,8 @@ interface MarqueeTextProps {
   title?: string;
   /** only marquee on hover (default: true) - when false, always animates if overflow */
   hoverOnly?: boolean;
-  /** externally controlled hover state - when provided, skips internal mouse listeners */
-  isHovering?: boolean;
+  /** externally controlled hover state - can be boolean or accessor for reactivity */
+  isHovering?: boolean | Accessor<boolean>;
 }
 
 // inject styles once globally
@@ -45,7 +45,13 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
   let textRef: HTMLSpanElement | undefined;
 
   // use external isHovering if provided, otherwise internal
-  const isHovering = () => props.isHovering ?? internalHover();
+  // supports both boolean values and accessor functions for reactivity
+  const isHovering = () => {
+    const external = props.isHovering;
+    if (external === undefined) return internalHover();
+    const result = typeof external === "function" ? external() : external;
+    return result;
+  };
   
   // check if we should use internal hover tracking
   const useInternalHover = () => props.isHovering === undefined;
@@ -56,6 +62,7 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     const containerWidth = containerRef.offsetWidth;
     const textWidth = textRef.scrollWidth;
     const doesOverflow = textWidth > containerWidth;
+    console.log(`[MarqueeText] "${props.text.slice(0, 30)}..." container=${containerWidth}, text=${textWidth}, overflow=${doesOverflow}`);
     setOverflows(doesOverflow);
     if (doesOverflow) {
       setOffset(containerWidth - textWidth - 8); // 8px end padding
@@ -83,11 +90,28 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
   // default hoverOnly to true (most common use case)
   const hoverOnly = () => props.hoverOnly !== false;
   
-  const shouldAnimate = () => {
-    if (!overflows()) return false;
-    if (hoverOnly()) return isHovering();
+  const shouldAnimate = createMemo(() => {
+    const hovering = isHovering();
+    const overflow = overflows();
+    const hoverOnlyVal = hoverOnly();
+    if (!overflow) return false;
+    if (hoverOnlyVal) {
+      console.log(`[MarqueeText] "${props.text.slice(0, 20)}..." shouldAnimate check: hovering=${hovering}, overflow=${overflow}`);
+      return hovering;
+    }
     return true; // always animate if hoverOnly is false
-  };
+  });
+
+  // compute animation style reactively
+  const animationStyle = createMemo(() => {
+    if (!shouldAnimate()) return "none";
+    return `marquee-scroll ${duration()}s ease-in-out infinite`;
+  });
+
+  // compute hover class reactively  
+  const hoverClassName = createMemo(() => {
+    return props.hoverClass && isHovering() ? props.hoverClass : "";
+  });
 
   return (
     <div
@@ -99,12 +123,10 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     >
       <span
         ref={textRef!}
-        class={`block whitespace-nowrap ${props.padClass || ""} ${props.hoverClass && isHovering() ? props.hoverClass : ""}`}
+        class={`block whitespace-nowrap ${props.padClass || ""} ${hoverClassName()}`}
         style={{
           "--marquee-offset": `${offset()}px`,
-          animation: shouldAnimate()
-            ? `marquee-scroll ${duration()}s ease-in-out infinite`
-            : "none",
+          animation: animationStyle(),
         }}
       >
         {props.text}

@@ -73,11 +73,11 @@ export function ArtistCard(props: ArtistCardProps) {
         </div>
       </div>
       <div class="space-y-1 text-center min-w-0">
-        <div class="min-w-0">
-          <MarqueeText
-            text={props.artist.name}
-            class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"            hoverOnly={!isCardHovered()}          />
-        </div>
+        <MarqueeText
+          text={props.artist.name}
+          class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"
+          isHovering={isCardHovered}
+        />
         <Show when={props.artist.album_count !== undefined}>
           <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors">
             {props.artist.album_count} albums

@@ -21,7 +21,12 @@ export function SongCard(props: SongCardProps) {
   return (
     <div 
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
-      onClick={() => props.onClick?.(props.song)}
+      onClick={() => {
+        // card click navigates to album detail
+        if (props.song.album_id) {
+          props.onAlbumClick?.(props.song.album_id);
+        }
+      }}
       onDblClick={() => {
         props.onPlay?.(props.song);
       }}
@@ -71,40 +76,32 @@ export function SongCard(props: SongCardProps) {
         </div>
       </div>
       <div class="space-y-1 min-w-0">
-        <div class="min-w-0">
-          <MarqueeText
-            text={props.song.title}
-            class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"
-            hoverOnly={!isCardHovered()}
-          />
-        </div>
-        <div class="text-xs text-[var(--color-text-secondary)] min-w-0 flex items-center gap-1">
-          <Show when={props.song.artist_name && props.song.artist_id}>
-            <a
-              class="cursor-pointer hover:text-[var(--color-accent-500)] hover:underline transition-colors truncate"
-              onClick={(e) => {
-                e.stopPropagation();
+        {/* title - card click handles navigation */}
+        <MarqueeText
+          text={props.song.title}
+          class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"
+          isHovering={isCardHovered}
+        />
+        {/* artist + album - links to artist */}
+        <Show when={props.song.artist_name || props.song.album_title}>
+          <a
+            class="block cursor-pointer hover:text-[var(--color-accent-500)] transition-colors min-w-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (props.song.artist_id) {
                 props.onArtistClick?.(props.song.artist_id);
-              }}
-            >
-              {props.song.artist_name}
-            </a>
-          </Show>
-          <Show when={props.song.artist_name && props.song.album_title}>
-            <span>•</span>
-          </Show>
-          <Show when={props.song.album_title && props.song.album_id}>
-            <a
-              class="cursor-pointer hover:text-[var(--color-accent-500)] hover:underline transition-colors truncate"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onAlbumClick?.(props.song.album_id);
-              }}
-            >
-              {props.song.album_title}
-            </a>
-          </Show>
-        </div>
+              }
+            }}
+          >
+            <MarqueeText
+              text={[props.song.artist_name, props.song.album_title].filter(Boolean).join(" • ")}
+              class="text-xs text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)] transition-colors"
+              hoverClass="underline"
+              isHovering={isCardHovered}
+            />
+          </a>
+        </Show>
+        {/* duration */}
         <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors">
           {Math.floor(props.song.duration_seconds / 60)}:{String(props.song.duration_seconds % 60).padStart(2, '0')}
         </div>

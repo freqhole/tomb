@@ -91,15 +91,17 @@ export function PlaylistCard(props: PlaylistCardProps) {
         </div>
       </div>
       <div class="space-y-1 min-w-0">
-        <div class="min-w-0">
-          <MarqueeText
-            text={props.playlist.title}
-            class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"            hoverOnly={!isCardHovered()}          />
-        </div>
+        <MarqueeText
+          text={props.playlist.title}
+          class="text-[var(--color-text-primary)] font-medium text-xs group-hover:text-[var(--color-accent-500)] transition-colors"
+          isHovering={isCardHovered}
+        />
         <Show when={props.playlist.description}>
-          <div class="text-xs text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)] transition-colors line-clamp-2">
-            {props.playlist.description}
-          </div>
+          <MarqueeText
+            text={props.playlist.description!}
+            class="text-xs text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)] transition-colors"
+            isHovering={isCardHovered}
+          />
         </Show>
         <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors truncate">
           {props.playlist.song_count && `${props.playlist.song_count} songs`}

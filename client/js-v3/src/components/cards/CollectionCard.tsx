@@ -129,6 +129,8 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
       class={`group cursor-pointer flex flex-col ${props.class || ""}`}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onMouseEnter={() => setIsCardHovering(true)}
+      onMouseLeave={() => setIsCardHovering(false)}
     >
       {/* image/artwork area */}
       <div
@@ -182,21 +184,19 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
       {/* collection info */}
       <div class="space-y-0.5 min-w-0">
         {/* title */}
-        <div
-          class={`text-[var(--color-text-primary)] font-medium ${sizeClasses().title} truncate group-hover:text-[var(--color-accent-500)] transition-colors`}
-          title={props.collection.title}
-        >
-          {props.collection.title}
-        </div>
+        <MarqueeText
+          text={props.collection.title}
+          class={`text-[var(--color-text-primary)] font-medium ${sizeClasses().title} group-hover:text-[var(--color-accent-500)] transition-colors`}
+          isHovering={isCardHovering}
+        />
 
         {/* subtitle */}
         <Show when={props.collection.subtitle}>
-          <div
-            class={`text-[var(--color-text-muted)] ${sizeClasses().subtitle} truncate group-hover:text-[var(--color-text-primary)] transition-colors`}
-            title={props.collection.subtitle || ""}
-          >
-            {props.collection.subtitle}
-          </div>
+          <MarqueeText
+            text={props.collection.subtitle!}
+            class={`text-[var(--color-text-muted)] ${sizeClasses().subtitle} group-hover:text-[var(--color-text-primary)] transition-colors`}
+            isHovering={isCardHovering}
+          />
         </Show>
 
         {/* artist info for albums/songs only - not playlists */}
@@ -207,12 +207,11 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             !props.collection.subtitle?.includes(props.collection.artist!)
           }
         >
-          <div
-            class={`text-[var(--color-text-tertiary)] ${sizeClasses().subtitle} truncate group-hover:text-[var(--color-text-secondary)] transition-colors`}
-            title={`by ${props.collection.artist}`}
-          >
-            by {props.collection.artist}
-          </div>
+          <MarqueeText
+            text={`by ${props.collection.artist}`}
+            class={`text-[var(--color-text-tertiary)] ${sizeClasses().subtitle} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+            isHovering={isCardHovering}
+          />
         </Show>
 
         {/* metadata row */}
@@ -254,7 +253,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           <MarqueeText
             text={props.collection.genres!}
             class={`${sizeClasses().meta} text-[var(--color-text-tertiary)} group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 rounded`}
-            hoverOnly={!isCardHovering()}
+            isHovering={isCardHovering}
           />
         </Show>
         {/* tags */}
@@ -263,7 +262,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             <MarqueeText
               text={props.collection.tags!.join(" • ")}
               class={`${sizeClasses().meta} text-[var(--color-text-tertiary)] group-hover:text-[var(--color-accent-500)] transition-colors bg-[var(--color-accent-500)]/10 px-1 py-0.5 rounded`}
-              hoverOnly={!isCardHovering()}
+              isHovering={isCardHovering}
             />
           </div>
         </Show>
