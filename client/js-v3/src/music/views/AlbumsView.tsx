@@ -1,16 +1,17 @@
-// albums view - displays all albums in a grid
+// albums view - displays all albums in a grid with infinite scroll
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createResource, createSignal, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
+import { SearchSortControls } from "../../components/controls/SearchSortControls";
 import {
   TagFilterPicker,
   type TagFilter,
 } from "../../components/forms/TagFilterPicker";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
-import { useAlbumsQuery } from "../queries/songs";
+import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
 import { playSong } from "../services/audio/player";
@@ -23,12 +24,44 @@ export interface AlbumsViewProps {
   onAlbumClick?: (albumId: string) => void;
 }
 
+const albumSortFields = [
+  { value: "added_at", label: "date added", description: "sort by date added" },
+  { value: "title", label: "title", description: "sort by album title" },
+  { value: "artist", label: "artist", description: "sort by artist name" },
+  { value: "year", label: "year", description: "sort by release year" },
+  { value: "song_count", label: "tracks", description: "sort by track count" },
+];
+
 export function AlbumsView(props: AlbumsViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // responsive grid height
+  // header: 84px, tag picker: 26px, player bar: 80px = 190px total
+  const TOTAL_CHROME_HEIGHT = 84 + 26 + 80;
+  const [gridHeight, setGridHeight] = createSignal(window.innerHeight - TOTAL_CHROME_HEIGHT);
+
+  onMount(() => {
+    let resizeTimeout: number | undefined;
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(() => {
+        setGridHeight(window.innerHeight - TOTAL_CHROME_HEIGHT);
+      }, 100);
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => {
+      clearTimeout(resizeTimeout);
+      window.removeEventListener("resize", handleResize);
+    });
+  });
+
   // track query changes to force grid reset
   const [isResetting, setIsResetting] = createSignal(false);
+
+  // sorting state
+  const [sortField, setSortField] = createSignal<AlbumSortField>("added_at");
+  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
 
   // tag filtering state
   const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
@@ -39,46 +72,39 @@ export function AlbumsView(props: AlbumsViewProps) {
   // favorites mutation
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
-  // fetch albums using query hook
+  // get search query from URL params
+  const searchQuery = () => {
+    const q = searchParams.q;
+    return Array.isArray(q) ? q[0] : q;
+  };
+
+  // fetch albums using query hook with sorting
   const albumsQuery = useAlbumsQuery({
-    pageSize: 100,
-    query: () => {
-      const q = searchParams.q;
-      return Array.isArray(q) ? q[0] : q;
-    },
+    pageSize: 50,
+    query: searchQuery,
     tagFilters: () => tagFilters(),
+    sortField: () => sortField(),
+    sortDirection: () => sortDirection(),
   });
 
   // reset virtual grid when query param or tag filters change
-  createEffect(() => {
-    const q = searchParams.q;
-    const queryParam = Array.isArray(q) ? q[0] : q;
-    const filters = tagFilters();
-    // briefly show resetting state to force grid to remount
-    setIsResetting(true);
-    setTimeout(() => setIsResetting(false), 0);
-  });
-
-  // auto-fetch next page when query becomes idle and has more data
   createEffect(
     on(
-      () => ({
-        hasNextPage: albumsQuery.hasNextPage,
-        isFetchingNextPage: albumsQuery.isFetchingNextPage,
-        isFetching: albumsQuery.isFetching,
-      }),
-      (state) => {
-        // automatically load more if there's more data and we're not already fetching
-        if (
-          state.hasNextPage &&
-          !state.isFetchingNextPage &&
-          !state.isFetching
-        ) {
-          albumsQuery.fetchNextPage();
-        }
+      () => [searchQuery(), tagFilters(), sortField(), sortDirection()] as const,
+      () => {
+        setIsResetting(true);
+        setTimeout(() => setIsResetting(false), 0);
       },
-    ),
+      { defer: true }
+    )
   );
+
+  // load more when near end
+  const loadMore = () => {
+    if (albumsQuery.hasNextPage && !albumsQuery.isFetchingNextPage) {
+      albumsQuery.fetchNextPage();
+    }
+  };
 
   // format duration as mm:ss or hh:mm:ss
   const formatDuration = (seconds: number): string => {
@@ -220,12 +246,6 @@ export function AlbumsView(props: AlbumsViewProps) {
     );
   };
 
-  // calculate grid height: window height - header (84) - album header (26) - tag filter (~80)
-  const gridHeight = () => {
-    if (typeof window === 'undefined') return 600;
-    return window.innerHeight - 84 - 26 - 80;
-  };
-
   return (
     <div class="flex flex-col h-full">
       {/* header */}
@@ -237,12 +257,21 @@ export function AlbumsView(props: AlbumsViewProps) {
           <p class="text-sm text-[var(--color-text-secondary)]">
             {albumsQuery.isLoading
               ? "loading..."
-              : `${albums().length} ${albums().length === 1 ? "album" : "albums"}`}
+              : `${albums().length} ${albums().length === 1 ? "album" : "albums"}${albumsQuery.hasNextPage ? "+" : ""}`}
           </p>
         </div>
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
-        </Button>
+        <div class="flex items-center gap-4">
+          <SearchSortControls
+            sortFields={albumSortFields}
+            sortBy={sortField()}
+            sortDirection={sortDirection()}
+            onSortByChange={(field) => setSortField(field as AlbumSortField)}
+            onSortDirectionChange={setSortDirection}
+          />
+          <Button variant="primary" onClick={props.onAddMusic}>
+            add music
+          </Button>
+        </div>
       </div>
 
       {/* tag filter picker */}
@@ -291,11 +320,18 @@ export function AlbumsView(props: AlbumsViewProps) {
               onAlbumPlay={handleAlbumPlay}
               onFavoriteToggle={(album, isFavorite) => handleFavoriteToggle(album.id, isFavorite)}
               getContextMenuActions={getContextMenuActions}
+              onNearEnd={loadMore}
               showYear={true}
               showGenres={true}
               cardSize="medium"
               height={gridHeight()}
+              scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters().map(f => f.tag).join(",")}`}
             />
+            {albumsQuery.isFetchingNextPage && (
+              <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">
+                loading more albums...
+              </div>
+            )}
           </Show>
         )}
       </div>

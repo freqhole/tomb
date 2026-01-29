@@ -24,6 +24,8 @@ export interface VirtualAlbumGridProps {
   onFavoriteToggle?: (album: CollectionCardData, isFavorite: boolean) => void;
   /** callback to get context menu actions for an album */
   getContextMenuActions?: (album: CollectionCardData) => MenuAction[];
+  /** callback when user scrolls near end (for infinite scroll) */
+  onNearEnd?: () => void;
   /** height of the container */
   height?: number;
   /** card size variant */
@@ -105,10 +107,23 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
 
     observer.observe(parentRef);
     
-    // save scroll position periodically while scrolling
-    const handleScroll = () => {
+    // save scroll position periodically while scrolling and check for near end
+    const handleScroll = (e: Event) => {
       if (parentRef) {
         saveScroll(parentRef);
+        
+        // check for infinite scroll trigger
+        if (props.onNearEnd) {
+          const target = e.target as HTMLDivElement;
+          const scrollTop = target.scrollTop;
+          const scrollHeight = target.scrollHeight;
+          const clientHeight = target.clientHeight;
+
+          // trigger when scrolled to within 300px of bottom
+          if (scrollHeight - scrollTop - clientHeight < 300) {
+            props.onNearEnd();
+          }
+        }
       }
     };
     parentRef.addEventListener("scroll", handleScroll, { passive: true });

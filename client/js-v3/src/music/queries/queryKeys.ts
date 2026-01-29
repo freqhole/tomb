@@ -43,8 +43,8 @@ export const queryKeys = {
   albums: {
     all: () => ["albums", getDataSourceKey()] as const,
     lists: () => [...queryKeys.albums.all(), "list"] as const,
-    list: (search?: string, tagFilters?: any) =>
-      [...queryKeys.albums.lists(), search, tagFilters] as const,
+    list: (search?: string, tagFilters?: any, sortField?: string, sortDirection?: string) =>
+      [...queryKeys.albums.lists(), search, tagFilters, sortField, sortDirection] as const,
     detail: (id: string) => [...queryKeys.albums.all(), id] as const,
     songs: (albumId: string) => ["album", "songs", getDataSourceKey(), albumId] as const,
     autocomplete: (search?: string, artistId?: string) =>

@@ -118,19 +118,25 @@ export function useSongQuery(songId: Accessor<string | undefined>) {
 
 // albums query hooks
 
+export type AlbumSortField = "title" | "artist" | "year" | "song_count" | "added_at";
+
 interface UseAlbumsQueryOptions {
   query?: Accessor<string | undefined>;
   pageSize?: number;
   tagFilters?: Accessor<TagFilter[]>;
+  sortField?: Accessor<AlbumSortField>;
+  sortDirection?: Accessor<"asc" | "desc">;
 }
 
 export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const query = options?.query;
   const tagFilters = options?.tagFilters;
+  const sortField = options?.sortField || (() => "added_at" as const);
+  const sortDirection = options?.sortDirection || (() => "desc" as const);
 
   return createInfiniteQuery(() => ({
-    queryKey: queryKeys.albums.list(query?.(), tagFilters?.()),
+    queryKey: queryKeys.albums.list(query?.(), tagFilters?.(), sortField?.(), sortDirection?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       if (!dataSource.getAlbums) {
@@ -156,6 +162,8 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
         offset: pageParam,
         limit: pageSize,
         search: query?.(),
+        sort_by: sortField?.(),
+        sort_direction: sortDirection?.(),
         include_tags:
           includeTags && includeTags.length > 0 ? includeTags : undefined,
         exclude_tags:
