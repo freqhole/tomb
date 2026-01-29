@@ -13,9 +13,9 @@ use grimoire::music::crud::{
 };
 use grimoire::music::entities::playlists::{
     add_songs_to_playlist, compute_playlist_etag, create_playlist, delete_playlist, get_playlist,
-    get_playlist_images, remove_playlist_thumbnail, remove_songs_from_playlist, update_playlist,
+    get_playlist_images, remove_songs_from_playlist, update_playlist,
     update_songs_position, AddSongsToPlaylistRequest, CreatePlaylistRequest,
-    DeletePlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
+    DeletePlaylistRequest, Playlist,
     RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 use grimoire::EmptyResponse;
@@ -341,32 +341,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ReorderPlaylistSongsRequest",
         response_type: "EmptyResponse",
-    }
-}
-
-/// remove playlist thumbnail
-pub async fn remove_thumbnail_handler(
-    Extension(user): Extension<AuthenticatedUser>,
-    Json(req): Json<RemovePlaylistThumbnailRequest>,
-) -> Result<Json<Playlist>, ApiError> {
-    let cleanup = req.cleanup_blob.unwrap_or(false);
-    let deleted_by = req.deleted_by.or(Some(user.user_id));
-    let response = remove_playlist_thumbnail(&req.playlist_id, cleanup, deleted_by).await;
-
-    response
-        .data
-        .ok_or_else(|| ApiError::Internal(response.message))
-        .map(Json)
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "remove_playlist_thumbnail",
-        path: "/api/playlists/remove-thumbnail",
-        method: Method::POST,
-        domain: Domain::Music,
-        request_type: "RemovePlaylistThumbnailRequest",
-        response_type: "Playlist",
     }
 }
 

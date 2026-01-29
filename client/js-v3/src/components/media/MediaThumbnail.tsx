@@ -9,18 +9,25 @@ import type { ImageMetadata } from "../../music/services/storage/types";
  * priority: primary thumbnail → first thumbnail → first available → null
  */
 function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
-  if (!images || images.length === 0) return null;
+  if (!images || images.length === 0) {
+    return null;
+  }
   
-  // find primary thumbnail
-  const primary = images.find(img => img.is_primary && img.blob_type === 'thumbnail');
+  // priority: primary (thumbnail or original) → any thumbnail → any original → waveform
+  const primary = images.find(img => img.is_primary && (img.blob_type === 'thumbnail' || img.blob_type === 'original'));
   if (primary) return primary;
   
-  // find any thumbnail
   const thumbnail = images.find(img => img.blob_type === 'thumbnail');
   if (thumbnail) return thumbnail;
   
-  // fallback to first image
-  return images[0];
+  const original = images.find(img => img.blob_type === 'original');
+  if (original) return original;
+  
+  // fallback to waveform as last resort
+  const waveform = images.find(img => img.blob_type === 'waveform');
+  if (waveform) return waveform;
+  
+  return null;
 }
 
 export interface MediaThumbnailProps {

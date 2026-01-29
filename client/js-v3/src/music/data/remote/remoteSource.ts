@@ -135,6 +135,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
             ? item.images.map((img) => ({
+                remote_blob_id: img.blob_id,
                 remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
                 is_primary: img.is_primary ? true : false,
                 blob_type: 'thumbnail' as const,
@@ -201,6 +202,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
           images: item.images && item.images.length > 0
             ? item.images.map((img) => ({
+                remote_blob_id: img.blob_id,
                 remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
                 is_primary: img.is_primary ? true : false,
                 blob_type: 'thumbnail' as const,
@@ -896,18 +898,19 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entityId: string;
     blobId: string;
   }): Promise<void> {
-    // for playlists, use the dedicated removePlaylistThumbnail endpoint
-    if (params.entityType === 'playlist') {
-      const result = await apiClient.music.removePlaylistThumbnail(this.baseUrl, {
-        playlist_id: params.entityId,
-      });
-      if (!result.success) {
-        throw new Error("failed to remove playlist thumbnail");
-      }
-      return;
-    }
+    console.log('removeImage called with:', params);
     
-    // TODO: implement generic image removal API for other entity types
-    throw new Error(`image removal not yet implemented for ${params.entityType}`);
+    const result = await apiClient.music.deleteImage(this.baseUrl, {
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      blob_id: params.blobId,
+    });
+    
+    console.log('deleteImage result:', result);
+    
+    if (!result.success) {
+      console.error('deleteImage failed:', result);
+      throw new Error("failed to remove image");
+    }
   }
 }

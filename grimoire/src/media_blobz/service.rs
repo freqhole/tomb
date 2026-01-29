@@ -13,7 +13,8 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
     let blob_type_str = blob_type.as_str();
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
 
-    // check if a blob with this SHA256 already exists (including deleted ones)
+    // check if a blob with this SHA256, blob_type, and parent_blob_id already exists
+    // deduplication must match all three fields to prevent returning wrong blob type
     if let Ok(existing_blob) = sqlx::query_as!(
         MediaBlob,
         "SELECT
@@ -34,9 +35,17 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             created_by,
             updated_by
          FROM media_blobz
-         WHERE sha256 = ?
+         WHERE sha256 = ? 
+           AND blob_type = ? 
+           AND (
+             (parent_blob_id IS NULL AND ? IS NULL) OR
+             (parent_blob_id = ?)
+           )
          LIMIT 1",
-        req.sha256
+        req.sha256,
+        blob_type_str,
+        req.parent_blob_id,
+        req.parent_blob_id
     )
     .fetch_one(&pool)
     .await

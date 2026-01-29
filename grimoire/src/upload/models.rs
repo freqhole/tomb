@@ -81,3 +81,14 @@ pub struct MusicMetadataHints {
     /// Genre hint
     pub genre: Option<String>,
 }
+
+/// request to delete (unlink) an image from an entity
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteImageRequest {
+    /// Entity type (song, album, artist, playlist)
+    pub entity_type: String,
+    /// Entity ID
+    pub entity_id: String,
+    /// Blob ID to unlink
+    pub blob_id: String,
+}

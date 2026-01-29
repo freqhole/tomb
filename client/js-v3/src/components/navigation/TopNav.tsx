@@ -344,18 +344,14 @@ export function TopNav(props: TopNavProps) {
                               onSelect={playlist.onClick}
                             >
                               <div class="flex items-center gap-2">
-                                <Show
-                                  when={playlist.thumbnailUrl}
-                                >
-                                  <MediaImage
-                                    images={playlist.images}
-                                    imageUrl={playlist.thumbnailUrl || null}
-                                    blobId={playlist.thumbnailBlobId}
-                                    alt=""
-                                    class="w-10 h-10 object-cover rounded flex-shrink-0"
-                                    domainType="playlist"
-                                  />
-                                </Show>
+                                <MediaImage
+                                  images={playlist.images}
+                                  imageUrl={playlist.thumbnailUrl || null}
+                                  blobId={playlist.thumbnailBlobId}
+                                  alt=""
+                                  class="w-10 h-10 object-cover rounded flex-shrink-0"
+                                  domainType="playlist"
+                                />
                                 <div class="flex-1 min-w-0">
                                   <div class="text-sm text-[var(--color-text-primary)] truncate">
                                     {playlist.name}

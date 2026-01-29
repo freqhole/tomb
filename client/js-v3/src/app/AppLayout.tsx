@@ -397,6 +397,7 @@ export function AppLayout(props: AppLayoutProps) {
                   artist: currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,
                   images: currentSongData()!.images,
+                  album_images: currentSongData()!.album_images,
                   isFavorite: currentSongData()!.is_favorite || false,
                 }
               : undefined

@@ -16,6 +16,7 @@ export interface VirtualGenreDetailSong {
   duration_seconds: number;
   year: number | null;
   images?: import("../../music/services/storage/types").ImageMetadata[];
+  album_images?: import("../../music/services/storage/types").ImageMetadata[];
 }
 
 interface AlbumGroup {
@@ -77,7 +78,7 @@ export function VirtualGenreDetail(
           year: song.year,
           songCount: 0,
           totalDuration: 0,
-          images: song.images,
+          images: song.album_images,  // use album images, not song images
         });
       }
 

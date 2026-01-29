@@ -510,24 +510,6 @@ export function reorderPlaylistSongs(
   );
 }
 
-export function removePlaylistThumbnail(
-  baseUrl: string,
-  params: s.RemovePlaylistThumbnailRequest,
-  apiKey?: string,
-) {
-  return call(
-    baseUrl,
-    "music",
-    "remove_playlist_thumbnail",
-    routes.music.remove_playlist_thumbnail.resp,
-    routes.music.remove_playlist_thumbnail.req,
-    routes.music.remove_playlist_thumbnail.method,
-    routes.music.remove_playlist_thumbnail.path,
-    params,
-    apiKey,
-  );
-}
-
 // genres
 export function queryGenres(
   baseUrl: string,
@@ -1246,6 +1228,24 @@ export function uploadImage(
     routes.music.upload_image.req,
     routes.music.upload_image.method,
     routes.music.upload_image.path,
+    params,
+    apiKey,
+  );
+}
+
+export function deleteImage(
+  baseUrl: string,
+  params: s.DeleteImageRequest,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "delete_image",
+    routes.music.delete_image.resp,
+    routes.music.delete_image.req,
+    routes.music.delete_image.method,
+    routes.music.delete_image.path,
     params,
     apiKey,
   );

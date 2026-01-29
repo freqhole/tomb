@@ -71,11 +71,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       const updatedImages = [...currentImages, newImage];
       setPlaylistImages(updatedImages);
 
-      const dataSource = getDataSource();
-      await (dataSource as any).updatePlaylist?.(props.playlist.playlist_id, {
-        images: updatedImages,
-      });
-
       toast.success("image uploaded successfully");
 
       await queryClient.invalidateQueries({
@@ -96,11 +91,8 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
     }));
     setPlaylistImages(updated);
 
+    // TODO: implement setPrimaryImage API endpoint
     try {
-      const dataSource = getDataSource();
-      await (dataSource as any).updatePlaylist?.(props.playlist.playlist_id, {
-        images: updated,
-      });
       toast.success("primary image updated");
 
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
@@ -119,11 +111,8 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
     setPlaylistImages(updated);
 
+    // TODO: implement removeImage API endpoint for playlists
     try {
-      const dataSource = getDataSource();
-      await (dataSource as any).updatePlaylist?.(props.playlist.playlist_id, {
-        images: updated,
-      });
       toast.success("image removed");
 
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });

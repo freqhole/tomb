@@ -4,12 +4,24 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import { Icon } from "../icons/registry";
 
 function pickBestImage(images?: ImageMetadata[]): ImageMetadata | null {
-  if (!images || images.length === 0) return null;
-  const primary = images.find(img => img.is_primary && img.blob_type === 'thumbnail');
+  if (!images || images.length === 0) {
+    return null;
+  }
+  // priority: primary (thumbnail or original) → any thumbnail → any original → waveform
+  const primary = images.find(img => img.is_primary && (img.blob_type === 'thumbnail' || img.blob_type === 'original'));
   if (primary) return primary;
+  
   const thumbnail = images.find(img => img.blob_type === 'thumbnail');
   if (thumbnail) return thumbnail;
-  return images[0];
+  
+  const original = images.find(img => img.blob_type === 'original');
+  if (original) return original;
+  
+  // fallback to waveform as last resort
+  const waveform = images.find(img => img.blob_type === 'waveform');
+  if (waveform) return waveform;
+  
+  return null;
 }
 
 interface MediaImageProps {

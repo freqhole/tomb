@@ -79,8 +79,8 @@ pub async fn create_thumbnail_from_bytes(
     // Use shared function for creating image blob
     match create_image_blob_from_webp_data(
         webp_data,
-        BlobType::Original, // original user upload, not derived
-        None,               // no parent blob
+        BlobType::Thumbnail, // playlist images should always be thumbnails
+        None,                // no parent blob
         metadata,
         created_by,
     )

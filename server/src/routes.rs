@@ -69,10 +69,6 @@ pub fn build_router() -> Router<AppState> {
             post(music::playlists::reorder_songs_handler),
         )
         .route(
-            routes["music"]["remove_playlist_thumbnail"].path,
-            post(music::playlists::remove_thumbnail_handler),
-        )
-        .route(
             routes["music"]["get_playlist_images"].path,
             get(music::playlists::get_playlist_images_handler),
         )
@@ -296,6 +292,10 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["upload_image"].path,
             post(upload::upload_image_handler),
+        )
+        .route(
+            routes["music"]["delete_image"].path,
+            post(upload::delete_image_handler),
         )
         .route(
             routes["music"]["upload_music"].path,

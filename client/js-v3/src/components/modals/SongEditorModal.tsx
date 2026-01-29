@@ -99,9 +99,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
       setAlbumId(song.album_id);
       setLoadedSongId(props.songId);
       
-      // load song images
-      if (song.images) {
+      // load song images with album fallback
+      if (song.images && song.images.length > 0) {
         setImages(song.images);
+      } else if (song.album_images && song.album_images.length > 0) {
+        setImages(song.album_images);
       }
 
       // auto-expand lyrics if song has lyrics
@@ -251,10 +253,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
       const updatedImages = [...images(), newImage];
       setImages(updatedImages);
 
-      // persist to IDB immediately
-      setProcessingJob({ status: "saving", message: "saving to database..." });
-      await updateSong(props.songId, { images: updatedImages });
-
       setProcessingJob({ status: "completed", message: "image uploaded successfully" });
       setTimeout(() => {
         setProcessingJob(null);
@@ -280,9 +278,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }));
     setImages(updated);
 
-    // persist to IDB immediately
+    // TODO: implement setPrimaryImage API endpoint
     try {
-      await updateSong(props.songId, { images: updated });
       toast.success("primary image updated");
       songQuery.refetch();
     } catch (err) {
@@ -292,18 +289,34 @@ export function SongEditorModal(props: SongEditorModalProps) {
   };
 
   const handleRemoveImage = async (index: number) => {
-    const updated = images().filter((_, i) => i !== index);
-    
-    // if we removed the primary image and there are still images, make the first one primary
-    if (updated.length > 0 && !updated.some(img => img.is_primary)) {
-      updated[0].is_primary = true;
-    }
-    
-    setImages(updated);
-
-    // persist to IDB immediately
     try {
-      await updateSong(props.songId, { images: updated });
+      const imageToRemove = images()[index];
+      const songData = songQuery.data;
+      if (!songData) return;
+      
+      const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
+      if (!blobId) {
+        console.error('image missing blob ID:', imageToRemove);
+        toast.error("cannot delete image: missing blob ID");
+        return;
+      }
+      
+      // call API to remove image association
+      const dataSource = getDataSource();
+      await dataSource.removeImage({
+        entityType: 'song',
+        entityId: songData.id,
+        blobId: blobId,
+      });
+
+      const updated = images().filter((_, i) => i !== index);
+      
+      // if we removed the primary image and there are still images, make the first one primary
+      if (updated.length > 0 && !updated.some(img => img.is_primary)) {
+        updated[0].is_primary = true;
+      }
+      
+      setImages(updated);
       toast.success("image removed");
       songQuery.refetch();
     } catch (err) {

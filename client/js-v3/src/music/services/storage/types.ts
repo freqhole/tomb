@@ -6,10 +6,10 @@ export type MusicSourceType = "local" | "downloaded" | "remote";
 // image metadata with source-specific fields
 export interface ImageMetadata {
   local_blob_id?: string; // for local/downloaded images
+  remote_blob_id?: string; // server blob ID (from API)
   remote_url?: string; // for remote images (already includes base URL)
-  blob_id?: string; // server blob ID
   is_primary: boolean; // primary/featured image
-  blob_type: 'thumbnail' | 'waveform'; // image type
+  blob_type: 'thumbnail' | 'waveform' | 'original' | 'preview'; // image type
 }
 
 // ===== ARTISTS TABLE =====

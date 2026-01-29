@@ -18,6 +18,8 @@ export interface PlayerBarSong {
   album?: string;
   /** structured image metadata array (preferred) */
   images?: import("../../music/services/storage/types").ImageMetadata[];
+  /** album images for fallback when song has no images */
+  album_images?: import("../../music/services/storage/types").ImageMetadata[];
   /** thumbnail blob id (legacy, for backward compatibility) */
   thumbnailBlobId?: string;
   /** thumbnail image url (legacy, fallback for remote) */

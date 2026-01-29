@@ -171,8 +171,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       const updatedImages = [...images(), newImage];
       setImages(updatedImages);
 
-      await updateArtist(props.artistId, { images: updatedImages });
-
       setProcessingJob(null);
       toast.success("image uploaded");
       artistQuery.refetch();
@@ -192,8 +190,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       }));
       setImages(updatedImages);
 
-      await updateArtist(props.artistId, { images: updatedImages });
-
+      // TODO: implement setPrimaryImage API endpoint
       toast.success("primary image updated");
       artistQuery.refetch();
     } catch (err) {
@@ -205,6 +202,24 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
   const handleRemoveImage = async (index: number) => {
     try {
       const imageToRemove = images()[index];
+      const artistData = artistQuery.data;
+      if (!artistData) return;
+      
+      const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
+      if (!blobId) {
+        console.error('image missing blob ID:', imageToRemove);
+        toast.error("cannot delete image: missing blob ID");
+        return;
+      }
+      
+      // call API to remove image association
+      const dataSource = getDataSource();
+      await dataSource.removeImage({
+        entityType: 'artist',
+        entityId: artistData.artist_id,
+        blobId: blobId,
+      });
+
       const updatedImages = images().filter((_, i) => i !== index);
 
       if (imageToRemove.is_primary && updatedImages.length > 0) {
@@ -212,9 +227,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       }
 
       setImages(updatedImages);
-
-      await updateArtist(props.artistId, { images: updatedImages });
-
       toast.success("image removed");
       artistQuery.refetch();
     } catch (err) {
