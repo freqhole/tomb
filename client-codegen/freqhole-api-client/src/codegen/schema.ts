@@ -25,7 +25,7 @@ export const AlbumSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -52,7 +52,7 @@ export const AlbumQueryResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -70,7 +70,7 @@ export const AlbumQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -84,16 +84,12 @@ export const AlbumQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   album_tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean().nullable(),
@@ -131,7 +127,7 @@ export const AlbumsQueryResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -149,7 +145,7 @@ export const AlbumsQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -163,16 +159,12 @@ export const AlbumsQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   album_tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean().nullable(),
@@ -205,7 +197,7 @@ export const ArtistSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -224,7 +216,7 @@ export const ArtistQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -237,7 +229,8 @@ export const ArtistQueryResultSchema = z.object({
 }),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   song_count: z.number(),
   album_count: z.number(),
@@ -269,7 +262,7 @@ export const ArtistsQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -282,7 +275,8 @@ export const ArtistsQueryResultSchema = z.object({
 }),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   song_count: z.number(),
   album_count: z.number(),
@@ -430,7 +424,7 @@ export const FavoriteAlbumResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -448,7 +442,7 @@ export const FavoriteAlbumResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -462,16 +456,12 @@ export const FavoriteAlbumResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   album_tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean().nullable(),
@@ -490,7 +480,7 @@ export const FavoriteArtistResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -503,7 +493,8 @@ export const FavoriteArtistResultSchema = z.object({
 }),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   song_count: z.number(),
   album_count: z.number(),
@@ -528,7 +519,7 @@ export const FavoritePlaylistResultSchema = z.object({
   description: z.string().nullable(),
   is_public: z.number(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -555,7 +546,7 @@ export const FavoriteSongResultSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -582,7 +573,7 @@ export const FavoriteSongResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -604,7 +595,7 @@ export const FavoriteSongResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -620,11 +611,6 @@ export const FavoriteSongResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   media_blob: z.object({
@@ -646,7 +632,8 @@ export const FavoriteSongResultSchema = z.object({
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
@@ -673,7 +660,7 @@ export const FeedItemSchema = z.object({
   title: z.string(),
   subtitle: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -703,7 +690,7 @@ export const FeedResponseSchema = z.object({
   title: z.string(),
   subtitle: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -758,11 +745,6 @@ export type FindOrCreateSubGenreResponse = z.infer<typeof FindOrCreateSubGenreRe
 export const GenreSchema = z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 });
 export type Genre = z.infer<typeof GenreSchema>;
@@ -771,11 +753,6 @@ export const GenreQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }),
   song_count: z.number().nullable(),
@@ -803,11 +780,6 @@ export const GenresQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }),
   song_count: z.number().nullable(),
@@ -1080,7 +1052,7 @@ export const PlaylistSchema = z.object({
   description: z.string().nullable(),
   is_public: z.number(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1102,7 +1074,7 @@ export const PlaylistQueryResultSchema = z.object({
   description: z.string().nullable(),
   is_public: z.number(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1140,7 +1112,7 @@ export const PlaylistSongResultSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1167,7 +1139,7 @@ export const PlaylistSongResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1189,7 +1161,7 @@ export const PlaylistSongResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1205,11 +1177,6 @@ export const PlaylistSongResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   media_blob: z.object({
@@ -1231,7 +1198,8 @@ export const PlaylistSongResultSchema = z.object({
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
@@ -1258,7 +1226,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1285,7 +1253,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1307,7 +1275,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1323,11 +1291,6 @@ export const PlaylistSongsQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   media_blob: z.object({
@@ -1349,7 +1312,8 @@ export const PlaylistSongsQueryResultSchema = z.object({
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
@@ -1383,7 +1347,7 @@ export const PlaylistsQueryResultSchema = z.object({
   description: z.string().nullable(),
   is_public: z.number(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1655,7 +1619,7 @@ export const SessionSongSchema = z.object({
   artist: z.string().nullable(),
   album: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1673,7 +1637,7 @@ export const SessionSummarySchema = z.object({
   artist: z.string().nullable(),
   album: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1718,7 +1682,7 @@ export const SongSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1752,7 +1716,7 @@ export const SongQueryResultSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1779,7 +1743,7 @@ export const SongQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1801,7 +1765,7 @@ export const SongQueryResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1817,11 +1781,6 @@ export const SongQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   media_blob: z.object({
@@ -1843,7 +1802,8 @@ export const SongQueryResultSchema = z.object({
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
@@ -1888,7 +1848,7 @@ export const SongsQueryResultSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1915,7 +1875,7 @@ export const SongsQueryResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1937,7 +1897,7 @@ export const SongsQueryResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -1953,11 +1913,6 @@ export const SongsQueryResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   media_blob: z.object({
@@ -1979,7 +1934,8 @@ export const SongsQueryResultSchema = z.object({
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
-  is_primary: z.number()
+  is_primary: z.number(),
+  blob_type: z.string()
 })).nullable(),
   relevance_score: z.number().nullable(),
   snippet: z.string().nullable(),
@@ -2082,7 +2038,7 @@ export const TopAlbumSchema = z.object({
   title: z.string(),
   artist_name: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -2120,7 +2076,7 @@ export const TopSongSchema = z.object({
   artist_name: z.string().nullable(),
   album_title: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -2231,7 +2187,7 @@ export const UpdateSongsResultSchema = z.object({
   name: z.string(),
   bio: z.string().nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -2253,7 +2209,7 @@ export const UpdateSongsResultSchema = z.object({
   genre: z.string().nullable(),
   sub_genres: z.array(z.string()).nullable(),
   images: z.array(z.object({
-  media_blob_id: z.string(),
+  blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.string()
 })).nullable(),
@@ -2269,11 +2225,6 @@ export const UpdateSongsResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  images: z.array(z.object({
-  media_blob_id: z.string(),
-  is_primary: z.number(),
-  blob_type: z.string()
-})).nullable(),
   created_at: z.number()
 }).nullable(),
   sub_genre: z.object({

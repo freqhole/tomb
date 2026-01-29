@@ -177,7 +177,7 @@ pub struct SessionSong {
     /// Album title
     pub album: Option<String>,
     /// Images for this song
-    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
+    pub images: Option<Vec<crate::music::crud::ImageMetadata>>,
     /// When played in session
     pub played_at: i64,
 }

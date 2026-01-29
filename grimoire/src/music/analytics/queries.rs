@@ -390,7 +390,7 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
         .into_iter()
         .map(|row| {
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
             SessionSong {
                 song_id: row.song_id,
                 title: row.title,

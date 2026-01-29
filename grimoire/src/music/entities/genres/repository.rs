@@ -40,7 +40,6 @@ pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResponse<Genre> {
         id: row.id,
         name: row.name,
         created_at: row.created_at,
-        images: None,
     };
 
     GrimoireResponse::success("Genre created successfully", genre)
@@ -80,7 +79,6 @@ pub async fn list_genres() -> GrimoireResponse<Vec<Genre>> {
         id: row.id,
         name: row.name,
         created_at: row.created_at,
-        images: None,
     }).collect();
 
     GrimoireResponse::success("Genres retrieved successfully", genres)
@@ -123,7 +121,6 @@ pub async fn query_genres(search: &str) -> GrimoireResponse<Vec<Genre>> {
         id: row.id,
         name: row.name,
         created_at: row.created_at,
-        images: None,
     }).collect();
 
     GrimoireResponse::success("Genre search completed successfully", genres)
@@ -165,7 +162,6 @@ pub async fn get_genre(id: &str) -> GrimoireResponse<Genre> {
                 id: row.id,
                 name: row.name,
                 created_at: row.created_at,
-                images: None,
             };
             GrimoireResponse::success("Genre retrieved successfully", genre)
         },

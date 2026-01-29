@@ -16,10 +16,11 @@ use crate::music::users::models::RatingTarget;
 use crate::music::users::models::FavoriteTarget;
 
 /// image metadata with primary indicator
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
 pub struct ImageMetadata {
     pub blob_id: String,
     pub is_primary: i32, // 0 or 1 from SQLite JSON
+    pub blob_type: String, // from media_blobz.blob_type ('thumbnail', 'waveform', etc)
 }
 
 /// request for importing a song with all metadata

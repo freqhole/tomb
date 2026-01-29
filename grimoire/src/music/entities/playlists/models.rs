@@ -1,6 +1,6 @@
 //! playlist domain models
 
-use super::super::shared::ImageMetadata;
+use crate::music::crud::ImageMetadata;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use crate::JsonVec;

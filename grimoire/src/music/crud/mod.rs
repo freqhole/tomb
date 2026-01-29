@@ -16,7 +16,7 @@ pub use models::{
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
     BulkImportResult, CreateSongWithMetadataRequest, FavoriteAlbumResult, FavoriteArtistResult,
     FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, GenreQueryResult,
-    GenresQueryResult, ImportSongRequest, ImportSongResult, PlaylistQueryResult,
+    GenresQueryResult, ImageMetadata, ImportSongRequest, ImportSongResult, PlaylistQueryResult,
     PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
     QueryPlaylistSongsRequest, QueryResult, SongImportError, SongQueryResult, SongUpdateError,
     SongsQueryResult,

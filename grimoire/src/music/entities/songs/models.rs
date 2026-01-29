@@ -1,6 +1,6 @@
 //! song domain models
 
-use super::super::shared::ImageMetadata;
+use crate::music::crud::ImageMetadata;
 use crate::JsonVec;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;

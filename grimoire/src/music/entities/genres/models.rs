@@ -1,19 +1,14 @@
 //! genre domain models
 
-use crate::JsonVec;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
-
-use super::super::shared::ImageMetadata;
 
 /// primary genre model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Genre {
     pub id: String,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub images: Option<JsonVec<ImageMetadata>>,
     pub created_at: i64, // unix timestamp UTC
 }
 

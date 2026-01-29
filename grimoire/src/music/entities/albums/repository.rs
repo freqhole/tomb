@@ -2,7 +2,7 @@
 //! album repository
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::super::shared::ImageMetadata;
+use crate::music::crud::ImageMetadata;
 use super::models::{Album, CreateAlbumRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};

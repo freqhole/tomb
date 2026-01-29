@@ -77,6 +77,7 @@ pub struct PlaylistViewRow {
     playlist_title: String,
     playlist_description: Option<String>,
     playlist_is_public: i64,
+    playlist_images: Option<String>, // JSON array from view
     playlist_created_by_id: Option<String>,
     playlist_created_at: i64,
     playlist_updated_at: i64,
@@ -93,12 +94,18 @@ pub struct PlaylistViewRow {
 
 impl PlaylistViewRow {
     pub fn to_playlist_query_result(self, user_id: Option<&str>) -> PlaylistQueryResult {
+        // parse images JSON array
+        let images = self.playlist_images.and_then(|json_str| {
+            serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+        })
+        .map(crate::JsonVec); // wrap in JsonVec if present
+
         let playlist = Playlist {
             id: self.playlist_id,
             title: self.playlist_title,
             description: self.playlist_description,
             is_public: self.playlist_is_public,
-            images: None,
+            images,
             created_by_id: self.playlist_created_by_id,
             created_at: self.playlist_created_at,
             updated_at: self.playlist_updated_at,
@@ -157,12 +164,17 @@ pub struct PlaylistSongViewRow {
     // Artist fields
     artist_id: Option<String>,
     artist_name: Option<String>,
+    artist_bio: Option<String>,
     artist_created_at: Option<i64>,
     artist_updated_at: Option<i64>,
     artist_deleted_at: Option<i64>,
     artist_deleted_by: Option<String>,
     artist_created_by: Option<String>,
     artist_updated_by: Option<String>,
+    artist_images: Option<String>, // JSON array from view
+    artist_total_song_count: Option<i64>,
+    artist_total_album_count: Option<i64>,
+    artist_total_duration: Option<i64>,
 
     // Album fields
     album_id: Option<String>,
@@ -180,6 +192,7 @@ pub struct PlaylistSongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_images: Option<String>, // JSON array from view
     album_tags: Option<String>, // JSON array of tag names from view
 
     // User favorites and ratings
@@ -199,18 +212,32 @@ impl PlaylistSongViewRow {
 
         // parse images JSON array
         let images = self.song_images.and_then(|json_str| {
-            serde_json::from_str::<Vec<crate::music::crud::models::ImageMetadata>>(&json_str).ok()
-        });
+            serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+        })
+        .or(Some(vec![])); // default to empty vec
 
         // parse album tags JSON array
         let album_tags = self
             .album_tags
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .or(Some(vec![])); // default to empty vec
+
+        // parse artist images JSON array
+        let artist_images = self
+            .artist_images
+            .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok())
+            .map(crate::JsonVec);
+
+        // parse album images JSON array
+        let album_images = self
+            .album_images
+            .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok())
+            .map(crate::JsonVec);
 
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
-            images: None,
+            images: images.clone().map(crate::JsonVec),
             title: self.song_title,
             track_number: self.song_track_number,
             disc_number: self.song_disc_number,
@@ -234,14 +261,14 @@ impl PlaylistSongViewRow {
             Some(Artist {
                 id: self.artist_id.unwrap_or_default(),
                 name: self.artist_name.unwrap_or_default(),
-                bio: None,
+                bio: self.artist_bio,
                 created_at: self.artist_created_at.unwrap_or(0),
                 updated_at: self.artist_updated_at.unwrap_or(0),
                 deleted_at: self.artist_deleted_at,
                 deleted_by: self.artist_deleted_by,
                 created_by: self.artist_created_by,
                 updated_by: self.artist_updated_by,
-                images: None,
+                images: artist_images,
             })
         } else {
             None
@@ -258,7 +285,7 @@ impl PlaylistSongViewRow {
                 genre_id: self.album_genre_id,
                 genre: None,
                 sub_genres: None,
-                images: None,
+                images: album_images,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -309,9 +336,9 @@ impl PlaylistSongViewRow {
             rating,
             favorited_at,
             rating_created_at,
-            artist_total_song_count: None,
-            artist_total_album_count: None,
-            artist_total_duration: None,
+            artist_total_song_count: self.artist_total_song_count,
+            artist_total_album_count: self.artist_total_album_count,
+            artist_total_duration: self.artist_total_duration,
             album_is_favorite: None,
             album_rating: None,
             album_tags,

@@ -41,7 +41,7 @@ pub struct TopSong {
     /// Album title
     pub album_title: Option<String>,
     /// Images for this song
-    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
+    pub images: Option<Vec<crate::music::crud::ImageMetadata>>,
     /// Total play count
     pub play_count: i64,
     /// Number of unique users who played this
@@ -60,7 +60,7 @@ pub struct TopAlbum {
     /// Artist name
     pub artist_name: Option<String>,
     /// Images for this album
-    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
+    pub images: Option<Vec<crate::music::crud::ImageMetadata>>,
     /// Total plays across all songs in album
     pub total_plays: i64,
     /// Number of songs in album
@@ -203,7 +203,7 @@ pub async fn get_top_songs(limit: i64) -> GrimoireResponse<Vec<TopSong>> {
         .into_iter()
         .map(|row| {
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
             TopSong {
                 song_id: row.song_id,
                 title: row.title,
@@ -268,7 +268,7 @@ pub async fn get_top_albums(limit: i64) -> GrimoireResponse<Vec<TopAlbum>> {
         .into_iter()
         .map(|row| {
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
             TopAlbum {
                 album_id: row.album_id,
                 title: row.title,

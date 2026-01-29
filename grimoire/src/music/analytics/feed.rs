@@ -40,7 +40,7 @@ pub struct FeedItem {
     /// Subtitle (artist name, album name, etc.)
     pub subtitle: Option<String>,
     /// Images for this item
-    pub images: Option<Vec<crate::music::entities::shared::ImageMetadata>>,
+    pub images: Option<Vec<crate::music::crud::ImageMetadata>>,
     /// When this activity occurred (unix timestamp)
     pub created_at: i64,
     /// User who performed the action (nullable for system actions)
@@ -132,7 +132,7 @@ pub async fn get_recent_listens(limit: i64, offset: i64) -> GrimoireResponse<(Ve
         .into_iter()
         .map(|row| {
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
             FeedItem {
                 id: row.id.clone(),
                 feed_type: FeedItemType::RecentListen,
@@ -244,7 +244,7 @@ pub async fn get_recent_favorites(
         .into_iter()
         .map(|row| {
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
             FeedItem {
                 id: row.id,
                 feed_type: FeedItemType::RecentFavorite,
@@ -339,7 +339,7 @@ pub async fn get_recent_albums(limit: i64, offset: i64) -> GrimoireResponse<(Vec
         .into_iter()
         .map(|row| {
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
             FeedItem {
                 id: row.id.clone(),
                 feed_type: FeedItemType::RecentAlbum,
@@ -518,7 +518,7 @@ pub async fn get_combined_feed(limit: i64, offset: i64) -> GrimoireResponse<(Vec
             };
 
             let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::entities::shared::ImageMetadata>>(&json_str).ok());
+                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
 
             FeedItem {
                 id: row.id,

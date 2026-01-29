@@ -144,6 +144,7 @@ pub struct SongViewRow {
     artist_deleted_by: Option<String>,
     artist_created_by: Option<String>,
     artist_updated_by: Option<String>,
+    artist_images: Option<String>, // JSON array from view
     artist_total_song_count: Option<i64>,
     artist_total_album_count: Option<i64>,
     artist_total_duration: Option<i64>,
@@ -165,6 +166,7 @@ pub struct SongViewRow {
     album_genre_name: Option<String>,
     album_sub_genres: Option<String>, // JSON array from view
     album_tags: Option<String>, // JSON array of tag names from view
+    album_images: Option<String>, // JSON array from album_imagez
     // User context fields from view joins
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
@@ -187,12 +189,14 @@ impl SongViewRow {
         // parse images JSON array
         let images = self
             .song_images
-            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
+            .or(Some(vec![])); // default to empty vec if None or parse fails
 
         // parse album tags JSON array
         let album_tags = self
             .album_tags
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok());
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .or(Some(vec![])); // default to empty vec
 
         // parse album sub_genres JSON array
         let album_sub_genres = self
@@ -200,10 +204,22 @@ impl SongViewRow {
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
             .map(crate::JsonVec);
 
+        // parse album images JSON array
+        let album_images = self
+            .album_images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
+            .map(crate::JsonVec);
+
+        // parse artist images JSON array
+        let artist_images = self
+            .artist_images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
+            .map(crate::JsonVec);
+
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
-            images: None,
+            images: images.clone().map(crate::JsonVec),
             title: self.song_title,
             track_number: self.song_track_number,
             disc_number: self.song_disc_number,
@@ -234,7 +250,7 @@ impl SongViewRow {
                 deleted_by: self.artist_deleted_by,
                 created_by: self.artist_created_by,
                 updated_by: self.artist_updated_by,
-                images: None,
+                images: artist_images,
             })
         } else {
             None
@@ -251,7 +267,7 @@ impl SongViewRow {
                 genre_id: self.album_genre_id,
                 genre: self.album_genre_name,
                 sub_genres: album_sub_genres,
-                images: None,
+                images: album_images,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -354,7 +370,8 @@ impl ArtistViewRow {
         // parse images JSON array
         let images = self
             .artist_images
-            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
+            .or(Some(vec![])); // default to empty vec
 
         let artist = Artist {
             id: self.artist_id,
@@ -366,7 +383,7 @@ impl ArtistViewRow {
             deleted_by: self.artist_deleted_by,
             created_by: self.artist_created_by,
             updated_by: self.artist_updated_by,
-            images: None,
+            images: images.clone().map(crate::JsonVec),
         };
 
         // Determine user context fields based on user_id match
@@ -425,6 +442,7 @@ pub struct AlbumViewRow {
     album_tags: Option<String>,   // JSON array of tag names from view
     artist_id: Option<String>,
     artist_name: Option<String>,
+    artist_images: Option<String>, // JSON array from view
     artist_created_at: Option<i64>,
     artist_updated_at: Option<i64>,
     // User context fields from view joins
@@ -454,7 +472,8 @@ impl AlbumViewRow {
                     None
                 }
             }
-        });
+        })
+        .or(Some(vec![])); // default to empty vec
 
         // parse album_tags JSON array
         let album_tags = self.album_tags.and_then(|json_str| {
@@ -469,7 +488,8 @@ impl AlbumViewRow {
                     None
                 }
             }
-        });
+        })
+        .or(Some(vec![])); // default to empty vec
 
         // parse album sub_genres JSON array
         let album_sub_genres = self.album_sub_genres.and_then(|json_str| {
@@ -484,7 +504,14 @@ impl AlbumViewRow {
                     None
                 }
             }
-        });
+        })
+        .or(Some(crate::JsonVec(vec![]))); // default to empty vec
+
+        // parse artist images JSON array
+        let artist_images = self
+            .artist_images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
+            .map(crate::JsonVec);
 
         let album = Album {
             id: self.album_id,
@@ -496,7 +523,7 @@ impl AlbumViewRow {
             genre_id: self.album_genre_id,
             genre: self.album_genre_name,
             sub_genres: album_sub_genres,
-            images: None,
+            images: images.clone().map(crate::JsonVec),
             song_count: self.album_song_count.unwrap_or(0),
             total_duration: self.album_total_duration.unwrap_or(0),
             created_at: self.album_created_at,
@@ -518,7 +545,7 @@ impl AlbumViewRow {
                 deleted_by: None,
                 created_by: None,
                 updated_by: None,
-                images: None,
+                images: artist_images,
             })
         } else {
             None
@@ -575,7 +602,6 @@ impl GenreViewRow {
         let genre = Genre {
             id: self.genre_id,
             name: self.genre_name,
-            images: None,
             created_at: self.genre_created_at,
         };
 

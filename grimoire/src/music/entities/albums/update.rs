@@ -1,7 +1,7 @@
 //! album update operations
 //! handles complex updates including artist re-scoping and date parsing
 
-use super::super::shared::ImageMetadata;
+use crate::music::crud::ImageMetadata;
 use super::models::{Album, UpdateAlbumRequest};
 use crate::database;
 use crate::error::ErrorDetail;
@@ -182,8 +182,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             r#"SELECT
                 id as "id!",
                 name as "name!",
-                created_at as "created_at!",
-                NULL as "images?: JsonVec<ImageMetadata>"
+                created_at as "created_at!"
             FROM genrez
             WHERE id = ?"#,
             genre_id

@@ -3,14 +3,14 @@
 
 use super::models::{
     AlbumImportRequest, ArtistImportRequest, BulkImportRequest, BulkImportResult,
-    BulkImportSummary, CreateSongWithMetadataRequest, ImportSongRequest, ImportSongResult,
-    SongImportError, SongImportErrorType,
+    BulkImportSummary, CreateSongWithMetadataRequest, ImageMetadata, ImportSongRequest,
+    ImportSongResult, SongImportError, SongImportErrorType,
 };
 use crate::config;
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::entities::{
-    albums, artists, genres, songs, shared::ImageMetadata, Album, Artist, CreateAlbumRequest,
+    albums, artists, genres, songs, Album, Artist, CreateAlbumRequest,
     CreateArtistRequest, CreateGenreRequest, CreateSongRequest, Genre, Playlist,
 };
 use crate::JsonVec;
@@ -638,8 +638,7 @@ pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool
         r#"SELECT
             id as "id!",
             name as "name!",
-            created_at as "created_at!",
-            NULL as "images?: JsonVec<ImageMetadata>"
+            created_at as "created_at!"
            FROM genrez
            WHERE LOWER(name) = LOWER(?)
            LIMIT 1"#,

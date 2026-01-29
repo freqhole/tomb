@@ -1,6 +1,9 @@
 -- remove singular blob_id fields and use *_imagez tables exclusively
 -- clean refactor - no backward compatibility, no data preservation
 
+-- temporarily disable foreign key checks
+PRAGMA foreign_keys = OFF;
+
 -- drop triggers first
 DROP TRIGGER IF EXISTS trg_songz_updated_at;
 DROP TRIGGER IF EXISTS update_album_stats_song_duration;
@@ -10,6 +13,16 @@ DROP TRIGGER IF EXISTS songz_fts_delete;
 DROP TRIGGER IF EXISTS trg_playlist_songz_auto_append;
 DROP TRIGGER IF EXISTS trg_playlist_songz_close_gaps_on_delete;
 DROP TRIGGER IF EXISTS trg_playlistz_updated_at;
+
+-- drop dependent tables that reference songz
+DROP TABLE IF EXISTS artist_songz;
+DROP TABLE IF EXISTS album_songz;
+DROP TABLE IF EXISTS songs_fts;
+DROP TABLE IF EXISTS song_imagez;
+
+-- drop dependent tables that reference playlistz
+DROP TABLE IF EXISTS playlist_songz;
+DROP TABLE IF EXISTS playlist_imagez;
 
 -- drop and recreate songz without thumbnail_blob_id and waveform_blob_id
 DROP TABLE songz;
@@ -137,6 +150,21 @@ BEGIN
   UPDATE playlistz SET updated_at = unixepoch() WHERE id = NEW.id;
 END;
 
+-- recreate playlist_songz table before its triggers
+CREATE TABLE playlist_songz (
+  playlist_id TEXT NOT NULL,
+  song_id TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  added_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  added_by TEXT,
+  PRIMARY KEY (playlist_id, song_id),
+  FOREIGN KEY (playlist_id) REFERENCES playlistz(id) ON DELETE CASCADE,
+  FOREIGN KEY (song_id) REFERENCES songz(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_playlist_songz_position ON playlist_songz(playlist_id, position);
+CREATE INDEX idx_playlist_songz_song_id ON playlist_songz(song_id);
+
 -- recreate playlist_songz triggers (from migration 008)
 CREATE TRIGGER trg_playlist_songz_auto_append
 AFTER INSERT ON playlist_songz
@@ -164,7 +192,7 @@ END;
 DROP VIEW IF EXISTS song_query_view;
 DROP VIEW IF EXISTS playlist_song_query_view;
 
--- recreate song_query_view without thumbnail_blob_id and waveform_blob_id
+-- recreate song_query_view with image collections and artist aggregate stats
 CREATE VIEW song_query_view AS
 SELECT
     -- song fields
@@ -189,10 +217,13 @@ SELECT
     s.updated_by as song_updated_by,
 
     -- images as JSON array from song_imagez table
-    (SELECT json_group_array(json_object('blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
-     FROM song_imagez si
-     JOIN media_blobz mb ON si.media_blob_id = mb.id
-     WHERE si.song_id = s.id) as song_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+         FROM song_imagez si
+         JOIN media_blobz mb ON si.media_blob_id = mb.id
+         WHERE si.song_id = s.id),
+        '[]'
+    ) as song_images,
 
     -- artist fields (primary artist via artist_songz)
     ar.id as artist_id,
@@ -204,6 +235,24 @@ SELECT
     ar.deleted_by as artist_deleted_by,
     ar.created_by as artist_created_by,
     ar.updated_by as artist_updated_by,
+
+    -- artist images as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM artist_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.artist_id = ar.id),
+        '[]'
+    ) as artist_images,
+
+    -- artist aggregate stats
+    (SELECT COUNT(*) FROM artist_songz asz WHERE asz.artist_id = ar.id) as artist_total_song_count,
+    (SELECT COUNT(DISTINCT als2.album_id) FROM artist_songz asz2 
+     JOIN album_songz als2 ON asz2.song_id = als2.song_id 
+     WHERE asz2.artist_id = ar.id) as artist_total_album_count,
+    (SELECT SUM(s2.duration) FROM artist_songz asz3
+     JOIN songz s2 ON asz3.song_id = s2.id
+     WHERE asz3.artist_id = ar.id) as artist_total_duration,
 
     -- album fields
     al.id as album_id,
@@ -226,36 +275,47 @@ SELECT
     g.name as album_genre_name,
     
     -- album sub_genres as JSON array
-    (SELECT json_group_array(sg.name)
-     FROM album_sub_genrez asg
-     INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
-     WHERE asg.album_id = al.id
-     ORDER BY sg.name ASC) as album_sub_genres,
+    COALESCE(
+        (SELECT json_group_array(sg.name)
+         FROM album_sub_genrez asg
+         INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
+         WHERE asg.album_id = al.id
+         ORDER BY sg.name ASC),
+        '[]'
+    ) as album_sub_genres,
 
     -- album tags as JSON array
-    (SELECT json_group_array(t.name)
-     FROM album_tagz at
-     INNER JOIN tagz t ON at.tag_id = t.id
-     WHERE at.album_id = al.id
-     ORDER BY t.name ASC) as album_tags,
+    COALESCE(
+        (SELECT json_group_array(t.name)
+         FROM album_tagz at
+         INNER JOIN tagz t ON at.tag_id = t.id
+         WHERE at.album_id = al.id
+         ORDER BY t.name ASC),
+        '[]'
+    ) as album_tags,
 
     -- album images as JSON array from album_imagez table
-    (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
-     FROM album_imagez ai
-     JOIN media_blobz mb ON ai.media_blob_id = mb.id
-     WHERE ai.album_id = al.id) as album_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM album_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.album_id = al.id),
+        '[]'
+    ) as album_images,
 
-    -- song favorites
-    (SELECT COUNT(*) FROM user_favoritez uf WHERE uf.target_type = 'song' AND uf.target_id = s.id) as song_is_favorite,
+    -- user favorites and ratings for song
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at,
+    ur.user_id as rating_user_id,
+    ur.rating as user_rating,
+    ur.created_at as rating_created_at,
 
-    -- album favorites
-    (SELECT COUNT(*) FROM user_favoritez uf WHERE uf.target_type = 'album' AND uf.target_id = al.id) as album_is_favorite,
-
-    -- song ratings
-    (SELECT ur.rating FROM user_ratingz ur WHERE ur.target_type = 'song' AND ur.target_id = s.id LIMIT 1) as song_rating,
-
-    -- album ratings
-    (SELECT ur.rating FROM user_ratingz ur WHERE ur.target_type = 'album' AND ur.target_id = al.id LIMIT 1) as album_rating
+    -- user favorites and ratings for album
+    uf_album.user_id as album_favorite_user_id,
+    uf_album.created_at as album_favorited_at,
+    ur_album.user_id as album_rating_user_id,
+    ur_album.rating as album_user_rating,
+    ur_album.created_at as album_rating_created_at
 
 FROM songz s
 LEFT JOIN artist_songz ars ON s.id = ars.song_id
@@ -263,9 +323,13 @@ LEFT JOIN artistz ar ON ars.artist_id = ar.id
 LEFT JOIN album_songz als ON s.id = als.song_id
 LEFT JOIN albumz al ON als.album_id = al.id
 LEFT JOIN genrez g ON al.genre_id = g.id
+LEFT JOIN user_favoritez uf ON uf.target_type = 'song' AND uf.target_id = s.id
+LEFT JOIN user_ratingz ur ON ur.target_type = 'song' AND ur.target_id = s.id
+LEFT JOIN user_favoritez uf_album ON uf_album.target_type = 'album' AND uf_album.target_id = al.id
+LEFT JOIN user_ratingz ur_album ON ur_album.target_type = 'album' AND ur_album.target_id = al.id
 WHERE s.deleted_at IS NULL;
 
--- recreate playlist_song_query_view without thumbnail_blob_id and waveform_blob_id
+-- recreate playlist_song_query_view with image collections and artist aggregate stats
 CREATE VIEW playlist_song_query_view AS
 SELECT
     -- playlist_songz fields
@@ -297,10 +361,13 @@ SELECT
     s.updated_by as song_updated_by,
 
     -- images as JSON array from song_imagez table
-    (SELECT json_group_array(json_object('blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
-     FROM song_imagez si
-     JOIN media_blobz mb ON si.media_blob_id = mb.id
-     WHERE si.song_id = s.id) as song_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
+         FROM song_imagez si
+         JOIN media_blobz mb ON si.media_blob_id = mb.id
+         WHERE si.song_id = s.id),
+        '[]'
+    ) as song_images,
 
     -- artist fields
     ar.id as artist_id,
@@ -312,6 +379,24 @@ SELECT
     ar.deleted_by as artist_deleted_by,
     ar.created_by as artist_created_by,
     ar.updated_by as artist_updated_by,
+
+    -- artist images as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM artist_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.artist_id = ar.id),
+        '[]'
+    ) as artist_images,
+
+    -- artist aggregate stats
+    (SELECT COUNT(*) FROM artist_songz asz WHERE asz.artist_id = ar.id) as artist_total_song_count,
+    (SELECT COUNT(DISTINCT als2.album_id) FROM artist_songz asz2 
+     JOIN album_songz als2 ON asz2.song_id = als2.song_id 
+     WHERE asz2.artist_id = ar.id) as artist_total_album_count,
+    (SELECT SUM(s2.duration) FROM artist_songz asz3
+     JOIN songz s2 ON asz3.song_id = s2.id
+     WHERE asz3.artist_id = ar.id) as artist_total_duration,
 
     -- album fields
     al.id as album_id,
@@ -334,36 +419,41 @@ SELECT
     g.name as album_genre_name,
     
     -- album sub_genres as JSON array
-    (SELECT json_group_array(sg.name)
-     FROM album_sub_genrez asg
-     INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
-     WHERE asg.album_id = al.id
-     ORDER BY sg.name ASC) as album_sub_genres,
+    COALESCE(
+        (SELECT json_group_array(sg.name)
+         FROM album_sub_genrez asg
+         INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
+         WHERE asg.album_id = al.id
+         ORDER BY sg.name ASC),
+        '[]'
+    ) as album_sub_genres,
 
     -- album tags as JSON array
-    (SELECT json_group_array(t.name)
-     FROM album_tagz at
-     INNER JOIN tagz t ON at.tag_id = t.id
-     WHERE at.album_id = al.id
-     ORDER BY t.name ASC) as album_tags,
+    COALESCE(
+        (SELECT json_group_array(t.name)
+         FROM album_tagz at
+         INNER JOIN tagz t ON at.tag_id = t.id
+         WHERE at.album_id = al.id
+         ORDER BY t.name ASC),
+        '[]'
+    ) as album_tags,
 
     -- album images as JSON array
-    (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
-     FROM album_imagez ai
-     JOIN media_blobz mb ON ai.media_blob_id = mb.id
-     WHERE ai.album_id = al.id) as album_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM album_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.album_id = al.id),
+        '[]'
+    ) as album_images,
 
-    -- song favorites
-    (SELECT COUNT(*) FROM user_favoritez uf WHERE uf.target_type = 'song' AND uf.target_id = s.id) as song_is_favorite,
-
-    -- album favorites
-    (SELECT COUNT(*) FROM user_favoritez uf WHERE uf.target_type = 'album' AND uf.target_id = al.id) as album_is_favorite,
-
-    -- song ratings
-    (SELECT ur.rating FROM user_ratingz ur WHERE ur.target_type = 'song' AND ur.target_id = s.id LIMIT 1) as song_rating,
-
-    -- album ratings
-    (SELECT ur.rating FROM user_ratingz ur WHERE ur.target_type = 'album' AND ur.target_id = al.id LIMIT 1) as album_rating
+    -- user favorites and ratings for song
+    uf.id as favorite_id,
+    uf.user_id as favorite_user_id,
+    uf.created_at as favorited_at,
+    ur.user_id as rating_user_id,
+    ur.rating as user_rating,
+    ur.created_at as rating_created_at
 
 FROM playlist_songz ps
 INNER JOIN songz s ON ps.song_id = s.id
@@ -371,6 +461,9 @@ LEFT JOIN artist_songz ars ON s.id = ars.song_id
 LEFT JOIN artistz ar ON ars.artist_id = ar.id
 LEFT JOIN album_songz als ON s.id = als.song_id
 LEFT JOIN albumz al ON als.album_id = al.id
+LEFT JOIN genrez g ON al.genre_id = g.id
+LEFT JOIN user_favoritez uf ON uf.target_type = 'song' AND uf.target_id = s.id
+LEFT JOIN user_ratingz ur ON ur.target_type = 'song' AND ur.target_id = s.id
 LEFT JOIN genrez g ON al.genre_id = g.id
 WHERE s.deleted_at IS NULL
 ORDER BY ps.playlist_id, ps.position;
@@ -391,10 +484,13 @@ SELECT
     ar.updated_by as artist_updated_by,
 
     -- images as JSON array with blob_type
-    (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
-     FROM artist_imagez ai
-     JOIN media_blobz mb ON ai.media_blob_id = mb.id
-     WHERE ai.artist_id = ar.id) as artist_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM artist_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.artist_id = ar.id),
+        '[]'
+    ) as artist_images,
 
     -- aggregated stats
     COUNT(DISTINCT ars.song_id) as song_count,
@@ -445,24 +541,33 @@ SELECT
     g.name as album_genre_name,
     
     -- album sub_genres as JSON array
-    (SELECT json_group_array(sg.name)
-     FROM album_sub_genrez asg
-     INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
-     WHERE asg.album_id = al.id
-     ORDER BY sg.name ASC) as album_sub_genres,
+    COALESCE(
+        (SELECT json_group_array(sg.name)
+         FROM album_sub_genrez asg
+         INNER JOIN sub_genrez sg ON asg.sub_genre_id = sg.id
+         WHERE asg.album_id = al.id
+         ORDER BY sg.name ASC),
+        '[]'
+    ) as album_sub_genres,
 
     -- images as JSON array with blob_type
-    (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
-     FROM album_imagez ai
-     JOIN media_blobz mb ON ai.media_blob_id = mb.id
-     WHERE ai.album_id = al.id) as album_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM album_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.album_id = al.id),
+        '[]'
+    ) as album_images,
 
     -- album tags as JSON array
-    (SELECT json_group_array(t.name)
-     FROM album_tagz at
-     INNER JOIN tagz t ON at.tag_id = t.id
-     WHERE at.album_id = al.id AND t.deleted_at IS NULL
-     ORDER BY t.name ASC) as album_tags,
+    COALESCE(
+        (SELECT json_group_array(t.name)
+         FROM album_tagz at
+         INNER JOIN tagz t ON at.tag_id = t.id
+         WHERE at.album_id = al.id AND t.deleted_at IS NULL
+         ORDER BY t.name ASC),
+        '[]'
+    ) as album_tags,
 
     -- primary artist
     ar.id as artist_id,
@@ -473,6 +578,15 @@ SELECT
     ar.deleted_by as artist_deleted_by,
     ar.created_by as artist_created_by,
     ar.updated_by as artist_updated_by,
+
+    -- artist images as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
+         FROM artist_imagez ai
+         JOIN media_blobz mb ON ai.media_blob_id = mb.id
+         WHERE ai.artist_id = ar.id),
+        '[]'
+    ) as artist_images,
 
     -- user favorites and ratings
     uf.id as favorite_id,
@@ -513,10 +627,13 @@ SELECT
     pl.updated_by as playlist_updated_by,
 
     -- images as JSON array with blob_type
-    (SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
-     FROM playlist_imagez pi
-     JOIN media_blobz mb ON pi.media_blob_id = mb.id
-     WHERE pi.playlist_id = pl.id) as playlist_images,
+    COALESCE(
+        (SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
+         FROM playlist_imagez pi
+         JOIN media_blobz mb ON pi.media_blob_id = mb.id
+         WHERE pi.playlist_id = pl.id),
+        '[]'
+    ) as playlist_images,
 
     -- aggregated stats
     COUNT(ps.song_id) as playlist_song_count,
@@ -535,3 +652,46 @@ WHERE pl.deleted_at IS NULL
 GROUP BY pl.id, pl.title, pl.description, pl.is_public, pl.created_by_id,
          pl.created_at, pl.updated_at, pl.deleted_at, uf.id, uf.user_id, uf.created_at;
 
+-- recreate junction tables that were dropped
+CREATE TABLE artist_songz (
+  artist_id TEXT NOT NULL,
+  song_id TEXT NOT NULL,
+  PRIMARY KEY (artist_id, song_id),
+  FOREIGN KEY (artist_id) REFERENCES artistz(id) ON DELETE CASCADE,
+  FOREIGN KEY (song_id) REFERENCES songz(id) ON DELETE CASCADE
+);
+
+CREATE TABLE album_songz (
+  album_id TEXT NOT NULL,
+  song_id TEXT NOT NULL,
+  PRIMARY KEY (album_id, song_id),
+  FOREIGN KEY (album_id) REFERENCES albumz(id) ON DELETE CASCADE,
+  FOREIGN KEY (song_id) REFERENCES songz(id) ON DELETE CASCADE
+);
+
+CREATE TABLE song_imagez (
+  song_id TEXT NOT NULL,
+  media_blob_id TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (song_id, media_blob_id),
+  FOREIGN KEY (song_id) REFERENCES songz(id) ON DELETE CASCADE,
+  FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_song_imagez_song_id ON song_imagez(song_id);
+CREATE INDEX idx_song_imagez_primary ON song_imagez(song_id, is_primary) WHERE is_primary = 1;
+
+CREATE TABLE playlist_imagez (
+  playlist_id TEXT NOT NULL,
+  media_blob_id TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (playlist_id, media_blob_id),
+  FOREIGN KEY (playlist_id) REFERENCES playlistz(id) ON DELETE CASCADE,
+  FOREIGN KEY (media_blob_id) REFERENCES media_blobz(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_playlist_imagez_playlist_id ON playlist_imagez(playlist_id);
+CREATE INDEX idx_playlist_imagez_primary ON playlist_imagez(playlist_id, is_primary) WHERE is_primary = 1;
+
+-- re-enable foreign key checks
+PRAGMA foreign_keys = ON;
