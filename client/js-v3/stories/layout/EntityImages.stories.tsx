@@ -1,11 +1,11 @@
 // entity images stories
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { EntityImages } from "../src/components/layout/EntityImages";
-import type { ImageMetadata } from "../src/music/services/storage/types";
+import { EntityImages } from "../../src/components/layout/EntityImages";
+import type { ImageMetadata } from "../../src/music/services/storage/types";
 
 const meta = {
-  title: "Components/Layout/EntityImages",
+  title: "Layout/EntityImages",
   component: EntityImages,
   tags: ["autodocs"],
 } satisfies Meta<typeof EntityImages>;

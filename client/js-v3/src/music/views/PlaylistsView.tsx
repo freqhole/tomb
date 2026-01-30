@@ -1,10 +1,5 @@
 // playlists view - displays playlists in two-column layout with detail panel
-import {
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "@solidjs/router";
+import { useLocation, useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import {
   createEffect,
@@ -20,6 +15,7 @@ import { appState, setQueue } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
+import { Badge } from "../../components/badges/Badge";
 import { ConfirmDialog } from "../../components/dialogs/ConfirmDialog";
 import { ImageCarouselModal } from "../../components/modals/ImageCarouselModal";
 import { toast } from "../../components/feedback/Toast";
@@ -28,16 +24,10 @@ import MediaImage from "../../components/media/MediaImage";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MarqueeText } from "../../components/text/MarqueeText";
-import {
-  DraggableRow,
-  DraggableRowSongContent,
-} from "../../components/lists/DraggableRow";
+import { DraggableRow, DraggableRowSongContent } from "../../components/lists/DraggableRow";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
-import {
-  VirtualItemList,
-  type ListItem,
-} from "../../components/virtualized/VirtualItemList";
+import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
 import { generateUUID } from "../../utils/uuid";
 import { pollJobUntilComplete } from "../../utils/jobs";
@@ -52,10 +42,7 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { playSong } from "../services/audio/player";
-import {
-  usePlaylistContextMenu,
-  useSongContextMenu,
-} from "../services/contextMenu";
+import { usePlaylistContextMenu, useSongContextMenu } from "../services/contextMenu";
 import { storeBlob, getBlobObjectURL } from "../services/storage/blobs";
 import {
   checkIfPlaylistNeedsSync,
@@ -66,14 +53,12 @@ import {
 } from "../services/playlists/downloadSync";
 import { getRemoteByUrl } from "../services/remotes/remoteManager";
 import { getPlaylistById, initMusicDB } from "../services/storage/db";
-import {
-  convertToLocalPlaylist,
-  isEditablePlaylist,
-} from "../services/storage/playlists";
+import { convertToLocalPlaylist, isEditablePlaylist } from "../services/storage/playlists";
 import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistImageManager } from "./playlists/PlaylistImageManager";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
+import { debug } from "../../utils/logger";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -121,13 +106,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   });
 
   // restore selected playlist from history state on mount, fallback to params.id
-  const initialPlaylistId = typeof window !== "undefined" 
-    ? (window.history.state?.selectedPlaylistId as string | null) || params.id || null
-    : params.id || null;
+  const initialPlaylistId =
+    typeof window !== "undefined"
+      ? (window.history.state?.selectedPlaylistId as string | null) || params.id || null
+      : params.id || null;
 
-  const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<
-    string | null
-  >(initialPlaylistId);
+  const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<string | null>(
+    initialPlaylistId
+  );
   const [search, setSearch] = createSignal<string>();
   const [lastClickedId, setLastClickedId] = createSignal<string | null>(null);
   const [clickTimeout, setClickTimeout] = createSignal<number | null>(null);
@@ -136,58 +122,46 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
   const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
   const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
-  const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
-    null,
-  );
-  const [syncStatus, setSyncStatus] = createSignal<SyncCheckResult | null>(
-    null,
-  );
-  const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<
-    string | null
-  >(null);
-  const [localThumbnailUrl, setLocalThumbnailUrl] = createSignal<string | null>(
-    null,
-  );
+  const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+  const [syncStatus, setSyncStatus] = createSignal<SyncCheckResult | null>(null);
+  const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<string | null>(null);
+  const [localThumbnailUrl, setLocalThumbnailUrl] = createSignal<string | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
-  const [downloadProgress, setDownloadProgress] =
-    createSignal<DownloadProgress | null>(null);
+  const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = createSignal(false);
   const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
   const [isLocalClick, setIsLocalClick] = createSignal(false);
-  
+
   // save selected playlist to history state when it changes
   createEffect(() => {
     const playlistId = selectedPlaylistId();
     if (playlistId && typeof window !== "undefined") {
       const currentState = window.history.state || {};
-      window.history.replaceState(
-        { ...currentState, selectedPlaylistId: playlistId },
-        ""
-      );
+      window.history.replaceState({ ...currentState, selectedPlaylistId: playlistId }, "");
     }
   });
-  
+
   // sync URL params with selected playlist
   createEffect(() => {
     const urlPlaylistId = params.id;
-    
+
     if (urlPlaylistId && urlPlaylistId !== selectedPlaylistId()) {
       setSelectedPlaylistId(urlPlaylistId);
-      
+
       // show detail view if on narrow and have a playlist selected
       if (isNarrow() && urlPlaylistId) {
         setShowingDetailOnNarrow(true);
       }
-      
+
       // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
       const shouldScroll = !isLocalClick();
       if (shouldScroll && scrollToIndex()) {
-        const playlistIndex = playlists().findIndex(p => p.playlist_id === urlPlaylistId);
+        const playlistIndex = playlists().findIndex((p) => p.playlist_id === urlPlaylistId);
         if (playlistIndex >= 0) {
           scrollToIndex()!(playlistIndex);
         }
       }
-      
+
       // reset flag after capturing its value
       setIsLocalClick(false);
     }
@@ -224,20 +198,13 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     if (playlist && remote && viewingRemote) {
       // viewing remote playlist - check if there's a local copy
-      checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id).then(
-        setSyncStatus,
-      );
+      checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id).then(setSyncStatus);
       setSyncSourceRemoteName(null); // remote context doesn't need remote name
-    } else if (
-      !viewingRemote &&
-      playlist?.source_remote_url &&
-      playlist?.source_remote_id
-    ) {
+    } else if (!viewingRemote && playlist?.source_remote_url && playlist?.source_remote_id) {
       // viewing local synced playlist - check if needs sync with its remote source
-      checkIfPlaylistNeedsSync(
-        playlist.source_remote_url,
-        playlist.source_remote_id,
-      ).then(setSyncStatus);
+      checkIfPlaylistNeedsSync(playlist.source_remote_url, playlist.source_remote_id).then(
+        setSyncStatus
+      );
 
       // look up remote name from URL
       getRemoteByUrl(playlist.source_remote_url).then((remote) => {
@@ -415,10 +382,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // fetch more songs when scrolling near end
   const handleSongsLoadMore = () => {
-    if (
-      playlistSongsQuery.hasNextPage &&
-      !playlistSongsQuery.isFetchingNextPage
-    ) {
+    if (playlistSongsQuery.hasNextPage && !playlistSongsQuery.isFetchingNextPage) {
       playlistSongsQuery.fetchNextPage();
     }
   };
@@ -430,7 +394,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     // use images array if available
     if (playlist.images?.length) {
-      const primaryImage = playlist.images.find(img => img.is_primary) || playlist.images[0];
+      const primaryImage = playlist.images.find((img) => img.is_primary) || playlist.images[0];
       return primaryImage.remote_url || primaryImage.local_blob_id || null;
     }
 
@@ -447,28 +411,28 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // resolve blob URLs for background image (convert blob IDs to actual URLs)
   createEffect(() => {
     const url = thumbnailUrl();
-    
+
     // revoke old background URL
     untrack(() => {
       const oldBgUrl = backgroundImageUrl();
-      if (oldBgUrl && oldBgUrl.startsWith('blob:')) {
+      if (oldBgUrl && oldBgUrl.startsWith("blob:")) {
         URL.revokeObjectURL(oldBgUrl);
       }
     });
-    
+
     if (!url) {
       setBackgroundImageUrl(null);
       return;
     }
-    
+
     // if it's already a URL (http/https/blob), use it directly
-    if (url.startsWith('http') || url.startsWith('blob:')) {
+    if (url.startsWith("http") || url.startsWith("blob:")) {
       setBackgroundImageUrl(url);
       return;
     }
-    
+
     // otherwise it's a blob ID, need to resolve it to a blob URL
-    getBlobObjectURL(url).then(objectUrl => {
+    getBlobObjectURL(url).then((objectUrl) => {
       if (objectUrl) {
         // getBlobObjectURL already returns an object URL string
         setBackgroundImageUrl(objectUrl);
@@ -504,7 +468,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     // add all playlist images (except waveforms), deduplicate by blob_id
     if (playlist.images?.length) {
       for (const img of playlist.images) {
-        if (img.blob_type !== 'waveform') {
+        if (img.blob_type !== "waveform") {
           const blobId = img.remote_blob_id || img.local_blob_id;
           const url = img.remote_url || img.local_blob_id;
           if (blobId && url) imageMap.set(blobId, url);
@@ -516,7 +480,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     for (const song of songs) {
       if (song.images?.length) {
         for (const img of song.images) {
-          if (img.blob_type !== 'waveform') {
+          if (img.blob_type !== "waveform") {
             const blobId = img.remote_blob_id || img.local_blob_id;
             const url = img.remote_url || img.local_blob_id;
             if (blobId && url) imageMap.set(blobId, url);
@@ -620,9 +584,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         newPosition,
       });
 
-      console.log(
-        `moved song from position ${draggedIndex + 1} to ${newPosition}`,
-      );
+      console.log(`moved song from position ${draggedIndex + 1} to ${newPosition}`);
     } catch (error) {
       console.error("failed to reorder songs:", error);
     } finally {
@@ -638,9 +600,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     const remote = getCurrentRemote();
     if (!remote) {
-      console.error(
-        "no remote source - download only works with remote playlists",
-      );
+      console.error("no remote source - download only works with remote playlists");
       return;
     }
 
@@ -648,20 +608,13 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     setDownloadProgress(null);
 
     try {
-      await downloadPlaylist(
-        remote.base_url,
-        playlist.playlist_id,
-        (progress) => {
-          setDownloadProgress(progress);
-        },
-      );
+      await downloadPlaylist(remote.base_url, playlist.playlist_id, (progress) => {
+        setDownloadProgress(progress);
+      });
 
       console.log("playlist downloaded successfully");
       // refresh sync status
-      const newSyncStatus = await checkIfPlaylistNeedsSync(
-        remote.base_url,
-        playlist.playlist_id,
-      );
+      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id);
       setSyncStatus(newSyncStatus);
       setDownloadProgress(null);
 
@@ -707,10 +660,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
       console.log("playlist synced successfully");
       // refresh sync status
-      const newSyncStatus = await checkIfPlaylistNeedsSync(
-        remote.base_url,
-        playlist.playlist_id,
-      );
+      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id);
       setSyncStatus(newSyncStatus);
       setDownloadProgress(null);
 
@@ -756,10 +706,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     } catch (error) {
       console.error("failed to convert to local playlist:", error);
 
-      toast.error(
-        error instanceof Error ? error.message : "conversion failed",
-        { title: "conversion failed" },
-      );
+      toast.error(error instanceof Error ? error.message : "conversion failed", {
+        title: "conversion failed",
+      });
     }
   };
 
@@ -794,10 +743,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       }
     } catch (error) {
       console.error("failed to create playlist:", error);
-      toast.error(
-        error instanceof Error ? error.message : "failed to create playlist",
-        { title: "creation failed" },
-      );
+      toast.error(error instanceof Error ? error.message : "failed to create playlist", {
+        title: "creation failed",
+      });
     }
   };
 
@@ -830,33 +778,13 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* header */}
-      {/* header */}
-      <div class="flex items-center justify-between p-4 ml-[150px]">
-        <div>
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-            playlists
-          </h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {playlistsQuery.isLoading
-              ? "loading..."
-              : `${playlists().length} ${playlists().length === 1 ? "playlist" : "playlists"}`}
-          </p>
-        </div>
-        <Button variant="primary" onClick={handleCreatePlaylist}>
-          + create playlist
-        </Button>
-      </div>
-
       {/* two-column layout */}
       <div class="flex-1 overflow-hidden">
         <Show
           when={!playlistsQuery.isLoading}
           fallback={
             <div class="flex items-center justify-center h-full">
-              <div class="text-[var(--color-text-secondary)]">
-                loading playlists...
-              </div>
+              <div class="text-[var(--color-text-secondary)]">loading playlists...</div>
             </div>
           }
         >
@@ -869,8 +797,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                     no playlists in your library yet
                   </p>
                   <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                    playlists let you organize your music into custom
-                    collections
+                    playlists let you organize your music into custom collections
                   </p>
                 </div>
               </div>
@@ -883,42 +810,61 @@ export function PlaylistsView(props: PlaylistsViewProps) {
             ) : (
               <TwoColumnLayout
                 leftColumn={
-                  <VirtualItemList
-                    items={playlistListItems()}
-                    selectedId={selectedPlaylistId()}
-                    onItemClick={handlePlaylistClick}
-                    onVirtualizerReady={(scrollFn) => {
-                      setScrollToIndex(() => scrollFn);
-                      
-                      // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
-                      const current = selectedPlaylistId();
-                      if (current && current === initialPlaylistId) {
-                        const index = playlists().findIndex(p => p.playlist_id === current);
-                        if (index >= 0) {
-                          setTimeout(() => scrollFn(index), 50);
-                        }
-                      }
-                    }}
-                    onEndReached={handlePlaylistsLoadMore}
-                    getContextMenuActions={(item) => {
-                      const playlist = playlists().find(
-                        (p) => p.playlist_id === item.id,
-                      );
-                      if (!playlist) return [];
+                  <>
+                    {/* header */}
+                    <Show when={!isNarrow()}>
+                      <div class="flex items-center justify-between p-4">
+                        <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                          playlists
+                        </h1>
+                        <p class="text-sm text-[var(--color-text-secondary)]">
+                          {playlistsQuery.isLoading
+                            ? "loading..."
+                            : `${playlists().length} ${playlists().length === 1 ? "playlist" : "playlists"}`}
+                        </p>
+                      </div>
+                    </Show>
 
-                      return usePlaylistContextMenu(
-                        {
-                          id: playlist.playlist_id,
-                          title: playlist.title,
-                          song_count: playlist.song_count,
-                        },
-                        {
-                          showPlayActions: true,
-                          isFavorite: false, // playlist-level favorites not yet implemented on frontend
-                        },
-                      );
-                    }}
-                  />
+                    <VirtualItemList
+                      items={playlistListItems()}
+                      selectedId={selectedPlaylistId()}
+                      onItemClick={handlePlaylistClick}
+                      onVirtualizerReady={(scrollFn) => {
+                        setScrollToIndex(() => scrollFn);
+
+                        // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
+                        const current = selectedPlaylistId();
+                        if (current && current === initialPlaylistId) {
+                          const index = playlists().findIndex((p) => p.playlist_id === current);
+                          if (index >= 0) {
+                            setTimeout(() => scrollFn(index), 50);
+                          }
+                        }
+                      }}
+                      onEndReached={handlePlaylistsLoadMore}
+                      getContextMenuActions={(item) => {
+                        const playlist = playlists().find((p) => p.playlist_id === item.id);
+                        if (!playlist) return [];
+
+                        return usePlaylistContextMenu(
+                          {
+                            id: playlist.playlist_id,
+                            title: playlist.title,
+                            song_count: playlist.song_count,
+                          },
+                          {
+                            showPlayActions: true,
+                            isFavorite: false, // playlist-level favorites not yet implemented on frontend
+                          }
+                        );
+                      }}
+                    />
+                    <div class="sticky bottom-0 bg-[var(--color-background-primary)] p-4">
+                      <Button variant="primary" fullWidth={true} onClick={handleCreatePlaylist}>
+                        create playlist
+                      </Button>
+                    </div>
+                  </>
                 }
                 rightColumn={
                   <Show
@@ -932,32 +878,31 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                     }
                   >
                     <div
-                      class="flex flex-col h-full relative"
+                      class={`flex flex-col h-full relative ${isNarrow() ? "overflow-auto" : ""}`}
                       style={{
                         ...(backgroundImageUrl() && {
-                          "background-image": `url('${backgroundImageUrl()}')`,
+                          "background-image": `linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('${backgroundImageUrl()}')`,
                           "background-size": "cover",
                           "background-position": "center top",
                           "background-repeat": "no-repeat",
                         }),
                       }}
                     >
-                      {/* background overlay */}
-                      <Show when={backgroundImageUrl()}>
-                        <div class="absolute inset-0 bg-black/70 z-0" />
-                      </Show>
-
                       {/* sticky header with back button for mobile */}
                       <Show when={isNarrow() && showingDetailOnNarrow()}>
                         <HeadingSection
                           title={selectedPlaylist()?.title || "playlist"}
-                          titleElement={<MarqueeText text={selectedPlaylist()?.title || "playlist"} hoverOnly={true} />}
+                          titleElement={
+                            <MarqueeText
+                              text={selectedPlaylist()?.title || "playlist"}
+                              hoverOnly={true}
+                            />
+                          }
                           variant="detail"
                           sticky
-                          border
                           showBackButton={true}
                           onBack={handleBack}
-                          class="px-4 py-3 relative z-20"
+                          class="px-4 py-3 relative z-20 !bg-transparent backdrop-blur-sm"
                         />
                       </Show>
 
@@ -968,37 +913,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                             when={editMode()}
                             fallback={
                               <>
-                                <div class="flex items-center gap-2 mb-2">
-                                  <Show
-                                    when={
-                                      selectedPlaylist()?.is_editable !== false
-                                    }
-                                  >
-                                    <button
-                                      class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                                      onClick={handleEditToggle}
-                                      aria-label="edit playlist"
-                                    >
-                                      <svg
-                                        class="w-4 h-4"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path
-                                          stroke-linecap="round"
-                                          stroke-linejoin="round"
-                                          stroke-width="2"
-                                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                                        />
-                                      </svg>
-                                    </button>
-                                  </Show>
-                                  <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
-                                    {selectedPlaylist()?.title ||
-                                      "untitled playlist"}
-                                  </h2>
-                                </div>
+                                <Show when={!isNarrow()}>
+                                  <div class="flex items-center gap-2 mb-2">
+                                    <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                                      {selectedPlaylist()?.title || "untitled playlist"}
+                                    </h2>
+                                  </div>
+                                </Show>
+
                                 <Show when={selectedPlaylist()?.description}>
                                   <p class="text-sm text-[var(--color-text-secondary)] mb-3">
                                     {selectedPlaylist()!.description}
@@ -1016,57 +938,50 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                           </Show>
 
                           <Show when={!playlistSongsQuery.isLoading}>
-                            <div class="flex items-center gap-3 text-sm text-[var(--color-text-secondary)] mb-4">
+                            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)] mb-4">
                               <span>
                                 {playlistSongs().length}{" "}
-                                {playlistSongs().length === 1
-                                  ? "song"
-                                  : "songs"}
+                                {playlistSongs().length === 1 ? "song" : "songs"}
                               </span>
                               <Show when={totalDuration() > 0}>
-                                <span>•</span>
                                 <span>{formatDuration(totalDuration())}</span>
                               </Show>
+                              {/* line break on narrow screens */}
+                              <div class="basis-full md:hidden" />
                               <Show when={selectedPlaylist()?.created_at}>
-                                <span>•</span>
                                 <span>
-                                  created{" "}
-                                  {formatRelativeTime(
-                                    selectedPlaylist()!.created_at,
-                                  )}
+                                  created {formatRelativeTime(selectedPlaylist()!.created_at)}
                                 </span>
                               </Show>
-                              <Show
-                                when={syncStatus() && !syncStatus()?.needsSync}
-                              >
-                                <span>•</span>
-                                <Show
-                                  when={!isViewingRemote()}
-                                  fallback={<span>synced</span>}
-                                >
-                                  <span>
+                              <Show when={syncStatus() && !syncStatus()?.needsSync}>
+                                <Badge variant="success" size="sm">
+                                  <Show when={!isViewingRemote()} fallback="synced">
                                     synced from{" "}
                                     {syncSourceRemoteName() ||
                                       selectedPlaylist()?.source_remote_url}
-                                  </span>
-                                </Show>
+                                  </Show>
+                                </Badge>
                               </Show>
                             </div>
                           </Show>
 
-                          {/* action buttons */}
-                          <Show
-                            when={playlistSongs().length > 0 && !editMode()}
-                          >
-                            <div class="flex gap-2">
+                          {/* action buttons - only render here on wide screens */}
+                          <Show when={playlistSongs().length > 0 && !editMode() && !isNarrow()}>
+                            <div class="flex gap-2 sticky top-0 bg-[var(--color-background-primary)] py-2 z-10">
+                              <Show when={selectedPlaylist()?.is_editable !== false}>
+                                <IconButton
+                                  icon="edit"
+                                  size="default"
+                                  variant="ghost"
+                                  onClick={handleEditToggle}
+                                  aria-label="edit playlist"
+                                />
+                              </Show>
                               <Button variant="primary" onClick={handlePlayAll}>
                                 play all
                               </Button>
-                              <Button
-                                variant="secondary"
-                                onClick={handleAddToQueue}
-                              >
-                                + add to queue
+                              <Button variant="secondary" onClick={handleAddToQueue}>
+                                add to queue
                               </Button>
                               <IconButton
                                 icon="library"
@@ -1077,9 +992,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <FavoriteToggle
                                 targetType="playlist"
                                 targetId={selectedPlaylist()?.playlist_id || ""}
-                                isFavorite={
-                                  selectedPlaylist()?.is_favorite ?? false
-                                }
+                                isFavorite={selectedPlaylist()?.is_favorite ?? false}
                               />
                               <Show when={isViewingRemote()}>
                                 <Show
@@ -1090,9 +1003,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                       onClick={handleDownloadPlaylist}
                                       disabled={isDownloading()}
                                     >
-                                      {isDownloading()
-                                        ? "downloading..."
-                                        : "download playlist"}
+                                      {isDownloading() ? "downloading..." : "download playlist"}
                                     </Button>
                                   }
                                 >
@@ -1102,23 +1013,15 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                       onClick={handleSyncPlaylist}
                                       disabled={isSyncing()}
                                     >
-                                      {isSyncing()
-                                        ? "syncing..."
-                                        : "sync playlist"}
+                                      {isSyncing() ? "syncing..." : "sync playlist"}
                                     </Button>
                                   </Show>
                                 </Show>
                               </Show>
                               <Show
-                                when={
-                                  !isViewingRemote() &&
-                                  selectedPlaylist()?.source_remote_id
-                                }
+                                when={!isViewingRemote() && selectedPlaylist()?.source_remote_id}
                               >
-                                <Button
-                                  variant="secondary"
-                                  onClick={handleMakeLocalCopy}
-                                >
+                                <Button variant="secondary" onClick={handleMakeLocalCopy}>
                                   make local copy
                                 </Button>
                               </Show>
@@ -1134,16 +1037,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   <>
                                     <div class="flex items-center justify-between mb-2">
                                       <span class="text-sm text-[var(--color-text-secondary)]">
-                                        {downloadProgress()?.stage ===
-                                        "fetching"
+                                        {downloadProgress()?.stage === "fetching"
                                           ? "fetching playlist metadata..."
                                           : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
                                       </span>
                                     </div>
                                     <Show
                                       when={
-                                        downloadProgress()?.stage ===
-                                          "downloading" &&
+                                        downloadProgress()?.stage === "downloading" &&
                                         downloadProgress()?.totalSongs
                                       }
                                     >
@@ -1156,9 +1057,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                         />
                                       </div>
                                     </Show>
-                                    <Show
-                                      when={downloadProgress()?.currentSong}
-                                    >
+                                    <Show when={downloadProgress()?.currentSong}>
                                       <p class="text-xs text-[var(--color-text-tertiary)] truncate">
                                         {downloadProgress()?.currentSong}
                                       </p>
@@ -1175,15 +1074,78 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                         </div>
                       </div>
 
+                      {/* sticky action buttons for narrow - direct child of scroll container */}
+                      <Show when={playlistSongs().length > 0 && !editMode() && isNarrow()}>
+                        <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
+                          <Show when={selectedPlaylist()?.is_editable !== false}>
+                            <IconButton
+                              icon="edit"
+                              size="default"
+                              variant="ghost"
+                              onClick={handleEditToggle}
+                              aria-label="edit playlist"
+                            />
+                          </Show>
+                          <Button variant="primary" onClick={handlePlayAll}>
+                            <Show when={!isNarrow()} fallback={"play"}>
+                              play all
+                            </Show>
+                          </Button>
+                          <Button variant="secondary" onClick={handleAddToQueue}>
+                            <Show when={!isNarrow()} fallback={"queue"}>
+                              add to queue
+                            </Show>
+                          </Button>
+                          <IconButton
+                            icon="library"
+                            size="default"
+                            onClick={handleOpenImageCarousel}
+                            aria-label="view all images"
+                          />
+                          <FavoriteToggle
+                            targetType="playlist"
+                            targetId={selectedPlaylist()?.playlist_id || ""}
+                            isFavorite={selectedPlaylist()?.is_favorite ?? false}
+                          />
+                          <Show when={isViewingRemote()}>
+                            <Show
+                              when={syncStatus()}
+                              fallback={
+                                <Button
+                                  variant="secondary"
+                                  onClick={handleDownloadPlaylist}
+                                  disabled={isDownloading()}
+                                >
+                                  {isDownloading() ? "downloading..." : "download playlist"}
+                                </Button>
+                              }
+                            >
+                              <Show when={syncStatus()?.needsSync}>
+                                <Button
+                                  variant="secondary"
+                                  onClick={handleSyncPlaylist}
+                                  disabled={isSyncing()}
+                                >
+                                  {isSyncing() ? "syncing..." : "sync playlist"}
+                                </Button>
+                              </Show>
+                            </Show>
+                          </Show>
+                          <Show when={!isViewingRemote() && selectedPlaylist()?.source_remote_id}>
+                            <Button variant="secondary" onClick={handleMakeLocalCopy}>
+                              make local copy
+                            </Button>
+                          </Show>
+                        </div>
+                      </Show>
+
                       {/* songs list */}
-                      <div class="flex-1 overflow-hidden relative z-10">
+                      <div class={`relative z-10 ${isNarrow() ? "" : "flex-1 overflow-hidden"}`}>
                         <Show
                           when={!playlistSongsQuery.isLoading}
                           fallback={
                             <div class="flex items-center justify-center h-full">
-                              <div class="text-[var(--color-text-secondary)]">
-                                loading songs...
-                              </div>
+                              <div class="text-[var(--color-text-secondary)]">loading songs...</div>
                             </div>
                           }
                         >
@@ -1197,59 +1159,45 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               </div>
                             }
                           >
-                            <div class="overflow-auto h-full p-4">
+                            <div class={`${isNarrow() ? "" : "overflow-auto h-full"}`}>
                               <div class="space-y-1">
                                 <For each={playlistSongs()}>
                                   {(song, index) => {
-                                    console.log("[PlaylistsView] song data:", {
+                                    debug("[PlaylistsView] song data:", {
                                       id: song.id,
                                       title: song.title,
                                       is_favorite: song.is_favorite,
                                       sha256: song.sha256,
                                     });
-                                    const contextMenuActions =
-                                      useSongContextMenu(song, {
-                                        showPlayActions: true,
-                                        showRemoveFromPlaylist: true,
-                                        playlistId: selectedPlaylistId()!,
-                                        isFavorite: song.is_favorite ?? false,
-                                      });
+                                    const contextMenuActions = useSongContextMenu(song, {
+                                      showPlayActions: true,
+                                      showRemoveFromPlaylist: true,
+                                      playlistId: selectedPlaylistId()!,
+                                      isFavorite: song.is_favorite ?? false,
+                                    });
 
                                     return (
                                       <ContextMenu actions={contextMenuActions}>
                                         <DraggableRow
                                           id={song.id}
                                           index={index()}
-                                          isDragging={
-                                            draggedSongId() === song.id
-                                          }
-                                          isDropTarget={
-                                            dropTargetIndex() === index()
-                                          }
+                                          isDragging={draggedSongId() === song.id}
+                                          isDropTarget={dropTargetIndex() === index()}
+                                          isPlaying={appState()?.current_sha256 === song.sha256}
                                           onDragStart={handleDragStart(song.id)}
                                           onDragOver={handleDragOver(index())}
                                           onDragLeave={handleDragLeave}
                                           onDrop={() => handleDrop(index())}
-                                          onDoubleClick={() =>
-                                            handleSongDoubleClick(song)
-                                          }
-                                          onPlayClick={() =>
-                                            handleSongDoubleClick(song)
-                                          }
+                                          onDoubleClick={() => handleSongDoubleClick(song)}
+                                          onPlayClick={() => handleSongDoubleClick(song)}
                                           images={song.images}
-                                          disabled={
-                                            !isEditablePlaylist(
-                                              selectedPlaylist()!,
-                                            )
-                                          }
+                                          disabled={!isEditablePlaylist(selectedPlaylist()!)}
                                         >
                                           <DraggableRowSongContent
                                             title={song.title}
                                             artist={song.artist_name}
                                             album={song.album_title}
-                                            durationSeconds={
-                                              song.duration_seconds
-                                            }
+                                            durationSeconds={song.duration_seconds}
                                             isFavorite={song.is_favorite}
                                             songId={song.id}
                                             sha256={song.sha256}

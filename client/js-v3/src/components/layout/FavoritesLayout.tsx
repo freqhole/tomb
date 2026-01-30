@@ -14,7 +14,7 @@ import { useScrollRestore } from "../../utils/scrollRestore";
 
 export type FavoriteType = "all" | "songs" | "albums" | "artists" | "playlists";
 
-export type FavoriteItem = 
+export type FavoriteItem =
   | (Song & { type: "song" })
   | (AlbumSummary & { type: "album" })
   | (ArtistSummary & { type: "artist" })
@@ -83,7 +83,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   const filteredFavorites = () => {
     const filter = filterType();
     let items = props.favorites;
-    
+
     // filter by type if not "all"
     if (filter !== "all") {
       // map plural filter to singular type
@@ -96,7 +96,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
       const targetType = typeMap[filter] || filter;
       items = items.filter((fav) => fav.type === targetType);
     }
-    
+
     // return items as-is (already sorted by parent)
     return items;
   };
@@ -111,15 +111,11 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   };
 
   // render tab button
-  const TabButton = (buttonProps: {
-    type: FavoriteType;
-    label: string;
-    count: number;
-  }) => {
+  const TabButton = (buttonProps: { type: FavoriteType; label: string; count: number }) => {
     const isActive = () => filterType() === buttonProps.type;
     return (
       <button
-        class={`px-4 py-2 rounded-lg transition-all ${
+        class={`px-2 py-1.5 md:px-4 md:py-2 text-sm md:text-base rounded-lg transition-all ${
           isActive()
             ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
             : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-primary)]"
@@ -129,10 +125,8 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
         {buttonProps.label}
         <Show when={buttonProps.count > 0}>
           <span
-            class={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-              isActive()
-                ? "bg-[var(--color-text-on-accent)]/20"
-                : "bg-[var(--color-bg-primary)]"
+            class={`ml-1 md:ml-2 px-1.5 md:px-2 py-0.5 rounded-full text-xs ${
+              isActive() ? "bg-[var(--color-text-on-accent)]/20" : "bg-[var(--color-bg-primary)]"
             }`}
           >
             {buttonProps.count}
@@ -145,29 +139,25 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   return (
     <div class="h-full flex flex-col">
       {/* header with tabs */}
-      <div class="p-6 border-b border-[var(--color-border-subtle)]">
-        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-6 ml-[150px]">
+      <div class="py-2 md:p-6">
+        <h1 class="hidden md:block text-3xl font-bold text-[var(--color-text-primary)] mb-6">
           favorites
         </h1>
 
         {/* filter tabs */}
-        <div class="flex gap-2 flex-wrap">
+        <div class="flex center gap-2 overflow-x-auto md:overflow-x-visible md:flex-wrap scrollbar-hide">
           <TabButton type="all" label="all" count={counts().all} />
           <TabButton type="songs" label="songs" count={counts().songs} />
           <TabButton type="albums" label="albums" count={counts().albums} />
           <TabButton type="artists" label="artists" count={counts().artists} />
-          <TabButton
-            type="playlists"
-            label="playlists"
-            count={counts().playlists}
-          />
+          <TabButton type="playlists" label="playlists" count={counts().playlists} />
         </div>
       </div>
 
       {/* content area */}
-      <div 
+      <div
         ref={scrollContainerRef!}
-        class="flex-1 overflow-y-auto p-6"
+        class="flex-1 overflow-y-auto py-6"
         onScroll={(e) => saveScroll(e.currentTarget)}
       >
         <Show
@@ -178,14 +168,8 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                 when={props.isLoading}
                 fallback={
                   <>
-                    <Icon
-                      name="favorite"
-                      size={64}
-                      color="var(--color-text-disabled)"
-                    />
-                    <p class="text-[var(--color-text-secondary)] mt-4">
-                      no favorites yet
-                    </p>
+                    <Icon name="favorite" size={64} color="var(--color-text-disabled)" />
+                    <p class="text-[var(--color-text-secondary)] mt-4">no favorites yet</p>
                     <p class="text-[var(--color-text-muted)] text-sm mt-2">
                       heart items to see them here
                     </p>
@@ -206,7 +190,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                     <Switch>
                       <Match when={item.type === "song"}>
                         {(() => {
-                          const song = item as (Song & { type: "song" });
+                          const song = item as Song & { type: "song" };
                           const card = (
                             <SongCard
                               song={song}
@@ -221,12 +205,14 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                             <ContextMenu actions={props.getSongContextMenuActions(song)}>
                               {card}
                             </ContextMenu>
-                          ) : card;
+                          ) : (
+                            card
+                          );
                         })()}
                       </Match>
                       <Match when={item.type === "album"}>
                         {(() => {
-                          const album = item as (AlbumSummary & { type: "album" });
+                          const album = item as AlbumSummary & { type: "album" };
                           const card = (
                             <AlbumCard
                               album={album}
@@ -241,12 +227,14 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                             <ContextMenu actions={props.getAlbumContextMenuActions(album)}>
                               {card}
                             </ContextMenu>
-                          ) : card;
+                          ) : (
+                            card
+                          );
                         })()}
                       </Match>
                       <Match when={item.type === "artist"}>
                         {(() => {
-                          const artist = item as (ArtistSummary & { type: "artist" });
+                          const artist = item as ArtistSummary & { type: "artist" };
                           const card = (
                             <ArtistCard
                               artist={artist}
@@ -260,12 +248,14 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                             <ContextMenu actions={props.getArtistContextMenuActions(artist)}>
                               {card}
                             </ContextMenu>
-                          ) : card;
+                          ) : (
+                            card
+                          );
                         })()}
                       </Match>
                       <Match when={item.type === "playlist"}>
                         {(() => {
-                          const playlist = item as (PlaylistSummary & { type: "playlist" });
+                          const playlist = item as PlaylistSummary & { type: "playlist" };
                           const card = (
                             <PlaylistCard
                               playlist={playlist}
@@ -278,7 +268,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                             <ContextMenu actions={props.getPlaylistContextMenuActions(playlist)}>
                               {card}
                             </ContextMenu>
-                          ) : card;
+                          ) : (
+                            card
+                          );
                         })()}
                       </Match>
                     </Switch>
@@ -291,12 +283,14 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
               <div class="space-y-1">
                 <For each={filteredFavorites() as (Song & { type: "song" })[]}>
                   {(song) => {
-                    const subtitle = [song.artist_name, song.album_title].filter(Boolean).join(" • ");
-                    const duration_display = song.duration_seconds 
-                      ? `${Math.floor(song.duration_seconds / 60)}:${String(song.duration_seconds % 60).padStart(2, '0')}`
-                      : '';
+                    const subtitle = [song.artist_name, song.album_title]
+                      .filter(Boolean)
+                      .join(" • ");
+                    const duration_display = song.duration_seconds
+                      ? `${Math.floor(song.duration_seconds / 60)}:${String(song.duration_seconds % 60).padStart(2, "0")}`
+                      : "";
                     const row = (
-                      <div 
+                      <div
                         class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
                         onDblClick={() => {
                           props.onSongPlay?.(song);
@@ -325,7 +319,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                         </div>
                         <FavoriteHeart
                           isFavorite={song.is_favorite ?? false}
-                          onToggle={(isFavorite) => props.onSongFavoriteToggle?.(song.id, isFavorite)}
+                          onToggle={(isFavorite) =>
+                            props.onSongFavoriteToggle?.(song.id, isFavorite)
+                          }
                           size="sm"
                         />
                       </div>
@@ -334,7 +330,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       <ContextMenu actions={props.getSongContextMenuActions(song)}>
                         {row}
                       </ContextMenu>
-                    ) : row;
+                    ) : (
+                      row
+                    );
                   }}
                 </For>
               </div>
@@ -358,7 +356,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       <ContextMenu actions={props.getAlbumContextMenuActions(album)}>
                         {card}
                       </ContextMenu>
-                    ) : card;
+                    ) : (
+                      card
+                    );
                   }}
                 </For>
               </div>
@@ -381,7 +381,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       <ContextMenu actions={props.getArtistContextMenuActions(artist)}>
                         {card}
                       </ContextMenu>
-                    ) : card;
+                    ) : (
+                      card
+                    );
                   }}
                 </For>
               </div>
@@ -403,7 +405,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                       <ContextMenu actions={props.getPlaylistContextMenuActions(playlist)}>
                         {card}
                       </ContextMenu>
-                    ) : card;
+                    ) : (
+                      card
+                    );
                   }}
                 </For>
               </div>

@@ -1,18 +1,17 @@
 // songs view - optimized with virtualization and infinite scroll
 
 import { useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { appState } from "../../app/services/storage/db";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
+import { SearchSortControls } from "../../components/controls/SearchSortControls";
+import { TagFilterPicker, type TagFilter } from "../../components/forms/TagFilterPicker";
 import {
-  TagFilterPicker,
-  type TagFilter,
-} from "../../components/forms/TagFilterPicker";
-import { 
-  VirtualSongList, 
-  type SortField, 
+  VirtualSongList,
+  type SortField,
   type SortDirection,
-  type SortState 
+  type SortState,
 } from "../../components/virtualized/VirtualSongList";
 import type { Song } from "../data/types";
 import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
@@ -21,6 +20,18 @@ import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
 import { playQueue } from "../services/audio/player";
 import { useSongContextMenu } from "../services/contextMenu";
+
+// narrow breakpoint for responsive layout
+const NARROW_BREAKPOINT = 768;
+
+const songSortFields = [
+  { value: "added_at", label: "date added", description: "sort by date added" },
+  { value: "title", label: "title", description: "sort by song title" },
+  { value: "artist", label: "artist", description: "sort by artist name" },
+  { value: "album", label: "album", description: "sort by album name" },
+  { value: "year", label: "year", description: "sort by release year" },
+  { value: "duration", label: "duration", description: "sort by track length" },
+];
 
 export interface SongsViewProps {
   onAddMusic: () => void;
@@ -31,10 +42,17 @@ export interface SongsViewProps {
 export function SongsView(props: SongsViewProps) {
   const [searchParams] = useSearchParams();
 
+  // responsive: track narrow viewport
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+
   // responsive list height: window - header (122px) - player bar (80px)
   const HEADER_HEIGHT = 122;
   const PLAYER_HEIGHT = 80;
-  const [listHeight, setListHeight] = createSignal(window.innerHeight - HEADER_HEIGHT - PLAYER_HEIGHT);
+  const [listHeight, setListHeight] = createSignal(
+    window.innerHeight - HEADER_HEIGHT - PLAYER_HEIGHT
+  );
 
   onMount(() => {
     let resizeTimeout: number | undefined;
@@ -42,12 +60,15 @@ export function SongsView(props: SongsViewProps) {
       clearTimeout(resizeTimeout);
       resizeTimeout = window.setTimeout(() => {
         setListHeight(window.innerHeight - HEADER_HEIGHT - PLAYER_HEIGHT);
+        const narrow = window.innerWidth < NARROW_BREAKPOINT;
+        setIsNarrow(narrow);
       }, 100);
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => {
       clearTimeout(resizeTimeout);
       window.removeEventListener("resize", handleResize);
+      clearPageInfo(); // clear page info when leaving view
     });
   });
 
@@ -101,6 +122,12 @@ export function SongsView(props: SongsViewProps) {
     return pages.flatMap((page) => page.items);
   });
 
+  // update page info for TopNav (mobile displays "songs (N)")
+  createEffect(() => {
+    const count = allSongs().length;
+    setPageInfo({ title: "songs", count });
+  });
+
   // load more handler
   const loadMore = () => {
     if (!songsQuery.hasNextPage || songsQuery.isFetchingNextPage) return;
@@ -120,7 +147,10 @@ export function SongsView(props: SongsViewProps) {
     setTagFilters(
       tagFilters().map((f) =>
         f.tag === tag
-          ? { tag: f.tag, mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude" }
+          ? {
+              tag: f.tag,
+              mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
+            }
           : f
       )
     );
@@ -221,34 +251,37 @@ export function SongsView(props: SongsViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="p-4 ml-[150px]">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-              songs (v2 test)
-            </h1>
-            <p class="text-sm text-[var(--color-text-secondary)]">
-              {songsQuery.isLoading
-                ? "loading..."
-                : `${allSongs().length} ${allSongs().length === 1 ? "song" : "songs"}`}
-            </p>
-          </div>
-          <Button variant="primary" onClick={props.onAddMusic}>
-            add music
-          </Button>
+      <div class="flex items-center justify-between p-4">
+        <div class="hidden md:block mr-4">
+          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">songs</h1>
+          <p class="text-sm text-[var(--color-text-secondary)]">
+            {songsQuery.isLoading
+              ? "loading..."
+              : `${allSongs().length} ${allSongs().length === 1 ? "song" : "songs"}${songsQuery.hasNextPage ? "+" : ""}`}
+          </p>
         </div>
-
-        {/* tag filter picker */}
-        <TagFilterPicker
-          availableTags={availableTags()}
-          selectedFilters={tagFilters()}
-          onAddTag={handleAddTag}
-          onRemoveTag={handleRemoveTag}
-          onToggleMode={handleToggleMode}
-          onClearAll={handleClearAllTags}
-          loading={tagsQuery.isLoading}
-          compact={true}
-        />
+        <div class="flex-1 flex justify-between items-center gap-4">
+          <TagFilterPicker
+            availableTags={availableTags()}
+            selectedFilters={tagFilters()}
+            onAddTag={handleAddTag}
+            onRemoveTag={handleRemoveTag}
+            onToggleMode={handleToggleMode}
+            onClearAll={handleClearAllTags}
+            loading={tagsQuery.isLoading}
+            compact={true}
+          />
+          {/* show sort controls only on narrow - table has sortable headers */}
+          <Show when={isNarrow()}>
+            <SearchSortControls
+              sortFields={songSortFields}
+              sortBy={sortField()}
+              sortDirection={sortDirection()}
+              onSortByChange={(field) => setSortField(field as SongSortField)}
+              onSortDirectionChange={setSortDirection}
+            />
+          </Show>
+        </div>
       </div>
 
       {/* song list */}
@@ -278,7 +311,9 @@ export function SongsView(props: SongsViewProps) {
               onPlayClick={handlePlayClick}
               onNearEnd={loadMore}
               getContextMenuActions={getContextMenuActions}
-              scrollKey={`songs-view-${searchQuery() || ""}-${tagFilters().map(f => f.tag).join(",")}`}
+              scrollKey={`songs-view-${searchQuery() || ""}-${tagFilters()
+                .map((f) => f.tag)
+                .join(",")}`}
               playingSongId={appState()?.current_sha256 ?? undefined}
               sortState={sortState()}
               onSortChange={handleSortChange}

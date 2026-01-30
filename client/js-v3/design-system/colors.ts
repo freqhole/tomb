@@ -110,3 +110,21 @@ export function getTranslucentColorStyles(variant: TranslucentColorVariant): {
     "border-color": color.border,
   };
 }
+
+// playing indicator classes - for list rows that show currently playing item
+// returns classes for playing state or default hover state
+export function getPlayingIndicatorClasses(isPlaying: boolean): string {
+  if (isPlaying) {
+    // accent pink with subtle bg, left border indicator
+    return "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]";
+  }
+  // default hover state
+  return "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]";
+}
+
+// playing text color - accent when playing, normal otherwise
+export function getPlayingTextClasses(isPlaying: boolean): string {
+  return isPlaying
+    ? "text-[var(--color-accent-500)]"
+    : "text-[var(--color-text-primary)]";
+}

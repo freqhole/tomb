@@ -1,4 +1,12 @@
-import { createSignal, onCleanup, onMount, Show, splitProps, type JSX, type ParentProps } from "solid-js";
+import {
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+  splitProps,
+  type JSX,
+  type ParentProps,
+} from "solid-js";
 import { Icon } from "../icons/registry";
 
 export interface HeadingSectionProps extends ParentProps {
@@ -104,17 +112,17 @@ export function HeadingSection(props: HeadingSectionProps) {
   // build container classes
   const containerClasses = () => {
     const classes = ["flex-shrink-0"];
-    
+
     // sticky positioning
     if (local.sticky) {
       classes.push("sticky top-0 z-10 bg-[var(--color-bg-primary)]");
     }
-    
+
     // border
     if (local.border) {
       classes.push("border-b border-[var(--color-border-default)]");
     }
-    
+
     // padding - detail variant uses responsive padding
     if (isDetail()) {
       classes.push("px-3 md:px-6 py-2 md:py-4");
@@ -123,11 +131,11 @@ export function HeadingSection(props: HeadingSectionProps) {
     } else {
       classes.push("p-3");
     }
-    
+
     if (local.class) {
       classes.push(local.class);
     }
-    
+
     return classes.join(" ");
   };
 
@@ -163,7 +171,7 @@ export function HeadingSection(props: HeadingSectionProps) {
   if (isDetail()) {
     return (
       <div class={containerClasses()} {...others}>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 ">
           {/* back button */}
           <Show when={local.showBackButton}>
             <button
@@ -174,23 +182,21 @@ export function HeadingSection(props: HeadingSectionProps) {
               <Icon name="chevronLeft" size={20} />
             </button>
           </Show>
-          
+
           {/* title */}
-          <h2 class={`flex-1 min-w-0 ${titleClasses()}`}>
-            {local.titleElement || local.title}
-          </h2>
-          
+          <h2 class={`flex-1 min-w-0 ${titleClasses()}`}>{local.titleElement || local.title}</h2>
+
           {/* controls on the right */}
           <Show when={local.controls}>
             <div class="flex-shrink-0">{local.controls}</div>
           </Show>
         </div>
-        
+
         {/* custom content (stats grids, etc) */}
         <Show when={local.children}>
           <div class="mt-4">{local.children}</div>
         </Show>
-        
+
         {/* actions below content if provided */}
         <Show when={local.actions}>
           <div class="flex items-center gap-2 mt-3">{local.actions}</div>
@@ -206,21 +212,15 @@ export function HeadingSection(props: HeadingSectionProps) {
       <div class={`flex items-start justify-between ${local.compact ? "mb-2" : "mb-4"} gap-4`}>
         {/* left side: title and count */}
         <div class="flex-1 min-w-0">
-          <h1 class={titleClasses()}>
-            {local.titleElement || local.title}
-          </h1>
+          <h1 class={titleClasses()}>{local.titleElement || local.title}</h1>
           <Show when={local.loading}>
             <p class="text-[var(--color-text-secondary)] text-sm">loading...</p>
           </Show>
           <Show when={!local.loading && local.count !== undefined}>
-            <p class="text-[var(--color-text-secondary)] text-sm">
-              {countText()}
-            </p>
+            <p class="text-[var(--color-text-secondary)] text-sm">{countText()}</p>
           </Show>
           <Show when={!local.loading && local.subtitle}>
-            <p class="text-[var(--color-text-secondary)] text-sm">
-              {local.subtitle}
-            </p>
+            <p class="text-[var(--color-text-secondary)] text-sm">{local.subtitle}</p>
           </Show>
         </div>
 
@@ -231,9 +231,7 @@ export function HeadingSection(props: HeadingSectionProps) {
       </div>
 
       {/* custom content (stats grids, etc) */}
-      <Show when={local.children}>
-        {local.children}
-      </Show>
+      <Show when={local.children}>{local.children}</Show>
 
       {/* action buttons row */}
       <Show when={local.actions}>

@@ -2,13 +2,11 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import { SearchSortControls } from "../../components/controls/SearchSortControls";
-import {
-  TagFilterPicker,
-  type TagFilter,
-} from "../../components/forms/TagFilterPicker";
+import { TagFilterPicker, type TagFilter } from "../../components/forms/TagFilterPicker";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
 import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
@@ -53,6 +51,7 @@ export function AlbumsView(props: AlbumsViewProps) {
     onCleanup(() => {
       clearTimeout(resizeTimeout);
       window.removeEventListener("resize", handleResize);
+      clearPageInfo(); // clear page info when leaving view
     });
   });
 
@@ -126,14 +125,12 @@ export function AlbumsView(props: AlbumsViewProps) {
     // map AlbumSummary to CollectionCardData format
     return allAlbums.map((album) => {
       // format genres: "genre • sub_genre1 • sub_genre2"
-      const genreText = [
-        album.genre,
-        ...(album.sub_genres || []),
-      ].filter(Boolean).join(" • ") || null;
+      const genreText =
+        [album.genre, ...(album.sub_genres || [])].filter(Boolean).join(" • ") || null;
 
       // extract year from release_date (YYYY, YYYY-MM, or YYYY-MM-DD)
-      const year = album.release_date 
-        ? parseInt(album.release_date.substring(0, 4), 10) 
+      const year = album.release_date
+        ? parseInt(album.release_date.substring(0, 4), 10)
         : album.year || null;
 
       return {
@@ -154,6 +151,12 @@ export function AlbumsView(props: AlbumsViewProps) {
     });
   });
 
+  // update page info for TopNav (mobile displays "albums (N)")
+  createEffect(() => {
+    const count = albums().length;
+    setPageInfo({ title: "albums", count });
+  });
+
   // tag filter handlers
   const handleAddTag = (tag: string) => {
     setTagFilters([...tagFilters(), { tag, mode: "include" }]);
@@ -169,12 +172,10 @@ export function AlbumsView(props: AlbumsViewProps) {
         f.tag === tag
           ? {
               tag: f.tag,
-              mode: (f.mode === "include" ? "exclude" : "include") as
-                | "include"
-                | "exclude",
+              mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
             }
-          : f,
-      ),
+          : f
+      )
     );
   };
 
@@ -242,25 +243,33 @@ export function AlbumsView(props: AlbumsViewProps) {
       {
         showPlayActions: true,
         isFavorite: album.isFavorite ?? false,
-      },
+      }
     );
   };
 
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="flex items-center justify-between p-4 ml-[150px]">
-        <div>
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-            albums
-          </h1>
+      <div class="flex items-center justify-between p-4">
+        <div class="hidden md:block mr-4">
+          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">albums</h1>
           <p class="text-sm text-[var(--color-text-secondary)]">
             {albumsQuery.isLoading
               ? "loading..."
               : `${albums().length} ${albums().length === 1 ? "album" : "albums"}${albumsQuery.hasNextPage ? "+" : ""}`}
           </p>
         </div>
-        <div class="flex items-center gap-4">
+        <div class="flex-1 flex justify-between items-center gap-4">
+          <TagFilterPicker
+            availableTags={availableTags()}
+            selectedFilters={tagFilters()}
+            onAddTag={handleAddTag}
+            onRemoveTag={handleRemoveTag}
+            onToggleMode={handleToggleMode}
+            onClearAll={handleClearAllTags}
+            loading={tagsQuery.isLoading}
+            compact={true}
+          />
           <SearchSortControls
             sortFields={albumSortFields}
             sortBy={sortField()}
@@ -268,24 +277,7 @@ export function AlbumsView(props: AlbumsViewProps) {
             onSortByChange={(field) => setSortField(field as AlbumSortField)}
             onSortDirectionChange={setSortDirection}
           />
-          <Button variant="primary" onClick={props.onAddMusic}>
-            add music
-          </Button>
         </div>
-      </div>
-
-      {/* tag filter picker */}
-      <div class="ml-[150px]">
-        <TagFilterPicker
-          availableTags={availableTags()}
-          selectedFilters={tagFilters()}
-          onAddTag={handleAddTag}
-          onRemoveTag={handleRemoveTag}
-          onToggleMode={handleToggleMode}
-          onClearAll={handleClearAllTags}
-          loading={tagsQuery.isLoading}
-          compact={true}
-        />
       </div>
 
       {/* album grid */}
@@ -304,8 +296,7 @@ export function AlbumsView(props: AlbumsViewProps) {
                     no albums in your library yet
                   </p>
                   <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                    click "add music" above to import local audio files or
-                    download from urls
+                    click "add music" above to import local audio files or download from urls
                   </p>
                   <Button variant="primary" onClick={props.onAddMusic}>
                     add music
@@ -325,7 +316,9 @@ export function AlbumsView(props: AlbumsViewProps) {
               showGenres={true}
               cardSize="medium"
               height={gridHeight()}
-              scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters().map(f => f.tag).join(",")}`}
+              scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters()
+                .map((f) => f.tag)
+                .join(",")}`}
             />
             {albumsQuery.isFetchingNextPage && (
               <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">

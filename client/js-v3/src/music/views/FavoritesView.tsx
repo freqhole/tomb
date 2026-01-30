@@ -1,13 +1,28 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, on } from "solid-js";
-import { FavoritesLayout, type FavoriteItem as LayoutFavoriteItem } from "../../components/layout/FavoritesLayout";
+import { createEffect, createMemo, on, onCleanup } from "solid-js";
+import {
+  FavoritesLayout,
+  type FavoriteItem as LayoutFavoriteItem,
+} from "../../components/layout/FavoritesLayout";
 import { setQueue } from "../../app/services/storage/db";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { getDataSource } from "../data";
-import type { FavoriteItem, Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../data/types";
+import type {
+  FavoriteItem,
+  Song,
+  AlbumSummary,
+  ArtistSummary,
+  PlaylistSummary,
+} from "../data/types";
 import { useFavoritesInfiniteQuery, useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
-import { useSongContextMenu, useAlbumContextMenu, useArtistContextMenu, usePlaylistContextMenu } from "../services/contextMenu";
+import {
+  useSongContextMenu,
+  useAlbumContextMenu,
+  useArtistContextMenu,
+  usePlaylistContextMenu,
+} from "../services/contextMenu";
 import { routes } from "../utils/routing";
 
 export interface FavoritesViewProps {
@@ -33,15 +48,11 @@ export function FavoritesView(props: FavoritesViewProps) {
         isFetching: favoritesQuery.isFetching,
       }),
       (state) => {
-        if (
-          state.hasNextPage &&
-          !state.isFetchingNextPage &&
-          !state.isFetching
-        ) {
+        if (state.hasNextPage && !state.isFetchingNextPage && !state.isFetching) {
           favoritesQuery.fetchNextPage();
         }
-      },
-    ),
+      }
+    )
   );
 
   // transform app domain FavoriteItem to layout's expected format
@@ -61,8 +72,19 @@ export function FavoritesView(props: FavoritesViewProps) {
           return { ...item.data, type: "playlist" };
       }
     });
-    
+
     return result;
+  });
+
+  // update page info for TopNav (mobile displays "favorites (N)")
+  createEffect(() => {
+    const count = allFavorites().length;
+    setPageInfo({ title: "favorites", count });
+  });
+
+  // clear page info when leaving view
+  onCleanup(() => {
+    clearPageInfo();
   });
 
   // song handlers
@@ -82,7 +104,9 @@ export function FavoritesView(props: FavoritesViewProps) {
   };
 
   const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
-    const song = allFavorites().find(f => f.type === "song" && (f as any).id === songId) as Song | undefined;
+    const song = allFavorites().find((f) => f.type === "song" && (f as any).id === songId) as
+      | Song
+      | undefined;
     if (!song) return;
 
     toggleFavorite.mutate({
@@ -131,7 +155,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       {
         showPlayActions: true,
         isFavorite: album.is_favorite ?? false,
-      },
+      }
     );
   };
 
@@ -179,7 +203,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       {
         showPlayActions: true,
         isFavorite: artist.is_favorite ?? false,
-      },
+      }
     );
   };
 
@@ -204,10 +228,9 @@ export function FavoritesView(props: FavoritesViewProps) {
         return;
       }
 
-      const songsResponse = await dataSource.getPlaylistSongs(
-        playlist.playlist_id,
-        { limit: 1000 },
-      );
+      const songsResponse = await dataSource.getPlaylistSongs(playlist.playlist_id, {
+        limit: 1000,
+      });
 
       const songs = songsResponse.items;
       if (songs.length === 0) {
@@ -231,7 +254,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       {
         showPlayActions: true,
         isFavorite: playlist.is_favorite ?? false,
-      },
+      }
     );
   };
 

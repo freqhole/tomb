@@ -2,6 +2,7 @@ import { createSignal, Show, splitProps, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
+import { getPlayingIndicatorClasses } from "../../../design-system/colors";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -14,6 +15,8 @@ export interface DraggableRowProps {
   isDropTarget?: boolean;
   /** whether row is selected */
   isSelected?: boolean;
+  /** whether this row is currently playing */
+  isPlaying?: boolean;
   /** whether dragging is disabled */
   disabled?: boolean;
   /** callback when drag starts */
@@ -54,6 +57,7 @@ export function DraggableRow(props: DraggableRowProps) {
     "isDragging",
     "isDropTarget",
     "isSelected",
+    "isPlaying",
     "disabled",
     "onDragStart",
     "onDragOver",
@@ -75,23 +79,21 @@ export function DraggableRow(props: DraggableRowProps) {
 
   const rowClasses = () => {
     const base =
-      "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer group";
+      "flex items-center gap-3 px-3 py-2.5 transition-all duration-200 cursor-pointer group";
     const states = [];
 
     if (local.isDropTarget) {
       states.push(
-        "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]",
+        "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
       );
     } else if (local.isDragging) {
       states.push("opacity-40 bg-[var(--color-accent-500)]/5 scale-95");
+    } else if (local.isPlaying) {
+      states.push(getPlayingIndicatorClasses(true));
     } else if (local.isSelected) {
-      states.push(
-        "bg-[var(--color-accent-500)]/15 border border-[var(--color-accent-500)]/30",
-      );
+      states.push("bg-[var(--color-accent-500)]/15 border border-[var(--color-accent-500)]/30");
     } else {
-      states.push(
-        "hover:bg-[var(--color-accent-500)]/20 border border-transparent",
-      );
+      states.push("hover:bg-[var(--color-accent-500)]/20 border border-transparent");
     }
 
     return `${base} ${states.join(" ")} ${local.class || ""}`;

@@ -10,9 +10,7 @@ export interface ImageCarouselModalProps {
 }
 
 export function ImageCarouselModal(props: ImageCarouselModalProps) {
-  const [currentIndex, setCurrentIndex] = createSignal(
-    props.initialIndex ?? 0,
-  );
+  const [currentIndex, setCurrentIndex] = createSignal(props.initialIndex ?? 0);
 
   const canGoPrev = () => currentIndex() > 0;
   const canGoNext = () => currentIndex() < props.images.length - 1;
@@ -47,15 +45,18 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
   return (
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      class="fixed inset-0 z-[1100] flex items-center justify-center bg-black/90"
       onClick={props.onClose}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
       {/* close button */}
       <button
-        onClick={props.onClose}
-        class="absolute top-4 right-4 p-2 text-white hover:text-gray-300 transition-colors z-10"
+        onClick={(e) => {
+          e.stopPropagation();
+          props.onClose();
+        }}
+        class="absolute top-4 right-4 p-2 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 rounded-full"
         title="close (esc)"
       >
         <Icon name={IconNames.close} size={24} />
@@ -63,9 +64,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
       {/* title */}
       <Show when={props.title}>
-        <div class="absolute top-4 left-4 text-white text-lg font-medium z-10">
-          {props.title}
-        </div>
+        <div class="absolute top-4 left-4 text-white text-lg font-medium z-10">{props.title}</div>
       </Show>
 
       {/* image counter */}
@@ -123,11 +122,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
                   : "border-transparent opacity-60 hover:opacity-100"
               }`}
             >
-              <img
-                src={img}
-                alt={`thumbnail ${idx() + 1}`}
-                class="w-full h-full object-cover"
-              />
+              <img src={img} alt={`thumbnail ${idx() + 1}`} class="w-full h-full object-cover" />
             </button>
           )}
         </For>
