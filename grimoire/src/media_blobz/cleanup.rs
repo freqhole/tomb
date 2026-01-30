@@ -137,9 +137,6 @@ mod tests {
         let refs = MediaBlobReferences {
             blob_id: "test".to_string(),
             song_media_references: 1,
-            song_thumbnail_references: 0,
-            song_waveform_references: 0,
-            playlist_thumbnail_references: 0,
             playlist_image_references: 0,
             artist_image_references: 0,
             album_image_references: 0,
@@ -156,9 +153,6 @@ mod tests {
         let refs = MediaBlobReferences {
             blob_id: "test".to_string(),
             song_media_references: 0,
-            song_thumbnail_references: 0,
-            song_waveform_references: 0,
-            playlist_thumbnail_references: 0,
             playlist_image_references: 0,
             artist_image_references: 0,
             album_image_references: 0,

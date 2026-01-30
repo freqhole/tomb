@@ -1,6 +1,6 @@
 {
-  "name": "freqbook",
-  "version": "0.0.0",
+  "name": "freqhole-client",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,13 +14,6 @@
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "lint:full": "ESLINT_FULL=true eslint src --ext .ts,.tsx",
     "lint:full:fix": "ESLINT_FULL=true eslint src --ext .ts,.tsx --fix"
-  },
-  "imports": {
-    "#*": [
-      "./*",
-      "./*.ts",
-      "./*.tsx"
-    ]
   },
   "dependencies": {
     "freqhole-api-client": "file:../../client-codegen/freqhole-api-client"

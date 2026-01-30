@@ -8,9 +8,6 @@
         "jsxImportSource": "solid-js",
         "types": ["vite/client", "node"],
         "skipLibCheck": true,
-        "paths": {
-            "#.storybook/*": ["./.storybook/*"]
-        }
     },
     "include": [
         ".storybook/**/*.ts",

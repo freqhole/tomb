@@ -303,6 +303,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [fullPlaylist, setFullPlaylist] = createSignal<Playlist | null>(null);
 
   // fetch full playlist when viewing local and selection changes
+  // #TODO: yank this duplicate effect.
   createEffect(() => {
     const id = selectedPlaylistId();
     const viewingRemote = isViewingRemote();
