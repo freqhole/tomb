@@ -7,6 +7,7 @@ import {
   StatsCard,
   StatsGrid,
 } from "../cards/StatsCard";
+import { HeadingSection } from "../layout/HeadingSection";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { VirtualGenreDetail } from "../virtualized/VirtualGenreDetail";
@@ -50,6 +51,10 @@ export interface GenreDetailPanelProps {
   onArtistClick?: (artistId: string) => void;
   /** callback to get context menu actions for an album */
   getAlbumContextMenuActions?: (albumId: string) => MenuAction[];
+  /** show back button for mobile navigation */
+  showBackButton?: boolean;
+  /** callback when back button clicked */
+  onBack?: () => void;
   /** additional css classes */
   class?: string;
 }
@@ -75,55 +80,65 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
   );
 
   return (
-    <div class={`flex flex-col h-full overflow-y-auto ${props.class || ""}`}>
-      {/* genre header with stats */}
-      <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-border-default)] p-6">
-        <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-          <MarqueeText text={props.genre.name} hoverOnly={true} />
-        </h2>
+    <div class={`flex flex-col h-full ${props.class || ""}`}>
+      {/* scrollable content */}
+      <div class="flex-1 overflow-y-auto">
+        {/* genre header with stats */}
+        <HeadingSection
+          title={props.genre.name}
+          titleElement={<MarqueeText text={props.genre.name} hoverOnly={true} />}
+          variant="detail"
+          sticky
+          border
+          showBackButton={props.showBackButton}
+          onBack={props.onBack}
+          class="p-6"
+        >
+          <StatsGrid columns={3} gap="md" class="mb-2">
+            <StatsCard
+              label="songs"
+              value={formatNumber(displaySongCount())}
+              icon="music"
+            />
+            <StatsCard
+              label="albums"
+              value={formatNumber(displayAlbumCount())}
+              icon="album"
+            />
+            <StatsCard
+              label="duration"
+              value={formatDuration(totalDuration())}
+              icon="recent"
+            />
+          </StatsGrid>
+        </HeadingSection>
 
-        <StatsGrid columns={3} gap="md" class="mb-6">
-          <StatsCard
-            label="songs"
-            value={formatNumber(displaySongCount())}
-            icon="music"
+        {/* virtualized artists with albums */}
+        <div class="flex-1 px-6 py-4">
+          <VirtualGenreDetail
+            songs={props.songs}
+            onAlbumClick={props.onAlbumClick}
+            onPlayAlbum={props.onPlayAlbum}
+            onArtistClick={props.onArtistClick}
+            getAlbumContextMenuActions={props.getAlbumContextMenuActions}
+            gridColumns={5}
           />
-          <StatsCard
-            label="albums"
-            value={formatNumber(displayAlbumCount())}
-            icon="album"
-          />
-          <StatsCard
-            label="duration"
-            value={formatDuration(totalDuration())}
-            icon="recent"
-          />
-        </StatsGrid>
-
-        {/* action buttons */}
-        <div class="flex gap-3">
-          <Button variant="primary" onClick={props.onPlayAll}>
-            play all
-          </Button>
-          <Button variant="secondary" onClick={props.onShuffle}>
-            shuffle
-          </Button>
-          <Button variant="ghost" onClick={props.onAddToQueue}>
-            add to queue
-          </Button>
         </div>
       </div>
 
-      {/* virtualized artists with albums */}
-      <div class="flex-1 px-6 py-4">
-        <VirtualGenreDetail
-          songs={props.songs}
-          onAlbumClick={props.onAlbumClick}
-          onPlayAlbum={props.onPlayAlbum}
-          onArtistClick={props.onArtistClick}
-          getAlbumContextMenuActions={props.getAlbumContextMenuActions}
-          gridColumns={5}
-        />
+      {/* sticky action buttons */}
+      <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+        <Button variant="primary" onClick={props.onPlayAll}>
+          <span class="hidden md:inline">play all</span>
+          <span class="md:hidden">play</span>
+        </Button>
+        <Button variant="secondary" onClick={props.onShuffle}>
+          shuffle
+        </Button>
+        <Button variant="ghost" onClick={props.onAddToQueue}>
+          <span class="hidden md:inline">add to queue</span>
+          <span class="md:hidden">+queue</span>
+        </Button>
       </div>
     </div>
   );

@@ -1,8 +1,8 @@
-// genres view - displays all genres in a two-column layout
 // genres view - displays all genres in a two-column layout with genre detail panel
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
 import { SearchSortControls } from "../../components/controls/SearchSortControls";
@@ -24,6 +24,9 @@ import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
+// narrow breakpoint for responsive layout
+const NARROW_BREAKPOINT = 768;
+
 export interface GenresViewProps {
   onAddMusic: () => void;
 }
@@ -38,6 +41,29 @@ export function GenresView(props: GenresViewProps) {
   const navigate = useNavigate();
   const params = useParams<{ genreId?: string }>();
   const [searchParams] = useSearchParams();
+  
+  // responsive: track narrow viewport
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+  // track whether detail is showing on narrow (for back navigation)
+  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(false);
+
+  onMount(() => {
+    const handleResize = () => {
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      setIsNarrow(narrow);
+      // reset detail view state when going from narrow to wide
+      if (!narrow) {
+        setShowingDetailOnNarrow(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => {
+      window.removeEventListener("resize", handleResize);
+      clearPageInfo(); // clear page info when leaving view
+    });
+  });
   
   // use genre from URL params, fallback to history state
   const initialGenreId = params.genreId || 
@@ -154,6 +180,12 @@ export function GenresView(props: GenresViewProps) {
     return sorted;
   });
 
+  // update page info for TopNav (mobile displays "genres (N)")
+  createEffect(() => {
+    const count = sortedGenres().length;
+    setPageInfo({ title: "genres", count });
+  });
+
   // get selected genre data
   const selectedGenre = createMemo(() => {
     const id = selectedGenreId();
@@ -251,21 +283,24 @@ export function GenresView(props: GenresViewProps) {
   // left column - genre list
   const leftColumn = (
     <div class="flex flex-col h-full">
-      <HeadingSection
-        title="genres"
-        count={sortedGenres().length}
-        controls={
-          <SearchSortControls
-            sortBy={sortBy()}
-            sortDirection={sortDirection()}
-            onSortChange={(field, direction) => {
-              setSortBy(field);
-              setSortDirection(direction);
-            }}
-            sortFields={genreSortFields}
-          />
-        }
-      />
+      <div class="mt-2 md:mt-[60px]">
+        <HeadingSection
+          title="genres"
+          count={sortedGenres().length}
+          hideOnNarrow
+          controls={
+            <SearchSortControls
+              sortBy={sortBy()}
+              sortDirection={sortDirection()}
+              onSortChange={(field, direction) => {
+                setSortBy(field);
+                setSortDirection(direction);
+              }}
+              sortFields={genreSortFields}
+            />
+          }
+        />
+      </div>
 
       <div class="flex-1 overflow-hidden">
         <Show
@@ -292,6 +327,10 @@ export function GenresView(props: GenresViewProps) {
             selectedId={selectedGenreId()}
             onItemClick={(item) => {
               setIsLocalClick(true);
+              // show detail on narrow viewport
+              if (isNarrow()) {
+                setShowingDetailOnNarrow(true);
+              }
               navigate(buildRoute(`/genres/${item.id}`));
             }}
             onVirtualizerReady={(scrollFn) => {
@@ -408,37 +447,33 @@ export function GenresView(props: GenresViewProps) {
               { showPlayActions: true },
             );
           }}
+          showBackButton={isNarrow() && showingDetailOnNarrow()}
+          onBack={handleBack}
         />
       )}
     </Show>
   );
 
+  // handle back navigation on narrow
+  const handleBack = () => {
+    setShowingDetailOnNarrow(false);
+  };
+
   return (
     <div class="flex flex-col h-full">
-      {/* header */}
-      <div class="flex items-center justify-between p-4 ml-[150px]">
-        <div>
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-            genres
-          </h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {genresData().length ?? 0}{" "}
-            {genresData().length === 1 ? "genre" : "genres"}
-          </p>
-        </div>
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
-        </Button>
-      </div>
-
-      {/* two-column layout */}
+      {/* two-column layout - full height, handles its own scrolling */}
       <div class="flex-1 overflow-hidden">
         {isResetting() ? (
           <div class="flex items-center justify-center h-full">
             <div class="text-[var(--color-text-secondary)]">loading...</div>
           </div>
         ) : (
-          <TwoColumnLayout leftColumn={leftColumn} rightColumn={rightColumn} />
+          <TwoColumnLayout
+            leftColumn={leftColumn}
+            rightColumn={rightColumn}
+            showDetail={showingDetailOnNarrow()}
+            onBack={handleBack}
+          />
         )}
       </div>
     </div>

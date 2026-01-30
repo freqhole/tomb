@@ -457,22 +457,14 @@ export const FullAppDemo: Story = {
             {(artist) => (
               <div class="flex flex-col h-full">
                 {/* sticky header with back button + title */}
-                <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-4 flex items-center gap-3">
-                  <Show when={ctx.isNarrow() && ctx.showingDetail()}>
-                    <button
-                      class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
-                      onClick={() => ctx.onBack()}
-                      aria-label="back to list"
-                    >
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                  </Show>
-                  <h2 class="text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate">
-                    {artist().name}
-                  </h2>
-                </div>
+                <HeadingSection
+                  title={artist().name}
+                  variant="detail"
+                  sticky
+                  border
+                  showBackButton={ctx.isNarrow() && ctx.showingDetail()}
+                  onBack={() => ctx.onBack()}
+                />
 
                 {/* scrollable content area */}
                 <div class="flex-1 overflow-y-auto">
@@ -645,22 +637,14 @@ export const FullAppDemo: Story = {
             {(genre) => (
               <div class="flex flex-col h-full">
                 {/* sticky header with back button + title */}
-                <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-4 flex items-center gap-3">
-                  <Show when={ctx.isNarrow() && ctx.showingDetail()}>
-                    <button
-                      class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
-                      onClick={() => ctx.onBack()}
-                      aria-label="back to list"
-                    >
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                  </Show>
-                  <h2 class="text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate">
-                    {genre().name}
-                  </h2>
-                </div>
+                <HeadingSection
+                  title={genre().name}
+                  variant="detail"
+                  sticky
+                  border
+                  showBackButton={ctx.isNarrow() && ctx.showingDetail()}
+                  onBack={() => ctx.onBack()}
+                />
 
                 {/* scrollable content area */}
                 <div class="flex-1 overflow-y-auto">
@@ -792,22 +776,14 @@ export const FullAppDemo: Story = {
             {(playlist) => (
               <div class="flex flex-col h-full">
                 {/* sticky header with back button + title */}
-                <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-4 flex items-center gap-3">
-                  <Show when={ctx.isNarrow() && ctx.showingDetail()}>
-                    <button
-                      class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
-                      onClick={() => ctx.onBack()}
-                      aria-label="back to list"
-                    >
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                  </Show>
-                  <h2 class="text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate">
-                    {playlist().name}
-                  </h2>
-                </div>
+                <HeadingSection
+                  title={playlist().name}
+                  variant="detail"
+                  sticky
+                  border
+                  showBackButton={ctx.isNarrow() && ctx.showingDetail()}
+                  onBack={() => ctx.onBack()}
+                />
 
                 {/* scrollable content area */}
                 <div class="flex-1 overflow-y-auto">

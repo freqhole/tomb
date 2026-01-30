@@ -17,6 +17,7 @@ import {
 } from "../cards/StatsCard";
 import { ContextMenu } from "../overlays/ContextMenu";
 import { Icon, IconNames } from "../icons/registry";
+import { HeadingSection } from "../layout/HeadingSection";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
@@ -91,6 +92,10 @@ export interface ArtistDetailPanelProps {
   onImageClick?: () => void;
   /** navigate to genre detail */
   onGenreClick?: (genreId: string, genreName: string) => void;
+  /** show back button for mobile navigation */
+  showBackButton?: boolean;
+  /** callback when back button clicked */
+  onBack?: () => void;
   /** additional css classes */
   class?: string;
 }
@@ -200,29 +205,45 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   });
 
   return (
-    <div class={`flex flex-col h-full overflow-y-auto ${props.class || ""}`}>
-      {/* artist header with image, info, and actions */}
-      <div class="p-6 space-y-6">
-        <div class="flex gap-6">
-          {/* artist avatar */}
-          <ContextMenu actions={artistContextMenuActions()}>
-            <div 
-              class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
-              onClick={props.onImageClick}
-            >
-              <MediaImage
-                images={props.artist.images}
-                alt={props.artist.name}
-                class="w-full h-full object-cover"
-                domainType="artist"
-              />
-            </div>
-          </ContextMenu>
+    <div class={`flex flex-col h-full ${props.class || ""}`}>
+      {/* sticky header with back button for mobile */}
+      <Show when={props.showBackButton}>
+        <HeadingSection
+          title={props.artist.name}
+          titleElement={<MarqueeText text={props.artist.name} hoverOnly={true} />}
+          variant="detail"
+          sticky
+          border
+          showBackButton={props.showBackButton}
+          onBack={props.onBack}
+          class="px-4 py-3"
+        />
+      </Show>
 
-          {/* artist info */}
-          <div class="flex flex-col justify-center gap-2 min-w-0">
-            <h1 class="text-5xl font-bold text-[var(--color-text-primary)]">
-              <MarqueeText text={props.artist.name} hoverOnly={true} />
+      {/* scrollable content */}
+      <div class="flex-1 overflow-y-auto">
+        {/* artist header with image, info, and actions */}
+        <div class="p-6 space-y-6">
+          <div class="flex gap-6">
+            {/* artist avatar */}
+            <ContextMenu actions={artistContextMenuActions()}>
+              <div 
+                class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                onClick={props.onImageClick}
+              >
+                <MediaImage
+                  images={props.artist.images}
+                  alt={props.artist.name}
+                  class="w-full h-full object-cover"
+                  domainType="artist"
+                />
+              </div>
+            </ContextMenu>
+
+            {/* artist info */}
+            <div class="flex flex-col justify-center gap-2 min-w-0">
+              <h1 class="text-5xl font-bold text-[var(--color-text-primary)]">
+                <MarqueeText text={props.artist.name} hoverOnly={true} />
             </h1>
 
             {/* bio */}
@@ -262,17 +283,8 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               </Show>
             </div>
 
-            {/* action buttons */}
+            {/* artist actions (edit, favorite, rating) */}
             <div class="mt-4 flex items-center gap-3">
-              <Button variant="primary" onClick={props.onPlayAll}>
-                play all
-              </Button>
-              <Button variant="secondary" onClick={props.onShuffle}>
-                shuffle
-              </Button>
-              <Button variant="ghost" onClick={props.onAddToQueue}>
-                add to queue
-              </Button>
               <Show when={props.onEditArtist}>
                 <button
                   onClick={props.onEditArtist}
@@ -399,6 +411,22 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             </For>
           </div>
         </Show>
+      </div>
+      </div>
+
+      {/* sticky action buttons */}
+      <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+        <Button variant="primary" onClick={props.onPlayAll}>
+          <span class="hidden md:inline">play all</span>
+          <span class="md:hidden">play</span>
+        </Button>
+        <Button variant="secondary" onClick={props.onShuffle}>
+          shuffle
+        </Button>
+        <Button variant="ghost" onClick={props.onAddToQueue}>
+          <span class="hidden md:inline">add to queue</span>
+          <span class="md:hidden">+queue</span>
+        </Button>
       </div>
     </div>
   );

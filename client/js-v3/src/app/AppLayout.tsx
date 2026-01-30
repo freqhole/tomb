@@ -5,6 +5,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  onCleanup,
   onMount,
   Show,
   untrack,
@@ -54,6 +55,10 @@ import {
   setQueue,
   setQueueOpen,
 } from "./services/storage/db";
+import { getPageInfo } from "./services/pageInfo";
+
+// responsive breakpoint
+const NARROW_BREAKPOINT = 768;
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -71,6 +76,11 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
 
+  // responsive: track narrow viewport
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
 
@@ -79,6 +89,13 @@ export function AppLayout(props: AppLayoutProps) {
 
   // load remotes and storage info on mount
   onMount(async () => {
+    // handle resize for narrow viewport detection
+    const handleResize = () => {
+      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
+
     try {
       const allRemotes = await getAllRemotes();
       setRemotes(allRemotes);
@@ -249,6 +266,11 @@ export function AppLayout(props: AppLayoutProps) {
         }
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
+        queueOpen={queueOpen()}
+        onQueueToggle={handleQueueToggle}
+        queueLength={appState()?.queue.length || 0}
+        pageTitle={getPageInfo().title}
+        pageCount={getPageInfo().count}
         mainNavSections={[
           {
             items: [
@@ -314,14 +336,17 @@ export function AppLayout(props: AppLayoutProps) {
       {/* main content area */}
       <div
         class="flex-1 overflow-hidden flex"
-        style={{ "padding-bottom": "var(--player-bar-height)" }}
+        style={{ 
+          "padding-top": isNarrow() ? "var(--nav-height, 56px)" : undefined,
+          "padding-bottom": "var(--player-bar-height)" 
+        }}
       >
         <div class="flex-1 overflow-hidden">{props.children}</div>
 
-        {/* queue sidebar */}
+        {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide */}
         <QueueSidebar
           isOpen={queueOpen()}
-          variant="inline"
+          variant={isNarrow() ? "overlay" : "inline"}
           songs={appState()?.queue || []}
           currentIndex={
             appState()?.current_sha256
@@ -416,6 +441,7 @@ export function AppLayout(props: AppLayoutProps) {
           onQueueToggle={handleQueueToggle}
           onFavoriteToggle={handleSongFavoriteToggle}
           queueLength={appState()?.queue.length || 0}
+          hideQueueToggle={isNarrow()}
           canGoNext={canGoNext()}
           canGoPrevious={canGoPrevious()}
         />

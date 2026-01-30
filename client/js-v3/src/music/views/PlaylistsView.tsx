@@ -12,10 +12,12 @@ import {
   createSignal,
   For,
   onCleanup,
+  onMount,
   Show,
   untrack,
 } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
 import { ConfirmDialog } from "../../components/dialogs/ConfirmDialog";
@@ -25,6 +27,7 @@ import { Icon, IconNames } from "../../components/icons/registry";
 import MediaImage from "../../components/media/MediaImage";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
+import { MarqueeText } from "../../components/text/MarqueeText";
 import {
   DraggableRow,
   DraggableRowSongContent,
@@ -76,6 +79,9 @@ export interface PlaylistsViewProps {
   onAddMusic: () => void;
 }
 
+// narrow breakpoint for responsive layout
+const NARROW_BREAKPOINT = 768;
+
 // type guard helper for SafeParseResult
 function isSuccess<T>(result: {
   success: boolean;
@@ -90,6 +96,29 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [searchParams] = useSearchParams();
   const [isResetting, setIsResetting] = createSignal(false);
   const navigate = useNavigate();
+
+  // responsive: track narrow viewport
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+  // track whether detail is showing on narrow (for back navigation)
+  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(false);
+
+  onMount(() => {
+    const handleResize = () => {
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      setIsNarrow(narrow);
+      // reset detail view state when going from narrow to wide
+      if (!narrow) {
+        setShowingDetailOnNarrow(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => {
+      window.removeEventListener("resize", handleResize);
+      clearPageInfo(); // clear page info when leaving view
+    });
+  });
 
   // restore selected playlist from history state on mount, fallback to params.id
   const initialPlaylistId = typeof window !== "undefined" 
@@ -144,6 +173,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     
     if (urlPlaylistId && urlPlaylistId !== selectedPlaylistId()) {
       setSelectedPlaylistId(urlPlaylistId);
+      
+      // show detail view if on narrow and have a playlist selected
+      if (isNarrow() && urlPlaylistId) {
+        setShowingDetailOnNarrow(true);
+      }
       
       // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
       const shouldScroll = !isLocalClick();
@@ -246,6 +280,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     return pages[0].total;
   });
 
+  // update page info for TopNav (mobile displays "playlists (N)")
+  createEffect(() => {
+    const count = playlists().length;
+    setPageInfo({ title: "playlists", count });
+  });
+
   // fetch songs for selected playlist
   const playlistSongsQuery = usePlaylistSongsQuery({
     playlistId: () => selectedPlaylistId(),
@@ -340,7 +380,16 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // handle playlist selection (simple click, like ArtistsView/GenresView)
   const handlePlaylistClick = (item: ListItem) => {
     setIsLocalClick(true);
+    // on narrow, show detail view
+    if (isNarrow()) {
+      setShowingDetailOnNarrow(true);
+    }
     navigate(buildRoute(`/playlists/${item.id}`));
+  };
+
+  // handle back navigation on narrow
+  const handleBack = () => {
+    setShowingDetailOnNarrow(false);
   };
 
   // handle song double-click (play song)
@@ -897,6 +946,20 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                         <div class="absolute inset-0 bg-black/70 z-0" />
                       </Show>
 
+                      {/* sticky header with back button for mobile */}
+                      <Show when={isNarrow() && showingDetailOnNarrow()}>
+                        <HeadingSection
+                          title={selectedPlaylist()?.title || "playlist"}
+                          titleElement={<MarqueeText text={selectedPlaylist()?.title || "playlist"} hoverOnly={true} />}
+                          variant="detail"
+                          sticky
+                          border
+                          showBackButton={true}
+                          onBack={handleBack}
+                          class="px-4 py-3 relative z-20"
+                        />
+                      </Show>
+
                       {/* playlist header */}
                       <div class="flex-shrink-0 p-6 relative z-10">
                         <div class="flex-1">
@@ -1215,6 +1278,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                     </div>
                   </Show>
                 }
+                showDetail={showingDetailOnNarrow()}
+                onBack={handleBack}
               />
             )}
           </Show>

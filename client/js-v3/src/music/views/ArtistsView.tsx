@@ -1,7 +1,8 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { appState, setQueue } from "../../app/services/storage/db";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
@@ -25,6 +26,9 @@ import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
+// narrow breakpoint for responsive layout
+const NARROW_BREAKPOINT = 768;
+
 export interface ArtistsViewProps {
   onAddMusic: () => void;
   onArtistClick?: (artistId: string) => void;
@@ -40,6 +44,29 @@ export function ArtistsView(props: ArtistsViewProps) {
   const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
+  
+  // responsive: track narrow viewport
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+  // track whether detail is showing on narrow (for back navigation)
+  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(false);
+
+  onMount(() => {
+    const handleResize = () => {
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      setIsNarrow(narrow);
+      // reset detail view state when going from narrow to wide
+      if (!narrow) {
+        setShowingDetailOnNarrow(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => {
+      window.removeEventListener("resize", handleResize);
+      clearPageInfo(); // clear page info when leaving view
+    });
+  });
   
   // restore selected artist from URL params or history state on mount
   const initialArtistId = params.id || 
@@ -180,6 +207,12 @@ export function ArtistsView(props: ArtistsViewProps) {
     sorted.sort(compareArtists);
 
     return sorted;
+  });
+
+  // update page info for TopNav (mobile displays "artists (N)")
+  createEffect(() => {
+    const count = sortedArtists().length;
+    setPageInfo({ title: "artists", count });
   });
 
   // get selected artist data
@@ -509,12 +542,14 @@ export function ArtistsView(props: ArtistsViewProps) {
   // left column - artist list
   const leftColumn = (
     <div class="flex flex-col h-full">
-      <HeadingSection
-        title="artists"
-        count={sortedArtists().length}
-        controls={
-          <SearchSortControls
-            sortBy={sortBy()}
+      <div class="mt-2 md:mt-[60px]">
+        <HeadingSection
+          title="artists"
+          count={sortedArtists().length}
+          hideOnNarrow
+          controls={
+            <SearchSortControls
+              sortBy={sortBy()}
             sortDirection={sortDirection()}
             onSortChange={(field, direction) => {
               setSortBy(field);
@@ -523,7 +558,8 @@ export function ArtistsView(props: ArtistsViewProps) {
             sortFields={artistSortFields}
           />
         }
-      />
+        />
+      </div>
 
       <div class="flex-1 overflow-hidden">
         <Show
@@ -550,6 +586,10 @@ export function ArtistsView(props: ArtistsViewProps) {
             selectedId={selectedArtistId()}
             onItemClick={(item) => {
               setIsLocalClick(true);
+              // show detail on narrow viewport
+              if (isNarrow()) {
+                setShowingDetailOnNarrow(true);
+              }
               navigate(buildRoute(`/artists/${item.id}`));
               props.onArtistClick?.(item.id);
             }}
@@ -619,6 +659,8 @@ export function ArtistsView(props: ArtistsViewProps) {
           onSongFavoriteToggle={handleSongFavoriteToggle}
           onImageClick={handleArtistImageClick}
           onGenreClick={handleGenreClick}
+          showBackButton={isNarrow() && showingDetailOnNarrow()}
+          onBack={handleBack}
         />
       )}
     </Show>
@@ -644,25 +686,14 @@ export function ArtistsView(props: ArtistsViewProps) {
       />
     ) : null;
 
+  // handle back navigation on narrow
+  const handleBack = () => {
+    setShowingDetailOnNarrow(false);
+  };
+
   return (
     <div class="flex flex-col h-full">
-      {/* header */}
-      <div class="flex items-center justify-between p-4 ml-[150px]">
-        <div>
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-            artists
-          </h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {artistsData().length ?? 0}{" "}
-            {artistsData().length === 1 ? "artist" : "artists"}
-          </p>
-        </div>
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
-        </Button>
-      </div>
-
-      {/* two-column layout */}
+      {/* two-column layout - full height, handles its own scrolling */}
       <div class="flex-1 overflow-hidden">
         {isResetting() ? (
           <div class="flex items-center justify-center h-full">
@@ -673,6 +704,8 @@ export function ArtistsView(props: ArtistsViewProps) {
             leftColumn={leftColumn}
             rightColumn={rightColumn}
             alphabetNav={alphabetNav()}
+            showDetail={showingDetailOnNarrow()}
+            onBack={handleBack}
           />
         )}
       </div>

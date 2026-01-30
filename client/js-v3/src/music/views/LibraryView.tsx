@@ -1,5 +1,6 @@
 import { createResource, Show } from "solid-js";
 import { Button } from "../../components/buttons/Button";
+import { HeadingSection } from "../../components/layout/HeadingSection";
 import { VirtualSongList } from "../../components/virtualized/VirtualSongList";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
@@ -35,20 +36,17 @@ export function LibraryView(props: LibraryViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* header */}
-      <div class="flex items-center justify-between p-4">
-        <div>
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-            music library
-          </h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {songsData()?.total ?? 0}{" "}
-            {songsData()?.total === 1 ? "song" : "songs"}
-          </p>
-        </div>
-        <Button variant="primary" onClick={props.onAddMusic}>
-          add music
-        </Button>
-      </div>
+      <HeadingSection
+        title="music library"
+        count={songsData()?.total ?? 0}
+        countLabel={songsData()?.total === 1 ? "song" : "songs"}
+        loading={songsData.loading}
+        actions={
+          <Button variant="primary" onClick={props.onAddMusic}>
+            add music
+          </Button>
+        }
+      />
 
       {/* song list */}
       <div class="flex-1 overflow-hidden">

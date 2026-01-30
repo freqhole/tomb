@@ -1,8 +1,11 @@
-import { createSignal, onCleanup, onMount, Show, splitProps, type JSX } from "solid-js";
+import { createSignal, onCleanup, onMount, Show, splitProps, type JSX, type ParentProps } from "solid-js";
+import { Icon } from "../icons/registry";
 
-export interface HeadingSectionProps {
+export interface HeadingSectionProps extends ParentProps {
   /** main heading text */
   title: string;
+  /** custom title element (overrides title text, e.g. MarqueeText) */
+  titleElement?: JSX.Element;
   /** optional item count to display */
   count?: number;
   /** custom label for count (e.g. "favorites" instead of auto-pluralized title) */
@@ -19,12 +22,22 @@ export interface HeadingSectionProps {
   hideOnNarrow?: boolean;
   /** compact mode - less padding, smaller text */
   compact?: boolean;
+  /** variant: "list" for collection headers, "detail" for detail panel headers */
+  variant?: "list" | "detail";
+  /** make header sticky at top */
+  sticky?: boolean;
+  /** show bottom border */
+  border?: boolean;
+  /** show back button (for mobile navigation) */
+  showBackButton?: boolean;
+  /** callback when back button clicked */
+  onBack?: () => void;
   /** additional CSS classes */
   class?: string;
 }
 
 /**
- * heading section component for list views
+ * heading section component for list views and detail panels
  *
  * - displays title with optional count
  * - optional subtitle/description
@@ -32,8 +45,14 @@ export interface HeadingSectionProps {
  * - action buttons (play all, shuffle, etc)
  * - loading state support
  * - responsive hiding (hideOnNarrow) when title is shown in TopNav
+ * - sticky positioning for detail panel headers
+ * - back button for mobile navigation
  *
- * used in: song list, artist list, album grid, any collection view
+ * variants:
+ * - "list" (default): for collection list headers (artists, albums, songs, etc)
+ * - "detail": for detail panel headers (artist detail, album detail, etc)
+ *
+ * used in: song list, artist list, album grid, detail panels, any collection view
  */
 export function HeadingSection(props: HeadingSectionProps) {
   const NARROW_BREAKPOINT = 768;
@@ -51,6 +70,7 @@ export function HeadingSection(props: HeadingSectionProps) {
 
   const [local, others] = splitProps(props, [
     "title",
+    "titleElement",
     "count",
     "countLabel",
     "subtitle",
@@ -59,8 +79,16 @@ export function HeadingSection(props: HeadingSectionProps) {
     "loading",
     "hideOnNarrow",
     "compact",
+    "variant",
+    "sticky",
+    "border",
+    "showBackButton",
+    "onBack",
     "class",
+    "children",
   ]);
+
+  const isDetail = () => local.variant === "detail";
 
   // generate count text
   const countText = () => {
@@ -73,6 +101,44 @@ export function HeadingSection(props: HeadingSectionProps) {
     return `${local.count} ${label}${local.count !== 1 ? "" : ""}`;
   };
 
+  // build container classes
+  const containerClasses = () => {
+    const classes = ["flex-shrink-0"];
+    
+    // sticky positioning
+    if (local.sticky) {
+      classes.push("sticky top-0 z-10 bg-[var(--color-bg-primary)]");
+    }
+    
+    // border
+    if (local.border) {
+      classes.push("border-b border-[var(--color-border-default)]");
+    }
+    
+    // padding - detail variant uses responsive padding
+    if (isDetail()) {
+      classes.push("px-3 md:px-6 py-2 md:py-4");
+    } else if (local.compact) {
+      classes.push("p-2");
+    } else {
+      classes.push("p-3");
+    }
+    
+    if (local.class) {
+      classes.push(local.class);
+    }
+    
+    return classes.join(" ");
+  };
+
+  // title text size
+  const titleClasses = () => {
+    if (isDetail()) {
+      return "text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate";
+    }
+    return `${local.compact ? "text-xl" : "text-2xl"} font-semibold text-[var(--color-text-primary)] ${local.compact ? "mb-1" : "mb-2"}`;
+  };
+
   // hide on narrow if requested (title/count shown in TopNav instead)
   if (props.hideOnNarrow && isNarrow()) {
     // still render controls/actions on narrow, just not the title
@@ -80,7 +146,7 @@ export function HeadingSection(props: HeadingSectionProps) {
       return null;
     }
     return (
-      <div class={`flex-shrink-0 ${local.compact ? "p-2" : "p-3"} ${local.class || ""}`} {...others}>
+      <div class={containerClasses()} {...others}>
         <div class="flex items-center justify-between gap-4">
           <Show when={local.controls}>
             <div class="flex-shrink-0">{local.controls}</div>
@@ -93,14 +159,55 @@ export function HeadingSection(props: HeadingSectionProps) {
     );
   }
 
+  // detail variant: horizontal layout with back button + title + controls
+  if (isDetail()) {
+    return (
+      <div class={containerClasses()} {...others}>
+        <div class="flex items-center gap-3">
+          {/* back button */}
+          <Show when={local.showBackButton}>
+            <button
+              class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
+              onClick={() => local.onBack?.()}
+              aria-label="back to list"
+            >
+              <Icon name="chevronLeft" size={20} />
+            </button>
+          </Show>
+          
+          {/* title */}
+          <h2 class={`flex-1 min-w-0 ${titleClasses()}`}>
+            {local.titleElement || local.title}
+          </h2>
+          
+          {/* controls on the right */}
+          <Show when={local.controls}>
+            <div class="flex-shrink-0">{local.controls}</div>
+          </Show>
+        </div>
+        
+        {/* custom content (stats grids, etc) */}
+        <Show when={local.children}>
+          <div class="mt-4">{local.children}</div>
+        </Show>
+        
+        {/* actions below content if provided */}
+        <Show when={local.actions}>
+          <div class="flex items-center gap-2 mt-3">{local.actions}</div>
+        </Show>
+      </div>
+    );
+  }
+
+  // list variant: traditional vertical layout
   return (
-    <div class={`flex-shrink-0 ${local.compact ? "p-2" : "p-3"} ${local.class || ""}`} {...others}>
+    <div class={containerClasses()} {...others}>
       {/* header row with title and controls */}
       <div class={`flex items-start justify-between ${local.compact ? "mb-2" : "mb-4"} gap-4`}>
         {/* left side: title and count */}
         <div class="flex-1 min-w-0">
-          <h1 class={`${local.compact ? "text-xl" : "text-2xl"} font-semibold text-[var(--color-text-primary)] ${local.compact ? "mb-1" : "mb-2"}`}>
-            {local.title}
+          <h1 class={titleClasses()}>
+            {local.titleElement || local.title}
           </h1>
           <Show when={local.loading}>
             <p class="text-[var(--color-text-secondary)] text-sm">loading...</p>
@@ -122,6 +229,11 @@ export function HeadingSection(props: HeadingSectionProps) {
           <div class="flex-shrink-0">{local.controls}</div>
         </Show>
       </div>
+
+      {/* custom content (stats grids, etc) */}
+      <Show when={local.children}>
+        {local.children}
+      </Show>
 
       {/* action buttons row */}
       <Show when={local.actions}>
