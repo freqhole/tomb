@@ -375,3 +375,203 @@ export const NoSong: Story = {
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
+
+// ============================================================================
+// responsive / narrow viewport stories
+// ============================================================================
+
+// narrow viewport - playing
+export const NarrowPlaying: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => {
+    const [isPlaying, setIsPlaying] = createSignal(true);
+    const [currentTime, setCurrentTime] = createSignal(125);
+    const [queueOpen, setQueueOpen] = createSignal(false);
+
+    return (
+      <div class="relative w-[320px] min-h-[100px]">
+        <PlayerBar
+          song={mockSong}
+          isPlaying={isPlaying()}
+          currentTime={currentTime()}
+          duration={383}
+          volume={0.8}
+          queueOpen={queueOpen()}
+          onPlayPause={() => setIsPlaying(!isPlaying())}
+          onPrevious={() => setCurrentTime(0)}
+          onNext={() => console.log("next")}
+          onFavoriteToggle={(id) => console.log("favorite:", id)}
+          onSeek={(p) => setCurrentTime((p / 100) * 383)}
+          onVolumeChange={(v) => console.log("volume:", v)}
+          onQueueToggle={() => setQueueOpen(!queueOpen())}
+          queueLength={8}
+        />
+      </div>
+    );
+  },
+};
+
+// narrow viewport - long title
+export const NarrowLongTitle: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => {
+    const [isPlaying, setIsPlaying] = createSignal(true);
+    const [currentTime, setCurrentTime] = createSignal(180);
+
+    return (
+      <div class="relative w-[320px] min-h-[100px]">
+        <PlayerBar
+          song={{
+            id: "long",
+            title: "the epic song with an extremely long title that should marquee",
+            artist: "an artist with a really long name that also needs marquee animation",
+            album: "the album",
+            isFavorite: true,
+          }}
+          isPlaying={isPlaying()}
+          currentTime={currentTime()}
+          duration={720}
+          volume={0.8}
+          queueOpen={false}
+          onPlayPause={() => setIsPlaying(!isPlaying())}
+          onPrevious={() => console.log("previous")}
+          onNext={() => console.log("next")}
+          onFavoriteToggle={(id) => console.log("favorite:", id)}
+          onSeek={(p) => setCurrentTime((p / 100) * 720)}
+          onVolumeChange={(v) => console.log("volume:", v)}
+          onQueueToggle={() => console.log("queue")}
+          queueLength={15}
+        />
+      </div>
+    );
+  },
+};
+
+// narrow viewport - no song
+export const NarrowNoSong: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => (
+    <div class="relative w-[320px] min-h-[100px]">
+      <PlayerBar
+        isPlaying={false}
+        currentTime={0}
+        duration={0}
+        volume={0.8}
+        queueOpen={false}
+        onPlayPause={() => console.log("play")}
+        onPrevious={() => console.log("previous")}
+        onNext={() => console.log("next")}
+        onSeek={(p) => console.log("seek:", p)}
+        onVolumeChange={(v) => console.log("volume:", v)}
+        onQueueToggle={() => console.log("queue")}
+      />
+    </div>
+  ),
+};
+
+// narrow viewport - with queue badge
+export const NarrowWithQueue: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => {
+    const [queueOpen, setQueueOpen] = createSignal(false);
+
+    return (
+      <div class="relative w-[320px] min-h-[100px]">
+        <PlayerBar
+          song={mockSong}
+          isPlaying={true}
+          currentTime={45}
+          duration={383}
+          volume={0.8}
+          queueOpen={queueOpen()}
+          onPlayPause={() => console.log("pause")}
+          onPrevious={() => console.log("previous")}
+          onNext={() => console.log("next")}
+          onFavoriteToggle={(id) => console.log("favorite:", id)}
+          onSeek={(p) => console.log("seek:", p)}
+          onVolumeChange={(v) => console.log("volume:", v)}
+          onQueueToggle={() => setQueueOpen(!queueOpen())}
+          queueLength={24}
+        />
+      </div>
+    );
+  },
+};
+
+// comparison: narrow vs wide side by side
+export const ResponsiveComparison: Story = {
+  render: () => {
+    const [isPlaying, setIsPlaying] = createSignal(true);
+    const [currentTime, setCurrentTime] = createSignal(125);
+
+    return (
+      <div class="space-y-8 p-4">
+        <div>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
+            narrow viewport (320px) - 2 rows
+          </h3>
+          <div class="relative w-[320px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden">
+            <PlayerBar
+              song={mockSong}
+              isPlaying={isPlaying()}
+              currentTime={currentTime()}
+              duration={383}
+              volume={0.8}
+              queueOpen={false}
+              onPlayPause={() => setIsPlaying(!isPlaying())}
+              onPrevious={() => setCurrentTime(0)}
+              onNext={() => console.log("next")}
+              onFavoriteToggle={(id) => console.log("favorite:", id)}
+              onSeek={(p) => setCurrentTime((p / 100) * 383)}
+              onVolumeChange={(v) => console.log("volume:", v)}
+              onQueueToggle={() => console.log("queue")}
+              queueLength={8}
+              class="!relative"
+            />
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
+            wide viewport (768px+) - 1 row
+          </h3>
+          <div class="relative w-[900px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden">
+            <PlayerBar
+              song={mockSong}
+              isPlaying={isPlaying()}
+              currentTime={currentTime()}
+              duration={383}
+              volume={0.8}
+              queueOpen={false}
+              onPlayPause={() => setIsPlaying(!isPlaying())}
+              onPrevious={() => setCurrentTime(0)}
+              onNext={() => console.log("next")}
+              onFavoriteToggle={(id) => console.log("favorite:", id)}
+              onSeek={(p) => setCurrentTime((p / 100) * 383)}
+              onVolumeChange={(v) => console.log("volume:", v)}
+              onQueueToggle={() => console.log("queue")}
+              queueLength={8}
+              class="!relative"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  },
+};

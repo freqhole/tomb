@@ -53,9 +53,13 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   // calculate responsive columns from width
   const getColumnsForWidth = (width: number): number => {
     if (props.columns) return props.columns;
-    if (width < 1024) return 3;
-    if (width < 1280) return 4;
-    return 5;
+    // responsive column counts
+    if (width < 480) return 2;   // very narrow phones
+    if (width < 640) return 2;   // phones
+    if (width < 768) return 3;   // large phones / small tablets
+    if (width < 1024) return 3;  // tablets
+    if (width < 1280) return 4;  // small desktops
+    return 5;                    // large desktops
   };
 
   const columns = () => getColumnsForWidth(containerWidth());

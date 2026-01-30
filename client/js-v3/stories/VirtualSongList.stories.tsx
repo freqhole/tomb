@@ -241,3 +241,63 @@ export const PerformanceTest: Story = {
     );
   },
 };
+
+// ============================================================================
+// responsive layout stories
+// ============================================================================
+
+// narrow viewport - compact row mode
+export const NarrowCompactRows: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => {
+    const songs = generateSongs(50);
+    const [playingSongId, setPlayingSongId] = createSignal<string | undefined>();
+
+    return (
+      <div class="w-[320px]">
+        <div class="p-2 text-xs text-[var(--color-text-secondary)] mb-2">
+          narrow viewport (320px) - compact 2-line row layout
+        </div>
+        <VirtualSongList
+          songs={songs}
+          height={500}
+          playingSongId={playingSongId()}
+          onSongDoubleClick={(song) => setPlayingSongId(song.sha256)}
+        />
+      </div>
+    );
+  },
+};
+
+// comparison: narrow vs wide
+export const ResponsiveComparison: Story = {
+  render: () => {
+    const songs = generateSongs(30);
+
+    return (
+      <div class="space-y-8 p-4">
+        <div>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
+            narrow (320px) - compact rows
+          </h3>
+          <div class="w-[320px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden">
+            <VirtualSongList songs={songs} height={400} />
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
+            wide (900px) - table layout
+          </h3>
+          <div class="w-[900px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden">
+            <VirtualSongList songs={songs} height={400} />
+          </div>
+        </div>
+      </div>
+    );
+  },
+};

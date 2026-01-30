@@ -462,3 +462,170 @@ export const MixedThumbnails: Story = {
     );
   },
 };
+
+// ============================================================================
+// responsive / narrow viewport stories - bottom sheet behavior
+// ============================================================================
+
+// narrow viewport - bottom sheet open
+export const NarrowBottomSheetOpen: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => {
+    const [isOpen, setIsOpen] = createSignal(true);
+    const [songs, setSongs] = createSignal(mockQueueSongs);
+    const [currentIndex, setCurrentIndex] = createSignal(2);
+
+    const handleRemoveSong = (index: number) => {
+      setSongs(songs().filter((_, i) => i !== index));
+      if (currentIndex() >= index && currentIndex() > 0) {
+        setCurrentIndex((prev) => prev - 1);
+      }
+    };
+
+    return (
+      <div class="relative h-screen w-[320px] bg-[var(--color-bg-primary)]">
+        <div class="p-4">
+          <h2 class="text-lg font-medium text-[var(--color-text-primary)] mb-4">
+            narrow viewport (320px)
+          </h2>
+          <p class="text-sm text-[var(--color-text-secondary)] mb-4">
+            queue appears as bottom sheet
+          </p>
+          <button
+            onClick={() => setIsOpen(!isOpen())}
+            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors w-full"
+          >
+            {isOpen() ? "close queue" : "open queue"}
+          </button>
+        </div>
+
+        <QueueSidebar
+          songs={songs()}
+          currentIndex={currentIndex()}
+          isOpen={isOpen()}
+          variant="overlay"
+          onClose={() => setIsOpen(false)}
+          onSongClick={(index) => setCurrentIndex(index)}
+          onSongDoubleClick={(index) => setCurrentIndex(index)}
+          onRemoveSong={handleRemoveSong}
+          onClearAll={() => {
+            setSongs([]);
+            setCurrentIndex(0);
+          }}
+        />
+      </div>
+    );
+  },
+};
+
+// narrow viewport - bottom sheet closed
+export const NarrowBottomSheetClosed: Story = {
+  parameters: {
+    viewport: {
+      defaultViewport: "mobile1",
+    },
+  },
+  render: () => {
+    const [isOpen, setIsOpen] = createSignal(false);
+
+    return (
+      <div class="relative h-screen w-[320px] bg-[var(--color-bg-primary)]">
+        <div class="p-4">
+          <h2 class="text-lg font-medium text-[var(--color-text-primary)] mb-4">
+            narrow viewport (320px) - closed
+          </h2>
+          <p class="text-sm text-[var(--color-text-secondary)] mb-4">
+            tap button to see bottom sheet slide up
+          </p>
+          <button
+            onClick={() => setIsOpen(!isOpen())}
+            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors w-full"
+          >
+            {isOpen() ? "close queue" : "open queue"}
+          </button>
+        </div>
+
+        <QueueSidebar
+          songs={mockQueueSongs}
+          currentIndex={0}
+          isOpen={isOpen()}
+          variant="overlay"
+          onClose={() => setIsOpen(false)}
+          onSongClick={(i) => console.log("clicked:", i)}
+          onRemoveSong={(i) => console.log("remove:", i)}
+          onClearAll={() => console.log("clear all")}
+        />
+      </div>
+    );
+  },
+};
+
+// comparison: narrow vs wide
+export const ResponsiveComparison: Story = {
+  render: () => {
+    const [narrowOpen, setNarrowOpen] = createSignal(true);
+    const [wideOpen, setWideOpen] = createSignal(true);
+
+    return (
+      <div class="flex gap-8 p-4">
+        {/* narrow - bottom sheet */}
+        <div>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
+            narrow (bottom sheet)
+          </h3>
+          <div class="relative h-[500px] w-[320px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden">
+            <div class="p-4">
+              <button
+                onClick={() => setNarrowOpen(!narrowOpen())}
+                class="px-3 py-1.5 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] rounded text-sm"
+              >
+                {narrowOpen() ? "close" : "open"}
+              </button>
+            </div>
+            <QueueSidebar
+              songs={mockQueueSongs.slice(0, 5)}
+              currentIndex={1}
+              isOpen={narrowOpen()}
+              variant="overlay"
+              onClose={() => setNarrowOpen(false)}
+              onSongClick={(i) => console.log("clicked:", i)}
+              onRemoveSong={(i) => console.log("remove:", i)}
+              onClearAll={() => console.log("clear all")}
+            />
+          </div>
+        </div>
+
+        {/* wide - sidebar */}
+        <div>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
+            wide (sidebar)
+          </h3>
+          <div class="relative h-[500px] w-[500px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden flex">
+            <div class="flex-1 p-4">
+              <button
+                onClick={() => setWideOpen(!wideOpen())}
+                class="px-3 py-1.5 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] rounded text-sm"
+              >
+                {wideOpen() ? "close" : "open"}
+              </button>
+            </div>
+            <QueueSidebar
+              songs={mockQueueSongs.slice(0, 5)}
+              currentIndex={1}
+              isOpen={wideOpen()}
+              variant="inline"
+              onClose={() => setWideOpen(false)}
+              onSongClick={(i) => console.log("clicked:", i)}
+              onRemoveSong={(i) => console.log("remove:", i)}
+              onClearAll={() => console.log("clear all")}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  },
+};

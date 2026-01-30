@@ -63,6 +63,8 @@ export interface PlayerBarProps {
   canGoNext?: boolean;
   /** queue length for badge */
   queueLength?: number;
+  /** hide the queue toggle button (e.g., on narrow views when it's in top nav) */
+  hideQueueToggle?: boolean;
   /** additional classes */
   class?: string;
 }
@@ -84,7 +86,7 @@ export function PlayerBar(props: PlayerBarProps) {
 
   let isDragging = false;
 
-  const updateProgress = (e: MouseEvent, target: HTMLElement) => {
+  const updateProgress = (e: MouseEvent | Touch, target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
     const x = e.clientX - rect.left;
     // clamp between 0 and rect.width, then convert to percentage
@@ -114,11 +116,169 @@ export function PlayerBar(props: PlayerBarProps) {
     document.addEventListener("mouseup", handleMouseUp);
   };
 
+  // touch support for progress bar
+  const handleTouchStart = (e: TouchEvent) => {
+    isDragging = true;
+    const target = e.currentTarget as HTMLElement;
+    const touch = e.touches[0];
+    updateProgress(touch, target);
+  };
+
+  const handleTouchMove = (e: TouchEvent) => {
+    if (isDragging) {
+      const target = e.currentTarget as HTMLElement;
+      const touch = e.touches[0];
+      updateProgress(touch, target);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    isDragging = false;
+  };
+
   return (
     <div
-      class={`fixed bottom-0 left-0 right-0 bg-[var(--color-bg-primary)]/90 backdrop-blur-xl p-4 z-50 ${props.class || ""}`}
+      class={`fixed bottom-0 left-0 right-0 bg-[var(--color-bg-primary)]/90 backdrop-blur-xl z-50 ${props.class || ""}`}
+      style={{ height: "var(--player-height)" }}
     >
-      <div class="flex items-center gap-6">
+      {/* narrow layout: 2 rows */}
+      <div class="flex flex-col h-full md:hidden p-2 gap-1">
+        {/* row 1: thumbnail, fav, title/artist, controls, queue */}
+        <div class="flex items-center gap-2 flex-1 min-h-0">
+          {/* thumbnail */}
+          <div class="w-10 h-10 flex-shrink-0">
+            <MediaImage
+              images={props.song?.images}
+              blobId={props.song?.thumbnailBlobId}
+              imageUrl={props.song?.thumbnailUrl}
+              alt={props.song?.title || 'song artwork'}
+              domainType="song"
+              class="w-10 h-10 rounded object-cover"
+            />
+          </div>
+
+          {/* favorite button */}
+          <Show when={props.song}>
+            {(song) => (
+              <div class="flex-shrink-0">
+                <FavoriteHeart
+                  isFavorite={song().isFavorite || false}
+                  onToggle={() => props.onFavoriteToggle?.(song().id)}
+                  size="sm"
+                  class="opacity-80"
+                />
+              </div>
+            )}
+          </Show>
+
+          {/* title/artist - flex-1 with truncation */}
+          <div class="flex-1 min-w-0">
+            <Show
+              when={props.song}
+              fallback={
+                <div class="text-[var(--color-text-secondary)] text-sm">
+                  no song playing
+                </div>
+              }
+            >
+              <MarqueeText
+                text={props.song!.title}
+                class="text-[var(--color-text-primary)] font-medium text-sm"
+              />
+              <MarqueeText
+                text={props.song!.artist}
+                class="text-[var(--color-text-tertiary)] text-xs"
+              />
+            </Show>
+          </div>
+
+          {/* compact controls */}
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button
+              class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => props.onPrevious()}
+              disabled={!canGoPrevious()}
+              title="previous"
+              aria-label="previous"
+            >
+              <Icon name="previous" size={16} />
+            </button>
+
+            <button
+              class="w-10 h-10 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-colors flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
+              onClick={() => props.onPlayPause()}
+              disabled={props.isLoading}
+              title={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
+              aria-label={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
+            >
+              <Show
+                when={!props.isLoading}
+                fallback={<div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              >
+                <Icon name={props.isPlaying ? "pause" : "play"} size={20} />
+              </Show>
+            </button>
+
+            <button
+              class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => props.onNext()}
+              disabled={!canGoNext()}
+              title="next"
+              aria-label="next"
+            >
+              <Icon name="next" size={16} />
+            </button>
+          </div>
+
+          {/* queue toggle */}
+          <Show when={!props.hideQueueToggle}>
+            <button
+              class={`w-8 h-8 rounded-full border-none cursor-pointer transition-colors flex items-center justify-center relative flex-shrink-0 ${
+                props.queueOpen
+                  ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                  : "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30"
+              }`}
+              onClick={() => props.onQueueToggle()}
+              title={props.queueOpen ? "hide queue" : "show queue"}
+              aria-label={props.queueOpen ? "hide queue" : "show queue"}
+            >
+              <Icon name="queue" size={16} />
+              <Show when={(props.queueLength || 0) > 0}>
+                <span class="absolute -top-1 -right-1 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-medium">
+                  {props.queueLength}
+                </span>
+              </Show>
+            </button>
+          </Show>
+        </div>
+
+        {/* row 2: time + full-width progress + duration */}
+        <div class="flex items-center gap-2 h-6">
+          <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] text-right tabular-nums">
+            {formatTime(props.currentTime)}
+          </span>
+
+          <div
+            class="flex-1 h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden cursor-pointer"
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            <div
+              class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] rounded-full"
+              style={{ width: `${progress()}%` }}
+            />
+          </div>
+
+          <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums">
+            {formatTime(props.duration)}
+          </span>
+        </div>
+      </div>
+
+      {/* wide layout: single row (hidden on narrow) */}
+      <div class="hidden md:flex items-center gap-6 h-full p-4">
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
           {/* thumbnail */}

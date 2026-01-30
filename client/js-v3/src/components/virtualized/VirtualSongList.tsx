@@ -1,7 +1,7 @@
 // virtualized song list - optimized for large lists with infinite scroll
 
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -9,9 +9,14 @@ import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 
-const ROW_HEIGHT = 48;
+// row heights for different layouts
+const TABLE_ROW_HEIGHT = 48;
+const COMPACT_ROW_HEIGHT = 64; // taller for 2-line content
 const OVERSCAN = 5;
 const IMAGE_SIZE = 40;
+
+// breakpoint for switching layouts (matches Tailwind md)
+const NARROW_BREAKPOINT = 768;
 
 // horizontal padding for cells - adjust this value to change spacing
 const CELL_PAD = "px-2";
@@ -57,6 +62,14 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
   // track which row is hovered for marquee text
   const [hoveredRowIndex, setHoveredRowIndex] = createSignal<number | null>(null);
+  
+  // responsive: track if we're in narrow mode
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+  
+  // current row height based on layout mode
+  const rowHeight = () => isNarrow() ? COMPACT_ROW_HEIGHT : TABLE_ROW_HEIGHT;
 
   // stable count accessor - only updates when length actually changes
   const count = createMemo(() => props.songs.length);
@@ -66,8 +79,23 @@ export function VirtualSongList(props: VirtualSongListProps) {
       return count();
     },
     getScrollElement: () => scrollContainerRef ?? null,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight(),
     overscan: OVERSCAN,
+  });
+
+  // listen for resize to update layout mode
+  onMount(() => {
+    const handleResize = () => {
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      if (narrow !== isNarrow()) {
+        setIsNarrow(narrow);
+        // force virtualizer to recalculate with new row height
+        virtualizer.measure();
+      }
+    };
+    
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
   // restore scroll position on mount
@@ -215,11 +243,92 @@ export function VirtualSongList(props: VirtualSongListProps) {
       style={{ height: `${props.height}px` }}
       onScroll={checkNearEnd}
     >
-      {/* header row */}
-      <div
-        class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
-        style={{ height: `${ROW_HEIGHT}px` }}
-      >
+      {/* narrow layout: compact rows without header */}
+      <Show when={isNarrow()}>
+        <div
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            position: "relative",
+          }}
+          onClick={handleContainerClick}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const song = props.songs[virtualRow.index];
+            if (!song) return null;
+
+            const isPlaying = props.playingSongId === song.sha256;
+
+            const compactRow = (
+              <div
+                data-row-index={virtualRow.index}
+                class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer border-b border-[var(--color-border-subtle)] ${
+                  isPlaying
+                    ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                    : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
+                }`}
+                style={{
+                  height: `${COMPACT_ROW_HEIGHT}px`,
+                  top: `${virtualRow.start}px`,
+                }}
+              >
+                {/* thumbnail */}
+                <div class="flex-shrink-0">
+                  <MediaThumbnail
+                    images={getImages(song)}
+                    indexText={getTrackText(song, virtualRow.index)}
+                    size={48}
+                    onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
+                    enablePlayClick={!!props.onPlayClick}
+                    showPlayIcon={true}
+                  />
+                </div>
+                
+                {/* title + artist/album on two lines */}
+                <div class="flex-1 min-w-0">
+                  <div class={`text-sm font-medium truncate ${isPlaying ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)]"}`}>
+                    {song.title || "untitled"}
+                  </div>
+                  <div class="text-xs text-[var(--color-text-secondary)] truncate">
+                    {song.artist_name || "unknown"} • {song.album_title || "unknown"}
+                  </div>
+                </div>
+                
+                {/* favorite */}
+                <div class="flex-shrink-0">
+                  <FavoriteHeart
+                    isFavorite={song.is_favorite ?? false}
+                    onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
+                    size="sm"
+                    readonly={!props.onFavoriteToggle}
+                  />
+                </div>
+                
+                {/* duration */}
+                <div class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0 w-10 text-right">
+                  {formatDuration(song.duration_seconds)}
+                </div>
+              </div>
+            );
+
+            if (props.getContextMenuActions) {
+              return (
+                <ContextMenu actions={props.getContextMenuActions(song, virtualRow.index)}>
+                  {compactRow}
+                </ContextMenu>
+              );
+            }
+            return compactRow;
+          })}
+        </div>
+      </Show>
+
+      {/* wide layout: table with header */}
+      <Show when={!isNarrow()}>
+        {/* header row */}
+        <div
+          class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
+          style={{ height: `${TABLE_ROW_HEIGHT}px` }}
+        >
         <div class="w-12 shrink-0"></div>
         <div 
           class={`flex-1 min-w-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
@@ -297,7 +406,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                   : "hover:bg-[var(--color-bg-tertiary)]"
               }`}
               style={{
-                height: `${ROW_HEIGHT}px`,
+                height: `${TABLE_ROW_HEIGHT}px`,
                 top: `${virtualRow.start}px`,
               }}
             >
@@ -386,6 +495,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
           return rowContent;
         })}
       </div>
+      </Show>
     </div>
   );
 }

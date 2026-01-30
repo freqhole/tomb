@@ -10,7 +10,10 @@ type TopNavSearchContainerProps = Omit<
   | "hasMoreSuggestions"
   | "isLoadingSuggestions"
   | "onLoadMoreSuggestions"
->;
+> & {
+  /** callback when search expanded state changes */
+  onExpandedChange?: (expanded: boolean) => void;
+};
 
 /**
  * smart wrapper around TopNavSearch that provides search suggestions

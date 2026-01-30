@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
@@ -11,19 +11,19 @@ import {
 } from "../src/components/cards/StatsCard";
 import { SearchSortControls } from "../src/components/controls/SearchSortControls";
 import { HeadingSection } from "../src/components/layout/HeadingSection";
-import { TwoColumnLayout } from "../src/components/layout/TwoColumnLayout";
+import { TwoColumnLayout, ResponsiveMasterDetail, type MasterDetailContext } from "../src/components/layout/TwoColumnLayout";
 import {
   DraggableRow,
   DraggableRowSongContent,
 } from "../src/components/lists/DraggableRow";
 import { AlphabetNav } from "../src/components/navigation/AlphabetNav";
 import { TopNav } from "../src/components/navigation/TopNav";
+import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import type { Song as DomainSong } from "../src/music/data/types";
-import { createIsMobile } from "../src/utils/isMobile";
 import {
   generateBulkAlbums,
   generateBulkSongs,
@@ -53,7 +53,7 @@ type Story = StoryObj<typeof meta>;
 // generate reusable mock songs
 const generatedSongs = generateBulkSongs(100);
 
-type Route = "songs" | "albums" | "artists" | "genres" | "playlists";
+type Route = "songs" | "albums" | "artists" | "genres" | "playlists" | "favorites";
 
 const artistSortFields = [
   { value: "name", label: "name", description: "sort by artist name" },
@@ -82,8 +82,6 @@ const genreSortFields = [
  */
 export const FullAppDemo: Story = {
   render: () => {
-    const isMobile = createIsMobile();
-
     // navigation state
     const [currentRoute, setCurrentRoute] = createSignal<Route>("songs");
     const [topNavOpen, setTopNavOpen] = createSignal(false);
@@ -100,6 +98,41 @@ export const FullAppDemo: Story = {
       generatedSongs.slice(0, 20),
     );
     const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
+
+    // responsive: track if viewport is narrow (< 768px)
+    const NARROW_BREAKPOINT = 768;
+    const [isNarrow, setIsNarrow] = createSignal(
+      typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+    );
+
+    onMount(() => {
+      const handleResize = () => {
+        setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      };
+      window.addEventListener("resize", handleResize);
+      onCleanup(() => window.removeEventListener("resize", handleResize));
+    });
+
+    // compute page title and count based on current route
+    const pageInfo = () => {
+      switch (currentRoute()) {
+        case "songs":
+          return { title: "songs", count: generatedSongs.length };
+        case "albums":
+          return { title: "albums", count: mockAlbums.length };
+        case "artists":
+          return { title: "artists", count: mockArtists.length };
+        case "genres":
+          return { title: "genres", count: mockGenres.length };
+        case "playlists":
+          return { title: "playlists", count: mockPlaylists.length };
+        case "favorites":
+          // mock: assume 25 favorites
+          return { title: "favorites", count: 25 };
+        default:
+          return { title: undefined, count: undefined };
+      }
+    };
 
     // artists view state
     const [selectedArtist, setSelectedArtist] = createSignal<Artist | null>(
@@ -135,6 +168,60 @@ export const FullAppDemo: Story = {
     // playlists view state
     const [selectedPlaylist, setSelectedPlaylist] =
       createSignal<Playlist | null>(mockPlaylists[0]);
+
+    // search state
+    const [searchValue, setSearchValue] = createSignal("");
+    const mockSearchSuggestions = () => {
+      const query = searchValue().toLowerCase();
+      if (!query || query.length < 2) return [];
+
+      // filter mock data based on search query
+      const artistSuggestions = mockArtists
+        .filter((a) => a.name.toLowerCase().includes(query))
+        .slice(0, 3)
+        .map((a) => ({
+          id: `artist-${a.id}`,
+          text: a.name,
+          category: "artists",
+          highlight: a.name.replace(
+            new RegExp(`(${query})`, "gi"),
+            "<mark>$1</mark>",
+          ),
+          count: a.songCount,
+        }));
+
+      const songSuggestions = generatedSongs
+        .filter(
+          (s) =>
+            s.title.toLowerCase().includes(query) ||
+            s.artist_name?.toLowerCase().includes(query),
+        )
+        .slice(0, 3)
+        .map((s) => ({
+          id: `song-${s.id}`,
+          text: s.title,
+          category: "songs",
+          highlight: s.title.replace(
+            new RegExp(`(${query})`, "gi"),
+            "<mark>$1</mark>",
+          ),
+        }));
+
+      const albumSuggestions = mockAlbums
+        .filter((a) => a.title.toLowerCase().includes(query))
+        .slice(0, 3)
+        .map((a) => ({
+          id: `album-${a.id}`,
+          text: a.title,
+          category: "albums",
+          highlight: a.title.replace(
+            new RegExp(`(${query})`, "gi"),
+            "<mark>$1</mark>",
+          ),
+        }));
+
+      return [...artistSuggestions, ...songSuggestions, ...albumSuggestions];
+    };
 
     // sort artists
     const sortedArtists = () => {
@@ -263,15 +350,6 @@ export const FullAppDemo: Story = {
     const navigateTo = (route: Route) => {
       setCurrentRoute(route);
       setTopNavOpen(false); // close topnav after navigation
-      if (route === "artists" && !selectedArtist()) {
-        setSelectedArtist(mockArtists[0]);
-      }
-      if (route === "genres" && !selectedGenre()) {
-        setSelectedGenre(mockGenres[0]);
-      }
-      if (route === "playlists" && !selectedPlaylist()) {
-        setSelectedPlaylist(mockPlaylists[0]);
-      }
     };
 
     // player handlers
@@ -309,55 +387,188 @@ export const FullAppDemo: Story = {
       }
     };
 
-    // ===== ARTISTS VIEW =====
-    const artistsLeftColumn = (
-      <div class="flex flex-col h-full mt-[60px]">
-        <HeadingSection
-          title="artists"
-          count={sortedArtists().length}
-          controls={
-            <SearchSortControls
-              sortBy={artistSortBy()}
-              sortDirection={artistSortDirection()}
-              onSortChange={(field, direction) => {
-                setArtistSortBy(field);
-                setArtistSortDirection(direction);
-              }}
-              sortFields={artistSortFields}
+    // ===== ARTISTS VIEW (using ResponsiveMasterDetail) =====
+    const artistsView = () => (
+      <ResponsiveMasterDetail<Artist>
+        items={sortedArtists}
+        initialSelection={mockArtists[0]}
+        getItemKey={(a) => a.id}
+        alphabetNav={
+          artistSortBy() === "name" ? (
+            <div class="mt-2 md:mt-[60px]">
+              <AlphabetNav
+                currentLetter={currentLetter()}
+                disabledLetters={disabledLetters()}
+                onLetterClick={(letter) => {
+                  setCurrentLetter(letter);
+                  console.log("jump to letter:", letter);
+                }}
+                sortDirection={artistSortDirection()}
+              />
+            </div>
+          ) : undefined
+        }
+        renderList={(ctx) => (
+          <div class="flex flex-col h-full mt-2 md:mt-[60px]">
+            <HeadingSection
+              title="artists"
+              count={sortedArtists().length}
+              hideOnNarrow
+              controls={
+                <SearchSortControls
+                  sortBy={artistSortBy()}
+                  sortDirection={artistSortDirection()}
+                  onSortChange={(field, direction) => {
+                    setArtistSortBy(field);
+                    setArtistSortDirection(direction);
+                  }}
+                  sortFields={artistSortFields}
+                />
+              }
             />
-          }
-        />
 
-        <div class="flex-1 overflow-y-auto">
-          <For each={sortedArtists()}>
+            <div class="flex-1 overflow-y-auto">
+              <For each={sortedArtists()}>
+                {(artist) => (
+                  <button
+                    class={`
+                      w-full px-6 py-3 text-left transition-colors border-l-2
+                      ${
+                        ctx.selectedItem()?.id === artist.id
+                          ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                          : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                      }
+                    `}
+                    onClick={() => ctx.selectItem(artist)}
+                  >
+                    <div class="font-medium">{artist.name}</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)]">
+                      {formatNumber(artist.songCount)} songs · {artist.albumCount}{" "}
+                      albums
+                    </div>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
+        renderDetail={(ctx) => (
+          <Show when={ctx.selectedItem()}>
             {(artist) => (
-              <button
-                class={`
-                  w-full px-6 py-3 text-left transition-colors border-l-2
-                  ${
-                    selectedArtist()?.id === artist.id
-                      ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                      : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
-                  }
-                `}
-                onClick={() => setSelectedArtist(artist)}
-              >
-                <div class="font-medium">{artist.name}</div>
-                <div class="text-xs text-[var(--color-text-tertiary)]">
-                  {formatNumber(artist.songCount)} songs · {artist.albumCount}{" "}
-                  albums
+              <div class="flex flex-col h-full">
+                {/* sticky header with back button + title */}
+                <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-4 flex items-center gap-3">
+                  <Show when={ctx.isNarrow() && ctx.showingDetail()}>
+                    <button
+                      class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
+                      onClick={() => ctx.onBack()}
+                      aria-label="back to list"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                  </Show>
+                  <h2 class="text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate">
+                    {artist().name}
+                  </h2>
                 </div>
-              </button>
-            )}
-          </For>
-        </div>
-      </div>
-    );
 
-    const artistsRightColumn = (
-      <Show
-        when={selectedArtist()}
-        fallback={
+                {/* scrollable content area */}
+                <div class="flex-1 overflow-y-auto">
+                  {/* stats section */}
+                  <div class="p-3 md:p-6">
+                    <StatsGrid columns={5} gap="md" class="mb-3 md:mb-6">
+                      <StatsCard
+                        label="songs"
+                        value={formatNumber(artist().songCount)}
+                        icon="music"
+                      />
+                      <StatsCard
+                        label="albums"
+                        value={formatNumber(artist().albumCount)}
+                        icon="album"
+                      />
+                      <StatsCard
+                        label="duration"
+                        value={formatDuration(artist().totalDuration)}
+                        icon="recent"
+                      />
+                      <StatsCard
+                        label="avg rating"
+                        value={artist().avgRating.toFixed(1)}
+                        icon="star"
+                        subtitle="out of 5.0"
+                      />
+                      <StatsCard
+                        label="genres"
+                        value={artist().genres[0]}
+                        subtitle={artist().genres.slice(1).join(", ")}
+                      />
+                    </StatsGrid>
+                  </div>
+
+                  {/* top songs list */}
+                  <div class="px-3 md:px-6 pb-4">
+                    <div class="mb-3 flex items-center justify-between">
+                      <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
+                        top songs
+                      </h3>
+                    </div>
+                    <div class="space-y-1">
+                      <For each={generatedSongs.slice(0, 10)}>
+                        {(song) => (
+                          <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+                            <IconButton
+                              icon="play"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="play song"
+                            />
+                            <div class="flex-1 min-w-0">
+                              <div class="body-small text-[var(--color-text-primary)] truncate">
+                                {song.title}
+                              </div>
+                              <div class="caption truncate">{song.album_title}</div>
+                            </div>
+                            <div class="monospace caption text-[var(--color-text-muted)]">
+                              {formatDuration(song.duration_seconds)}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </div>
+
+                {/* sticky action buttons */}
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+                  <Button
+                    variant="primary"
+                    onClick={() => console.log("play all songs")}
+                  >
+                    <span class="hidden md:inline">play all</span>
+                    <span class="md:hidden">play</span>
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => console.log("shuffle")}
+                  >
+                    shuffle
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => console.log("add to queue")}
+                  >
+                    <span class="hidden md:inline">add to queue</span>
+                    <span class="md:hidden">+queue</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Show>
+        )}
+        renderEmpty={() => (
           <div class="flex items-center justify-center h-full">
             <div class="text-center text-[var(--color-text-tertiary)]">
               <svg
@@ -373,396 +584,342 @@ export const FullAppDemo: Story = {
               </p>
             </div>
           </div>
-        }
-      >
-        {(artist) => (
-          <div class="flex flex-col h-full overflow-y-auto">
-            {/* artist header with stats */}
-            <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] p-6">
-              <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-                {artist().name}
-              </h2>
+        )}
+      />
+    );
 
-              <StatsGrid columns={5} gap="md" class="mb-6">
-                <StatsCard
-                  label="songs"
-                  value={formatNumber(artist().songCount)}
-                  icon="music"
-                />
-                <StatsCard
-                  label="albums"
-                  value={formatNumber(artist().albumCount)}
-                  icon="album"
-                />
-                <StatsCard
-                  label="duration"
-                  value={formatDuration(artist().totalDuration)}
-                  icon="recent"
-                />
-                <StatsCard
-                  label="avg rating"
-                  value={artist().avgRating.toFixed(1)}
-                  icon="star"
-                  subtitle="out of 5.0"
-                />
-                <StatsCard
-                  label="genres"
-                  value={artist().genres[0]}
-                  subtitle={artist().genres.slice(1).join(", ")}
-                />
-              </StatsGrid>
-
-              {/* action buttons */}
-              <div class="flex gap-3">
-                <Button
-                  variant="primary"
-                  onClick={() => console.log("play all songs")}
-                >
-                  play all
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => console.log("shuffle")}
-                >
-                  shuffle
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => console.log("add to queue")}
-                >
-                  add to queue
-                </Button>
-              </div>
+    // ===== GENRES VIEW (using ResponsiveMasterDetail) =====
+    const genresView = () => (
+      <ResponsiveMasterDetail<Genre>
+        items={sortedGenres}
+        initialSelection={mockGenres[0]}
+        getItemKey={(g) => g.id}
+        renderList={(ctx) => (
+          <div class="flex flex-col h-full">
+            <div class="mt-2 md:mt-[60px]">
+              <HeadingSection
+                title="genres"
+                count={sortedGenres().length}
+                hideOnNarrow
+                controls={
+                  <SearchSortControls
+                    sortBy={genreSortBy()}
+                    sortDirection={genreSortDirection()}
+                    onSortChange={(field, direction) => {
+                      setGenreSortBy(field);
+                      setGenreSortDirection(direction);
+                    }}
+                    sortFields={genreSortFields}
+                  />
+                }
+              />
             </div>
 
-            {/* top songs list */}
-            <div class="flex-1 px-6 py-4 overflow-y-auto">
-              <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                  top songs
-                </h3>
-              </div>
-              <div class="space-y-1">
-                <For each={generatedSongs.slice(0, 10)}>
-                  {(song) => (
-                    <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                      <IconButton
-                        icon="play"
-                        size="sm"
-                        variant="ghost"
-                        aria-label="play song"
-                      />
-                      <div class="flex-1">
-                        <div class="body-small text-[var(--color-text-primary)]">
-                          {song.title}
-                        </div>
-                        <div class="caption">{song.album_title}</div>
-                      </div>
-                      <div class="monospace caption text-[var(--color-text-muted)]">
-                        {formatDuration(song.duration_seconds)}
-                      </div>
+            <div class="flex-1 overflow-y-auto">
+              <For each={sortedGenres()}>
+                {(genre) => (
+                  <button
+                    class={`
+                      w-full px-6 py-3 text-left transition-colors border-l-2
+                      ${
+                        ctx.selectedItem()?.id === genre.id
+                          ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                          : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                      }
+                    `}
+                    onClick={() => ctx.selectItem(genre)}
+                  >
+                    <div class="font-medium">{genre.name}</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)]">
+                      {formatNumber(genre.songCount)} songs · {genre.artistCount}{" "}
+                      artists
                     </div>
-                  )}
-                </For>
-              </div>
+                  </button>
+                )}
+              </For>
             </div>
           </div>
         )}
-      </Show>
-    );
-
-    const artistsAlphabetNav =
-      artistSortBy() === "name" ? (
-        <div class="mt-[60px]">
-          <AlphabetNav
-            currentLetter={currentLetter()}
-            disabledLetters={disabledLetters()}
-            onLetterClick={(letter) => {
-              setCurrentLetter(letter);
-              console.log("jump to letter:", letter);
-            }}
-            sortDirection={artistSortDirection()}
-          />
-        </div>
-      ) : undefined;
-
-    // ===== GENRES VIEW =====
-    const genresLeftColumn = (
-      <div class="flex flex-col h-full">
-        <div class="mt-[60px]">
-          <HeadingSection
-            title="genres"
-            count={sortedGenres().length}
-            controls={
-              <SearchSortControls
-                sortBy={genreSortBy()}
-                sortDirection={genreSortDirection()}
-                onSortChange={(field, direction) => {
-                  setGenreSortBy(field);
-                  setGenreSortDirection(direction);
-                }}
-                sortFields={genreSortFields}
-              />
-            }
-          />
-        </div>
-
-        <div class="flex-1 overflow-y-auto">
-          <For each={sortedGenres()}>
+        renderDetail={(ctx) => (
+          <Show when={ctx.selectedItem()}>
             {(genre) => (
-              <button
-                class={`
-                  w-full px-6 py-3 text-left transition-colors border-l-2
-                  ${
-                    selectedGenre()?.id === genre.id
-                      ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                      : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
-                  }
-                `}
-                onClick={() => setSelectedGenre(genre)}
-              >
-                <div class="font-medium">{genre.name}</div>
-                <div class="text-xs text-[var(--color-text-tertiary)]">
-                  {formatNumber(genre.songCount)} songs · {genre.artistCount}{" "}
-                  artists
+              <div class="flex flex-col h-full">
+                {/* sticky header with back button + title */}
+                <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-4 flex items-center gap-3">
+                  <Show when={ctx.isNarrow() && ctx.showingDetail()}>
+                    <button
+                      class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
+                      onClick={() => ctx.onBack()}
+                      aria-label="back to list"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                  </Show>
+                  <h2 class="text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate">
+                    {genre().name}
+                  </h2>
                 </div>
-              </button>
-            )}
-          </For>
-        </div>
-      </div>
-    );
 
-    const genresRightColumn = (
-      <Show
-        when={selectedGenre()}
-        fallback={
+                {/* scrollable content area */}
+                <div class="flex-1 overflow-y-auto">
+                  {/* stats section */}
+                  <div class="p-3 md:p-6">
+                    <StatsGrid columns={4} gap="md">
+                      <StatsCard
+                        label="songs"
+                        value={formatNumber(genre().songCount)}
+                        icon="music"
+                      />
+                      <StatsCard
+                        label="artists"
+                        value={formatNumber(genre().artistCount)}
+                        icon="artist"
+                      />
+                      <StatsCard
+                        label="albums"
+                        value={formatNumber(genre().albumCount)}
+                        icon="album"
+                      />
+                      <StatsCard
+                        label="duration"
+                        value={formatDuration(genre().totalDuration)}
+                        icon="recent"
+                      />
+                    </StatsGrid>
+                  </div>
+
+                  {/* top songs */}
+                  <div class="px-3 md:px-6 pb-4">
+                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
+                      top songs
+                    </h3>
+                    <div class="space-y-1">
+                      <For each={generatedSongs.slice(0, 15)}>
+                        {(song) => (
+                          <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+                            <IconButton
+                              icon="play"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="play"
+                            />
+                            <div class="flex-1 min-w-0">
+                              <div class="body-small text-[var(--color-text-primary)] truncate">
+                                {song.title}
+                              </div>
+                              <div class="caption truncate">{song.artist_name}</div>
+                            </div>
+                            <div class="monospace caption text-[var(--color-text-muted)]">
+                              {formatDuration(song.duration_seconds)}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </div>
+
+                {/* sticky action buttons */}
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+                  <Button variant="primary">
+                    <span class="hidden md:inline">play all</span>
+                    <span class="md:hidden">play</span>
+                  </Button>
+                  <Button variant="secondary">shuffle</Button>
+                  <Button variant="ghost">
+                    <span class="hidden md:inline">add to queue</span>
+                    <span class="md:hidden">+queue</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Show>
+        )}
+        renderEmpty={() => (
           <div class="flex items-center justify-center h-full">
             <div class="text-center text-[var(--color-text-tertiary)]">
               <p class="text-xl mb-2">select a genre</p>
               <p class="text-sm">choose from the list to see details</p>
             </div>
           </div>
-        }
-      >
-        {(genre) => (
-          <div class="flex flex-col h-full overflow-y-auto">
-            <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] p-6">
-              <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-                {genre().name}
-              </h2>
+        )}
+      />
+    );
 
-              <StatsGrid columns={4} gap="md" class="mb-6">
-                <StatsCard
-                  label="songs"
-                  value={formatNumber(genre().songCount)}
-                  icon="music"
-                />
-                <StatsCard
-                  label="artists"
-                  value={formatNumber(genre().artistCount)}
-                  icon="artist"
-                />
-                <StatsCard
-                  label="albums"
-                  value={formatNumber(genre().albumCount)}
-                  icon="album"
-                />
-                <StatsCard
-                  label="duration"
-                  value={formatDuration(genre().totalDuration)}
-                  icon="recent"
-                />
-              </StatsGrid>
-
-              <div class="flex gap-3">
-                <Button variant="primary">play all</Button>
-                <Button variant="secondary">shuffle</Button>
-                <Button variant="ghost">add to queue</Button>
-              </div>
+    // ===== PLAYLISTS VIEW (using ResponsiveMasterDetail - controlled mode) =====
+    // uses controlled selection so TopNav "recent playlists" can select playlists
+    const playlistsView = () => (
+      <ResponsiveMasterDetail<Playlist>
+        items={mockPlaylists}
+        selection={selectedPlaylist}
+        onSelectionChange={setSelectedPlaylist}
+        getItemKey={(p) => p.id}
+        renderList={(ctx) => (
+          <div class="flex flex-col h-full">
+            <div class="mt-2 md:mt-[60px]">
+              <HeadingSection title="playlists" count={mockPlaylists.length} hideOnNarrow />
             </div>
 
-            <div class="flex-1 px-6 py-4">
-              <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
-                top songs
-              </h3>
-              <div class="space-y-1">
-                <For each={generatedSongs.slice(0, 15)}>
-                  {(song) => (
-                    <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                      <IconButton
-                        icon="play"
-                        size="sm"
-                        variant="ghost"
-                        aria-label="play"
-                      />
-                      <div class="flex-1">
-                        <div class="body-small text-[var(--color-text-primary)]">
-                          {song.title}
-                        </div>
-                        <div class="caption">{song.artist_name}</div>
-                      </div>
-                      <div class="monospace caption text-[var(--color-text-muted)]">
-                        {formatDuration(song.duration_seconds)}
-                      </div>
+            <div class="flex-1 overflow-y-auto">
+              <For each={mockPlaylists}>
+                {(playlist) => (
+                  <button
+                    class={`
+                      w-full px-6 py-3 text-left transition-colors border-l-2
+                      ${
+                        ctx.selectedItem()?.id === playlist.id
+                          ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                          : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                      }
+                    `}
+                    onClick={() => ctx.selectItem(playlist)}
+                  >
+                    <div class="font-medium">{playlist.name}</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)]">
+                      {playlist.songCount} songs ·{" "}
+                      {formatDuration(playlist.duration)}
                     </div>
-                  )}
-                </For>
-              </div>
+                  </button>
+                )}
+              </For>
             </div>
           </div>
         )}
-      </Show>
-    );
-
-    // ===== PLAYLISTS VIEW =====
-    const playlistsLeftColumn = (
-      <div class="flex flex-col h-full">
-        <div class="mt-[60px]">
-          <HeadingSection title="playlists" count={mockPlaylists.length} />
-        </div>
-
-        <div class="flex-1 overflow-y-auto">
-          <For each={mockPlaylists}>
+        renderDetail={(ctx) => (
+          <Show when={ctx.selectedItem()}>
             {(playlist) => (
-              <button
-                class={`
-                  w-full px-6 py-3 text-left transition-colors border-l-2
-                  ${
-                    selectedPlaylist()?.id === playlist.id
-                      ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                      : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
-                  }
-                `}
-                onClick={() => setSelectedPlaylist(playlist)}
-              >
-                <div class="font-medium">{playlist.name}</div>
-                <div class="text-xs text-[var(--color-text-tertiary)]">
-                  {playlist.songCount} songs ·{" "}
-                  {formatDuration(playlist.duration)}
+              <div class="flex flex-col h-full">
+                {/* sticky header with back button + title */}
+                <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-4 flex items-center gap-3">
+                  <Show when={ctx.isNarrow() && ctx.showingDetail()}>
+                    <button
+                      class="p-2 -ml-2 rounded-full hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-500)]"
+                      onClick={() => ctx.onBack()}
+                      aria-label="back to list"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                  </Show>
+                  <h2 class="text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate">
+                    {playlist().name}
+                  </h2>
                 </div>
-              </button>
-            )}
-          </For>
-        </div>
-      </div>
-    );
 
-    const playlistsRightColumn = (
-      <Show
-        when={selectedPlaylist()}
-        fallback={
+                {/* scrollable content area */}
+                <div class="flex-1 overflow-y-auto">
+                  {/* stats section */}
+                  <div class="p-3 md:p-6 flex gap-4">
+                    <StatsCard
+                      label="songs"
+                      value={formatNumber(playlist().songCount)}
+                      variant="compact"
+                    />
+                    <StatsCard
+                      label="duration"
+                      value={formatDuration(playlist().duration)}
+                      variant="compact"
+                    />
+                    <StatsCard
+                      label="created"
+                      value={new Date(playlist().createdAt).toLocaleDateString()}
+                      variant="compact"
+                    />
+                  </div>
+
+                  {/* songs list */}
+                  <div class="px-3 md:px-6 pb-4">
+                    <div class="mb-3 flex items-center justify-between">
+                      <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
+                        songs
+                      </h3>
+                      <div class="text-sm text-[var(--color-text-secondary)]">
+                        drag to reorder
+                      </div>
+                    </div>
+                    <div class="space-y-1">
+                      <For each={playlistSongs()}>
+                        {(song, index) => (
+                          <DraggableRow
+                            id={song.id}
+                            index={index()}
+                            isDragging={draggedIndex() === index()}
+                            isDropTarget={dropTargetIndex() === index()}
+                            isSelected={selectedSongIds().has(song.id)}
+                            onDragStart={handleDragStart(index())}
+                            onDragOver={handleDragOver(index())}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop(index())}
+                            onClick={handleSongClick(song)}
+                          >
+                            <DraggableRowSongContent
+                              title={song.title}
+                              artist={song.artist_name}
+                              album={song.album_title}
+                              durationSeconds={song.duration_seconds}
+                              actions={
+                                <>
+                                  <IconButton
+                                    icon="queue"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e: MouseEvent) => {
+                                      e.stopPropagation();
+                                    }}
+                                    aria-label="add to queue"
+                                  />
+                                  <IconButton
+                                    icon="delete"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={handleRemoveSong(song)}
+                                    aria-label="remove"
+                                  />
+                                </>
+                              }
+                            />
+                          </DraggableRow>
+                        )}
+                      </For>
+                    </div>
+                    <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
+                      {playlistSongs().length} songs • {selectedSongIds().size}{" "}
+                      selected
+                    </div>
+                  </div>
+                </div>
+
+                {/* sticky action buttons */}
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+                  <Button variant="primary">play</Button>
+                  <Button variant="secondary">shuffle</Button>
+                  <Button variant="ghost">edit</Button>
+                </div>
+              </div>
+            )}
+          </Show>
+        )}
+        renderEmpty={() => (
           <div class="flex items-center justify-center h-full">
             <div class="text-center text-[var(--color-text-tertiary)]">
               <p class="text-xl mb-2">select a playlist</p>
               <p class="text-sm">choose from the list to see details</p>
             </div>
           </div>
-        }
-      >
-        {(playlist) => (
-          <div class="flex flex-col h-full overflow-y-auto">
-            <div class="sticky top-0 z-10 bg-[var(--color-bg-primary)] border-b border-[var(--color-bg-tertiary)] p-6">
-              <h2 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-                {playlist().name}
-              </h2>
-
-              <div class="flex gap-4 mb-6">
-                <StatsCard
-                  label="songs"
-                  value={formatNumber(playlist().songCount)}
-                  variant="compact"
-                />
-                <StatsCard
-                  label="duration"
-                  value={formatDuration(playlist().duration)}
-                  variant="compact"
-                />
-                <StatsCard
-                  label="created"
-                  value={new Date(playlist().createdAt).toLocaleDateString()}
-                  variant="compact"
-                />
-              </div>
-
-              <div class="flex gap-3">
-                <Button variant="primary">play</Button>
-                <Button variant="secondary">shuffle</Button>
-                <Button variant="ghost">edit</Button>
-              </div>
-            </div>
-
-            <div class="flex-1 px-6 py-4">
-              <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                  songs
-                </h3>
-                <div class="text-sm text-[var(--color-text-secondary)]">
-                  drag to reorder
-                </div>
-              </div>
-              <div class="space-y-1">
-                <For each={playlistSongs()}>
-                  {(song, index) => (
-                    <DraggableRow
-                      id={song.id}
-                      index={index()}
-                      isDragging={draggedIndex() === index()}
-                      isDropTarget={dropTargetIndex() === index()}
-                      isSelected={selectedSongIds().has(song.id)}
-                      onDragStart={handleDragStart(index())}
-                      onDragOver={handleDragOver(index())}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop(index())}
-                      onClick={handleSongClick(song)}
-                    >
-                      <DraggableRowSongContent
-                        title={song.title}
-                        artist={song.artist_name}
-                        album={song.album_title}
-                        durationSeconds={song.duration_seconds}
-                        actions={
-                          <>
-                            <IconButton
-                              icon="queue"
-                              size="sm"
-                              variant="ghost"
-                              onClick={(e: MouseEvent) => {
-                                e.stopPropagation();
-                              }}
-                              aria-label="add to queue"
-                            />
-                            <IconButton
-                              icon="delete"
-                              size="sm"
-                              variant="ghost"
-                              onClick={handleRemoveSong(song)}
-                              aria-label="remove"
-                            />
-                          </>
-                        }
-                      />
-                    </DraggableRow>
-                  )}
-                </For>
-              </div>
-              <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
-                {playlistSongs().length} songs • {selectedSongIds().size}{" "}
-                selected
-              </div>
-            </div>
-          </div>
         )}
-      </Show>
+      />
     );
 
     // ===== SONGS VIEW =====
     const songsView = () => (
       <div class="p-3">
-        <div class="ml-[100px]">
-          <HeadingSection title="songs" count={generatedSongs.length} />
+        <div class="ml-0 md:ml-[100px]">
+          <HeadingSection title="songs" count={generatedSongs.length} hideOnNarrow />
         </div>
-        <div class="mt-6">
+        <div class="mt-2 md:mt-6">
           <VirtualSongList
             songs={generatedSongs}
             height={window.innerHeight - 240}
@@ -781,10 +938,10 @@ export const FullAppDemo: Story = {
     // ===== ALBUMS VIEW =====
     const albumsView = () => (
       <div class="p-3">
-        <div class="ml-[100px]">
-          <HeadingSection title="albums" count={mockAlbums.length} />
+        <div class="ml-0 md:ml-[100px]">
+          <HeadingSection title="albums" count={mockAlbums.length} hideOnNarrow />
         </div>
-        <div>
+        <div class="mt-2 md:mt-0">
           <VirtualAlbumGrid
             albums={mockAlbums.map((a) => ({
               id: a.id,
@@ -813,6 +970,29 @@ export const FullAppDemo: Story = {
       </div>
     );
 
+    // ===== FAVORITES VIEW =====
+    const favoriteSongs = generatedSongs.slice(0, 25); // mock: first 25 songs as favorites
+    const favoritesView = () => (
+      <div class="p-3">
+        <div class="ml-0 md:ml-[100px]">
+          <HeadingSection title="favorites" count={favoriteSongs.length} hideOnNarrow />
+        </div>
+        <div class="mt-2 md:mt-6">
+          <VirtualSongList
+            songs={favoriteSongs}
+            height={window.innerHeight - 240}
+            onSongClick={(song) => {
+              setCurrentSong(song);
+            }}
+            onSongDoubleClick={(song) => {
+              setCurrentSong(song);
+              setIsPlaying(true);
+            }}
+          />
+        </div>
+      </div>
+    );
+
     // determine which view to show
     const mainContent = () => {
       switch (currentRoute()) {
@@ -820,35 +1000,20 @@ export const FullAppDemo: Story = {
           return songsView();
         case "albums":
           return albumsView();
+        case "favorites":
+          return favoritesView();
         case "artists":
-          return (
-            <TwoColumnLayout
-              leftColumn={artistsLeftColumn}
-              rightColumn={artistsRightColumn}
-              alphabetNav={artistsAlphabetNav}
-            />
-          );
+          return artistsView();
         case "genres":
-          return (
-            <TwoColumnLayout
-              leftColumn={genresLeftColumn}
-              rightColumn={genresRightColumn}
-            />
-          );
+          return genresView();
         case "playlists":
-          return (
-            <TwoColumnLayout
-              leftColumn={playlistsLeftColumn}
-              rightColumn={playlistsRightColumn}
-            />
-          );
+          return playlistsView();
         default:
-          return artistsRightColumn;
+          return artistsView();
       }
     };
 
-    const playerBarHeight = () => "80px";
-    // () => (currentSong() ? "80px" : "0px");
+    const playerBarHeight = () => "var(--player-height)";
 
     return (
       <div
@@ -860,7 +1025,15 @@ export const FullAppDemo: Story = {
           brandName="freqhole"
           brandTagline="your music library"
           searchPlaceholder="search artists, albums, songs..."
-          searchComponent={<div />}
+          searchComponent={
+            <TopNavSearch
+              placeholder="search artists, albums, songs..."
+              suggestions={mockSearchSuggestions()}
+              onSearchChange={setSearchValue}
+              onNavigate={(path) => console.log("navigate:", path)}
+              currentPath={`/${currentRoute()}`}
+            />
+          }
           onSearchChange={(query) => console.log("search:", query)}
           onSearchSubmit={(query) => console.log("search submit:", query)}
           mainNavSections={[
@@ -886,6 +1059,10 @@ export const FullAppDemo: Story = {
                   label: "playlists",
                   onClick: () => navigateTo("playlists"),
                 },
+                {
+                  label: "favorites",
+                  onClick: () => navigateTo("favorites"),
+                },
               ],
             },
           ]}
@@ -900,20 +1077,28 @@ export const FullAppDemo: Story = {
             },
           }))}
           onViewAllPlaylists={() => navigateTo("playlists")}
+          queueOpen={queueOpen()}
+          onQueueToggle={() => setQueueOpen(!queueOpen())}
+          queueLength={queueSongs().length}
+          pageTitle={pageInfo().title}
+          pageCount={pageInfo().count}
         />
 
         {/* main content area + queue */}
         <div
           class="flex-1 overflow-hidden flex"
-          style={{ "padding-bottom": "var(--player-bar-height)" }}
+          style={{ 
+            "padding-top": isNarrow() ? "var(--nav-height)" : undefined, 
+            "padding-bottom": "var(--player-bar-height)" 
+          }}
         >
           {/* main content */}
           <div class="flex-1 overflow-hidden">{mainContent()}</div>
 
-          {/* queue sidebar - inline on desktop, overlay on mobile */}
+          {/* queue sidebar - responsive: bottom sheet on narrow, sidebar on wide */}
           <QueueSidebar
             isOpen={queueOpen()}
-            variant={isMobile() ? "overlay" : "inline"}
+            variant="overlay"
             songs={queueSongs()}
             currentIndex={currentQueueIndex()}
             onClose={() => setQueueOpen(false)}
@@ -951,6 +1136,7 @@ export const FullAppDemo: Story = {
               onVolumeChange={(vol) => setVolume(vol)}
               onQueueToggle={() => setQueueOpen(!queueOpen())}
               queueLength={queueSongs().length}
+              hideQueueToggle={isNarrow()}
             />
           )}
         </Show>
@@ -958,3 +1144,4 @@ export const FullAppDemo: Story = {
     );
   },
 };
+

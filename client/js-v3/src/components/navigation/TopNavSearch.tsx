@@ -33,6 +33,8 @@ export interface TopNavSearchProps {
   isLoadingSuggestions?: boolean;
   /** callback to load more suggestions */
   onLoadMoreSuggestions?: () => void;
+  /** callback when expanded state changes */
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 // top nav search with suggestions and navigation (presentational)
@@ -42,6 +44,11 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
   let inputRef: HTMLInputElement | undefined;
   let preventReopen = false;
+
+  // notify parent when expanded state changes
+  createEffect(() => {
+    props.onExpandedChange?.(isExpanded());
+  });
 
   // get current filterable view name
   const currentFilterableView = createMemo(() => {

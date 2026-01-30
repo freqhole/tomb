@@ -113,20 +113,46 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   const isOverlay = () => props.variant !== "inline";
 
+  // responsive: bottom sheet on narrow, sidebar on wide
+  // narrow (<768px): full-width bottom sheet that slides up
+  // wide (>=768px): right sidebar
+
   return (
-    <div
-      class={`w-96 bg-[var(--color-bg-primary)]/95 backdrop-blur-xl border-l border-[var(--color-accent-500)]/30 flex flex-col ${
-        isOverlay()
-          ? `fixed top-0 right-0 bottom-0 z-40 transition-transform duration-300 ${
-              props.isOpen ? "translate-x-0" : "translate-x-full"
-            }`
-          : props.isOpen
-            ? "flex-shrink-0"
-            : "hidden"
-      } ${props.class || ""}`}
-    >
-      {/* header */}
-      <div class="flex items-center justify-between p-4 border-b border-[var(--color-accent-500)]/30">
+    <>
+      {/* backdrop for overlay mode */}
+      <Show when={isOverlay() && props.isOpen}>
+        <div
+          class="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => props.onClose()}
+        />
+      </Show>
+
+      <div
+        class={`bg-[var(--color-bg-primary)]/95 backdrop-blur-xl flex flex-col ${
+          isOverlay()
+            ? `fixed z-40 transition-transform duration-300 ease-out
+               /* narrow: bottom sheet */
+               inset-x-0 bottom-0 h-[70vh] rounded-t-2xl border-t border-[var(--color-accent-500)]/30
+               md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:h-auto md:rounded-t-none md:rounded-none
+               md:w-96 md:border-l md:border-t-0
+               ${props.isOpen
+                 ? "translate-y-0 md:translate-y-0 md:translate-x-0"
+                 : "translate-y-full md:translate-y-0 md:translate-x-full"
+               }`
+            : props.isOpen
+              ? "w-96 flex-shrink-0 border-l border-[var(--color-accent-500)]/30"
+              : "hidden"
+        } ${props.class || ""}`}
+      >
+        {/* drag handle for bottom sheet (narrow only) */}
+        <Show when={isOverlay()}>
+          <div class="md:hidden flex justify-center py-2">
+            <div class="w-12 h-1 bg-[var(--color-border-strong)] rounded-full" />
+          </div>
+        </Show>
+
+        {/* header */}
+        <div class="flex items-center justify-between p-4 border-b border-[var(--color-accent-500)]/30">
         <div class="flex items-center gap-3">
           <Icon name="queue" size={20} color="var(--color-accent-500)" />
           <h2 class="text-lg font-medium text-[var(--color-text-primary)] m-0">
@@ -312,5 +338,6 @@ export function QueueSidebar(props: QueueSidebarProps) {
         </Show>
       </div>
     </div>
+    </>
   );
 }
