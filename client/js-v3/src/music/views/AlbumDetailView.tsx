@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { setQueue } from "../../app/services/storage/db";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
+import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
@@ -17,10 +18,7 @@ import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
 import { playSong } from "../services/audio/player";
-import {
-  useAlbumContextMenu,
-  useSongContextMenu,
-} from "../services/contextMenu";
+import { useAlbumContextMenu, useSongContextMenu } from "../services/contextMenu";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
@@ -63,23 +61,26 @@ export function AlbumDetailView() {
     // use the album's actual album_id for the mutation (to update the correct record in storage)
     // but we also need to update the query cache which is keyed by params.id
     const albumId = album?.album_id || params.id;
-    toggleFavoriteMutation.mutate({
-      targetType: "album",
-      targetId: albumId,
-      isFavorite,
-    }, {
-      onSuccess: () => {
-        // manually update the query cache using the route param id (the query key)
-        queryClient.setQueryData(queryKeys.albums.detail(params.id), (old: any) => 
-          old ? { ...old, is_favorite: isFavorite } : old
-        );
+    toggleFavoriteMutation.mutate(
+      {
+        targetType: "album",
+        targetId: albumId,
+        isFavorite,
+      },
+      {
+        onSuccess: () => {
+          // manually update the query cache using the route param id (the query key)
+          queryClient.setQueryData(queryKeys.albums.detail(params.id), (old: any) =>
+            old ? { ...old, is_favorite: isFavorite } : old
+          );
+        },
       }
-    });
+    );
   };
 
   // handle song favorite toggle
   const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
-    const song = songs().find(s => s.id === songId);
+    const song = songs().find((s) => s.id === songId);
     toggleFavoriteMutation.mutate({
       targetType: "song",
       targetId: songId,
@@ -149,7 +150,7 @@ export function AlbumDetailView() {
     // use album_images to construct URL
     const images = songList[0].album_images;
     if (!images?.length) return null;
-    const primaryImage = images.find(img => img.is_primary) || images[0];
+    const primaryImage = images.find((img) => img.is_primary) || images[0];
     return primaryImage.remote_url || null;
   });
 
@@ -168,7 +169,7 @@ export function AlbumDetailView() {
       {
         showPlayActions: true,
         isFavorite: albumQuery.data?.is_favorite ?? false,
-      },
+      }
     );
   });
 
@@ -181,117 +182,120 @@ export function AlbumDetailView() {
   };
 
   return (
-    <div class="flex flex-col h-full">
-      <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
-        {(info) => (
-          <>
-            {/* header with album info */}
-            <div class="flex gap-6 p-6">
-              {/* album artwork */}
-              <ContextMenu actions={albumContextMenuActions()}>
-                <div class="w-48 h-48 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <MediaImage
-                    images={songs()[0]?.album_images}
-                    imageUrl={albumArtworkUrl() || null}
-                    alt={info().title}
-                    class="w-full h-full object-cover"
-                    domainType="album"
-                  />
-                </div>
-              </ContextMenu>
+    <DetailViewWrapper pageTitle="album" pageCount={songs().length} onBack={buildRoute("/albums")}>
+      <div class="flex flex-col h-full">
+        <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
+          {(info) => (
+            <>
+              {/* header with album info - responsive layout */}
+              <div class="flex flex-col md:flex-row gap-4 md:gap-6 p-4 md:p-6">
+                {/* album artwork */}
+                <ContextMenu actions={albumContextMenuActions()}>
+                  <div class="w-32 h-32 md:w-48 md:h-48 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    <MediaImage
+                      images={songs()[0]?.album_images}
+                      imageUrl={albumArtworkUrl() || null}
+                      alt={info().title}
+                      class="w-full h-full object-cover"
+                      domainType="album"
+                    />
+                  </div>
+                </ContextMenu>
 
-              {/* album info */}
-              <div class="flex flex-col justify-center gap-2 min-w-0">
-                <h1 class="text-5xl font-bold text-[var(--color-text-primary)] truncate">
-                  {info().title}
-                </h1>
-                <div class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)] text-xl">
-                  <button
-                    onClick={handleArtistClick}
-                    class="hover:text-[var(--color-text-primary)] hover:underline"
-                  >
-                    {songs()[0]?.artist_name || "unknown artist"}
-                  </button>
-                  {info().year && (
-                    <>
-                      <span>•</span>
-                      <span>{info().year}</span>
-                    </>
-                  )}
-                  <span>•</span>
-                  <span>
-                    {songs().length} {songs().length === 1 ? "song" : "songs"}
-                  </span>
-                  <span>•</span>
-                  <span>{formatDuration(totalDuration())}</span>
-                </div>
+                {/* album info */}
+                <div class="flex flex-col justify-center gap-1 md:gap-2 min-w-0 text-center md:text-left">
+                  <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)] truncate">
+                    {info().title}
+                  </h1>
+                  <div class="flex flex-wrap items-center justify-center md:justify-start gap-x-2 gap-y-1 text-sm md:text-xl text-[var(--color-text-secondary)]">
+                    <button
+                      onClick={handleArtistClick}
+                      class="hover:text-[var(--color-text-primary)] hover:underline"
+                    >
+                      {songs()[0]?.artist_name || "unknown artist"}
+                    </button>
+                    {info().year && (
+                      <>
+                        <span>•</span>
+                        <span>{info().year}</span>
+                      </>
+                    )}
+                    <span>•</span>
+                    <span>
+                      {songs().length} {songs().length === 1 ? "song" : "songs"}
+                    </span>
+                    <span>•</span>
+                    <span>{formatDuration(totalDuration())}</span>
+                  </div>
 
-                {/* play button, edit button, and favorite toggle */}
-                <div class="mt-4 flex items-center gap-3">
-                  <Button variant="primary" onClick={handlePlayAlbum}>
-                    play album
-                  </Button>
-                  <button
-                    onClick={() =>
-                      showAlbumEditor({ albumId: info().album_id || params.id })
-                    }
-                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                    title="edit album info"
-                  >
-                    <Icon name={IconNames.edit} />
-                  </button>
-                  <FavoriteHeart
-                    isFavorite={albumQuery.data?.is_favorite ?? false}
-                    onToggle={handleAlbumFavoriteToggle}
-                  />
-                  <Rating
-                    rating={albumQuery.data?.user_rating ?? 0}
-                    size="md"
-                    onRatingChange={(rating) => {
-                      setRatingMutation.mutate({
-                        targetType: "album",
-                        targetId: info().album_id || params.id,
-                        rating,
-                      });
+                  {/* play button, edit button, and favorite toggle */}
+                  <div class="mt-3 md:mt-4 flex items-center justify-center md:justify-start gap-2 md:gap-3">
+                    <Button variant="primary" onClick={handlePlayAlbum}>
+                      <span class="hidden md:inline">play album</span>
+                      <span class="md:hidden">play</span>
+                    </Button>
+                    <button
+                      onClick={() => showAlbumEditor({ albumId: info().album_id || params.id })}
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="edit album info"
+                    >
+                      <Icon name={IconNames.edit} />
+                    </button>
+                    <FavoriteHeart
+                      isFavorite={albumQuery.data?.is_favorite ?? false}
+                      onToggle={handleAlbumFavoriteToggle}
+                    />
+                    <Rating
+                      rating={albumQuery.data?.user_rating ?? 0}
+                      size="md"
+                      onRatingChange={(rating) => {
+                        setRatingMutation.mutate({
+                          targetType: "album",
+                          targetId: info().album_id || params.id,
+                          rating,
+                        });
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* songs list */}
+              <div class="flex-1 overflow-auto">
+                <div class="px-4 md:px-6 py-2 md:py-4 space-y-1">
+                  <For each={songs()}>
+                    {(song) => {
+                      const trackDisplay =
+                        song.disc_number > 1
+                          ? `${song.disc_number}-${song.track_number}`
+                          : song.track_number;
+
+                      return (
+                        <SongRow
+                          title={song.title}
+                          trackNumber={trackDisplay}
+                          duration={formatDuration(song.duration_seconds)}
+                          onDoubleClick={() => handleSongDoubleClick(song)}
+                          showPlayOnHover={true}
+                          contextMenuActions={getSongContextMenuActions(song)}
+                          isFavorite={song.is_favorite}
+                          rating={song.user_rating}
+                          onRatingChange={(rating) => handleSongRatingChange(song.id, rating)}
+                          onFavoriteToggle={(isFavorite) =>
+                            handleSongFavoriteToggle(song.id, isFavorite)
+                          }
+                          songId={song.id}
+                          sha256={song.sha256}
+                        />
+                      );
                     }}
-                  />
+                  </For>
                 </div>
               </div>
-            </div>
-
-            {/* songs list */}
-            <div class="flex-1 overflow-auto">
-              <div class="p-6 space-y-1">
-                <For each={songs()}>
-                  {(song) => {
-                    const trackDisplay =
-                      song.disc_number > 1
-                        ? `${song.disc_number}-${song.track_number}`
-                        : song.track_number;
-
-                    return (
-                      <SongRow
-                        title={song.title}
-                        trackNumber={trackDisplay}
-                        duration={formatDuration(song.duration_seconds)}
-                        onDoubleClick={() => handleSongDoubleClick(song)}
-                        showPlayOnHover={true}
-                        contextMenuActions={getSongContextMenuActions(song)}
-                        isFavorite={song.is_favorite}
-                        rating={song.user_rating}
-                        onRatingChange={(rating) => handleSongRatingChange(song.id, rating)}
-                        onFavoriteToggle={(isFavorite) => handleSongFavoriteToggle(song.id, isFavorite)}
-                        songId={song.id}
-                        sha256={song.sha256}
-                      />
-                    );
-                  }}
-                </For>
-              </div>
-            </div>
-          </>
-        )}
-      </Show>
-    </div>
+            </>
+          )}
+        </Show>
+      </div>
+    </DetailViewWrapper>
   );
 }

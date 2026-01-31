@@ -1,12 +1,7 @@
 // reusable genre detail panel component for displaying genre info with albums grouped by artist
-import { createMemo, type JSX } from "solid-js";
+import { createMemo, createSignal, type JSX } from "solid-js";
 import { Button } from "../buttons/Button";
-import {
-  formatDuration,
-  formatNumber,
-  StatsCard,
-  StatsGrid,
-} from "../cards/StatsCard";
+import { formatDuration, formatNumber, StatsCard, StatsGrid } from "../cards/StatsCard";
 import { HeadingSection } from "../layout/HeadingSection";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
@@ -60,6 +55,8 @@ export interface GenreDetailPanelProps {
 }
 
 export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
+  const [scrollContainerRef, setScrollContainerRef] = createSignal<HTMLDivElement | null>(null);
+
   const totalDuration = createMemo(() => {
     return props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
   });
@@ -73,17 +70,17 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
 
   // use actual counts if genre stats are missing or 0
   const displaySongCount = createMemo(() =>
-    props.genre.song_count > 0 ? props.genre.song_count : actualSongCount(),
+    props.genre.song_count > 0 ? props.genre.song_count : actualSongCount()
   );
   const displayAlbumCount = createMemo(() =>
-    props.genre.album_count > 0 ? props.genre.album_count : actualAlbumCount(),
+    props.genre.album_count > 0 ? props.genre.album_count : actualAlbumCount()
   );
 
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>
       {/* scrollable content */}
-      <div class="flex-1 overflow-y-auto">
-        {/* genre header with stats */}
+      <div ref={setScrollContainerRef} class="flex-1 overflow-y-auto">
+        {/* genre header - sticky on desktop, scrolls on narrow */}
         <HeadingSection
           title={props.genre.name}
           titleElement={<MarqueeText text={props.genre.name} hoverOnly={true} />}
@@ -92,29 +89,29 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
           border
           showBackButton={props.showBackButton}
           onBack={props.onBack}
-          class="p-6"
+          class="px-4 md:px-6 py-3 md:py-4"
         >
-          <StatsGrid columns={3} gap="md" class="mb-2">
-            <StatsCard
-              label="songs"
-              value={formatNumber(displaySongCount())}
-              icon="music"
-            />
-            <StatsCard
-              label="albums"
-              value={formatNumber(displayAlbumCount())}
-              icon="album"
-            />
-            <StatsCard
-              label="duration"
-              value={formatDuration(totalDuration())}
-              icon="recent"
-            />
-          </StatsGrid>
+          {/* stats hidden on narrow - they scroll below */}
+          <div class="hidden md:block">
+            <StatsGrid columns={3} gap="md" class="mb-2">
+              <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
+              <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
+              <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
+            </StatsGrid>
+          </div>
         </HeadingSection>
 
+        {/* stats shown inline on narrow - scrolls with content */}
+        <div class="md:hidden px-4 py-3">
+          <StatsGrid columns={3} gap="sm">
+            <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
+            <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
+            <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
+          </StatsGrid>
+        </div>
+
         {/* virtualized artists with albums */}
-        <div class="flex-1 px-6 py-4">
+        <div class="flex-1 px-4 md:px-6 py-3 md:py-4">
           <VirtualGenreDetail
             songs={props.songs}
             onAlbumClick={props.onAlbumClick}
@@ -122,6 +119,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
             onArtistClick={props.onArtistClick}
             getAlbumContextMenuActions={props.getAlbumContextMenuActions}
             gridColumns={5}
+            scrollContainerRef={scrollContainerRef()}
           />
         </div>
       </div>

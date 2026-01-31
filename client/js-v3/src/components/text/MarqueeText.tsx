@@ -52,7 +52,7 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     const result = typeof external === "function" ? external() : external;
     return result;
   };
-  
+
   // check if we should use internal hover tracking
   const useInternalHover = () => props.isHovering === undefined;
 
@@ -62,7 +62,7 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     const containerWidth = containerRef.offsetWidth;
     const textWidth = textRef.scrollWidth;
     const doesOverflow = textWidth > containerWidth;
-    console.log(`[MarqueeText] "${props.text.slice(0, 30)}..." container=${containerWidth}, text=${textWidth}, overflow=${doesOverflow}`);
+    // console.log(`[MarqueeText] "${props.text.slice(0, 30)}..." container=${containerWidth}, text=${textWidth}, overflow=${doesOverflow}`);
     setOverflows(doesOverflow);
     if (doesOverflow) {
       setOffset(containerWidth - textWidth - 8); // 8px end padding
@@ -89,14 +89,14 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
 
   // default hoverOnly to true (most common use case)
   const hoverOnly = () => props.hoverOnly !== false;
-  
+
   const shouldAnimate = createMemo(() => {
     const hovering = isHovering();
     const overflow = overflows();
     const hoverOnlyVal = hoverOnly();
     if (!overflow) return false;
     if (hoverOnlyVal) {
-      console.log(`[MarqueeText] "${props.text.slice(0, 20)}..." shouldAnimate check: hovering=${hovering}, overflow=${overflow}`);
+      // console.log(`[MarqueeText] "${props.text.slice(0, 20)}..." shouldAnimate check: hovering=${hovering}, overflow=${overflow}`);
       return hovering;
     }
     return true; // always animate if hoverOnly is false
@@ -108,7 +108,7 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     return `marquee-scroll ${duration()}s ease-in-out infinite`;
   });
 
-  // compute hover class reactively  
+  // compute hover class reactively
   const hoverClassName = createMemo(() => {
     return props.hoverClass && isHovering() ? props.hoverClass : "";
   });

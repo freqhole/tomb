@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, Show } from "solid-js";
 import { setQueue } from "../../app/services/storage/db";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
+import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { getDataSource } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistQuery, useArtistSongsQuery } from "../queries/songs";
@@ -48,10 +49,7 @@ export function ArtistDetailView() {
       bio: artist.bio,
       song_count: songList.length,
       album_count: new Set(songList.map((s) => s.album_id)).size,
-      total_duration: songList.reduce(
-        (sum, song) => sum + song.duration_seconds,
-        0
-      ),
+      total_duration: songList.reduce((sum, song) => sum + song.duration_seconds, 0),
       images: artist.images,
       is_favorite: artist.is_favorite,
     };
@@ -190,7 +188,7 @@ export function ArtistDetailView() {
     // add all artist images (except waveforms), deduplicate by blob_id
     if (artist.images?.length) {
       for (const img of artist.images) {
-        if (img.blob_type !== 'waveform') {
+        if (img.blob_type !== "waveform") {
           const blobId = img.remote_blob_id || img.local_blob_id;
           const url = img.remote_url || img.local_blob_id;
           if (blobId && url) imageMap.set(blobId, url);
@@ -202,7 +200,7 @@ export function ArtistDetailView() {
     for (const song of songList) {
       if (song.images?.length) {
         for (const img of song.images) {
-          if (img.blob_type !== 'waveform') {
+          if (img.blob_type !== "waveform") {
             const blobId = img.remote_blob_id || img.local_blob_id;
             const url = img.remote_url || img.local_blob_id;
             if (blobId && url) imageMap.set(blobId, url);
@@ -230,7 +228,11 @@ export function ArtistDetailView() {
   };
 
   return (
-    <div class="flex flex-col h-full">
+    <DetailViewWrapper
+      pageTitle="artist"
+      pageCount={songs().length}
+      onBack={buildRoute("/artists")}
+    >
       <Show when={artistData()} fallback={<div class="p-4">loading...</div>}>
         {(artist) => {
           const songList = songs();
@@ -259,6 +261,6 @@ export function ArtistDetailView() {
           );
         }}
       </Show>
-    </div>
+    </DetailViewWrapper>
   );
 }
