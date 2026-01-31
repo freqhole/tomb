@@ -30,6 +30,8 @@ export interface VirtualItemListProps {
   getContextMenuActions?: (item: ListItem, index: number) => MenuAction[];
   /** height of the container in pixels (defaults to 100% of parent) */
   height?: number;
+  /** hide image/thumbnail for all items */
+  hideImage?: boolean;
   /** additional CSS classes */
   class?: string;
   /** unique key for scroll restoration (e.g., 'artists', 'genres-list') */
@@ -158,13 +160,15 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                 `}
                 onClick={() => handleItemClick(item())}
               >
-                <MediaImage
-                  images={item().images}
-                  imageUrl={item().thumbnailUrl || null}
-                  alt={item().title}
-                  class="w-12 h-12 object-cover rounded flex-shrink-0"
-                  domainType="playlist"
-                />
+                <Show when={!props.hideImage}>
+                  <MediaImage
+                    images={item().images}
+                    imageUrl={item().thumbnailUrl || null}
+                    alt={item().title}
+                    class="w-12 h-12 object-cover rounded flex-shrink-0"
+                    domainType="playlist"
+                  />
+                </Show>
                 <div class="flex-1 min-w-0">
                   <div class="font-medium text-base">
                     <MarqueeText text={item().title} hoverOnly={true} />

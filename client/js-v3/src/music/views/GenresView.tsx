@@ -280,6 +280,11 @@ export function GenresView(props: GenresViewProps) {
     navigate(buildRoute(`/artists/${artistId}`));
   };
 
+  // handle back navigation on narrow
+  const handleBack = () => {
+    setShowingDetailOnNarrow(false);
+  };
+
   // left column - genre list
   const leftColumn = (
     <div class="flex flex-col h-full">
@@ -325,6 +330,7 @@ export function GenresView(props: GenresViewProps) {
           <VirtualItemList
             items={genreListItems()}
             selectedId={selectedGenreId()}
+            hideImage
             onItemClick={(item) => {
               setIsLocalClick(true);
               // show detail on narrow viewport
@@ -453,11 +459,6 @@ export function GenresView(props: GenresViewProps) {
       )}
     </Show>
   );
-
-  // handle back navigation on narrow
-  const handleBack = () => {
-    setShowingDetailOnNarrow(false);
-  };
 
   return (
     <div class="flex flex-col h-full">
