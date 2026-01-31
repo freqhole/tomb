@@ -230,16 +230,16 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div class="px-6 py-4">
+                  <div class="px-4 md:px-6 py-4">
                     {/* artist header */}
-                    <div class="flex items-center gap-3 mb-4">
+                    <div class="flex flex-col md:flex-row md:items-center gap-1 md:gap-3 mb-4">
                       <button
                         onClick={() => props.onArtistClick?.(artist.artistId)}
-                        class="text-xl font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-500)] transition-colors"
+                        class="min-w-0 overflow-hidden text-lg md:text-xl font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-500)] transition-colors text-left"
                       >
                         <MarqueeText text={artist.artistName} hoverOnly={true} />
                       </button>
-                      <span class="text-sm text-[var(--color-text-tertiary)]">
+                      <span class="text-xs md:text-sm text-[var(--color-text-tertiary)] shrink-0">
                         {artist.albums.length} {artist.albums.length === 1 ? "album" : "albums"}
                       </span>
                     </div>
