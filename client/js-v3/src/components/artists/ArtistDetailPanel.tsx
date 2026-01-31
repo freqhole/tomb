@@ -133,10 +133,17 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       group.totalDuration += song.duration_seconds;
     });
 
-    // sort albums by title
-    const sortedGroups = Array.from(groups.values()).sort((a, b) =>
-      a.albumTitle.localeCompare(b.albumTitle)
-    );
+    // sort albums by year (newest first, nulls last)
+    const sortedGroups = Array.from(groups.values()).sort((a, b) => {
+      // nulls go to the end
+      if (a.year === null && b.year === null) return a.albumTitle.localeCompare(b.albumTitle);
+      if (a.year === null) return 1;
+      if (b.year === null) return -1;
+      // newest first (descending)
+      if (b.year !== a.year) return b.year - a.year;
+      // same year: sort by title
+      return a.albumTitle.localeCompare(b.albumTitle);
+    });
 
     // sort songs within each album by disc/track
     sortedGroups.forEach((group) => {

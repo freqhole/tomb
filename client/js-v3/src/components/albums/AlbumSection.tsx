@@ -92,101 +92,174 @@ function AlbumHeader(props: {
   onRatingChange?: (rating: number) => void;
   onFavoriteToggle?: (isFavorite: boolean) => void;
 }): JSX.Element {
-  return (
-    <div class="flex items-center gap-4 p-4 bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors">
-      {/* album artwork */}
-      <button
-        onClick={props.onAlbumClick}
-        class="w-16 h-16 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
-      >
-        <MediaImage
-          images={props.images}
-          imageUrl={props.artworkUrl || null}
-          blobId={props.blobId}
-          alt={`${props.albumTitle} artwork`}
-          class="w-full h-full object-cover"
-          domainType="album"
-        />
-      </button>
+  // collect all genre/tag badges for marquee
+  const badgeText = () => {
+    const parts: string[] = [];
+    if (props.genre) parts.push(props.genre);
+    if (props.subGenres) parts.push(...props.subGenres);
+    if (props.tags) parts.push(...props.tags.map(t => `#${t}`));
+    return parts.join(' · ');
+  };
 
-      {/* album info */}
-      <div class="flex-1 min-w-0">
+  return (
+    <div class="bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors">
+      {/* narrow layout: title full width, then artwork with info/actions */}
+      <div class="md:hidden px-3 py-3">
+        {/* row 1: title full width */}
         <button
           onClick={props.onAlbumClick}
-          class="text-xl font-semibold text-[var(--color-text-primary)] hover:underline text-left block"
+          class="text-base font-semibold text-[var(--color-text-primary)] hover:underline text-left block w-full min-w-0 overflow-hidden"
         >
           <MarqueeText text={props.albumTitle} hoverOnly={true} />
         </button>
-        <div class="text-sm text-[var(--color-text-secondary)]">
-          {props.songs.length} tracks · {formatAlbumDuration(props.totalDuration)}
-          {props.year && ` · ${props.year}`}
-        </div>
-        {/* genres and tags */}
-        <div class="text-xs text-[var(--color-text-tertiary)] mt-1 flex flex-wrap gap-1">
-          {props.genre && (
-            <span class="px-2 py-0.5 bg-[var(--color-bg-primary)] rounded">
-              {props.genre}
-            </span>
-          )}
-          {props.subGenres?.map((sg) => (
-            <span class="px-2 py-0.5 bg-[var(--color-bg-primary)] rounded opacity-75">
-              {sg}
-            </span>
-          ))}
-          {props.tags?.map((tag) => (
-            <span class="px-2 py-0.5 bg-[var(--color-bg-hover)] rounded">
-              #{tag}
-            </span>
-          ))}
+        {/* rows 2-3: artwork on left, info + actions on right */}
+        <div class="flex gap-3 mt-2">
+          {/* artwork */}
+          <button
+            onClick={props.onAlbumClick}
+            class="w-12 h-12 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
+          >
+            <MediaImage
+              images={props.images}
+              imageUrl={props.artworkUrl || null}
+              blobId={props.blobId}
+              alt={`${props.albumTitle} artwork`}
+              class="w-full h-full object-cover"
+              domainType="album"
+            />
+          </button>
+          {/* info + actions stacked */}
+          <div class="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+            {/* track info + actions */}
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-xs text-[var(--color-text-secondary)]">
+                {props.songs.length} tracks · {formatAlbumDuration(props.totalDuration)}
+                {props.year && ` · ${props.year}`}
+              </div>
+              <div class="flex gap-0.5 flex-shrink-0">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onPlayAlbum?.();
+                  }}
+                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
+                  title="play album"
+                >
+                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onAddToQueue?.();
+                  }}
+                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
+                  title="add to queue"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+                <FavoriteHeart
+                  isFavorite={props.isFavorite ?? false}
+                  onToggle={props.onFavoriteToggle}
+                  size="sm"
+                />
+                <Rating
+                  rating={props.rating ?? 0}
+                  size="sm"
+                  onRatingChange={props.onRatingChange}
+                />
+              </div>
+            </div>
+            {/* genres and tags */}
+            {badgeText() && (
+              <div class="text-xs text-[var(--color-text-tertiary)] overflow-hidden">
+                <MarqueeText text={badgeText()} hoverOnly={true} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* album actions */}
-      <div class="flex gap-2 flex-shrink-0">
+      {/* wide layout: horizontal with image on left */}
+      <div class="hidden md:flex items-start gap-4 p-4">
+        {/* album artwork */}
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onPlayAlbum?.();
-          }}
-          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
-          title="play album"
+          onClick={props.onAlbumClick}
+          class="w-16 h-16 bg-[var(--color-bg-primary)] rounded flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity overflow-hidden"
         >
-          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M8 5v14l11-7z" />
-          </svg>
+          <MediaImage
+            images={props.images}
+            imageUrl={props.artworkUrl || null}
+            blobId={props.blobId}
+            alt={`${props.albumTitle} artwork`}
+            class="w-full h-full object-cover"
+            domainType="album"
+          />
         </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onAddToQueue?.();
-          }}
-          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
-          title="add to queue"
-        >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+
+        {/* album info - title gets full width, actions on second row */}
+        <div class="flex-1 min-w-0 overflow-hidden">
+          {/* row 1: title full width */}
+          <button
+            onClick={props.onAlbumClick}
+            class="text-xl font-semibold text-[var(--color-text-primary)] hover:underline text-left block w-full min-w-0 overflow-hidden"
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
-        <FavoriteHeart
-          isFavorite={props.isFavorite ?? false}
-          onToggle={props.onFavoriteToggle}
-          size="md"
-        />
-        <Rating
-          rating={props.rating ?? 0}
-          size="md"
-          onRatingChange={props.onRatingChange}
-        />
+            <MarqueeText text={props.albumTitle} hoverOnly={true} />
+          </button>
+          {/* row 2: track info + actions */}
+          <div class="flex items-start justify-between gap-2 mt-0.5">
+            <div class="text-sm text-[var(--color-text-secondary)] flex-shrink-0">
+              {props.songs.length} tracks · {formatAlbumDuration(props.totalDuration)}
+              {props.year && ` · ${props.year}`}
+            </div>
+            {/* album actions - can wrap to multiple lines */}
+            <div class="flex flex-wrap gap-1 justify-end">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onPlayAlbum?.();
+                }}
+                class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
+                title="play album"
+              >
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onAddToQueue?.();
+                }}
+                class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
+                title="add to queue"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+              <FavoriteHeart
+                isFavorite={props.isFavorite ?? false}
+                onToggle={props.onFavoriteToggle}
+                size="md"
+              />
+              <Rating
+                rating={props.rating ?? 0}
+                size="md"
+                onRatingChange={props.onRatingChange}
+              />
+            </div>
+          </div>
+          {/* row 3: genres and tags with marquee */}
+          {badgeText() && (
+            <div class="text-xs text-[var(--color-text-tertiary)] mt-1 overflow-hidden">
+              <MarqueeText text={badgeText()} hoverOnly={true} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -203,9 +276,32 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
 
   return (
     <div class={`space-y-2 ${props.class || ""}`}>
-      {/* album header */}
-      {props.getAlbumContextMenuActions ? (
-        <ContextMenu actions={props.getAlbumContextMenuActions()}>
+      {/* album header - sticky wrapper outside context menu */}
+      <div class="sticky top-0 z-10">
+        {props.getAlbumContextMenuActions ? (
+          <ContextMenu actions={props.getAlbumContextMenuActions()}>
+            <AlbumHeader
+              albumId={props.albumId}
+              albumTitle={props.albumTitle}
+              year={props.year}
+              songs={props.songs}
+              totalDuration={totalDuration()}
+              images={props.images}
+              artworkUrl={props.artworkUrl}
+              blobId={props.blobId}
+              isFavorite={props.isFavorite}
+              rating={props.rating}
+              genre={props.genre}
+              subGenres={props.subGenres}
+              tags={props.tags}
+              onAlbumClick={handleAlbumClick}
+              onPlayAlbum={props.onPlayAlbum}
+              onAddToQueue={props.onAddToQueue}
+              onRatingChange={props.onRatingChange}
+              onFavoriteToggle={props.onFavoriteToggle}
+            />
+          </ContextMenu>
+        ) : (
           <AlbumHeader
             albumId={props.albumId}
             albumTitle={props.albumTitle}
@@ -226,29 +322,8 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             onRatingChange={props.onRatingChange}
             onFavoriteToggle={props.onFavoriteToggle}
           />
-        </ContextMenu>
-      ) : (
-        <AlbumHeader
-          albumId={props.albumId}
-          albumTitle={props.albumTitle}
-          year={props.year}
-          songs={props.songs}
-          totalDuration={totalDuration()}
-          images={props.images}
-          artworkUrl={props.artworkUrl}
-          blobId={props.blobId}
-          isFavorite={props.isFavorite}
-          rating={props.rating}
-          genre={props.genre}
-          subGenres={props.subGenres}
-          tags={props.tags}
-          onAlbumClick={handleAlbumClick}
-          onPlayAlbum={props.onPlayAlbum}
-          onAddToQueue={props.onAddToQueue}
-          onRatingChange={props.onRatingChange}
-          onFavoriteToggle={props.onFavoriteToggle}
-        />
-      )}
+        )}
+      </div>
 
       {/* album songs */}
       <div class="space-y-1 pl-4">
