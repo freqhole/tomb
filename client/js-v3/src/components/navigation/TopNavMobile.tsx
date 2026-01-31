@@ -27,7 +27,9 @@ export interface TopNavMobileProps {
   /** callback to add a new remote */
   onAddRemote?: () => void;
   /** main navigation menu sections */
-  mainNavSections: Array<{ items: Array<{ label: string; onClick: () => void; disabled?: boolean }> }>;
+  mainNavSections: Array<{
+    items: Array<{ label: string; onClick: () => void; disabled?: boolean }>;
+  }>;
   /** browser storage usage in bytes */
   storageUsage?: number;
   /** browser storage quota in bytes */
@@ -73,7 +75,7 @@ function formatRelativeTime(timestamp: number): string {
 
 /**
  * mobile navigation menu overlay
- * 
+ *
  * slides down from top of screen on narrow viewports.
  * contains: brand info, source selector, navigation links, recent playlists, storage stats
  */
@@ -94,10 +96,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-[60]">
         {/* backdrop */}
-        <div
-          class="absolute inset-0 bg-black/80"
-          onClick={() => props.onClose()}
-        />
+        <div class="absolute inset-0 bg-black/80" onClick={() => props.onClose()} />
         {/* menu panel - slides from top, full width */}
         <div
           class="absolute top-[var(--nav-height,56px)] left-0 right-0 bg-black/95 backdrop-blur-sm border-b border-white/10 overflow-y-auto animate-in slide-in-from-top duration-200"
@@ -109,13 +108,18 @@ export function TopNavMobile(props: TopNavMobileProps) {
             <div class="flex flex-col p-3 border-b border-white/10">
               <div class="space-y-2 mb-4">
                 <div>
-                  <h3 class="text-lg font-bold text-[var(--color-accent-500)] m-0">
-                    {props.brandName || "freqhole"}
+                  <h3 class="text-lg font-bold m-0">
+                    <span>freqh</span>
+                    <Icon
+                      name="freqhole"
+                      size={24}
+                      color="var(--color-accent-500)"
+                      className="inline"
+                    />
+                    <span>le</span>
                   </h3>
                   <Show when={props.brandTagline}>
-                    <p class="text-xs text-white/50 m-0 mt-1">
-                      {props.brandTagline}
-                    </p>
+                    <p class="text-xs text-white/50 m-0 mt-1">{props.brandTagline}</p>
                   </Show>
                 </div>
                 <Show when={props.version}>
@@ -140,12 +144,16 @@ export function TopNavMobile(props: TopNavMobileProps) {
                       "text-white/70 cursor-pointer hover:bg-white/10 hover:text-white":
                         props.currentSourceName && props.currentSourceName !== "local library",
                     }}
-                    disabled={props.currentSourceName === "local library" || !props.currentSourceName}
+                    disabled={
+                      props.currentSourceName === "local library" || !props.currentSourceName
+                    }
                     onClick={() => handleMenuItemClick(() => props.onSwitchToLocal?.())}
                   >
                     <Show
                       when={props.currentSourceName === "local library" || !props.currentSourceName}
-                      fallback={<span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />}
+                      fallback={
+                        <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                      }
                     >
                       <Icon name="check" size={14} color="var(--color-accent-500)" />
                     </Show>
@@ -166,11 +174,15 @@ export function TopNavMobile(props: TopNavMobileProps) {
                                 props.currentSourceName !== remote.name,
                             }}
                             disabled={props.currentSourceName === remote.name}
-                            onClick={() => handleMenuItemClick(() => props.onSwitchToRemote?.(remote.id))}
+                            onClick={() =>
+                              handleMenuItemClick(() => props.onSwitchToRemote?.(remote.id))
+                            }
                           >
                             <Show
                               when={props.currentSourceName === remote.name}
-                              fallback={<span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />}
+                              fallback={
+                                <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
+                              }
                             >
                               <Icon name="check" size={14} color="var(--color-accent-500)" />
                             </Show>
@@ -259,9 +271,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
                             domainType="playlist"
                           />
                           <div class="flex-1 min-w-0">
-                            <div class="text-sm text-white truncate">
-                              {playlist.name}
-                            </div>
+                            <div class="text-sm text-white truncate">{playlist.name}</div>
                             <div class="text-xs text-white/50">
                               {formatRelativeTime(playlist.updatedAt)}
                             </div>

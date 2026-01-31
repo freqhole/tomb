@@ -10,10 +10,7 @@ import { SearchSortControls } from "../../components/controls/SearchSortControls
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
-import {
-  VirtualItemList,
-  type ListItem,
-} from "../../components/virtualized/VirtualItemList";
+import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
 import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
@@ -44,7 +41,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
-  
+
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
@@ -67,55 +64,49 @@ export function ArtistsView(props: ArtistsViewProps) {
       clearPageInfo(); // clear page info when leaving view
     });
   });
-  
+
   // restore selected artist from URL params or history state on mount
-  const initialArtistId = params.id || 
-    (typeof window !== "undefined" 
+  const initialArtistId =
+    params.id ||
+    (typeof window !== "undefined"
       ? (window.history.state?.selectedArtistId as string | null)
       : null);
-    
-  const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(
-    initialArtistId,
-  );
+
+  const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(initialArtistId);
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
   const [currentLetter, setCurrentLetter] = createSignal<string | null>(null);
-  const [scrollToIndex, setScrollToIndex] = createSignal<
-    ((index: number) => void) | null
-  >(null);
+  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
   const [isLocalClick, setIsLocalClick] = createSignal(false);
 
   // track query changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);
-  
+
   // save selected artist to history state when it changes
   createEffect(() => {
     const artistId = selectedArtistId();
     if (artistId && typeof window !== "undefined") {
       const currentState = window.history.state || {};
-      window.history.replaceState(
-        { ...currentState, selectedArtistId: artistId },
-        ""
-      );
+      window.history.replaceState({ ...currentState, selectedArtistId: artistId }, "");
     }
   });
-  
+
   // sync URL params with selected artist
   createEffect(() => {
     const urlArtistId = params.id;
-    
+
     if (urlArtistId && urlArtistId !== selectedArtistId()) {
       setSelectedArtistId(urlArtistId);
-      
+
       // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
       const shouldScroll = !isLocalClick();
       if (shouldScroll && scrollToIndex()) {
-        const artistIndex = sortedArtists().findIndex(a => a.artist_id === urlArtistId);
+        const artistIndex = sortedArtists().findIndex((a) => a.artist_id === urlArtistId);
         if (artistIndex >= 0) {
           scrollToIndex()!(artistIndex);
         }
       }
-      
+
       // reset flag after capturing its value
       setIsLocalClick(false);
     }
@@ -155,15 +146,11 @@ export function ArtistsView(props: ArtistsViewProps) {
       }),
       (state) => {
         // automatically load more if there's more data and we're not already fetching
-        if (
-          state.hasNextPage &&
-          !state.isFetchingNextPage &&
-          !state.isFetching
-        ) {
+        if (state.hasNextPage && !state.isFetchingNextPage && !state.isFetching) {
           artistsQuery.fetchNextPage();
         }
-      },
-    ),
+      }
+    )
   );
 
   // flatten all pages of artists
@@ -430,7 +417,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // handle song favorite toggle
   const handleSongFavoriteToggle = (songId: string, isFavorite: boolean) => {
-    const song = artistSongs()?.find(s => s.id === songId);
+    const song = artistSongs()?.find((s) => s.id === songId);
     toggleFavoriteMutation.mutate({
       targetType: "song",
       targetId: songId,
@@ -450,7 +437,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     // add all artist images (except waveforms), deduplicate by blob_id
     if (artist.images?.length) {
       for (const img of artist.images) {
-        if (img.blob_type !== 'waveform') {
+        if (img.blob_type !== "waveform") {
           const blobId = img.remote_blob_id || img.local_blob_id;
           const url = img.remote_url || img.local_blob_id;
           if (blobId && url) imageMap.set(blobId, url);
@@ -462,7 +449,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     for (const song of songs) {
       if (song.images?.length) {
         for (const img of song.images) {
-          if (img.blob_type !== 'waveform') {
+          if (img.blob_type !== "waveform") {
             const blobId = img.remote_blob_id || img.local_blob_id;
             const url = img.remote_url || img.local_blob_id;
             if (blobId && url) imageMap.set(blobId, url);
@@ -535,8 +522,13 @@ export function ArtistsView(props: ArtistsViewProps) {
           const currentQueue = state?.queue || [];
           await setQueue([...currentQueue, ...result.items]);
         },
-      },
+      }
     );
+  };
+
+  // handle back navigation on narrow
+  const handleBack = () => {
+    setShowingDetailOnNarrow(false);
   };
 
   // left column - artist list
@@ -550,14 +542,14 @@ export function ArtistsView(props: ArtistsViewProps) {
           controls={
             <SearchSortControls
               sortBy={sortBy()}
-            sortDirection={sortDirection()}
-            onSortChange={(field, direction) => {
-              setSortBy(field);
-              setSortDirection(direction);
-            }}
-            sortFields={artistSortFields}
-          />
-        }
+              sortDirection={sortDirection()}
+              onSortChange={(field, direction) => {
+                setSortBy(field);
+                setSortDirection(direction);
+              }}
+              sortFields={artistSortFields}
+            />
+          }
         />
       </div>
 
@@ -571,8 +563,7 @@ export function ArtistsView(props: ArtistsViewProps) {
                   no artists in your library yet
                 </p>
                 <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                  click "add music" above to import local audio files or
-                  download from urls
+                  click "add music" above to import local audio files or download from urls
                 </p>
                 <Button variant="primary" onClick={props.onAddMusic}>
                   add music
@@ -595,11 +586,11 @@ export function ArtistsView(props: ArtistsViewProps) {
             }}
             onVirtualizerReady={(scrollFn) => {
               setScrollToIndex(() => scrollFn);
-              
+
               // only scroll if current artist matches the initial one (prevents scroll on subsequent clicks)
               const current = selectedArtistId();
               if (current && current === initialArtistId) {
-                const index = sortedArtists().findIndex(a => a.artist_id === current);
+                const index = sortedArtists().findIndex((a) => a.artist_id === current);
                 if (index >= 0) {
                   setTimeout(() => scrollFn(index), 50);
                 }
@@ -620,11 +611,7 @@ export function ArtistsView(props: ArtistsViewProps) {
       fallback={
         <div class="flex items-center justify-center h-full">
           <div class="text-center text-[var(--color-text-tertiary)]">
-            <svg
-              class="w-24 h-24 mx-auto mb-4 opacity-30"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
+            <svg class="w-24 h-24 mx-auto mb-4 opacity-30" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
             </svg>
             <p class="text-xl mb-2">select an artist</p>
@@ -685,11 +672,6 @@ export function ArtistsView(props: ArtistsViewProps) {
         sortDirection={sortDirection()}
       />
     ) : null;
-
-  // handle back navigation on narrow
-  const handleBack = () => {
-    setShowingDetailOnNarrow(false);
-  };
 
   return (
     <div class="flex flex-col h-full">

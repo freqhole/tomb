@@ -17,10 +17,7 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { TopNav } from "../components/navigation/TopNav";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import {
-  getCurrentRemote,
-  getDataSource,
-} from "../music/data";
+import { getCurrentRemote, getDataSource } from "../music/data";
 import { useImageUrl } from "../music/hooks/useImageUrl";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
@@ -49,12 +46,7 @@ import {
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
 import { routes } from "../music/utils/routing";
-import {
-  appState,
-  setCurrentSong,
-  setQueue,
-  setQueueOpen,
-} from "./services/storage/db";
+import { appState, setCurrentSong, setQueue, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 
 // responsive breakpoint
@@ -175,9 +167,7 @@ export function AppLayout(props: AppLayoutProps) {
     const state = appState();
     if (state?.current_sha256) {
       // first check if song is in queue (avoids fetching from wrong remote)
-      const songInQueue = state.queue.find(
-        (s) => s.sha256 === state.current_sha256,
-      );
+      const songInQueue = state.queue.find((s) => s.sha256 === state.current_sha256);
       if (songInQueue) {
         setCurrentSongData(songInQueue);
       } else if (state.queue.length > 0) {
@@ -230,14 +220,13 @@ export function AppLayout(props: AppLayoutProps) {
     <div
       class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
       style={{
-        "--player-bar-height":
-          (appState()?.queue.length || 0) > 0 ? "80px" : "0px",
+        "--player-bar-height": (appState()?.queue.length || 0) > 0 ? "80px" : "0px",
       }}
     >
       {/* top navigation */}
       <TopNav
         brandName="freqhole"
-        brandTagline="your music library"
+        brandTagline="get yr freq on."
         searchPlaceholder="search artists, albums, songs..."
         onSearchChange={(query) => console.log("search:", query)}
         onSearchSubmit={(query) => console.log("search submit:", query)}
@@ -277,54 +266,42 @@ export function AppLayout(props: AppLayoutProps) {
               {
                 label: "songs",
                 onClick: () => {
-                  const prefix = routeContext.isLocal()
-                    ? "/local"
-                    : `/${routeContext.remoteId()}`;
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/songs`);
                 },
               },
               {
                 label: "albums",
                 onClick: () => {
-                  const prefix = routeContext.isLocal()
-                    ? "/local"
-                    : `/${routeContext.remoteId()}`;
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/albums`);
                 },
               },
               {
                 label: "artists",
                 onClick: () => {
-                  const prefix = routeContext.isLocal()
-                    ? "/local"
-                    : `/${routeContext.remoteId()}`;
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/artists`);
                 },
               },
               {
                 label: "genres",
                 onClick: () => {
-                  const prefix = routeContext.isLocal()
-                    ? "/local"
-                    : `/${routeContext.remoteId()}`;
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/genres`);
                 },
               },
               {
                 label: "playlists",
                 onClick: () => {
-                  const prefix = routeContext.isLocal()
-                    ? "/local"
-                    : `/${routeContext.remoteId()}`;
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/playlists`);
                 },
               },
               {
                 label: "favorites",
                 onClick: () => {
-                  const prefix = routeContext.isLocal()
-                    ? "/local"
-                    : `/${routeContext.remoteId()}`;
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/favorites`);
                 },
               },
@@ -336,9 +313,9 @@ export function AppLayout(props: AppLayoutProps) {
       {/* main content area */}
       <div
         class="flex-1 overflow-hidden flex"
-        style={{ 
+        style={{
           "padding-top": isNarrow() ? "var(--nav-height, 56px)" : undefined,
-          "padding-bottom": "var(--player-bar-height)" 
+          "padding-bottom": "var(--player-bar-height)",
         }}
       >
         <div class="flex-1 overflow-hidden">{props.children}</div>
@@ -350,9 +327,7 @@ export function AppLayout(props: AppLayoutProps) {
           songs={appState()?.queue || []}
           currentIndex={
             appState()?.current_sha256
-              ? appState()!.queue.findIndex(
-                  (s) => s.sha256 === appState()!.current_sha256,
-                )
+              ? appState()!.queue.findIndex((s) => s.sha256 === appState()!.current_sha256)
               : -1
           }
           onClose={() => void setQueueOpen(false)}
