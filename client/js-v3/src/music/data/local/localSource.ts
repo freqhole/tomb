@@ -62,6 +62,10 @@ import type {
   PaginatedResponse,
   PlaylistSummary,
   QueryParams,
+  SearchField,
+  SearchResponse,
+  SearchSuggestion,
+  SuggestionsResponse,
 } from "../types";
 import { getPrimaryImageBlobId } from "../../utils/images";
 
@@ -108,20 +112,68 @@ export class LocalMusicDataSource implements MusicDataSource {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
 
-    const results = await querySongsWithDetails({
-      limit,
-      offset,
+    // map sort field to db format
+    const sortField = (params?.sort_by as "added_at" | "title" | "artist" | "album" | "genre" | "year" | "duration") ?? "added_at";
+    const sortDirection = params?.sort_direction ?? "desc";
+
+    let results = await querySongsWithDetails({
+      limit: limit + offset + 100, // fetch extra for filtering, then paginate
+      offset: 0,
       artistId: params?.artist_id,
       albumId: params?.album_id,
+      sortField,
+      sortDirection,
     });
 
-    const songs = enrichSongsWithImages(results);
+    // apply search filter if provided
+    if (params?.search) {
+      const searchLower = params.search.toLowerCase();
+      results = results.filter(song => 
+        song.title?.toLowerCase().includes(searchLower) ||
+        song.artist_name?.toLowerCase().includes(searchLower) ||
+        song.album_title?.toLowerCase().includes(searchLower)
+      );
+    }
 
-    const hasMore = songs.length === limit;
+    // apply tag filters if provided
+    if (params?.include_tags?.length || params?.exclude_tags?.length) {
+      // get all album tags to filter by
+      const albumTagsMap = new Map<string, string[]>();
+      for (const song of results) {
+        if (!albumTagsMap.has(song.album_id)) {
+          const tags = await getAlbumTags(song.album_id);
+          albumTagsMap.set(song.album_id, tags.map(t => t.name));
+        }
+      }
+
+      results = results.filter(song => {
+        const songTags = albumTagsMap.get(song.album_id) || [];
+        
+        // include filter: song must have at least one of the include tags
+        if (params?.include_tags?.length) {
+          const hasIncludeTag = params.include_tags.some(tag => songTags.includes(tag));
+          if (!hasIncludeTag) return false;
+        }
+        
+        // exclude filter: song must not have any of the exclude tags
+        if (params?.exclude_tags?.length) {
+          const hasExcludeTag = params.exclude_tags.some(tag => songTags.includes(tag));
+          if (hasExcludeTag) return false;
+        }
+        
+        return true;
+      });
+    }
+
+    // paginate after filtering
+    const paginatedResults = results.slice(offset, offset + limit);
+    const songs = enrichSongsWithImages(paginatedResults);
+
+    const hasMore = results.length > offset + limit;
 
     return {
       items: songs,
-      total: songs.length,
+      total: results.length,
       offset,
       limit,
       has_more: hasMore,
@@ -1218,6 +1270,188 @@ export class LocalMusicDataSource implements MusicDataSource {
       offset,
       limit,
       has_more: offset + limit < total,
+    };
+  }
+
+  // search suggestions for local data
+  async searchSuggestions(params: {
+    field: SearchField;
+    partial: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<SuggestionsResponse> {
+    const startTime = performance.now();
+    const partial = params.partial.toLowerCase();
+    const page = params.page ?? 1;
+    const pageSize = params.page_size ?? 10;
+    const suggestions: SearchSuggestion[] = [];
+
+    // search songs
+    if (params.field === "all" || params.field === "songs") {
+      const songs = await querySongsWithDetails({ limit: 1000 });
+      const matchingSongs = songs.filter(s => 
+        s.title?.toLowerCase().includes(partial)
+      ).slice(0, 20);
+      
+      for (const song of matchingSongs) {
+        suggestions.push({
+          value: song.sha256,
+          display: song.title,
+          highlight: song.title,
+          count: 1,
+          suggestion_type: "song",
+          confidence: 1.0,
+          metadata: { artist_name: song.artist_name, album_title: song.album_title },
+          entity_id: song.sha256,
+          is_favorite: await checkFavorite("song", song.sha256),
+        });
+      }
+    }
+
+    // search artists
+    if (params.field === "all" || params.field === "artists") {
+      const artistResults = await queryArtists({ limit: 1000 });
+      const matchingArtists = artistResults.filter(a => 
+        a.artist?.name?.toLowerCase().includes(partial)
+      ).slice(0, 10);
+      
+      for (const result of matchingArtists) {
+        suggestions.push({
+          value: result.artist.artist_id,
+          display: result.artist.name,
+          highlight: result.artist.name,
+          count: result.song_count,
+          suggestion_type: "artist",
+          confidence: 1.0,
+          metadata: { song_count: result.song_count, album_count: result.album_count },
+          entity_id: result.artist.artist_id,
+          is_favorite: await checkFavorite("artist", result.artist.artist_id),
+        });
+      }
+    }
+
+    // search albums
+    if (params.field === "all" || params.field === "albums") {
+      const albumResults = await queryAlbums({ limit: 1000 });
+      const matchingAlbums = albumResults.filter(a => 
+        a.album?.title?.toLowerCase().includes(partial)
+      ).slice(0, 10);
+      
+      for (const result of matchingAlbums) {
+        if (result.album) {
+          suggestions.push({
+            value: result.album.album_id,
+            display: result.album.title,
+            highlight: result.album.title,
+            count: result.song_count,
+            suggestion_type: "album",
+            confidence: 1.0,
+            metadata: { artist_name: result.artist_name },
+            entity_id: result.album.album_id,
+            is_favorite: await checkFavorite("album", result.album.album_id),
+          });
+        }
+      }
+    }
+
+    // paginate results
+    const total = suggestions.length;
+    const totalPages = Math.ceil(total / pageSize);
+    const startIdx = (page - 1) * pageSize;
+    const paginatedSuggestions = suggestions.slice(startIdx, startIdx + pageSize);
+
+    return {
+      suggestions: paginatedSuggestions,
+      query_time_ms: performance.now() - startTime,
+      total_count: total,
+      page,
+      page_size: pageSize,
+      total_pages: totalPages,
+      has_next: page < totalPages,
+      has_prev: page > 1,
+    };
+  }
+
+  // full search for local data
+  async search(params: {
+    query: string;
+    field?: "all" | "songs" | "artists" | "albums" | "genres" | "playlists" | null;
+    page?: number;
+    page_size?: number;
+  }): Promise<{
+    songs: Array<any>;
+    artists: Array<any> | null;
+    albums: Array<any> | null;
+    genres: Array<any> | null;
+    playlists: Array<any> | null;
+    total_count: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+    has_next: boolean;
+    has_prev: boolean;
+    query_time_ms: number;
+    applied_filters: any;
+    sort_applied: any;
+  }> {
+    const startTime = performance.now();
+    const query = params.query.toLowerCase();
+    const page = params.page ?? 1;
+    const pageSize = params.page_size ?? 50;
+    const field = params.field ?? "all";
+
+    let songs: any[] = [];
+    let artists: any[] | null = null;
+    let albums: any[] | null = null;
+
+    // search songs
+    if (field === "all" || field === "songs") {
+      const allSongs = await querySongsWithDetails({ limit: 10000 });
+      songs = allSongs.filter(s => 
+        s.title?.toLowerCase().includes(query) ||
+        s.artist_name?.toLowerCase().includes(query) ||
+        s.album_title?.toLowerCase().includes(query)
+      );
+    }
+
+    // search artists
+    if (field === "all" || field === "artists") {
+      const artistResults = await queryArtists({ limit: 1000 });
+      artists = artistResults.filter(a => 
+        a.artist?.name?.toLowerCase().includes(query)
+      );
+    }
+
+    // search albums
+    if (field === "all" || field === "albums") {
+      const albumResults = await queryAlbums({ limit: 1000 });
+      albums = albumResults
+        .filter(a => a.album?.title?.toLowerCase().includes(query))
+        .map(r => adaptAlbumFromIDB(r));
+    }
+
+    const totalCount = songs.length + (artists?.length ?? 0) + (albums?.length ?? 0);
+    const totalPages = Math.ceil(songs.length / pageSize);
+
+    // paginate songs
+    const startIdx = (page - 1) * pageSize;
+    const paginatedSongs = enrichSongsWithImages(songs.slice(startIdx, startIdx + pageSize));
+
+    return {
+      songs: paginatedSongs,
+      artists,
+      albums,
+      genres: null,
+      playlists: null,
+      total_count: totalCount,
+      page,
+      page_size: pageSize,
+      total_pages: totalPages,
+      has_next: page < totalPages,
+      has_prev: page > 1,
+      query_time_ms: performance.now() - startTime,
+      applied_filters: null,
+      sort_applied: null,
     };
   }
 

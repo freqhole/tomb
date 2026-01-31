@@ -2,17 +2,19 @@
 
 import { createQuery } from "@tanstack/solid-query";
 import { getDataSource } from "../data";
+import { queryKeys } from "./queryKeys";
 
 /**
  * fetch all available tags
  */
 export function useTagsQuery() {
   return createQuery(() => ({
-    queryKey: ["tags", "list"],
+    queryKey: queryKeys.tags.list(),
     queryFn: async () => {
       const dataSource = getDataSource();
       if (!dataSource.getTags) {
-        throw new Error("current data source does not support tags");
+        // return empty array for sources that don't support tags
+        return [];
       }
 
       return await dataSource.getTags();

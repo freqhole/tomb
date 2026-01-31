@@ -1000,7 +1000,7 @@ export async function querySongsWithDetails(options?: {
   albumId?: string;
   genreId?: string;
   songIds?: string[];
-  sortField?: "added_at" | "title" | "artist" | "album" | "genre" | "year";
+  sortField?: "added_at" | "title" | "artist" | "album" | "genre" | "year" | "duration";
   sortDirection?: "asc" | "desc";
 }): Promise<Song[]> {
   const db = await initMusicDB();
@@ -1010,14 +1010,17 @@ export async function querySongsWithDetails(options?: {
   const sortDirection = options?.sortDirection ?? "desc";
 
   // map sort field to compound index (all maintain album grouping)
+  // note: genre uses in-memory sort because compound index excludes songs with null genre
   const indexMap: Record<string, string> = {
     added_at: "by_album_added_at_album_disc_track",
     title: "by_album_title_disc_track",
     artist: "by_artist_album_disc_track",
     album: "by_album_title_disc_track",
-    genre: "by_album_genre_album_disc_track",
     year: "by_year_album_disc_track",
   };
+
+  // fields that need in-memory sorting (no compound index or null values cause issues)
+  const inMemorySortFields = ["genre", "duration"];
 
   let songsToQuery: Song[];
 
@@ -1063,6 +1066,32 @@ export async function querySongsWithDetails(options?: {
     // get all songs and filter by album_id
     const allSongs = await db.getAll(STORE_SONGS);
     songsToQuery = allSongs.filter((song) => albumIds.has(song.album_id));
+  } else if (inMemorySortFields.includes(sortField)) {
+    // for genre and duration: load all songs and sort in memory
+    // (compound index excludes songs with null values, causing them to disappear)
+    const allSongs = await db.getAll(STORE_SONGS);
+    
+    // sort by the field, then by album grouping
+    allSongs.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "genre") {
+        const genreA = a.album_primary_genre_id || "";
+        const genreB = b.album_primary_genre_id || "";
+        cmp = genreA.localeCompare(genreB);
+      } else if (sortField === "duration") {
+        cmp = (a.duration_seconds || 0) - (b.duration_seconds || 0);
+      }
+      
+      if (cmp !== 0) return sortDirection === "desc" ? -cmp : cmp;
+      
+      // secondary sort by album grouping
+      const albumCmp = (a.album_title || "").localeCompare(b.album_title || "");
+      if (albumCmp !== 0) return albumCmp;
+      if (a.disc_number !== b.disc_number) return a.disc_number - b.disc_number;
+      return a.track_number - b.track_number;
+    });
+    
+    songsToQuery = allSongs.slice(offset, offset + limit);
   } else {
     // use compound index for sorted, album-grouped results
     const indexName = indexMap[sortField];

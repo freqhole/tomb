@@ -7,6 +7,7 @@ import type {
   SearchResponse,
   SuggestionsResponse,
 } from "../data/types";
+import { queryKeys } from "./queryKeys";
 
 interface UseSearchSuggestionsOptions {
   field: Accessor<SearchField>;
@@ -23,7 +24,7 @@ export function useSearchSuggestions(options: UseSearchSuggestionsOptions) {
   const enabled = options.enabled || (() => true);
 
   return createInfiniteQuery(() => ({
-    queryKey: ["search", "suggestions", field(), partial()],
+    queryKey: queryKeys.search.suggestions(partial(), pageSize),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       const partialValue = partial();
@@ -90,7 +91,7 @@ export function useSearchQuery(options: UseSearchQueryOptions) {
   const enabled = options.enabled || (() => true);
 
   return createInfiniteQuery(() => ({
-    queryKey: ["search", "results", query(), field()],
+    queryKey: queryKeys.search.results(query()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getDataSource();
       const queryValue = query();
