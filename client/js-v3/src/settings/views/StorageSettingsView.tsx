@@ -1,0 +1,390 @@
+// storage settings view - displays storage usage and provides clear options
+import { createSignal, onMount, Show, For } from "solid-js";
+import {
+  getStorageBreakdown,
+  clearCacheApiData,
+  clearOPFSData,
+  clearMusicDbData,
+  clearAllData,
+  formatBytes,
+  type StorageBreakdown,
+} from "../services/storageManager";
+
+// confirmation dialog component
+function ConfirmDialog(props: {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  confirmDanger?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Show when={props.isOpen}>
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+          <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
+            {props.title}
+          </h3>
+          <p class="text-sm text-[var(--color-text-secondary)] mb-6">
+            {props.message}
+          </p>
+          <div class="flex gap-3 justify-end">
+            <button
+              class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+              onClick={props.onCancel}
+            >
+              cancel
+            </button>
+            <button
+              class={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                props.confirmDanger
+                  ? "bg-red-600 hover:bg-red-700 text-white"
+                  : "bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-black"
+              }`}
+              onClick={props.onConfirm}
+            >
+              {props.confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
+// storage category card component
+function StorageCard(props: {
+  title: string;
+  icon: string;
+  size: number;
+  details?: { label: string; value: string }[];
+  onClear?: () => void;
+  clearLabel?: string;
+  clearDanger?: boolean;
+  loading?: boolean;
+}) {
+  return (
+    <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
+      <div class="flex items-start justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">{props.icon}</span>
+          <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
+            {props.title}
+          </h3>
+        </div>
+        <span class="text-lg font-semibold text-[var(--color-text-primary)]">
+          {formatBytes(props.size)}
+        </span>
+      </div>
+      
+      <Show when={props.details && props.details.length > 0}>
+        <div class="space-y-1 mb-4">
+          <For each={props.details}>
+            {(detail) => (
+              <div class="flex justify-between text-xs">
+                <span class="text-[var(--color-text-muted)]">{detail.label}</span>
+                <span class="text-[var(--color-text-secondary)]">{detail.value}</span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+      
+      <Show when={props.onClear}>
+        <button
+          class={`w-full px-3 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            props.clearDanger
+              ? "bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30"
+              : "bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)]"
+          }`}
+          onClick={props.onClear}
+          disabled={props.loading}
+        >
+          {props.loading ? "clearing..." : props.clearLabel || "clear"}
+        </button>
+      </Show>
+    </div>
+  );
+}
+
+export function StorageSettingsView() {
+  const [breakdown, setBreakdown] = createSignal<StorageBreakdown | null>(null);
+  const [loading, setLoading] = createSignal(true);
+  const [clearing, setClearing] = createSignal<string | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
+  
+  // confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = createSignal<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    confirmDanger: boolean;
+    action: () => Promise<void>;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmLabel: "",
+    confirmDanger: false,
+    action: async () => {},
+  });
+  
+  const refreshBreakdown = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getStorageBreakdown();
+      setBreakdown(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to load storage info");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  onMount(() => {
+    refreshBreakdown();
+  });
+  
+  const showConfirmDialog = (
+    title: string,
+    message: string,
+    confirmLabel: string,
+    confirmDanger: boolean,
+    action: () => Promise<void>
+  ) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      confirmLabel,
+      confirmDanger,
+      action,
+    });
+  };
+  
+  const handleConfirm = async () => {
+    const dialog = confirmDialog();
+    setConfirmDialog({ ...dialog, isOpen: false });
+    
+    try {
+      await dialog.action();
+      await refreshBreakdown();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "operation failed");
+    }
+  };
+  
+  const handleClearCache = () => {
+    showConfirmDialog(
+      "clear cache data",
+      "this will delete all cached remote audio and images. you'll need to re-download them when accessed. local files are not affected.",
+      "clear cache",
+      false,
+      async () => {
+        setClearing("cache");
+        await clearCacheApiData();
+        setClearing(null);
+      }
+    );
+  };
+  
+  const handleClearOPFS = () => {
+    showConfirmDialog(
+      "clear local files",
+      "this will delete all locally stored audio files and thumbnails from OPFS. your library metadata will remain, but audio files will need to be re-imported.",
+      "clear local files",
+      true,
+      async () => {
+        setClearing("opfs");
+        await clearOPFSData();
+        setClearing(null);
+      }
+    );
+  };
+  
+  const handleClearMusicDb = () => {
+    showConfirmDialog(
+      "clear music library",
+      "this will delete your entire music library database including all songs, albums, artists, playlists, favorites, and ratings. audio files in OPFS will remain but be orphaned.",
+      "clear library",
+      true,
+      async () => {
+        setClearing("musicdb");
+        await clearMusicDbData();
+        setClearing(null);
+      }
+    );
+  };
+  
+  const handleClearAll = () => {
+    showConfirmDialog(
+      "delete everything",
+      "this will permanently delete ALL freqhole data: your music library, playlists, favorites, cached files, local audio files, and app settings. this action cannot be undone. the page will reload after clearing.",
+      "DELETE EVERYTHING",
+      true,
+      async () => {
+        setClearing("all");
+        await clearAllData();
+        setClearing(null);
+        // reload the page to reinitialize everything
+        window.location.reload();
+      }
+    );
+  };
+  
+  return (
+    <div class="p-6 max-w-2xl mx-auto">
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-[var(--color-text-primary)] mb-1">
+          storage
+        </h1>
+        <p class="text-sm text-[var(--color-text-muted)]">
+          manage local storage used by freqhole
+        </p>
+      </div>
+      
+      {/* error display */}
+      <Show when={error()}>
+        <div class="mb-4 p-3 bg-red-600/20 border border-red-600/30 rounded-lg text-sm text-red-400">
+          {error()}
+        </div>
+      </Show>
+      
+      {/* loading state */}
+      <Show when={loading() && !breakdown()}>
+        <div class="flex items-center justify-center py-12">
+          <div class="animate-spin w-6 h-6 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full" />
+          <span class="ml-3 text-[var(--color-text-muted)]">analyzing storage...</span>
+        </div>
+      </Show>
+      
+      {/* storage breakdown */}
+      <Show when={breakdown()}>
+        {(data) => (
+          <>
+            {/* overall usage bar */}
+            <div class="mb-6 p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-sm text-[var(--color-text-secondary)]">total storage used</span>
+                <span class="text-sm font-medium text-[var(--color-text-primary)]">
+                  {formatBytes(data().total.usage)} / {formatBytes(data().total.quota)}
+                </span>
+              </div>
+              <div class="h-2 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden">
+                <div
+                  class={`h-full transition-all ${
+                    data().total.percentUsed > 90
+                      ? "bg-red-500"
+                      : data().total.percentUsed > 70
+                      ? "bg-yellow-500"
+                      : "bg-[var(--color-accent-500)]"
+                  }`}
+                  style={{ width: `${Math.min(data().total.percentUsed, 100)}%` }}
+                />
+              </div>
+              <div class="mt-1 text-xs text-[var(--color-text-muted)]">
+                {data().total.percentUsed}% used
+              </div>
+            </div>
+            
+            {/* storage category cards */}
+            <div class="grid gap-4 mb-6">
+              {/* cache api */}
+              <StorageCard
+                title="remote cache"
+                icon=""
+                size={data().cacheApi.size}
+                details={[
+                  { label: "cached items", value: data().cacheApi.entryCount.toString() },
+                ]}
+                onClear={handleClearCache}
+                clearLabel="clear cached data"
+                loading={clearing() === "cache"}
+              />
+              
+              {/* opfs */}
+              <StorageCard
+                title="local files (OPFS)"
+                icon=""
+                size={data().opfs.size}
+                details={[
+                  { label: "audio files", value: `${data().opfs.audioCount} (${formatBytes(data().opfs.audioSize)})` },
+                  { label: "thumbnails", value: `${data().opfs.thumbnailCount} (${formatBytes(data().opfs.thumbnailsSize)})` },
+                ]}
+                onClear={handleClearOPFS}
+                clearLabel="clear local files"
+                clearDanger
+                loading={clearing() === "opfs"}
+              />
+              
+              {/* indexeddb */}
+              <StorageCard
+                title="music library database"
+                icon=""
+                size={data().indexedDb.musicDbSize}
+                details={[
+                  { label: "songs, albums, artists, playlists", value: "" },
+                ]}
+                onClear={handleClearMusicDb}
+                clearLabel="clear music library"
+                clearDanger
+                loading={clearing() === "musicdb"}
+              />
+              
+              {/* app state (no clear button, just info) */}
+              <StorageCard
+                title="app settings"
+                icon=""
+                size={data().indexedDb.appDbSize + data().indexedDb.cacheMetadataDbSize}
+                details={[
+                  { label: "playback state, queue, preferences", value: "" },
+                ]}
+              />
+            </div>
+            
+            {/* nuclear option */}
+            <div class="border-t border-[var(--color-border-subtle)] pt-6">
+              <h2 class="text-sm font-medium text-red-400 mb-3">danger zone</h2>
+              <button
+                class="w-full px-4 py-3 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 rounded-lg text-red-400 font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleClearAll}
+                disabled={!!clearing()}
+              >
+                {clearing() === "all" ? "deleting everything..." : "DELETE EVERYTHING"}
+              </button>
+              <p class="mt-2 text-xs text-[var(--color-text-muted)]">
+                permanently removes all freqhole data. cannot be undone.
+              </p>
+            </div>
+            
+            {/* refresh button */}
+            <div class="mt-6 flex justify-center">
+              <button
+                class="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+                onClick={refreshBreakdown}
+                disabled={loading()}
+              >
+                {loading() ? "refreshing..." : "↻ refresh stats"}
+              </button>
+            </div>
+          </>
+        )}
+      </Show>
+      
+      {/* confirmation dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog().isOpen}
+        title={confirmDialog().title}
+        message={confirmDialog().message}
+        confirmLabel={confirmDialog().confirmLabel}
+        confirmDanger={confirmDialog().confirmDanger}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog(), isOpen: false })}
+      />
+    </div>
+  );
+}

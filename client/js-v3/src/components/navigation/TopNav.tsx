@@ -183,6 +183,7 @@ export function TopNav(props: TopNavProps) {
           recentPlaylists={props.recentPlaylists}
           onViewAllPlaylists={props.onViewAllPlaylists}
           onCreatePlaylist={props.onCreatePlaylist}
+          onNavigate={props.onNavigate}
         />
       </Show>
 
@@ -378,13 +379,16 @@ export function TopNav(props: TopNavProps) {
                       </KobalteNav.Group>
 
                       <div class="mt-auto space-y-1 pt-4 border-t border-[var(--color-border-subtle)]">
-                        {/* storage usage */}
+                        {/* storage usage - now clickable to settings */}
                         <Show
                           when={
                             props.storageUsage !== undefined && props.storageQuota !== undefined
                           }
                         >
-                          <div class="flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] text-xs">
+                          <button
+                            class="w-full flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-xs text-left transition-colors border-none cursor-pointer"
+                            onClick={() => props.onNavigate?.("/settings/storage")}
+                          >
                             <Icon name="database" size={14} />
                             <div class="flex flex-col">
                               <span class="text-[var(--color-text-secondary)]">
@@ -395,7 +399,7 @@ export function TopNav(props: TopNavProps) {
                                 {storagePercent()}% used
                               </span>
                             </div>
-                          </div>
+                          </button>
                         </Show>
                       </div>
                     </div>

@@ -15,6 +15,7 @@ import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { AppLayout } from "../AppLayout";
+import { SettingsLayout, StorageSettingsView } from "../../settings";
 
 interface RoutesProps {
   onAddMusic: () => void;
@@ -51,7 +52,22 @@ function RootRedirect() {
 
 export function routes(props: RoutesProps) {
   return (
-    <Route path="/" component={AppLayout}>
+    <>
+      {/* settings routes - outside AppLayout */}
+      <Route
+        path="/settings"
+        component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}
+      >
+        <Route path="/storage" component={StorageSettingsView} />
+        {/* redirect /settings to /settings/storage */}
+        <Route path="/" component={() => {
+          const navigate = useNavigate();
+          onMount(() => navigate("/settings/storage", { replace: true }));
+          return null;
+        }} />
+      </Route>
+
+      <Route path="/" component={AppLayout}>
       {/* root redirect - goes to last active remote or local */}
       <Route path="/" component={RootRedirect} />
 
@@ -137,6 +153,7 @@ export function routes(props: RoutesProps) {
         />
       </Route>
     </Route>
+    </>
   );
 }
 

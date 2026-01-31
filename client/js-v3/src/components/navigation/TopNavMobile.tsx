@@ -48,6 +48,8 @@ export interface TopNavMobileProps {
   onViewAllPlaylists?: () => void;
   /** callback for create playlist */
   onCreatePlaylist?: () => void;
+  /** callback for navigation (optional) */
+  onNavigate?: (path: string) => void;
 }
 
 /** format bytes to human readable */
@@ -302,10 +304,13 @@ export function TopNavMobile(props: TopNavMobileProps) {
               </div>
             </div>
 
-            {/* storage stats - at bottom */}
+            {/* storage stats - at bottom, clickable to settings */}
             <Show when={props.storageUsage !== undefined && props.storageQuota !== undefined}>
               <div class="p-3 border-t border-white/10">
-                <div class="flex items-center gap-2 px-3 py-2 rounded bg-white/5 text-xs">
+                <button
+                  class="w-full flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs text-left transition-colors border-none cursor-pointer"
+                  onClick={() => handleMenuItemClick(() => props.onNavigate?.("/settings/storage"))}
+                >
                   <Icon name="database" size={14} color="white" />
                   <div class="flex flex-col">
                     <span class="text-white/70">
@@ -313,7 +318,8 @@ export function TopNavMobile(props: TopNavMobileProps) {
                     </span>
                     <span class="text-white/50">{storagePercent()}% used</span>
                   </div>
-                </div>
+                  <span class="ml-auto text-white/40">settings</span>
+                </button>
               </div>
             </Show>
           </div>
