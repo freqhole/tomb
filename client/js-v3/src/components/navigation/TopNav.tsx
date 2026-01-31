@@ -187,11 +187,14 @@ export function TopNav(props: TopNavProps) {
       </Show>
 
       <nav
-        class={`flex items-center gap-3 bg-black/95 backdrop-blur-sm px-3 py-2 border-b border-white/10 z-[1000] ${props.class || ""}`}
+        class={`flex items-center gap-3 z-[1000] ${props.class || ""}`}
         classList={{
-          "fixed top-0 left-0 right-0": isNarrow(),
+          // narrow: full-width fixed strip at top
+          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-2 border-b border-white/10": isNarrow(),
+          // wide: fixed top-left floating element, doesn't push content
+          "fixed top-4 left-4 bg-black/80 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg": !isNarrow(),
         }}
-        style={{ height: "var(--nav-height, 56px)" }}
+        style={{ height: isNarrow() ? "var(--nav-height, 56px)" : "auto" }}
       >
         {/* mobile menu trigger - only rendered on narrow */}
         <Show when={isNarrow()}>
