@@ -8,7 +8,6 @@ import {
   onCleanup,
   onMount,
   Show,
-  untrack,
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -20,7 +19,6 @@ import { TopNav } from "../components/navigation/TopNav";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getDataSource } from "../music/data";
-import { useImageUrl } from "../music/hooks/useImageUrl";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
@@ -43,7 +41,6 @@ import { useSongContextMenu } from "../music/services/contextMenu";
 import {
   deactivateAllRemotes,
   getAllRemotes,
-  getRemoteById,
   setActiveRemote,
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
