@@ -10,21 +10,20 @@ import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
-import {
-  getDataSource,
-  initializeDataSource,
-  useRemoteSource,
-} from "../music/data";
+import { TagSelectorModal } from "../components/modals/TagSelectorModal";
+import { getDataSource, initializeDataSource, useRemoteSource } from "../music/data";
 import {
   hideAlbumEditor,
   hideArtistEditor,
   hideSongEditor,
   hideImageCarousel,
+  hideTagSelector,
   showSongEditor,
   useAlbumEditorState,
   useArtistEditorState,
   useSongEditorState,
   useImageCarouselState,
+  useTagSelectorState,
 } from "../music/modals";
 import { queryKeys } from "../music/queries/queryKeys";
 import { playSong } from "../music/services/audio/player";
@@ -174,11 +173,7 @@ export function App() {
           });
           // activate and switch to the newly added remote
           void (async () => {
-            await useRemoteSource(
-              remote.remote_id,
-              remote.name,
-              remote.base_url,
-            );
+            await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
             setHasRemotes(true);
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });
@@ -227,9 +222,7 @@ export function App() {
               hideAlbumEditor();
             }}
             disableNestedModals={state().disableNestedModals}
-            onOpenSongEditor={(songId) =>
-              showSongEditor({ songId, disableNestedModals: true })
-            }
+            onOpenSongEditor={(songId) => showSongEditor({ songId, disableNestedModals: true })}
           />
         )}
       </Show>
@@ -241,6 +234,20 @@ export function App() {
             initialIndex={state().initialIndex}
             title={state().title}
             onClose={hideImageCarousel}
+          />
+        )}
+      </Show>
+
+      <Show when={useTagSelectorState()()}>
+        {(state) => (
+          <TagSelectorModal
+            albumIds={state().albumIds}
+            albumTitle={state().albumTitle}
+            onClose={hideTagSelector}
+            onSave={() => {
+              state().onSave?.();
+              hideTagSelector();
+            }}
           />
         )}
       </Show>

@@ -9,7 +9,7 @@ import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../utils/jobs";
 import { queryClient } from "../../queryClient";
-import { confirm } from "../../utils/confirm";
+import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";

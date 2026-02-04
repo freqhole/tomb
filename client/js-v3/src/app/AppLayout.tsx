@@ -12,6 +12,8 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { ConfirmDialog } from "../components/dialogs/ConfirmDialog";
+import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorModal";
 import { ToastRegion } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { TopNav } from "../components/navigation/TopNav";
@@ -46,6 +48,11 @@ import {
 } from "../music/services/remotes/remoteManager";
 import type { Remote, Song } from "../music/services/storage/types";
 import { routes } from "../music/utils/routing";
+import { confirmState, closeConfirm, resolveConfirm } from "./services/confirmState";
+import {
+  playlistSelectorState,
+  closePlaylistSelector,
+} from "../music/services/playlistSelectorState";
 import { appState, setCurrentSong, setQueue, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 
@@ -434,6 +441,25 @@ export function AppLayout(props: AppLayoutProps) {
             setRemotes(allRemotes);
           })();
         }}
+      />
+
+      {/* global confirm dialog */}
+      <ConfirmDialog
+        isOpen={confirmState().isOpen}
+        onClose={closeConfirm}
+        onConfirm={() => resolveConfirm(true)}
+        title={confirmState().title}
+        message={confirmState().message}
+        confirmText={confirmState().confirmText}
+        cancelText={confirmState().cancelText}
+        variant={confirmState().variant}
+      />
+
+      {/* global playlist selector modal */}
+      <PlaylistSelectorModal
+        isOpen={playlistSelectorState().isOpen}
+        onClose={closePlaylistSelector}
+        songIds={playlistSelectorState().songIds}
       />
 
       {/* toast notifications */}

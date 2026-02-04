@@ -8,7 +8,7 @@ import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../mu
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
 import { queryKeys } from "../../music/queries/queryKeys";
-import { confirm } from "../../utils/confirm";
+import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";

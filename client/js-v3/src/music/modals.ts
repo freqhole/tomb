@@ -136,3 +136,25 @@ export function hideImageCarousel() {
 export function useImageCarouselState() {
   return imageCarouselState;
 }
+
+// tag selector
+interface TagSelectorOptions {
+  albumIds: string[];
+  albumTitle?: string;
+  onSave?: () => void;
+}
+
+const [tagSelectorState, setTagSelectorState] =
+  createSignal<TagSelectorOptions | null>(null);
+
+export function showTagSelector(albumIds: string[], albumTitle?: string) {
+  setTagSelectorState({ albumIds, albumTitle });
+}
+
+export function hideTagSelector() {
+  setTagSelectorState(null);
+}
+
+export function useTagSelectorState() {
+  return tagSelectorState;
+}
