@@ -107,9 +107,9 @@ export function AlbumCard(props: AlbumCardProps) {
             {[props.album.year, props.album.song_count && `${props.album.song_count} tracks`].filter(Boolean).join(" • ")}
           </div>
         </Show>
-        <Show when={props.album.sub_genres && props.album.sub_genres.length > 0 || props.album.tags && props.album.tags.length > 0}>
+        <Show when={props.album.genres && props.album.genres.length > 0 || props.album.tags && props.album.tags.length > 0}>
           <div class="flex flex-wrap gap-1 mt-2 min-h-[20px] max-h-[48px] overflow-y-clip pb-1">
-            <For each={props.album.sub_genres}>
+            <For each={props.album.genres}>
               {(genre) => (
                 <a
                   class="text-xs px-1.5 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-accent-500)] hover:text-[var(--color-text-on-accent)] transition-colors cursor-pointer flex-shrink-0"

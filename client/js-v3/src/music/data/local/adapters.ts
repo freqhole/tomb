@@ -7,10 +7,10 @@ import type { AlbumSummary } from "../types";
 // output type: enforces all AlbumSummary fields are mapped
 export type LocalAlbumSummary = Required<Pick<AlbumSummary,
   | 'album_id' | 'title' | 'artist_id' | 'artist_name' | 'album_type'
-  | 'year' | 'release_date' | 'label' | 'genre_id' | 'song_count' 
+  | 'year' | 'release_date' | 'label' | 'song_count' 
   | 'total_duration'
 >> & Partial<Pick<AlbumSummary,
-  | 'genre' | 'sub_genres' | 'images' | 'is_favorite' | 'user_rating' | 'tags'
+  | 'genres' | 'genre_ids' | 'images' | 'is_favorite' | 'user_rating' | 'tags'
 >>;
 
 // adapter to convert IDB album query result to domain AlbumSummary type
@@ -25,13 +25,12 @@ export function adaptAlbumFromIDB(result: AlbumQueryResult): LocalAlbumSummary {
     year: result.album.year ?? undefined,
     release_date: result.album.release_date ?? undefined,
     label: result.album.label ?? undefined,
-    genre_id: result.album.genre_id ?? undefined,
     song_count: result.song_count,
     total_duration: result.total_duration,
     
     // optional fields
-    genre: result.genre_name,
-    sub_genres: result.sub_genres,
+    genres: result.genres,
+    genre_ids: result.genre_ids,
     images: result.album.images,
     is_favorite: result.album.is_favorite,
     user_rating: result.album.user_rating,

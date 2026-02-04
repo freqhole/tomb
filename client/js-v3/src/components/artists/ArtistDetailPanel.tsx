@@ -42,7 +42,7 @@ interface AlbumGroup {
   isFavorite: boolean;
   rating?: number;
   genre?: string | null;
-  subGenres?: string[];
+  genres?: string[];
   tags?: string[];
 }
 
@@ -117,7 +117,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           isFavorite: song.album_is_favorite ?? false,
           rating: song.album_rating,
           genre: song.album_primary_genre_name,
-          subGenres: song.album_sub_genres,
+          genres: song.album_genres,
           tags: song.album_tags,
         });
       } else if (
@@ -168,9 +168,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       if (name) {
         genreMap.set(name, { id, name });
       }
-      if (song.album_sub_genres) {
-        song.album_sub_genres.forEach((sg) => {
-          genreMap.set(sg, { id: null, name: sg }); // sub-genres don't have IDs
+      if (song.album_genres) {
+        song.album_genres.forEach((g) => {
+          genreMap.set(g, { id: null, name: g });
         });
       }
     });
@@ -362,7 +362,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     isFavorite={album.isFavorite}
                     rating={album.rating}
                     genre={album.genre}
-                    subGenres={album.subGenres}
+                    genres={album.genres}
                     tags={album.tags}
                     onRatingChange={(rating) => props.onAlbumRatingChange?.(album.albumId, rating)}
                     onFavoriteToggle={(isFavorite) =>

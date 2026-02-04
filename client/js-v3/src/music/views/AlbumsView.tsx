@@ -113,9 +113,9 @@ export function AlbumsView(props: AlbumsViewProps) {
 
     // map AlbumSummary to CollectionCardData format
     return allAlbums.map((album) => {
-      // format genres: "genre • sub_genre1 • sub_genre2"
+      // format genres
       const genreText =
-        [album.genre, ...(album.sub_genres || [])].filter(Boolean).join(" • ") || null;
+        (album.genres || []).join(" • ") || null;
 
       // extract year from release_date (YYYY, YYYY-MM, or YYYY-MM-DD)
       const year = album.release_date

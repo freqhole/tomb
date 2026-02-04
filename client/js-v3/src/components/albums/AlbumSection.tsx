@@ -34,8 +34,8 @@ export interface AlbumSectionProps {
   rating?: number;
   /** album primary genre */
   genre?: string | null;
-  /** album sub-genres */
-  subGenres?: string[];
+  /** album genres */
+  genres?: string[];
   /** album tags */
   tags?: string[];
   /** rating change handler */
@@ -74,7 +74,7 @@ function AlbumHeader(props: {
   isFavorite?: boolean;
   rating?: number;
   genre?: string | null;
-  subGenres?: string[];
+  genres?: string[];
   tags?: string[];
   onAlbumClick?: () => void;
   onPlayAlbum?: () => void;
@@ -86,7 +86,7 @@ function AlbumHeader(props: {
   const badgeText = () => {
     const parts: string[] = [];
     if (props.genre) parts.push(props.genre);
-    if (props.subGenres) parts.push(...props.subGenres);
+    if (props.genres) parts.push(...props.genres);
     if (props.tags) parts.push(...props.tags.map((t) => `#${t}`));
     return parts.join(" · ");
   };
@@ -287,7 +287,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
               isFavorite={props.isFavorite}
               rating={props.rating}
               genre={props.genre}
-              subGenres={props.subGenres}
+              genres={props.genres}
               tags={props.tags}
               onAlbumClick={handleAlbumClick}
               onPlayAlbum={props.onPlayAlbum}
@@ -309,7 +309,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             isFavorite={props.isFavorite}
             rating={props.rating}
             genre={props.genre}
-            subGenres={props.subGenres}
+            genres={props.genres}
             tags={props.tags}
             onAlbumClick={handleAlbumClick}
             onPlayAlbum={props.onPlayAlbum}

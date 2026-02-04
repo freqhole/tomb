@@ -170,7 +170,7 @@ export async function runIntegrationTests() {
         ),
     },
 
-    // genres & sub-genres
+    // genres
     {
       name: "music.queryGenres",
       fn: () => music.queryGenres(baseUrl, fixtures.queryParams),
@@ -178,33 +178,6 @@ export async function runIntegrationTests() {
     {
       name: "music.getGenre",
       fn: () => music.getGenre(baseUrl, fixtures.getGenre),
-    },
-    { name: "music.listSubGenres", fn: () => music.listSubGenres(baseUrl) },
-    {
-      name: "music.querySubGenres",
-      fn: () => music.querySubGenres(baseUrl, fixtures.querySubGenres),
-    },
-    {
-      name: "music.getSubGenre",
-      fn: () => music.getSubGenre(baseUrl, fixtures.getSubGenre),
-    },
-    {
-      name: "music.createSubGenre",
-      fn: () => music.createSubGenre(baseUrl, fixtures.createSubGenre),
-    },
-    {
-      name: "music.deleteSubGenre",
-      fn: () => music.deleteSubGenre(baseUrl, fixtures.deleteSubGenre),
-    },
-    {
-      name: "music.listSubGenresForGenre",
-      fn: () =>
-        music.listSubGenresForGenre(baseUrl, fixtures.listSubGenresForGenre),
-    },
-    {
-      name: "music.findOrCreateSubGenre",
-      fn: () =>
-        music.findOrCreateSubGenre(baseUrl, fixtures.findOrCreateSubGenre),
     },
 
     // favorites

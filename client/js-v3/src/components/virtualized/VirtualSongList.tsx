@@ -347,7 +347,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
             class={`w-24 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("genre")}
           >
-            genre <span class="text-[10px]">{getSortIndicator("genre")}</span>
+            genres <span class="text-[10px]">{getSortIndicator("genre")}</span>
           </div>
           <div
             class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
@@ -434,9 +434,9 @@ export function VirtualSongList(props: VirtualSongListProps) {
                   padClass={CELL_PAD}
                   isHovering={isHovered()}
                 />
-                {/* genre */}
+                {/* genres */}
                 <MarqueeText
-                  text={song.album_primary_genre_name || ""}
+                  text={song.album_genres?.join(", ") || ""}
                   class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
                   padClass={CELL_PAD}
                   isHovering={isHovered()}

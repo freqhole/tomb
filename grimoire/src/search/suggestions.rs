@@ -308,10 +308,9 @@ pub async fn get_genre_suggestions(
             genre.id as "genre_id!: String",
             genre.name as "genre_name!: String",
             fts.rank as "fts_rank!: f64",
-            COUNT(DISTINCT album.id) as "song_count!: i64"
+            (SELECT COUNT(DISTINCT ag.album_id) FROM album_genrez ag JOIN albumz a ON ag.album_id = a.id WHERE ag.genre_id = genre.id AND a.deleted_at IS NULL) as "song_count!: i64"
         FROM genrez_fts fts
         JOIN genrez genre ON fts.genre_id = genre.id
-        LEFT JOIN albumz album ON album.genre_id = genre.id AND album.deleted_at IS NULL
         WHERE genrez_fts MATCH ?
             AND genre.deleted_at IS NULL
         GROUP BY genre.id, genre.name, fts.rank
@@ -340,70 +339,6 @@ pub async fn get_genre_suggestions(
                     "match_type": "name"
                 })),
                 entity_id: row.genre_id,
-                is_favorite: false,
-            }
-        })
-        .collect();
-
-    Ok(suggestions)
-}
-
-/// get sub-genre suggestions from FTS
-pub async fn get_sub_genre_suggestions(
-    pool: &SqlitePool,
-    partial: &str,
-) -> GrimoireResult<Vec<Suggestion>> {
-    // query sub_genrez_fts with prefix match: `name:partial*`
-    // join to sub_genrez and parent genrez for full details
-
-    let match_query = format!("{}*", partial);
-
-    let rows = sqlx::query!(
-        r#"
-        SELECT
-            sub_genre.id as "sub_genre_id!: String",
-            sub_genre.name as "sub_genre_name!: String",
-            parent_genre.name as "parent_genre_name: Option<String>",
-            fts.rank as "fts_rank!: f64",
-            COUNT(DISTINCT asg.album_id) as "song_count!: i64"
-        FROM sub_genrez_fts fts
-        JOIN sub_genrez sub_genre ON fts.sub_genre_id = sub_genre.id
-        LEFT JOIN genrez parent_genre ON sub_genre.parent_genre_id = parent_genre.id AND parent_genre.deleted_at IS NULL
-        LEFT JOIN album_sub_genrez asg ON asg.sub_genre_id = sub_genre.id
-        WHERE sub_genrez_fts MATCH ?
-            AND sub_genre.deleted_at IS NULL
-        GROUP BY sub_genre.id, sub_genre.name, parent_genre.name, fts.rank
-        ORDER BY fts.rank DESC
-        LIMIT 100
-        "#,
-        match_query
-    )
-    .fetch_all(pool)
-    .await?;
-
-    let suggestions = rows
-        .into_iter()
-        .map(|row| {
-            let confidence =
-                calculate_confidence(partial, &row.sub_genre_name, row.fts_rank as f32);
-            let display = if let Some(parent) = &row.parent_genre_name {
-                format!("{} ({})", row.sub_genre_name, parent)
-            } else {
-                row.sub_genre_name.clone()
-            };
-            let highlight = generate_highlight(&row.sub_genre_name, partial);
-
-            Suggestion {
-                value: row.sub_genre_name.clone(),
-                display,
-                highlight,
-                count: row.song_count,
-                suggestion_type: SuggestionType::SubGenre,
-                confidence,
-                metadata: Some(serde_json::json!({
-                    "match_type": "name"
-                })),
-                entity_id: row.sub_genre_id,
                 is_favorite: false,
             }
         })

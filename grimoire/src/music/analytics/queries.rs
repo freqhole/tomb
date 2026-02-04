@@ -148,9 +148,9 @@ pub async fn get_user_listening_history(
              WHERE als.song_id = mpe.song_id
              LIMIT 1) as "album_title?",
             -- Get genre name
-            (SELECT g.name FROM albumz alb
-             JOIN album_songz als ON als.album_id = alb.id
-             JOIN genrez g ON g.id = alb.genre_id
+            (SELECT g.name FROM album_songz als
+             JOIN album_genrez ag ON ag.album_id = als.album_id
+             JOIN genrez g ON g.id = ag.genre_id
              WHERE als.song_id = mpe.song_id
              LIMIT 1) as "genre_name?",
             -- Get playlist name if applicable

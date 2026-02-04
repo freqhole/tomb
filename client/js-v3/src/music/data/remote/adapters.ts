@@ -18,7 +18,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'images'
   // user-specific metadata (optional fields)
   | 'is_favorite' | 'user_rating' | 'album_is_favorite' | 'album_rating'
-  | 'album_tags' | 'album_sub_genres' | 'album_images'
+  | 'album_tags' | 'album_genres' | 'album_images'
   // source type and metadata
   | 'source_type' | 'opfs_path' | 'file_name' | 'file_size'
   | 'last_modified' | 'mime_type' | 'source_url' | 'downloaded_at'
@@ -51,9 +51,7 @@ export interface ApiSongQueryItem {
     id: string;
     title: string;
     release_date?: string;
-    genre_id?: string;
-    genre?: string;
-    sub_genres?: string[];
+    genres?: string[];
     images?: Array<{
       blob_id: string;
       is_primary: boolean | number;
@@ -114,8 +112,8 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     artist_name: artist?.name || "unknown artist",
     album_title: album?.title || "unknown album",
     album_added_at: song.created_at, // use song's created_at as proxy
-    album_primary_genre_id: album?.genre_id || item.genre?.id || null,
-    album_primary_genre_name: album?.genre || item.genre?.name || null,
+    album_primary_genre_id: item.genre?.id || null,
+    album_primary_genre_name: album?.genres?.[0] || item.genre?.name || null,
 
     // song-specific images with exact priority hierarchy:
     // 1. song primary → 2. any song thumbnail → 3. album primary → 4. album thumbnail → 5. waveform
@@ -162,7 +160,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_is_favorite: item.album_is_favorite ?? false,
     album_rating: item.album_rating ?? undefined,
     album_tags: item.album_tags || undefined,
-    album_sub_genres: album?.sub_genres || undefined,
+    album_genres: album?.genres || undefined,
     album_images: album?.images?.map((img: any) => ({
       remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
       is_primary: !!img.is_primary,

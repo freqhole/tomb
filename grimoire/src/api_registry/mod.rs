@@ -122,11 +122,7 @@ pub mod type_registry {
     // upload types
     use crate::music::entities::albums::{Album, UpdateAlbumRequest};
     use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
-    use crate::music::entities::genres::{
-        CreateSubGenreRequest, DeleteSubGenreRequest, FindOrCreateSubGenreRequest,
-        FindOrCreateSubGenreResponse, Genre, GetSubGenreRequest, ListSubGenresForGenreRequest,
-        QuerySubGenresRequest, SubGenre,
-    };
+    use crate::music::entities::genres::Genre;
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
         GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
@@ -507,31 +503,6 @@ pub mod type_registry {
 
         gen.add_schema::<GetGenreRequest>("GetGenreRequest");
         registered.insert("GetGenreRequest".to_string());
-
-        // sub-genres types
-        gen.add_schema::<SubGenre>("SubGenre");
-        registered.insert("SubGenre".to_string());
-
-        gen.add_schema::<CreateSubGenreRequest>("CreateSubGenreRequest");
-        registered.insert("CreateSubGenreRequest".to_string());
-
-        gen.add_schema::<QuerySubGenresRequest>("QuerySubGenresRequest");
-        registered.insert("QuerySubGenresRequest".to_string());
-
-        gen.add_schema::<GetSubGenreRequest>("GetSubGenreRequest");
-        registered.insert("GetSubGenreRequest".to_string());
-
-        gen.add_schema::<DeleteSubGenreRequest>("DeleteSubGenreRequest");
-        registered.insert("DeleteSubGenreRequest".to_string());
-
-        gen.add_schema::<ListSubGenresForGenreRequest>("ListSubGenresForGenreRequest");
-        registered.insert("ListSubGenresForGenreRequest".to_string());
-
-        gen.add_schema::<FindOrCreateSubGenreRequest>("FindOrCreateSubGenreRequest");
-        registered.insert("FindOrCreateSubGenreRequest".to_string());
-
-        gen.add_schema::<FindOrCreateSubGenreResponse>("FindOrCreateSubGenreResponse");
-        registered.insert("FindOrCreateSubGenreResponse".to_string());
 
         // upload types
         gen.add_schema::<ImageUploadResponse>("ImageUploadResponse");

@@ -1,5 +1,5 @@
-//! Maintenance utilities for grimoire
-//! Provides functions for cleaning up orphaned data and hard deleting old records
+//! maintenance utilities for grimoire
+//! provides functions for cleaning up orphaned data and hard deleting old records
 
 use crate::response::GrimoireResponse;
 
@@ -11,8 +11,7 @@ pub use crate::blob_data::{
 };
 pub use hard_delete::{hard_delete_old_records, HardDeleteOptions, HardDeleteSummary};
 pub use orphaned::{
-    cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
-    OrphanedGenresSummary, OrphanedSubGenresSummary, OrphanedTagsSummary,
+    cleanup_orphaned_genres, cleanup_orphaned_tags, OrphanedGenresSummary, OrphanedTagsSummary,
 };
 
 /// Default retention period for soft-deleted records (30 days)

@@ -39,13 +39,14 @@ const METADATA_DB_NAME = "freqhole_cache_metadata";
 const METADATA_STORE_NAME = "blob_metadata";
 
 let metadataDB: IDBDatabase | null = null;
+const METADATA_DB_VERSION = 2; // bump version to ensure schema upgrade
 
 // initialize metadata database
 async function initMetadataDB(): Promise<IDBDatabase> {
   if (metadataDB) return metadataDB;
 
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(METADATA_DB_NAME, 1);
+    const request = indexedDB.open(METADATA_DB_NAME, METADATA_DB_VERSION);
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {

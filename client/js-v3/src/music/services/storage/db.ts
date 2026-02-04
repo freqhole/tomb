@@ -844,7 +844,6 @@ export async function getOrCreateGenre(name: string): Promise<Genre> {
   const genre: Genre = {
     genre_id: crypto.randomUUID(),
     name,
-    parent_genre_id: null,
     created_at: Date.now(),
   };
 
@@ -1015,14 +1014,14 @@ export async function queryAlbums(options?: {
       }
     }
 
-    // gather unique sub-genres from songs in this album
-    const subGenresSet = new Set<string>();
+    // gather unique genres from songs in this album
+    const genresSet = new Set<string>();
     for (const song of songs) {
-      if (song.album_sub_genres) {
-        song.album_sub_genres.forEach(sg => subGenresSet.add(sg));
+      if (song.album_genres) {
+        song.album_genres.forEach(g => genresSet.add(g));
       }
     }
-    const subGenres = subGenresSet.size > 0 ? Array.from(subGenresSet) : undefined;
+    const genres = genresSet.size > 0 ? Array.from(genresSet) : undefined;
 
     // calculate total duration
     const totalDuration = songs.reduce(
@@ -1035,8 +1034,7 @@ export async function queryAlbums(options?: {
       artist_name: artistName,
       song_count: songs.length,
       total_duration: totalDuration,
-      genre_name: genreName,
-      sub_genres: subGenres,
+      genres,
     });
   }
 
@@ -1409,7 +1407,7 @@ export async function querySongsWithDetails(options?: {
       album_primary_genre_name: genreName,
       album_tags: albumTags,
       album_images: album?.images, // include album images for artwork display
-      // album_sub_genres is already on the song from import/edit
+      // album_genres is already on the song from import/edit
     };
 
     results.push(enrichedSong);

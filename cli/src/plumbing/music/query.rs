@@ -3,12 +3,10 @@
 use super::MusicAction;
 use crate::plumbing::utils::CommandOutput;
 use grimoire::music::crud::{
-    delete_album, delete_artist, delete_song, delete_sub_genre, delete_tag,
-    find_or_create_sub_genre, get_album, get_albums_tags, get_artist, get_genre, get_genre_stats,
-    get_sub_genre, get_tag, list_albums, list_artists, list_genres, list_songs, list_sub_genres,
-    list_sub_genres_for_genre, list_tags, query_albums, query_artists, query_genres,
-    query_playlist_songs, query_playlists, query_songs, search_genres, search_sub_genres,
-    search_tags,
+    delete_album, delete_artist, delete_song, delete_tag, get_album, get_albums_tags, get_artist,
+    get_genre, get_genre_stats, get_tag, list_albums, list_artists, list_genres, list_songs,
+    list_tags, query_albums, query_artists, query_genres, query_playlist_songs, query_playlists,
+    query_songs, search_genres, search_tags,
 };
 
 pub async fn handle_query_songs(action: MusicAction) -> CommandOutput<serde_json::Value> {
@@ -381,104 +379,6 @@ pub async fn handle_get_genre_stats(action: MusicAction) -> CommandOutput<serde_
     }
 }
 
-// Sub-genre operations
-pub async fn handle_list_sub_genres(_action: MusicAction) -> CommandOutput<serde_json::Value> {
-    let response = list_sub_genres().await;
-    if !response.success {
-        return CommandOutput::failure(response.message, response.errors, ());
-    }
-
-    let Some(sub_genres) = response.data else {
-        return CommandOutput::failure("No sub-genres returned", vec![], ());
-    };
-
-    let message = format!("Found {} sub-genres", sub_genres.len());
-    CommandOutput::success(message, sub_genres)
-}
-
-pub async fn handle_list_sub_genres_for_genre(
-    action: MusicAction,
-) -> CommandOutput<serde_json::Value> {
-    if let MusicAction::ListSubGenresForGenre { genre_id } = action {
-        let response = list_sub_genres_for_genre(&genre_id).await;
-        if !response.success {
-            return CommandOutput::failure(response.message, response.errors, ());
-        }
-
-        let Some(sub_genres) = response.data else {
-            return CommandOutput::failure("No sub-genres returned", vec![], ());
-        };
-
-        let message = format!(
-            "found {} sub-genres for genre {}",
-            sub_genres.len(),
-            genre_id
-        );
-        CommandOutput::success(message, sub_genres)
-    } else {
-        unreachable!("handle_list_sub_genres_for_genre called with wrong action variant")
-    }
-}
-
-pub async fn handle_get_sub_genre(action: MusicAction) -> CommandOutput<serde_json::Value> {
-    if let MusicAction::GetSubGenre { sub_genre_id } = action {
-        let response = get_sub_genre(&sub_genre_id).await;
-        if !response.success {
-            return CommandOutput::failure(response.message, response.errors, ());
-        }
-
-        let Some(sub_genre) = response.data else {
-            return CommandOutput::failure("No sub-genre returned", vec![], ());
-        };
-
-        CommandOutput::success("Sub-genre retrieved", vec![sub_genre])
-    } else {
-        unreachable!("handle_get_sub_genre called with wrong action variant")
-    }
-}
-
-pub async fn handle_delete_sub_genre(action: MusicAction) -> CommandOutput<serde_json::Value> {
-    if let MusicAction::DeleteSubGenre { sub_genre_id } = action {
-        let response = delete_sub_genre(&sub_genre_id, None).await;
-        if !response.success {
-            return CommandOutput::failure(response.message, response.errors, ());
-        }
-
-        let message = format!("successfully deleted sub-genre {}", sub_genre_id);
-        CommandOutput::success(message, ())
-    } else {
-        unreachable!("handle_delete_sub_genre called with wrong action variant")
-    }
-}
-
-pub async fn handle_find_or_create_sub_genre(
-    action: MusicAction,
-) -> CommandOutput<serde_json::Value> {
-    if let MusicAction::FindOrCreateSubGenre { name, genre_id } = action {
-        let response = find_or_create_sub_genre(name, genre_id).await;
-        if !response.success {
-            return CommandOutput::failure(response.message, response.errors, ());
-        }
-
-        let Some((sub_genre, created)) = response.data else {
-            return CommandOutput::failure("No sub-genre returned", vec![], ());
-        };
-
-        let message = if created {
-            format!("Created sub-genre: {} - {}", sub_genre.id, sub_genre.name)
-        } else {
-            format!(
-                "Found existing sub-genre: {} - {}",
-                sub_genre.id, sub_genre.name
-            )
-        };
-
-        CommandOutput::success(message, vec![sub_genre])
-    } else {
-        unreachable!("handle_find_or_create_sub_genre called with wrong action variant")
-    }
-}
-
 // Tag operations
 pub async fn handle_list_tags(_action: MusicAction) -> CommandOutput<serde_json::Value> {
     let response = list_tags().await;
@@ -541,30 +441,6 @@ pub async fn handle_query_genres_search(action: MusicAction) -> CommandOutput<se
         CommandOutput::success(message, genres)
     } else {
         unreachable!("handle_query_genres_search called with wrong action variant")
-    }
-}
-
-pub async fn handle_query_sub_genres_search(
-    action: MusicAction,
-) -> CommandOutput<serde_json::Value> {
-    if let MusicAction::QuerySubGenresSearch { search } = action {
-        let response = search_sub_genres(&search).await;
-        if !response.success {
-            return CommandOutput::failure(response.message, response.errors, ());
-        }
-
-        let Some(sub_genres) = response.data else {
-            return CommandOutput::failure("No sub-genres returned", vec![], ());
-        };
-
-        let message = format!(
-            "found {} sub-genres matching '{}'",
-            sub_genres.len(),
-            search
-        );
-        CommandOutput::success(message, sub_genres)
-    } else {
-        unreachable!("handle_query_sub_genres_search called with wrong action variant")
     }
 }
 

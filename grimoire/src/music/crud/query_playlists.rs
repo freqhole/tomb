@@ -185,7 +185,6 @@ pub struct PlaylistSongViewRow {
     album_release_date: Option<String>,
     album_release_date_precision: Option<String>,
     album_label: Option<String>,
-    album_genre_id: Option<String>,
     album_song_count: Option<i64>,
     album_total_duration: Option<i64>,
     album_created_at: Option<i64>,
@@ -194,8 +193,10 @@ pub struct PlaylistSongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
-    album_images: Option<String>, // JSON array from view
-    album_tags: Option<String>, // JSON array of tag names from view
+    album_genres: Option<String>,    // JSON array from view
+    album_genre_ids: Option<String>, // JSON array from view
+    album_images: Option<String>,    // JSON array from view
+    album_tags: Option<String>,      // JSON array of tag names from view
 
     // User favorites and ratings
     #[allow(dead_code)] // used by sqlx for deserialization
@@ -223,6 +224,18 @@ impl PlaylistSongViewRow {
             .album_tags
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
             .or(Some(vec![])); // default to empty vec
+
+        // parse album genres JSON array
+        let album_genres = self
+            .album_genres
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .map(crate::JsonVec);
+
+        // parse album genre_ids JSON array
+        let album_genre_ids = self
+            .album_genre_ids
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .map(crate::JsonVec);
 
         // parse artist images JSON array
         let artist_images = self
@@ -284,9 +297,8 @@ impl PlaylistSongViewRow {
                 release_date: self.album_release_date,
                 release_date_precision: self.album_release_date_precision,
                 label: self.album_label,
-                genre_id: self.album_genre_id,
-                genre: None,
-                sub_genres: None,
+                genres: album_genres,
+                genre_ids: album_genre_ids,
                 images: album_images,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
@@ -585,6 +597,7 @@ pub async fn query_playlist_songs(
     let rows = match sqlx_query.fetch_all(&pool).await {
         Ok(r) => r,
         Err(e) => {
+            tracing::error!("query_playlist_songs fetch error: {}", e);
             return GrimoireResponse::failure("Failed to query playlist songs", vec![e.into()])
         }
     };

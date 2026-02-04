@@ -47,9 +47,8 @@ export interface AlbumSummary {
   year?: number;
   release_date?: string;
   label?: string;
-  genre_id?: string;
-  genre?: string;
-  sub_genres?: string[];
+  genres?: string[];
+  genre_ids?: string[];
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
@@ -115,7 +114,6 @@ export type SuggestionType =
   | "album"
   | "song"
   | "genre"
-  | "subgenre"
   | "playlist";
 
 export interface SearchSuggestion {
@@ -173,8 +171,7 @@ export interface SearchAlbumResult {
   id: string;
   title: string;
   artist_names: string[];
-  genre?: string | null;
-  sub_genres: string[];
+  genres: string[];
   song_count: number;
   thumbnail_url?: string | null;
   user_rating?: number | null;
@@ -186,7 +183,6 @@ export interface SearchAlbumResult {
 export interface SearchGenreResult {
   genre: string;
   genre_id: string;
-  sub_genres: string[];
   song_count: number;
   artist_count: number;
   representative_song_id?: string | null;

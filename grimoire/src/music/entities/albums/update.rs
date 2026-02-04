@@ -1,7 +1,6 @@
 //! album update operations
 //! handles complex updates including artist re-scoping and date parsing
 
-use crate::music::crud::ImageMetadata;
 use super::models::{Album, UpdateAlbumRequest};
 use crate::database;
 use crate::error::ErrorDetail;
@@ -9,11 +8,11 @@ use crate::music::crud::create_or_update::{
     find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
 };
 use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
-use crate::JsonVec;
 use crate::music::crud::ArtistImportRequest;
-use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
-use crate::music::entities::SubGenre;
+use crate::music::crud::ImageMetadata;
+use crate::music::entities::genres;
 use crate::response::GrimoireResponse;
+use crate::JsonVec;
 
 /// parse flexible release date string into (release_date, precision, year)
 /// supports: "2023", "2023-06", "2023-06-15"
@@ -65,7 +64,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
-            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
         }
     };
 
@@ -78,7 +77,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             release_date,
             release_date_precision,
             label,
-            genre_id,
             song_count as "song_count!",
             total_duration as "total_duration!",
             created_at as "created_at!",
@@ -101,9 +99,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             release_date: row.release_date,
             release_date_precision: row.release_date_precision,
             label: row.label,
-            genre_id: row.genre_id,
-            genre: None,
-            sub_genres: None,
+            genres: None,
+            genre_ids: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,
@@ -116,15 +113,11 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         },
         Ok(None) => {
             return GrimoireResponse::failure(
-                "Album not found",
-                vec![ErrorDetail::new(
-                    "not_found",
-                    "Not Found",
-                    "Album not found",
-                )],
+                "album not found",
+                vec![ErrorDetail::new("not_found", "Not Found", "album not found")],
             )
         }
-        Err(e) => return GrimoireResponse::failure("Failed to query album", vec![e.into()]),
+        Err(e) => return GrimoireResponse::failure("failed to query album", vec![e.into()]),
     };
 
     // if album was deleted, undelete it
@@ -137,7 +130,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .execute(&pool)
         .await
         {
-            return GrimoireResponse::failure("Failed to undelete album", vec![e.into()]);
+            return GrimoireResponse::failure("failed to undelete album", vec![e.into()]);
         }
     }
 
@@ -145,7 +138,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     if let Some(ref album_type) = req.album_type {
         if !["album", "single", "compilation"].contains(&album_type.as_str()) {
             return GrimoireResponse::failure(
-                "Invalid album type",
+                "invalid album type",
                 vec![ErrorDetail::new(
                     "invalid_album_type",
                     "Invalid Album Type",
@@ -161,7 +154,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             Ok((date, precision, year)) => Some((date, precision, year)),
             Err(e) => {
                 return GrimoireResponse::failure(
-                    "Invalid release date format",
+                    "invalid release date format",
                     vec![ErrorDetail::new(
                         "invalid_date",
                         "Invalid Date",
@@ -174,220 +167,123 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         None
     };
 
-    // handle genre if provided (prefer ID, fall back to name)
-    let genre = if let Some(genre_id) = req.genre_id {
-        // use provided genre_id directly
-        match sqlx::query_as!(
-            crate::music::entities::genres::Genre,
-            r#"SELECT
-                id as "id!",
-                name as "name!",
-                created_at as "created_at!"
-            FROM genrez
-            WHERE id = ?"#,
-            genre_id
-        )
-        .fetch_optional(&pool)
-        .await
-        {
-            Ok(Some(g)) => Some(g),
-            Ok(None) => {
-                return GrimoireResponse::failure(
-                    "Genre not found",
-                    vec![ErrorDetail::new(
-                        "genre_not_found",
-                        "Genre Not Found",
-                        &format!("genre with id '{}' does not exist", genre_id),
-                    )],
-                )
-            }
-            Err(e) => return GrimoireResponse::failure("Failed to query genre", vec![e.into()]),
-        }
-    } else if let Some(genre_name) = req.genre {
-        // fall back to find-or-create by name
-        match find_or_create_genre(genre_name).await {
-            GrimoireResponse {
-                success: true,
-                data: Some((genre, _)),
-                ..
-            } => Some(genre),
-            response => {
-                return GrimoireResponse::failure("Failed to find or create genre", response.errors)
-            }
-        }
-    } else {
-        None
-    };
+    // resolve genres - combine existing IDs with newly created genres
+    let genre_ids_to_set: Option<Vec<String>> = {
+        let mut all_ids: Vec<String> = Vec::new();
+        let mut has_any_genre_input = false;
 
-    // handle sub-genres if provided (prefer IDs, fall back to names)
-    let sub_genres = if let Some(sub_genre_ids) = req.sub_genre_ids {
-        if sub_genre_ids.is_empty() {
-            Vec::new()
-        } else {
-            // use provided sub-genre IDs directly
-            let mut fetched_sub_genres: Vec<SubGenre> = Vec::new();
-            for sub_genre_id in sub_genre_ids {
-                match sqlx::query_as!(
-                    SubGenre,
-                    r#"SELECT
-                        id as "id!",
-                        name as "name!",
-                        parent_genre_id,
-                        created_at as "created_at!"
-                    FROM sub_genrez
-                    WHERE id = ?"#,
-                    sub_genre_id
+        // first, validate and add existing genre IDs
+        if let Some(ref genre_ids) = req.genre_ids {
+            has_any_genre_input = true;
+            for genre_id in genre_ids {
+                match sqlx::query_scalar!(
+                    r#"SELECT id as "id!" FROM genrez WHERE id = ? AND deleted_at IS NULL"#,
+                    genre_id
                 )
                 .fetch_optional(&pool)
                 .await
                 {
-                    Ok(Some(sg)) => fetched_sub_genres.push(sg),
+                    Ok(Some(id)) => {
+                        if !all_ids.contains(&id) {
+                            all_ids.push(id);
+                        }
+                    }
                     Ok(None) => {
                         return GrimoireResponse::failure(
-                            "Sub-genre not found",
+                            "genre not found",
                             vec![ErrorDetail::new(
-                                "sub_genre_not_found",
-                                "Sub-genre Not Found",
-                                &format!("sub-genre with id '{}' does not exist", sub_genre_id),
+                                "genre_not_found",
+                                "Genre Not Found",
+                                &format!("genre with id '{}' does not exist", genre_id),
                             )],
                         )
                     }
                     Err(e) => {
+                        return GrimoireResponse::failure("failed to query genre", vec![e.into()])
+                    }
+                }
+            }
+        }
+
+        // then, find or create genres by name and add their IDs
+        if let Some(ref genre_names) = req.genres {
+            has_any_genre_input = true;
+            for genre_name in genre_names {
+                match find_or_create_genre(genre_name.clone()).await {
+                    GrimoireResponse {
+                        success: true,
+                        data: Some((genre, _)),
+                        ..
+                    } => {
+                        if !all_ids.contains(&genre.id) {
+                            all_ids.push(genre.id);
+                        }
+                    }
+                    response => {
                         return GrimoireResponse::failure(
-                            "Failed to query sub-genre",
-                            vec![e.into()],
+                            "failed to find or create genre",
+                            response.errors,
                         )
                     }
                 }
             }
-            fetched_sub_genres
         }
-    } else if let Some(sub_genre_names) = req.sub_genres {
-        if sub_genre_names.is_empty() {
-            Vec::new()
+
+        if has_any_genre_input {
+            Some(all_ids)
         } else {
-            // fall back to find-or-create by name
-            // validate that genre is set (either in request or existing album)
-            let parent_genre_id = if let Some(ref g) = genre {
-                g.id.clone()
-            } else if let Some(ref existing_genre_id) = existing_album.genre_id {
-                existing_genre_id.clone()
-            } else {
-                return GrimoireResponse::failure(
-                    "Cannot set sub-genres without a genre",
-                    vec![ErrorDetail::new(
-                        "missing_genre",
-                        "Missing Genre",
-                        "sub-genres require a parent genre to be set first",
-                    )],
-                );
-            };
-
-            let mut created_sub_genres: Vec<SubGenre> = Vec::new();
-            for sub_genre_name in sub_genre_names {
-                // check if sub-genre exists
-                let existing = sqlx::query_as!(
-                    SubGenre,
-                    r#"SELECT
-                        id as "id!",
-                        name as "name!",
-                        parent_genre_id,
-                        created_at as "created_at!"
-                    FROM sub_genrez
-                    WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND parent_genre_id = ?"#,
-                    sub_genre_name,
-                    parent_genre_id
-                )
-                .fetch_optional(&pool)
-                .await;
-
-                let sub_genre = match existing {
-                    Ok(Some(sg)) => sg,
-                    Ok(None) => {
-                        // create new sub-genre
-                        let create_req = CreateSubGenreRequest {
-                            name: sub_genre_name.clone(),
-                            parent_genre_id: Some(parent_genre_id.clone()),
-                        };
-                        match create_sub_genre(create_req).await {
-                            GrimoireResponse {
-                                success: true,
-                                data: Some(sg),
-                                ..
-                            } => sg,
-                            response => {
-                                return GrimoireResponse::failure(
-                                    "Failed to create sub-genre",
-                                    response.errors,
-                                )
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        return GrimoireResponse::failure(
-                            "Failed to query sub-genre",
-                            vec![e.into()],
-                        )
-                    }
-                };
-
-                created_sub_genres.push(sub_genre);
-            }
-            created_sub_genres
+            None
         }
-    } else {
-        Vec::new()
     };
 
     // handle artist change - this is the complex part
-    let (new_album_id, _old_album_id, _old_artist_ids) = if req.artist_id.is_some()
-        || req.artist_name.is_some()
-    {
-        // get all songs in the current album
-        let song_ids: Vec<String> = match sqlx::query_scalar!(
-            "SELECT song_id FROM album_songz WHERE album_id = ?",
-            req.album_id
-        )
-        .fetch_all(&pool)
-        .await
-        {
-            Ok(ids) => ids,
-            Err(e) => {
-                return GrimoireResponse::failure("Failed to get album songs", vec![e.into()])
-            }
-        };
-
-        if song_ids.is_empty() {
-            return GrimoireResponse::failure(
-                "Cannot change artist on album with no songs",
-                vec![ErrorDetail::new(
-                    "no_songs",
-                    "No Songs",
-                    "Album must have songs to change artist",
-                )],
-            );
-        }
-
-        // collect old artist ids for cleanup
-        let mut old_artist_ids = Vec::new();
-        for song_id in &song_ids {
-            if let Ok(Some(artist_id)) = sqlx::query_scalar!(
-                "SELECT artist_id FROM artist_songz WHERE song_id = ?",
-                song_id
+    let (new_album_id, _old_album_id, _old_artist_ids) =
+        if req.artist_id.is_some() || req.artist_name.is_some() {
+            // get all songs in the current album
+            let song_ids: Vec<String> = match sqlx::query_scalar!(
+                "SELECT song_id FROM album_songz WHERE album_id = ?",
+                req.album_id
             )
-            .fetch_optional(&pool)
+            .fetch_all(&pool)
             .await
             {
-                old_artist_ids.push(artist_id);
-            }
-        }
+                Ok(ids) => ids,
+                Err(e) => {
+                    return GrimoireResponse::failure("failed to get album songs", vec![e.into()])
+                }
+            };
 
-        // resolve new artist: prefer artist_id, fallback to artist_name
-        let new_artist = if let Some(artist_id) = req.artist_id {
-            // artist_id provided - fetch it directly or undelete if deleted
-            match sqlx::query_as!(
-                crate::music::entities::Artist,
-                r#"SELECT
+            if song_ids.is_empty() {
+                return GrimoireResponse::failure(
+                    "cannot change artist on album with no songs",
+                    vec![ErrorDetail::new(
+                        "no_songs",
+                        "No Songs",
+                        "album must have songs to change artist",
+                    )],
+                );
+            }
+
+            // collect old artist ids for cleanup
+            let mut old_artist_ids = Vec::new();
+            for song_id in &song_ids {
+                if let Ok(Some(artist_id)) = sqlx::query_scalar!(
+                    "SELECT artist_id FROM artist_songz WHERE song_id = ?",
+                    song_id
+                )
+                .fetch_optional(&pool)
+                .await
+                {
+                    old_artist_ids.push(artist_id);
+                }
+            }
+
+            // resolve new artist: prefer artist_id, fallback to artist_name
+            let new_artist = if let Some(artist_id) = req.artist_id {
+                // artist_id provided - fetch it directly or undelete if deleted
+                match sqlx::query_as!(
+                    crate::music::entities::Artist,
+                    r#"SELECT
                     id as "id!",
                     name as "name!",
                     bio,
@@ -399,15 +295,15 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     updated_by,
                     NULL as "images?: JsonVec<ImageMetadata>"
                 FROM artistz WHERE id = ?"#,
-                artist_id
-            )
-            .fetch_optional(&pool)
-            .await
-            {
-                Ok(Some(mut artist)) => {
-                    // if deleted, undelete it
-                    if artist.deleted_at.is_some() {
-                        if let Err(e) = sqlx::query!(
+                    artist_id
+                )
+                .fetch_optional(&pool)
+                .await
+                {
+                    Ok(Some(mut artist)) => {
+                        // if deleted, undelete it
+                        if artist.deleted_at.is_some() {
+                            if let Err(e) = sqlx::query!(
                             "UPDATE artistz SET deleted_at = NULL, deleted_by = NULL, updated_at = unixepoch(), updated_by = ? WHERE id = ?",
                             req.updated_by,
                             artist_id
@@ -416,35 +312,35 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                         .await
                         {
                             return GrimoireResponse::failure(
-                                "Failed to undelete artist",
+                                "failed to undelete artist",
                                 vec![e.into()],
                             );
                         }
-                        artist.deleted_at = None;
-                        artist.deleted_by = None;
+                            artist.deleted_at = None;
+                            artist.deleted_by = None;
+                        }
+                        artist
                     }
-                    artist
+                    Ok(None) => {
+                        return GrimoireResponse::failure(
+                            "artist not found",
+                            vec![ErrorDetail::new(
+                                "not_found",
+                                "Not Found",
+                                &format!("artist with id {} not found", artist_id),
+                            )],
+                        )
+                    }
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to query artist", vec![e.into()])
+                    }
                 }
-                Ok(None) => {
-                    return GrimoireResponse::failure(
-                        "Artist not found",
-                        vec![ErrorDetail::new(
-                            "not_found",
-                            "Not Found",
-                            &format!("Artist with id {} not found", artist_id),
-                        )],
-                    )
-                }
-                Err(e) => {
-                    return GrimoireResponse::failure("Failed to query artist", vec![e.into()])
-                }
-            }
-        } else if let Some(artist_name) = req.artist_name {
-            // artist_name provided - find/create/undelete
-            // first check for deleted artist with this name
-            let deleted_artist = sqlx::query_as!(
-                crate::music::entities::Artist,
-                r#"SELECT
+            } else if let Some(artist_name) = req.artist_name {
+                // artist_name provided - find/create/undelete
+                // first check for deleted artist with this name
+                let deleted_artist = sqlx::query_as!(
+                    crate::music::entities::Artist,
+                    r#"SELECT
                     id as "id!",
                     name as "name!",
                     bio,
@@ -458,14 +354,14 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 FROM artistz
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NOT NULL
                 LIMIT 1"#,
-                artist_name
-            )
-            .fetch_optional(&pool)
-            .await;
+                    artist_name
+                )
+                .fetch_optional(&pool)
+                .await;
 
-            if let Ok(Some(deleted)) = deleted_artist {
-                // undelete existing artist
-                if let Err(e) = sqlx::query!(
+                if let Ok(Some(deleted)) = deleted_artist {
+                    // undelete existing artist
+                    if let Err(e) = sqlx::query!(
                     "UPDATE artistz SET deleted_at = NULL, deleted_by = NULL, updated_at = unixepoch(), updated_by = ? WHERE id = ?",
                     req.updated_by,
                     deleted.id
@@ -474,233 +370,229 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 .await
                 {
                     return GrimoireResponse::failure(
-                        "Failed to undelete artist",
+                        "failed to undelete artist",
                         vec![e.into()],
                     );
                 }
-                crate::music::entities::Artist {
-                    id: deleted.id,
-                    name: deleted.name,
-                    bio: deleted.bio,
-                    created_at: deleted.created_at,
-                    updated_at: deleted.updated_at,
-                    deleted_at: None,
-                    deleted_by: None,
-                    created_by: deleted.created_by,
-                    updated_by: req.updated_by.clone(),
-                    images: None,
-                }
-            } else {
-                // find or create new artist
-                let new_artist_result = match find_or_create_artist(ArtistImportRequest {
-                    name: artist_name.clone(),
-                    created_by: req.updated_by.clone(),
-                })
-                .await
-                {
-                    GrimoireResponse {
-                        success: true,
-                        data: Some((artist, was_created)),
-                        ..
-                    } => (artist, was_created),
-                    response => {
-                        return GrimoireResponse::failure(
-                            "Failed to find or create artist",
-                            response.errors,
-                        )
+                    crate::music::entities::Artist {
+                        id: deleted.id,
+                        name: deleted.name,
+                        bio: deleted.bio,
+                        created_at: deleted.created_at,
+                        updated_at: deleted.updated_at,
+                        deleted_at: None,
+                        deleted_by: None,
+                        created_by: deleted.created_by,
+                        updated_by: req.updated_by.clone(),
+                        images: None,
                     }
-                };
-
-                // if a new artist was created, copy bio and images from old artist(s)
-                if new_artist_result.1 && !old_artist_ids.is_empty() {
-                    // try to find an old artist with bio or images to copy from
-                    for old_artist_id in &old_artist_ids {
-                        // copy bio from first old artist that has one
-                        if let Ok(Some(old_bio)) = sqlx::query_scalar!(
-                            "SELECT bio FROM artistz WHERE id = ? AND bio IS NOT NULL",
-                            old_artist_id
-                        )
-                        .fetch_optional(&pool)
-                        .await
-                        {
-                            let _ = sqlx::query!(
-                                "UPDATE artistz SET bio = ? WHERE id = ?",
-                                old_bio,
-                                new_artist_result.0.id
+                } else {
+                    // find or create new artist
+                    let new_artist_result = match find_or_create_artist(ArtistImportRequest {
+                        name: artist_name.clone(),
+                        created_by: req.updated_by.clone(),
+                    })
+                    .await
+                    {
+                        GrimoireResponse {
+                            success: true,
+                            data: Some((artist, was_created)),
+                            ..
+                        } => (artist, was_created),
+                        response => {
+                            return GrimoireResponse::failure(
+                                "failed to find or create artist",
+                                response.errors,
                             )
-                            .execute(&pool)
-                            .await;
-                            break;
                         }
-                    }
+                    };
 
-                    // copy images from all old artists
-                    for old_artist_id in &old_artist_ids {
-                        let _ = sqlx::query!(
-                            "INSERT OR IGNORE INTO artist_imagez (artist_id, media_blob_id, is_primary)
+                    // if a new artist was created, copy bio and images from old artist(s)
+                    if new_artist_result.1 && !old_artist_ids.is_empty() {
+                        // try to find an old artist with bio or images to copy from
+                        for old_artist_id in &old_artist_ids {
+                            // copy bio from first old artist that has one
+                            if let Ok(Some(old_bio)) = sqlx::query_scalar!(
+                                "SELECT bio FROM artistz WHERE id = ? AND bio IS NOT NULL",
+                                old_artist_id
+                            )
+                            .fetch_optional(&pool)
+                            .await
+                            {
+                                let _ = sqlx::query!(
+                                    "UPDATE artistz SET bio = ? WHERE id = ?",
+                                    old_bio,
+                                    new_artist_result.0.id
+                                )
+                                .execute(&pool)
+                                .await;
+                                break;
+                            }
+                        }
+
+                        // copy images from all old artists
+                        for old_artist_id in &old_artist_ids {
+                            let _ = sqlx::query!(
+                                "INSERT OR IGNORE INTO artist_imagez (artist_id, media_blob_id, is_primary)
                              SELECT ?, media_blob_id, is_primary
                              FROM artist_imagez
                              WHERE artist_id = ?",
-                            new_artist_result.0.id,
-                            old_artist_id
-                        )
-                        .execute(&pool)
-                        .await;
+                                new_artist_result.0.id,
+                                old_artist_id
+                            )
+                            .execute(&pool)
+                            .await;
+                        }
                     }
+
+                    new_artist_result.0
                 }
+            } else {
+                unreachable!("either artist_id or artist_name must be Some");
+            };
 
-                new_artist_result.0
-            }
-        } else {
-            unreachable!("either artist_id or artist_name must be Some");
-        };
+            // create new album scoped to new artist
+            let new_album_title = req.title.clone().unwrap_or(existing_album.title.clone());
+            let new_album = match find_or_create_album_for_artist(
+                crate::music::crud::AlbumImportRequest {
+                    title: new_album_title,
+                    album_type: req
+                        .album_type
+                        .clone()
+                        .or(Some(existing_album.album_type.clone())),
+                    release_date: parsed_date
+                        .as_ref()
+                        .map(|(d, _, _)| d.clone())
+                        .or(existing_album.release_date.clone()),
+                    release_date_precision: parsed_date
+                        .as_ref()
+                        .map(|(_, p, _)| p.clone())
+                        .or(existing_album.release_date_precision.clone()),
+                    label: req.label.clone().or(existing_album.label.clone()),
+                    genre_ids: None, // genres handled via junction table
+                    year: parsed_date.as_ref().map(|(_, _, y)| *y),
+                    created_by: req.updated_by.clone(),
+                },
+                &new_artist.id,
+            )
+            .await
+            {
+                Ok((album, _)) => album,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to create album for new artist",
+                        vec![e.into()],
+                    )
+                }
+            };
 
-        // create new album scoped to new artist
-        let new_album_title = req.title.clone().unwrap_or(existing_album.title.clone());
-        let new_album = match find_or_create_album_for_artist(
-            crate::music::crud::AlbumImportRequest {
-                title: new_album_title,
-                album_type: req
-                    .album_type
-                    .clone()
-                    .or(Some(existing_album.album_type.clone())),
-                release_date: parsed_date
-                    .as_ref()
-                    .map(|(d, _, _)| d.clone())
-                    .or(existing_album.release_date.clone()),
-                release_date_precision: parsed_date
-                    .as_ref()
-                    .map(|(_, p, _)| p.clone())
-                    .or(existing_album.release_date_precision.clone()),
-                label: req.label.clone().or(existing_album.label.clone()),
-                genre_id: genre
-                    .as_ref()
-                    .map(|g| g.id.clone())
-                    .or(existing_album.genre_id.clone()),
-                year: parsed_date.as_ref().map(|(_, _, y)| *y),
-                created_by: req.updated_by.clone(),
-            },
-            &new_artist.id,
-        )
-        .await
-        {
-            Ok((album, _)) => album,
-            Err(e) => {
-                return GrimoireResponse::failure(
-                    "Failed to create album for new artist",
-                    vec![e.into()],
-                )
-            }
-        };
-
-        // copy images from old album to new album
-        if let Err(e) = sqlx::query!(
-            "INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
+            // copy images from old album to new album
+            if let Err(e) = sqlx::query!(
+                "INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
              SELECT ?, media_blob_id, is_primary
              FROM album_imagez
              WHERE album_id = ?",
-            new_album.id,
-            existing_album.id
-        )
-        .execute(&pool)
-        .await
-        {
-            return GrimoireResponse::failure(
-                "Failed to copy images to new album",
-                vec![e.into()],
-            );
-        }
-
-        // copy sub-genres from old album to new album
-        if let Err(e) = sqlx::query!(
-            "INSERT OR IGNORE INTO album_sub_genrez (album_id, sub_genre_id)
-             SELECT ?, sub_genre_id
-             FROM album_sub_genrez
-             WHERE album_id = ?",
-            new_album.id,
-            existing_album.id
-        )
-        .execute(&pool)
-        .await
-        {
-            return GrimoireResponse::failure(
-                "Failed to copy sub-genres to new album",
-                vec![e.into()],
-            );
-        }
-
-        // move all songs to new album and new artist
-        for song_id in &song_ids {
-            // update artist relationship
-            if let Err(e) = sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
-                .execute(&pool)
-                .await
-            {
-                return GrimoireResponse::failure(
-                    "Failed to delete old artist relationship",
-                    vec![e.into()],
-                );
-            }
-
-            if let Err(e) = sqlx::query!(
-                "INSERT INTO artist_songz (artist_id, song_id) VALUES (?, ?)",
-                new_artist.id,
-                song_id
-            )
-            .execute(&pool)
-            .await
-            {
-                return GrimoireResponse::failure(
-                    "Failed to create new artist relationship",
-                    vec![e.into()],
-                );
-            }
-
-            // update album relationship
-            if let Err(e) = sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
-                .execute(&pool)
-                .await
-            {
-                return GrimoireResponse::failure(
-                    "Failed to delete old album relationship",
-                    vec![e.into()],
-                );
-            }
-
-            if let Err(e) = sqlx::query!(
-                "INSERT INTO album_songz (album_id, song_id) VALUES (?, ?)",
                 new_album.id,
-                song_id
+                existing_album.id
             )
             .execute(&pool)
             .await
             {
                 return GrimoireResponse::failure(
-                    "Failed to create new album relationship",
+                    "failed to copy images to new album",
                     vec![e.into()],
                 );
             }
-        }
 
-        // cleanup orphaned old album and artists
-        let _ = delete_album_if_unused(&req.album_id).await;
-        for old_artist_id in &old_artist_ids {
-            if old_artist_id != &new_artist.id {
-                let _ = delete_artist_if_unused(old_artist_id).await;
+            // copy genres from old album to new album
+            if let Err(e) = sqlx::query!(
+                "INSERT OR IGNORE INTO album_genrez (album_id, genre_id)
+             SELECT ?, genre_id
+             FROM album_genrez
+             WHERE album_id = ?",
+                new_album.id,
+                existing_album.id
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "failed to copy genres to new album",
+                    vec![e.into()],
+                );
             }
-        }
 
-        (new_album.id, Some(req.album_id.clone()), old_artist_ids)
-    } else {
-        // no artist change, use existing album id
-        (req.album_id.clone(), None, Vec::new())
-    };
+            // move all songs to new album and new artist
+            for song_id in &song_ids {
+                // update artist relationship
+                if let Err(e) = sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", song_id)
+                    .execute(&pool)
+                    .await
+                {
+                    return GrimoireResponse::failure(
+                        "failed to delete old artist relationship",
+                        vec![e.into()],
+                    );
+                }
+
+                if let Err(e) = sqlx::query!(
+                    "INSERT INTO artist_songz (artist_id, song_id) VALUES (?, ?)",
+                    new_artist.id,
+                    song_id
+                )
+                .execute(&pool)
+                .await
+                {
+                    return GrimoireResponse::failure(
+                        "failed to create new artist relationship",
+                        vec![e.into()],
+                    );
+                }
+
+                // update album relationship
+                if let Err(e) = sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
+                    .execute(&pool)
+                    .await
+                {
+                    return GrimoireResponse::failure(
+                        "failed to delete old album relationship",
+                        vec![e.into()],
+                    );
+                }
+
+                if let Err(e) = sqlx::query!(
+                    "INSERT INTO album_songz (album_id, song_id) VALUES (?, ?)",
+                    new_album.id,
+                    song_id
+                )
+                .execute(&pool)
+                .await
+                {
+                    return GrimoireResponse::failure(
+                        "failed to create new album relationship",
+                        vec![e.into()],
+                    );
+                }
+            }
+
+            // cleanup orphaned old album and artists
+            let _ = delete_album_if_unused(&req.album_id).await;
+            for old_artist_id in &old_artist_ids {
+                if old_artist_id != &new_artist.id {
+                    let _ = delete_artist_if_unused(old_artist_id).await;
+                }
+            }
+
+            (new_album.id, Some(req.album_id.clone()), old_artist_ids)
+        } else {
+            // no artist change, use existing album id
+            (req.album_id.clone(), None, Vec::new())
+        };
 
     // extract date values before query to avoid temporary borrow issues
     let release_date_value = parsed_date.as_ref().map(|(d, _, _)| d.clone());
     let release_date_precision_value = parsed_date.as_ref().map(|(_, p, _)| p.clone());
     let year_value = parsed_date.as_ref().map(|(_, _, y)| *y);
-    let genre_id_value = genre.as_ref().map(|g| g.id.clone());
 
     // update the album record (either the new one or existing one)
     let _final_album = match sqlx::query!(
@@ -710,7 +602,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             release_date = COALESCE(?, release_date),
             release_date_precision = COALESCE(?, release_date_precision),
             label = COALESCE(?, label),
-            genre_id = COALESCE(?, genre_id),
             updated_by = COALESCE(?, updated_by),
             updated_at = unixepoch()
         WHERE id = ?"#,
@@ -719,7 +610,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         release_date_value,
         release_date_precision_value,
         req.label,
-        genre_id_value,
         req.updated_by,
         new_album_id
     )
@@ -727,36 +617,15 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     .await
     {
         Ok(album) => album,
-        Err(e) => return GrimoireResponse::failure("Failed to update album", vec![e.into()]),
+        Err(e) => return GrimoireResponse::failure("failed to update album", vec![e.into()]),
     };
 
-    // update sub-genre relationships if provided
-    if !sub_genres.is_empty() {
-        // clear existing sub-genres for this album
-        if let Err(e) = sqlx::query!(
-            "DELETE FROM album_sub_genrez WHERE album_id = ?",
-            new_album_id
-        )
-        .execute(&pool)
-        .await
-        {
-            return GrimoireResponse::failure("Failed to clear old sub-genres", vec![e.into()]);
-        }
-
-        // add new sub-genres
-        for sub_genre in &sub_genres {
-            if let Err(e) = sqlx::query!(
-                "INSERT INTO album_sub_genrez (album_id, sub_genre_id) VALUES (?, ?)",
-                new_album_id,
-                sub_genre.id
-            )
-            .execute(&pool)
-            .await
-            {
-                return GrimoireResponse::failure(
-                    "Failed to add sub-genre relationship",
-                    vec![e.into()],
-                );
+    // update genre relationships if provided
+    if let Some(genre_ids) = genre_ids_to_set {
+        match genres::set_album_genres(&new_album_id, &genre_ids).await {
+            GrimoireResponse { success: true, .. } => {}
+            response => {
+                return GrimoireResponse::failure("failed to update album genres", response.errors)
             }
         }
     }
@@ -778,7 +647,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         }
     }
 
-    // re-fetch the album with all related data (genre name and sub_genres)
+    // re-fetch the album with all related data
     super::get_album(&new_album_id).await
 }
 

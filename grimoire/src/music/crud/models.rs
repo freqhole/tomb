@@ -6,12 +6,7 @@ use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::MediaBlob;
-use crate::music::entities::{
-    albums::Album,
-    artists::Artist,
-    genres::{Genre, SubGenre},
-    songs::Song,
-};
+use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
 use crate::music::users::models::RatingTarget;
 use crate::media_blobz::BlobType;
 use crate::music::users::models::FavoriteTarget;
@@ -50,7 +45,7 @@ pub struct ImportSongResult {
     pub song: Song,
     pub artist: Option<Artist>,
     pub album: Option<Album>,
-    pub genre: Option<Genre>,
+    pub genres: Vec<Genre>,
     pub created_new_artist: bool,
     pub created_new_album: bool,
     pub created_new_genre: bool,
@@ -86,7 +81,7 @@ pub struct AlbumImportRequest {
     pub release_date: Option<String>,
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub genre_id: Option<String>,
+    pub genre_ids: Option<Vec<String>>,
     pub year: Option<i64>,
     pub created_by: Option<String>,
 }
@@ -670,7 +665,6 @@ pub struct UpdateSongsResult {
     pub artist: Option<Artist>,
     pub album: Option<Album>,
     pub genre: Option<Genre>,
-    pub sub_genre: Option<SubGenre>,
     pub tags_modified: bool,
 }
 

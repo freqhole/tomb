@@ -67,15 +67,6 @@ pub async fn get_suggestions(
                     )
                 }
             });
-            all_suggestions.extend(match get_sub_genre_suggestions(&pool, &req.partial).await {
-                Ok(s) => s,
-                Err(e) => {
-                    return GrimoireResponse::failure(
-                        "failed to get sub-genre suggestions",
-                        vec![e.into()],
-                    )
-                }
-            });
             all_suggestions.extend(
                 match get_playlist_suggestions(&pool, &req.partial, user_id).await {
                     Ok(s) => s,
@@ -111,8 +102,7 @@ pub async fn get_suggestions(
             }
         },
         SearchField::Genres => {
-            let mut genre_suggestions = Vec::new();
-            genre_suggestions.extend(match get_genre_suggestions(&pool, &req.partial).await {
+            match get_genre_suggestions(&pool, &req.partial).await {
                 Ok(s) => s,
                 Err(e) => {
                     return GrimoireResponse::failure(
@@ -120,17 +110,7 @@ pub async fn get_suggestions(
                         vec![e.into()],
                     )
                 }
-            });
-            genre_suggestions.extend(match get_sub_genre_suggestions(&pool, &req.partial).await {
-                Ok(s) => s,
-                Err(e) => {
-                    return GrimoireResponse::failure(
-                        "failed to get sub-genre suggestions",
-                        vec![e.into()],
-                    )
-                }
-            });
-            genre_suggestions
+            }
         }
         SearchField::Playlists => {
             match get_playlist_suggestions(&pool, &req.partial, user_id).await {

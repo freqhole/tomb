@@ -115,12 +115,13 @@ pub async fn delete_genre_if_unused(genre_id: &str) -> GrimoireResponse<bool> {
         }
     };
 
-    // Check if genre is used by any albums
+    // check if genre is used by any albums via junction table
     let album_count = match sqlx::query_scalar!(
         r#"
         SELECT COUNT(*) as "count!"
-        FROM albumz
-        WHERE genre_id = ? AND deleted_at IS NULL
+        FROM album_genrez ag
+        JOIN albumz a ON ag.album_id = a.id
+        WHERE ag.genre_id = ? AND a.deleted_at IS NULL
         "#,
         genre_id
     )
@@ -137,42 +138,19 @@ pub async fn delete_genre_if_unused(genre_id: &str) -> GrimoireResponse<bool> {
     };
 
     if album_count > 0 {
-        // Genre still in use, don't delete
+        // genre still in use, don't delete
         return GrimoireResponse::success("Genre is still in use by albums", false);
     }
 
-    // Check if genre is used in sub-genres
-    let sub_genre_count = match sqlx::query_scalar!(
-        r#"
-        SELECT COUNT(*) as "count!"
-        FROM sub_genrez
-        WHERE parent_genre_id = ?
-        "#,
-        genre_id
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "Failed to check genre usage in sub-genres",
-                vec![e.into()],
-            )
-        }
-    };
-
-    if sub_genre_count > 0 {
-        // Genre has sub-genres, don't delete
-        return GrimoireResponse::success("Genre has sub-genres", false);
-    }
-
-    // Not in use, safe to delete (genres don't have soft delete)
+    // not in use, safe to soft delete
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
     match sqlx::query!(
         r#"
-        DELETE FROM genrez
-        WHERE id = ?
+        UPDATE genrez
+        SET deleted_at = ?, deleted_by = NULL
+        WHERE id = ? AND deleted_at IS NULL
         "#,
+        now,
         genre_id
     )
     .execute(&pool)

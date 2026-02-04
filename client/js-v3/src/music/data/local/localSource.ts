@@ -1218,7 +1218,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               artist_name: album.artist_name,
               artist_id: album.artist_id,
               album_type: album.album_type,
-              genre_id: album.genre_id || undefined,
+              genres: album.genres || undefined,
               release_date: album.release_date || null,
               song_count: albumSongs.length,
               total_duration: totalDuration,

@@ -1,8 +1,8 @@
 //! album domain models
 
 use crate::music::crud::ImageMetadata;
-use serde::{Deserialize, Serialize};
 use crate::JsonVec;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
@@ -15,9 +15,8 @@ pub struct Album {
     pub release_date: Option<String>,
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub genre_id: Option<String>,
-    pub genre: Option<String>,
-    pub sub_genres: Option<JsonVec<String>>,
+    pub genres: Option<JsonVec<String>>,
+    pub genre_ids: Option<JsonVec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<JsonVec<ImageMetadata>>,
     pub song_count: i64,
@@ -38,7 +37,6 @@ pub struct CreateAlbumRequest {
     pub release_date: Option<String>,
     pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub genre_id: Option<String>,
     pub created_by: Option<String>,
 }
 
@@ -53,11 +51,8 @@ pub struct UpdateAlbumRequest {
     pub album_type: Option<String>,
     pub release_date: Option<String>, // flexible: "2023", "2023-06", "2023-06-15"
     pub label: Option<String>,
-    /// genre id (preferred) or name (will find or create)
-    pub genre_id: Option<String>,
-    pub genre: Option<String>,
-    /// sub-genre ids (preferred) or names (will find or create)
-    pub sub_genre_ids: Option<Vec<String>>,
-    pub sub_genres: Option<Vec<String>>,
+    /// genre ids (preferred) or names (will find or create)
+    pub genre_ids: Option<Vec<String>>,
+    pub genres: Option<Vec<String>>,
     pub updated_by: Option<String>,
 }

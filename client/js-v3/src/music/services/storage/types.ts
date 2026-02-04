@@ -78,7 +78,7 @@ export interface Song {
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
   album_rating?: number; // user's rating for the album this song belongs to (1-5)
   album_tags?: string[]; // tags applied to the album this song belongs to
-  album_sub_genres?: string[]; // sub-genres for the album this song belongs to
+  album_genres?: string[]; // genres for the album this song belongs to (array)
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to
 
   // source information
@@ -110,7 +110,6 @@ export type NewSong = Omit<Song, 'id'>;
 export interface Genre {
   genre_id: string; // uuid
   name: string;
-  parent_genre_id: string | null; // for sub-genres
   created_at: number;
 }
 
@@ -176,8 +175,8 @@ export interface AlbumQueryResult {
   artist_name: string;
   song_count: number;
   total_duration: number;
-  genre_name?: string;
-  sub_genres?: string[];
+  genres?: string[];
+  genre_ids?: string[];
 }
 
 // artist with aggregated stats

@@ -12,11 +12,10 @@ use crate::music::crud::create_or_update::{
     get_current_album_for_song, get_current_artist_for_song,
 };
 use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
-use crate::music::entities::genres::{create_sub_genre, CreateSubGenreRequest};
 use crate::music::entities::tags::{
     add_albums_tags, find_or_create_tags, remove_albums_tags, replace_albums_tags,
 };
-use crate::music::entities::{songs, SubGenre};
+use crate::music::entities::songs;
 use crate::response::GrimoireResponse;
 
 /// update songs with optional fields and relationships
@@ -98,10 +97,16 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                         ..
                     } => Some(artist),
                     response => {
-                        return GrimoireResponse::failure(
-                            "Failed to create Unknown Artist",
-                            response.errors,
-                        );
+                        let errors = if response.errors.is_empty() {
+                            vec![ErrorDetail::new(
+                                "artist_creation_failed",
+                                "Artist Creation Failed",
+                                "Failed to find or create Unknown Artist",
+                            )]
+                        } else {
+                            response.errors
+                        };
+                        return GrimoireResponse::failure("Failed to update songs", errors);
                     }
                 }
             }
@@ -116,96 +121,22 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         None
     };
 
+    // resolve genre if provided
     let genre = if let Some(genre_name) = req.genre {
-        match find_or_create_genre(genre_name).await {
-            GrimoireResponse {
-                success: true,
-                data: Some((genre, _)),
-                ..
-            } => Some(genre),
-            response => {
-                let errors = if response.errors.is_empty() {
-                    vec![ErrorDetail::new(
-                        "genre_creation_failed",
-                        "Genre Creation Failed",
-                        "Failed to find or create genre",
-                    )]
-                } else {
-                    response.errors
-                };
-                return GrimoireResponse::failure("Failed to update songs", errors);
-            }
-        }
-    } else {
-        None
-    };
-
-    // handle sub-genre (creates sub-genre linked to parent genre)
-    let sub_genre = if let Some(sub_genre_name) = req.sub_genre {
-        // sub-genre requires a genre to be set
-        if genre.is_none() {
-            return GrimoireResponse::failure(
-                "Validation failed",
-                vec![GrimoireError::Validation {
-                    field: "sub_genre".to_string(),
-                    message: "cannot set sub_genre without setting genre first".to_string(),
-                }
-                .into()],
-            );
-        }
-
-        let parent_genre_id = genre.as_ref().unwrap().id.clone();
-
-        // check if sub-genre already exists
-        let existing = match sqlx::query_as!(
-            SubGenre,
-            r#"SELECT
-                id as "id!",
-                name as "name!",
-                parent_genre_id,
-                created_at as "created_at!"
-               FROM sub_genrez
-               WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND parent_genre_id = ?"#,
-            sub_genre_name,
-            parent_genre_id
-        )
-        .fetch_optional(&pool)
-        .await
-        {
-            Ok(result) => result,
-            Err(err) => {
-                return GrimoireResponse::failure(
-                    "Failed to check for existing sub-genre",
-                    vec![err.into()],
-                );
-            }
-        };
-
-        if let Some(existing_sub_genre) = existing {
-            Some(existing_sub_genre)
-        } else {
-            // create new sub-genre
-            let sub_genre_req = CreateSubGenreRequest {
-                name: sub_genre_name,
-                parent_genre_id: Some(parent_genre_id),
+        let response = find_or_create_genre(genre_name).await;
+        if !response.success {
+            let errors = if response.errors.is_empty() {
+                vec![ErrorDetail::new(
+                    "genre_creation_failed",
+                    "Genre Creation Failed",
+                    "Failed to find or create genre",
+                )]
+            } else {
+                response.errors
             };
-            let sub_genre_response = create_sub_genre(sub_genre_req).await;
-            if !sub_genre_response.success {
-                return GrimoireResponse::failure(
-                    "Failed to create sub-genre",
-                    sub_genre_response.errors,
-                );
-            }
-            match sub_genre_response.data {
-                Some(new_sub_genre) => Some(new_sub_genre),
-                None => {
-                    return GrimoireResponse::failure(
-                        "No sub-genre returned after creation",
-                        vec![],
-                    );
-                }
-            }
+            return GrimoireResponse::failure("Failed to update songs", errors);
         }
+        response.data.map(|(g, _)| g)
     } else {
         None
     };
@@ -220,7 +151,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 release_date: album_req.release_date,
                 release_date_precision: album_req.release_date_precision,
                 label: album_req.label,
-                genre_id: genre.as_ref().map(|g| g.id.clone()),
+                genre_ids: genre.as_ref().map(|g| vec![g.id.clone()]),
                 year: album_req.year,
                 created_by: req.updated_by.clone(),
             };
@@ -256,7 +187,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     release_date: current_album.release_date.clone(),
                     release_date_precision: current_album.release_date_precision.clone(),
                     label: current_album.label.clone(),
-                    genre_id: current_album.genre_id.clone(),
+                    genre_ids: current_album.genres.as_ref().map(|g| g.0.clone()),
                     year: None,
                     created_by: req.updated_by.clone(),
                 };
@@ -279,7 +210,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     release_date: None,
                     release_date_precision: None,
                     label: None,
-                    genre_id: genre.as_ref().map(|g| g.id.clone()),
+                    genre_ids: genre.as_ref().map(|g| vec![g.id.clone()]),
                     year: None,
                     created_by: req.updated_by.clone(),
                 };
@@ -701,7 +632,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             artist,
             album,
             genre,
-            sub_genre,
             tags_modified,
         },
     )

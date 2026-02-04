@@ -19,10 +19,8 @@ interface UpdateAlbumData {
   album_type?: string;
   release_date?: string;
   label?: string;
-  genre_id?: string;
-  genre?: string;
-  sub_genre_ids?: string[];
-  sub_genres?: string[];
+  genre_ids?: string[];
+  genres?: string[]; // new genre names to create
 }
 
 export function useUpdateArtistMutation() {

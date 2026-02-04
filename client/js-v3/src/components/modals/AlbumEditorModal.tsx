@@ -14,7 +14,6 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { GenreAutocomplete } from "../forms/GenreAutocomplete";
-import { SubGenreAutocomplete } from "../forms/SubGenreAutocomplete";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
@@ -37,10 +36,9 @@ interface FormData {
   artist_id: string | undefined;
   artist_name: string;
   album_type: string;
-  genre_id: string | undefined;
-  genre: string;
-  sub_genre_ids: string[];
-  sub_genres: string[];
+  genre_ids: string[];
+  genres: string[];
+  new_genres: string[]; // genres without IDs (will be created on save)
   release_date: string;
   label: string;
   uploaded_blob_id: string | null;
@@ -57,10 +55,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     artist_id: undefined,
     artist_name: "",
     album_type: "album",
-    genre_id: undefined,
-    genre: "",
-    sub_genre_ids: [],
-    sub_genres: [],
+    genre_ids: [],
+    genres: [],
+    new_genres: [],
     release_date: "",
     label: "",
     uploaded_blob_id: null,
@@ -90,10 +87,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         artist_id: firstSong.artist_id,
         artist_name: firstSong.artist_name || "",
         album_type: album.album_type || "album",
-        genre_id: album.genre_id,
-        genre: album.genre || "",
-        sub_genre_ids: [], // sub_genre_ids come from autocomplete selection
-        sub_genres: album.sub_genres || [],
+        genre_ids: album.genre_ids || [],
+        genres: album.genres || [],
+        new_genres: [],
         release_date: album.release_date || "",
         label: album.label || "",
         uploaded_blob_id: null,
@@ -126,10 +122,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.artist_id !== initial.artist_id ||
       current.artist_name !== initial.artist_name ||
       current.album_type !== initial.album_type ||
-      current.genre_id !== initial.genre_id ||
-      current.genre !== initial.genre ||
-      JSON.stringify(current.sub_genre_ids) !== JSON.stringify(initial.sub_genre_ids) ||
-      JSON.stringify(current.sub_genres) !== JSON.stringify(initial.sub_genres) ||
+      JSON.stringify(current.genre_ids) !== JSON.stringify(initial.genre_ids) ||
+      JSON.stringify(current.genres) !== JSON.stringify(initial.genres) ||
+      current.new_genres.length > 0 ||
       current.release_date !== initial.release_date ||
       current.label !== initial.label ||
       current.uploaded_blob_id !== null
@@ -142,6 +137,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     const data = formData();
     const initial = initialData();
 
+    // determine if genres changed (either IDs or new genres added)
+    const genresChanged =
+      JSON.stringify(data.genre_ids) !== JSON.stringify(initial?.genre_ids) ||
+      JSON.stringify(data.genres) !== JSON.stringify(initial?.genres) ||
+      data.new_genres.length > 0;
+
     try {
       await updateMutation.mutateAsync({
         album_id: props.albumId,
@@ -149,16 +150,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         artist_id: data.artist_id !== initial?.artist_id ? data.artist_id : undefined,
         artist_name: data.artist_name !== initial?.artist_name ? data.artist_name : undefined,
         album_type: data.album_type !== initial?.album_type ? data.album_type : undefined,
-        genre_id: data.genre_id !== initial?.genre_id ? data.genre_id : undefined,
-        genre: data.genre !== initial?.genre ? data.genre : undefined,
-        sub_genre_ids:
-          JSON.stringify(data.sub_genre_ids) !== JSON.stringify(initial?.sub_genre_ids)
-            ? data.sub_genre_ids
-            : undefined,
-        sub_genres:
-          JSON.stringify(data.sub_genres) !== JSON.stringify(initial?.sub_genres)
-            ? data.sub_genres
-            : undefined,
+        // send existing genre IDs (or empty array to clear all)
+        genre_ids: genresChanged ? data.genre_ids : undefined,
+        // send new genre names to be created
+        genres: genresChanged && data.new_genres.length > 0 ? data.new_genres : undefined,
         release_date:
           data.release_date !== initial?.release_date && data.release_date
             ? data.release_date
@@ -446,12 +441,17 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 </p>
               </div>
 
-              {/* genre */}
+              {/* genres */}
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
-                  <Show when={formData().genre !== initialData()?.genre}>
+                  <Show
+                    when={
+                      JSON.stringify(formData().genres) !==
+                      JSON.stringify(initialData()?.genres)
+                    }
+                  >
                     <button
-                      onClick={() => handleResetField("genre")}
+                      onClick={() => handleResetField("genres")}
                       class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
                     >
                       reset
@@ -459,50 +459,19 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   </Show>
                 </div>
                 <GenreAutocomplete
-                  label="genre"
-                  value={formData().genre}
-                  onSelect={(selection) => {
+                  label="genres"
+                  value={formData().genres}
+                  valueIds={formData().genre_ids}
+                  onSelect={(genres, genreIds, newGenreNames) =>
                     setFormData((prev) => ({
                       ...prev,
-                      genre_id: selection.id,
-                      genre: selection.name,
-                    }));
-                  }}
-                  placeholder="select or type genre"
-                  hint="choose a genre for this album"
-                />
-              </div>
-
-              {/* sub-genres */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <Show
-                    when={
-                      JSON.stringify(formData().sub_genres) !==
-                      JSON.stringify(initialData()?.sub_genres)
-                    }
-                  >
-                    <button
-                      onClick={() => handleResetField("sub_genres")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <SubGenreAutocomplete
-                  label="sub-genres"
-                  value={formData().sub_genres}
-                  genre={formData().genre}
-                  onSelect={(subGenres, subGenreIds) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      sub_genre_ids: subGenreIds,
-                      sub_genres: subGenres,
+                      genre_ids: genreIds,
+                      genres: genres,
+                      new_genres: newGenreNames,
                     }))
                   }
-                  placeholder="select or type sub-genres"
-                  hint="sub-genres help categorize the album further"
+                  placeholder="select or type genres"
+                  hint="choose one or more genres for this album"
                 />
               </div>
 

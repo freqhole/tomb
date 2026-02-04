@@ -292,32 +292,6 @@ pub enum MusicAction {
         genre_id: String,
     },
 
-    // Sub-genre operations
-    /// List all sub-genres
-    ListSubGenres,
-    /// List sub-genres for a genre
-    ListSubGenresForGenre {
-        #[arg(long)]
-        genre_id: String,
-    },
-    /// Get sub-genre by ID
-    GetSubGenre {
-        #[arg(long)]
-        sub_genre_id: String,
-    },
-    /// Delete sub-genre
-    DeleteSubGenre {
-        #[arg(long)]
-        sub_genre_id: String,
-    },
-    /// Find or create sub-genre
-    FindOrCreateSubGenre {
-        #[arg(long)]
-        name: String,
-        #[arg(long)]
-        genre_id: String,
-    },
-
     // Tag operations
     /// List all tags
     ListTags,
@@ -343,12 +317,6 @@ pub enum MusicAction {
         #[arg(long)]
         search: String,
     },
-    /// Search/query sub-genres by name
-    QuerySubGenresSearch {
-        #[arg(long)]
-        search: String,
-    },
-
     // User favorites commands
     /// User favorites operations
     Favorites {
@@ -472,21 +440,6 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
             query::handle_get_genre_stats(action).await
         }
 
-        // Sub-genre commands
-        MusicAction::ListSubGenres => query::handle_list_sub_genres(action).await,
-        MusicAction::ListSubGenresForGenre { .. } => {
-            query::handle_list_sub_genres_for_genre(action)
-                .await
-
-        }
-        MusicAction::GetSubGenre { .. } => query::handle_get_sub_genre(action).await,
-        MusicAction::DeleteSubGenre { .. } => {
-            query::handle_delete_sub_genre(action).await
-        }
-        MusicAction::FindOrCreateSubGenre { .. } => query::handle_find_or_create_sub_genre(action)
-            .await
-            ,
-
         // Tag commands
         MusicAction::ListTags => query::handle_list_tags(action).await,
         MusicAction::GetTag { .. } => query::handle_get_tag(action).await,
@@ -499,9 +452,6 @@ async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json:
         MusicAction::QueryGenresSearch { .. } => {
             query::handle_query_genres_search(action).await
         }
-        MusicAction::QuerySubGenresSearch { .. } => query::handle_query_sub_genres_search(action)
-            .await
-            ,
 
         // MusicBrainz commands
         MusicAction::MusicBrainz { action } => {

@@ -128,9 +128,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
           year: undefined, // TODO: extract year from release_date if present
           release_date: item.album.release_date || undefined,
           label: item.album.label || undefined,
-          genre_id: item.album.genre_id || undefined,
-          genre: item.album.genre || undefined,
-          sub_genres: item.album.sub_genres || undefined,
+          genres: item.album.genres || undefined,
+          genre_ids: item.album.genre_ids || undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
@@ -596,9 +595,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               year: undefined,
               release_date: apiFav.album.album.release_date || undefined,
               label: apiFav.album.album.label || undefined,
-              genre_id: apiFav.album.album.genre_id || undefined,
-              genre: apiFav.album.genre?.name || undefined,
-              sub_genres: apiFav.album.album.sub_genres || undefined,
+              genres: apiFav.album.album.genres || undefined,
               song_count: apiFav.album.album.song_count,
               total_duration: apiFav.album.album.total_duration,
               images: apiFav.album.images && apiFav.album.images.length > 0
@@ -742,7 +739,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
     album_type?: string;
     release_date?: string;
     label?: string;
-    genre_id?: string;
+    genre_ids?: string[];
+    genres?: string[]; // new genre names to create
     year?: number;
   }): Promise<void> {
     const result = await apiClient.music.updateAlbum(this.baseUrl, {
@@ -753,10 +751,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
       album_type: params.album_type ?? null,
       release_date: params.release_date ?? null,
       label: params.label ?? null,
-      genre_id: params.genre_id ?? null,
-      genre: null,
-      sub_genre_ids: null,
-      sub_genres: null,
+      genre_ids: params.genre_ids ?? null,
+      genres: params.genres ?? null,
       updated_by: null,
     });
 
@@ -774,8 +770,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
     album_id?: string | null;
     genre?: string | null;
     genre_id?: string | null;
-    sub_genre_ids?: string[] | null;
-    sub_genres?: string[] | null;
     track_number?: number | null;
     disc_number?: number | null;
     year?: number | null;
@@ -799,7 +793,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       key_signature: params.key_signature,
       lyrics: params.lyrics,
       genre: params.genre,
-      sub_genre: params.sub_genres?.[0] ?? null,  // API expects single sub_genre
       user_id: params.user_id,
       updated_by: params.updated_by,
     };

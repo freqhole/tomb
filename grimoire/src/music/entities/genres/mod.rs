@@ -5,13 +5,9 @@ mod models;
 mod repository;
 
 // re-export public types
-pub use models::{
-    CreateGenreRequest, CreateSubGenreRequest, DeleteSubGenreRequest, FindOrCreateSubGenreRequest,
-    FindOrCreateSubGenreResponse, Genre, GenreStat, GetSubGenreRequest,
-    ListSubGenresForGenreRequest, QuerySubGenresRequest, SubGenre,
-};
+pub use models::{CreateGenreRequest, Genre, GenreStat, GenreWithStats};
 pub use repository::{
-    create_genre, create_sub_genre, delete_sub_genre, find_or_create_sub_genre, get_genre,
-    get_genre_stats, get_sub_genre, list_genres, list_sub_genres, list_sub_genres_for_genre,
-    query_genres, query_sub_genres,
+    add_genre_to_album, create_genre, delete_genre, find_or_create_genre, get_album_genre_ids,
+    get_genre, get_genre_stats, list_genres, list_genres_with_stats, query_genres,
+    remove_genre_from_album, set_album_genres,
 };

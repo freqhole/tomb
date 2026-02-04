@@ -2,9 +2,7 @@
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
-use grimoire::maintenance::{
-    cleanup_orphaned_genres, cleanup_orphaned_sub_genres, cleanup_orphaned_tags,
-};
+use grimoire::maintenance::{cleanup_orphaned_genres, cleanup_orphaned_tags};
 use serde::Serialize;
 
 /// Combined summary for all cleanup operations
@@ -12,7 +10,6 @@ use serde::Serialize;
 struct AllCleanupSummary {
     tags: grimoire::maintenance::OrphanedTagsSummary,
     genres: grimoire::maintenance::OrphanedGenresSummary,
-    sub_genres: grimoire::maintenance::OrphanedSubGenresSummary,
     total_found: u32,
     total_deleted: u32,
 }
@@ -27,12 +24,6 @@ pub enum MaintenanceAction {
     },
     /// Cleanup orphaned genres
     CleanupOrphanedGenres {
-        /// Show what would be deleted without actually deleting
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Cleanup orphaned sub-genres
-    CleanupOrphanedSubGenres {
         /// Show what would be deleted without actually deleting
         #[arg(long)]
         dry_run: bool,
@@ -76,20 +67,6 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_js
             CommandOutput::success(response.message, summary)
         }
 
-        MaintenanceAction::CleanupOrphanedSubGenres { dry_run } => {
-            let response = cleanup_orphaned_sub_genres(dry_run).await;
-
-            if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
-            }
-
-            let Some(summary) = response.data else {
-                return CommandOutput::failure("No summary data returned", vec![], ());
-            };
-
-            CommandOutput::success(response.message, summary)
-        }
-
         MaintenanceAction::CleanupAll { dry_run } => {
             // Cleanup tags
             let tags_response = cleanup_orphaned_tags(dry_run).await;
@@ -109,31 +86,13 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_js
                 return CommandOutput::failure("No genres summary data returned", vec![], ());
             };
 
-            // Cleanup sub-genres
-            let sub_genres_response = cleanup_orphaned_sub_genres(dry_run).await;
-            if !sub_genres_response.success {
-                return CommandOutput::failure(
-                    sub_genres_response.message,
-                    sub_genres_response.errors,
-                    (),
-                );
-            }
-            let Some(sub_genres_summary) = sub_genres_response.data else {
-                return CommandOutput::failure("No sub-genres summary data returned", vec![], ());
-            };
-
             // Create combined summary
-            let total_found = tags_summary.tags_found
-                + genres_summary.genres_found
-                + sub_genres_summary.sub_genres_found;
-            let total_deleted = tags_summary.tags_deleted
-                + genres_summary.genres_deleted
-                + sub_genres_summary.sub_genres_deleted;
+            let total_found = tags_summary.tags_found + genres_summary.genres_found;
+            let total_deleted = tags_summary.tags_deleted + genres_summary.genres_deleted;
 
             let combined = AllCleanupSummary {
                 tags: tags_summary,
                 genres: genres_summary,
-                sub_genres: sub_genres_summary,
                 total_found,
                 total_deleted,
             };

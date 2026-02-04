@@ -1,21 +1,16 @@
-// genre autocomplete - single-select combobox for genres
+// genre autocomplete - multi-select combobox for genres
 import { Combobox } from "@kobalte/core/combobox";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useGenresQuery } from "../../music/queries/songs";
 import { Icon, IconNames } from "../icons/registry";
 
 export interface GenreAutocompleteProps {
-  /** current genre name value */
-  value?: string;
-  /** callback when genre is selected */
-  onSelect: (selection: { id?: string; name: string; isNew: boolean }) => void;
+  /** current genre name values (array) */
+  value?: string[];
+  /** current genre ID values (array) - should correspond 1:1 with value array */
+  valueIds?: string[];
+  /** callback when genres are selected - returns (allNames, existingIds, newNames) */
+  onSelect: (genres: string[], genreIds: string[], newGenreNames: string[]) => void;
   /** label for the input */
   label?: string;
   /** placeholder text */
@@ -38,21 +33,20 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
   const [searchInput, setSearchInput] = createSignal<string | undefined>(
     undefined,
   );
-  const [localValue, setLocalValue] = createSignal<GenreOption | undefined>(
-    undefined,
-  );
+  const [localValue, setLocalValue] = createSignal<GenreOption[]>([]);
+  const [isOpen, setIsOpen] = createSignal(false);
 
-  // sync with external value changes - find/create option for current value
+  // sync with external value changes - convert strings to options
   createEffect(() => {
-    const externalValue = props.value;
-    if (externalValue) {
-      setLocalValue({
-        value: externalValue,
-        label: externalValue,
-        id: undefined,
-      });
+    if (props.value) {
+      const options = props.value.map((val, idx) => ({
+        value: val,
+        label: val,
+        id: props.valueIds?.[idx],
+      }));
+      setLocalValue(options);
     } else {
-      setLocalValue(undefined);
+      setLocalValue([]);
     }
   });
 
@@ -66,11 +60,13 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
   const options = createMemo((): GenreOption[] => {
     const results: GenreOption[] = [];
 
-    // add current value if set (ensures it appears in the list)
+    // add currently selected values (ensures they appear in the list)
     const current = localValue();
-    if (current) {
-      results.push(current);
-    }
+    current.forEach((opt) => {
+      if (!results.some((o) => o.value === opt.value)) {
+        results.push(opt);
+      }
+    });
 
     // add genres from query
     const pages = genresQuery.data?.pages || [];
@@ -102,7 +98,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
     ) {
       results.push({
         value: input,
-        label: input,
+        label: `add "${input}"`,
         id: undefined,
       });
     }
@@ -110,39 +106,53 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
     return results;
   });
 
+  const handleRemove = (value: string) => {
+    const newOptions = localValue().filter((opt) => opt.value !== value);
+    setLocalValue(newOptions);
+    props.onSelect(
+      newOptions.map((opt) => opt.value),
+      newOptions.map((opt) => opt.id).filter((id): id is string => !!id),
+      newOptions.filter((opt) => !opt.id).map((opt) => opt.value),
+    );
+  };
+
   return (
     <Combobox<GenreOption>
+      multiple
+      open={isOpen()}
+      onOpenChange={setIsOpen}
       value={localValue()}
-      onChange={(option) => {
-        setLocalValue(option);
-        if (option) {
-          props.onSelect({
-            id: option.id,
-            name: option.value,
-            isNew: !option.id,
-          });
-        }
+      onChange={(options) => {
+        setLocalValue(options);
+        props.onSelect(
+          options.map((opt) => opt.value),
+          options.map((opt) => opt.id).filter((id): id is string => !!id),
+          options.filter((opt) => !opt.id).map((opt) => opt.value),
+        );
+        // close dropdown after selection
+        setIsOpen(false);
+        // clear search input
+        setSearchInput(undefined);
       }}
       onInputChange={(value) => {
         setSearchInput(value.trim().length > 0 ? value : undefined);
+        // open dropdown when typing
+        if (value.trim().length > 0) {
+          setIsOpen(true);
+        }
       }}
       options={options()}
       optionValue="value"
       optionTextValue="value"
       optionLabel="label"
-      placeholder={props.placeholder || "select or type genre name"}
+      placeholder={props.placeholder || "select or type genres"}
       triggerMode="input"
       disabled={props.disabled}
       itemComponent={(itemProps) => (
         <Combobox.Item item={itemProps.item} class="outline-none">
           <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors text-sm">
             <Combobox.ItemLabel>
-              <Show 
-                when={itemProps.item.rawValue.id}
-                fallback={<span>create "<span class="font-semibold">{itemProps.item.rawValue.label}</span>"</span>}
-              >
-                {itemProps.item.rawValue.label}
-              </Show>
+              {itemProps.item.rawValue.label}
             </Combobox.ItemLabel>
           </div>
         </Combobox.Item>
@@ -156,7 +166,28 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
       </Show>
 
       <Combobox.Control class="relative">
-        <Combobox.Input class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" />
+        <div class="w-full min-h-[40px] px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] flex flex-wrap gap-2 items-center focus-within:border-[var(--color-accent-500)] focus-within:ring-2 focus-within:ring-[var(--color-accent-500)] focus-within:ring-opacity-50 transition-colors">
+          <Show when={localValue().length > 0}>
+            <For each={localValue()}>
+              {(option) => (
+                <div class="inline-flex items-center gap-1 px-2 py-1 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] rounded text-sm">
+                  <span>{option.value}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemove(option.value);
+                    }}
+                    class="hover:opacity-80"
+                  >
+                    <Icon name={IconNames.close} size={12} />
+                  </button>
+                </div>
+              )}
+            </For>
+          </Show>
+          <Combobox.Input class="flex-1 min-w-[120px] bg-transparent border-none outline-none placeholder:text-[var(--color-text-muted)] disabled:opacity-50 disabled:cursor-not-allowed" />
+        </div>
 
         <Show when={genresQuery.isFetching}>
           <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">

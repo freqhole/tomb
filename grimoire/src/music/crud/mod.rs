@@ -102,9 +102,7 @@ pub use crate::music::entities::songs::{delete_song, list_songs};
 
 // re-export genre operations
 pub use crate::music::entities::genres::{
-    delete_sub_genre, find_or_create_sub_genre, get_genre, get_genre_stats, get_sub_genre,
-    list_genres, list_sub_genres, list_sub_genres_for_genre, query_genres as search_genres,
-    query_sub_genres as search_sub_genres,
+    delete_genre, get_genre, get_genre_stats, list_genres, query_genres as search_genres,
 };
 
 // re-export tag operations

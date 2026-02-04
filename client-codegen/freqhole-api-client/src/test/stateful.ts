@@ -3,7 +3,7 @@
 // purpose: test complete workflows with real data on a live server
 //
 // what this tests:
-// - entity creation (playlists, artists, sub-genres)
+// - entity creation (playlists, artists)
 // - entity modification (update playlist, add songs)
 // - entity queries with real IDs
 // - favorites and ratings workflows
@@ -31,7 +31,6 @@ const testState = {
   createdPlaylistId: null as string | null,
   createdArtistId: null as string | null,
   createdTagId: null as string | null,
-  createdSubGenreId: null as string | null,
   createdJobId: null as string | null,
   existingSongId: null as string | null,
   existingAlbumId: null as string | null,
@@ -165,24 +164,6 @@ export async function runStatefulTests() {
     }
   });
 
-  await test("create sub-genre", async () => {
-    const result = await music.createSubGenre(
-      baseUrl,
-      {
-        name: `Test Sub-Genre ${Date.now()}`,
-        parent_genre_id: testState.existingGenreId!,
-      },
-      apiKey,
-    );
-    if (!result.success) {
-      throw new Error(`failed to create sub-genre: ${result.error.message}`);
-    }
-    testState.createdSubGenreId = result.data.id;
-    if (!testState.createdSubGenreId) {
-      throw new Error("sub-genre id not returned");
-    }
-  });
-
   console.log("");
 
   // use created entities
@@ -284,20 +265,6 @@ export async function runStatefulTests() {
     }
     if (result.data.id !== testState.createdArtistId) {
       throw new Error("artist id mismatch");
-    }
-  });
-
-  await test("get created sub-genre", async () => {
-    const result = await music.getSubGenre(
-      baseUrl,
-      { id: testState.createdSubGenreId! },
-      apiKey,
-    );
-    if (!result.success) {
-      throw new Error(`failed to get sub-genre: ${result.error.message}`);
-    }
-    if (result.data.id !== testState.createdSubGenreId) {
-      throw new Error("sub-genre id mismatch");
     }
   });
 
@@ -675,21 +642,6 @@ export async function runStatefulTests() {
     });
   } else {
     console.log("⚠ skipping artist cleanup (not created)");
-  }
-
-  if (testState.createdSubGenreId) {
-    await test("delete created sub-genre", async () => {
-      const result = await music.deleteSubGenre(
-        baseUrl,
-        { id: testState.createdSubGenreId! },
-        apiKey,
-      );
-      if (!result.success) {
-        throw new Error(`failed to delete sub-genre: ${result.error.message}`);
-      }
-    });
-  } else {
-    console.log("⚠ skipping sub-genre cleanup (not created)");
   }
 
   console.log(`\n${passed} passed, ${failed} failed\n`);

@@ -245,30 +245,47 @@ pub async fn import_song_with_metadata(
         (None, false)
     };
 
-    // 2. Find or create genre
-    let (genre, created_new_genre) = if let Some(genre_name) = &req.genre_name {
-        let (genre, created) = match find_or_create_genre(genre_name.clone()).await {
-            GrimoireResponse {
-                success: true,
-                data: Some(result),
-                ..
-            } => result,
-            response => {
-                let errors = if response.errors.is_empty() {
-                    vec![ErrorDetail::new(
-                        "genre_creation_failed",
-                        "Genre Creation Failed",
-                        "Failed to find or create genre",
-                    )]
-                } else {
-                    response.errors
-                };
-                return GrimoireResponse::failure("Failed to import song", errors);
+    // 2. Find or create genres (split on comma for multiple genres)
+    let (genres, created_any_genre) = if let Some(genre_name) = &req.genre_name {
+        // split genre string on comma to support multiple genres
+        let genre_names: Vec<String> = genre_name
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let mut found_genres = Vec::new();
+        let mut created_any = false;
+
+        for name in genre_names {
+            match find_or_create_genre(name.clone()).await {
+                GrimoireResponse {
+                    success: true,
+                    data: Some((genre, created)),
+                    ..
+                } => {
+                    if created {
+                        created_any = true;
+                    }
+                    found_genres.push(genre);
+                }
+                response => {
+                    let errors = if response.errors.is_empty() {
+                        vec![ErrorDetail::new(
+                            "genre_creation_failed",
+                            "Genre Creation Failed",
+                            &format!("failed to find or create genre: {}", name),
+                        )]
+                    } else {
+                        response.errors
+                    };
+                    return GrimoireResponse::failure("failed to import song", errors);
+                }
             }
-        };
-        (Some(genre), created)
+        }
+        (found_genres, created_any)
     } else {
-        (None, false)
+        (Vec::new(), false)
     };
 
     // 3. Find or create album
@@ -302,6 +319,11 @@ pub async fn import_song_with_metadata(
         }
 
         // now we have an artist, create album scoped to that artist
+        let genre_ids: Option<Vec<String>> = if genres.is_empty() {
+            None
+        } else {
+            Some(genres.iter().map(|g| g.id.clone()).collect())
+        };
         let album_req = AlbumImportRequest {
             title: album_title.clone(),
             album_type: Some(if req.is_compilation {
@@ -312,7 +334,7 @@ pub async fn import_song_with_metadata(
             release_date: req.year.map(|y| y.to_string()),
             release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
-            genre_id: genre.as_ref().map(|g| g.id.clone()),
+            genre_ids,
             year: req.year,
             created_by: req.created_by.clone(),
         };
@@ -330,13 +352,18 @@ pub async fn import_song_with_metadata(
         (Some(album), created)
     } else if let Some(artist) = &artist {
         // Has artist but no album - create artist-specific "Unknown Album"
+        let genre_ids: Option<Vec<String>> = if genres.is_empty() {
+            None
+        } else {
+            Some(genres.iter().map(|g| g.id.clone()).collect())
+        };
         let unknown_album_req = AlbumImportRequest {
             title: "Unknown Album".to_string(),
             album_type: Some("album".to_string()),
             release_date: req.year.map(|y| y.to_string()),
             release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
-            genre_id: genre.as_ref().map(|g| g.id.clone()),
+            genre_ids,
             year: req.year,
             created_by: req.created_by.clone(),
         };
@@ -377,13 +404,18 @@ pub async fn import_song_with_metadata(
             }
         };
 
+        let genre_ids: Option<Vec<String>> = if genres.is_empty() {
+            None
+        } else {
+            Some(genres.iter().map(|g| g.id.clone()).collect())
+        };
         let unknown_album_req = AlbumImportRequest {
             title: "Unknown Album".to_string(),
             album_type: Some("album".to_string()),
             release_date: req.year.map(|y| y.to_string()),
             release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
-            genre_id: genre.as_ref().map(|g| g.id.clone()),
+            genre_ids,
             year: req.year,
             created_by: req.created_by.clone(),
         };
@@ -462,10 +494,10 @@ pub async fn import_song_with_metadata(
             song,
             artist,
             album,
-            genre,
+            genres,
             created_new_artist,
             created_new_album,
-            created_new_genre,
+            created_new_genre: created_any_genre,
         },
     )
 }
@@ -583,7 +615,6 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
                 release_date,
                 release_date_precision,
                 label,
-                genre_id,
                 song_count as "song_count!",
                 total_duration as "total_duration!",
                 created_at as "created_at!",
@@ -605,9 +636,8 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             release_date: row.release_date,
             release_date_precision: row.release_date_precision,
             label: row.label,
-            genre_id: row.genre_id,
-            genre: None,
-            sub_genres: None,
+            genres: None,
+            genre_ids: None,
             images: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
@@ -728,7 +758,6 @@ pub async fn find_or_create_album_for_artist(
             al.release_date,
             al.release_date_precision,
             al.label,
-            al.genre_id,
             al.song_count as "song_count!",
             al.total_duration as "total_duration!",
             al.created_at as "created_at!",
@@ -748,26 +777,28 @@ pub async fn find_or_create_album_for_artist(
     .await?;
 
     if let Some(row) = existing {
-        Ok((Album {
-            id: row.id,
-            title: row.title,
-            album_type: row.album_type,
-            release_date: row.release_date,
-            release_date_precision: row.release_date_precision,
-            label: row.label,
-            genre_id: row.genre_id,
-            genre: None,
-            sub_genres: None,
-            images: None,
-            song_count: row.song_count,
-            total_duration: row.total_duration,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            deleted_at: row.deleted_at,
-            deleted_by: row.deleted_by,
-            created_by: row.created_by,
-            updated_by: row.updated_by,
-        }, false))
+        Ok((
+            Album {
+                id: row.id,
+                title: row.title,
+                album_type: row.album_type,
+                release_date: row.release_date,
+                release_date_precision: row.release_date_precision,
+                label: row.label,
+                genres: None,
+                genre_ids: None,
+                images: None,
+                song_count: row.song_count,
+                total_duration: row.total_duration,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                deleted_at: row.deleted_at,
+                deleted_by: row.deleted_by,
+                created_by: row.created_by,
+                updated_by: row.updated_by,
+            },
+            false,
+        ))
     } else {
         // Create new album for this artist
         let create_req = CreateAlbumRequest {
@@ -776,7 +807,6 @@ pub async fn find_or_create_album_for_artist(
             release_date: req.release_date,
             release_date_precision: req.release_date_precision,
             label: req.label,
-            genre_id: req.genre_id,
             created_by: req.created_by,
         };
         let album_response = albums::create_album(create_req).await;
@@ -796,6 +826,19 @@ pub async fn find_or_create_album_for_artist(
 
         // Create artist-album relationship immediately
         create_artist_album_relationship(artist_id, &album.id).await?;
+
+        // Add genres to the junction table if provided
+        if let Some(genre_ids) = req.genre_ids {
+            for genre_id in &genre_ids {
+                let _ = sqlx::query!(
+                    "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+                    album.id,
+                    genre_id
+                )
+                .execute(&pool)
+                .await;
+            }
+        }
 
         Ok((album, true))
     }

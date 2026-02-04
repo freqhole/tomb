@@ -36,13 +36,12 @@ pub enum SuggestionType {
     Album,
     Song,
     Genre,
-    SubGenre,
     Playlist,
 }
 
 impl ZodSchemaTrait for SuggestionType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")])"#.to_string()
+        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")])"#.to_string()
     }
 }
 
@@ -199,8 +198,7 @@ pub struct AlbumSearchResult {
     pub id: String,
     pub title: String,
     pub artist_names: Vec<String>,
-    pub genre: Option<String>,
-    pub sub_genres: Vec<String>,
+    pub genres: Vec<String>,
     pub song_count: i64,
     pub thumbnail_url: Option<String>,
     pub user_rating: Option<i32>,
@@ -214,7 +212,6 @@ pub struct AlbumSearchResult {
 pub struct GenreSearchResult {
     pub genre: String,
     pub genre_id: String,
-    pub sub_genres: Vec<String>,
     pub song_count: i64,
     pub artist_count: i64,
     #[serde(default)]

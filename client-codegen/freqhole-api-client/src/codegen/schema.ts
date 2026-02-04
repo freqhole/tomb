@@ -21,9 +21,8 @@ export const AlbumSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -48,9 +47,8 @@ export const AlbumQueryResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -103,8 +101,7 @@ export const AlbumSearchResultSchema = z.object({
   id: z.string(),
   title: z.string(),
   artist_names: z.array(z.string()),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()),
+  genres: z.array(z.string()),
   song_count: z.number(),
   thumbnail_url: z.string().nullable(),
   user_rating: z.number().nullable(),
@@ -123,9 +120,8 @@ export const AlbumsQueryResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -341,12 +337,6 @@ export const CreatePlaylistRequestSchema = z.object({
 });
 export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
 
-export const CreateSubGenreRequestSchema = z.object({
-  name: z.string(),
-  parent_genre_id: z.string().nullable()
-});
-export type CreateSubGenreRequest = z.infer<typeof CreateSubGenreRequestSchema>;
-
 export const CreateTagRequestSchema = z.object({
   name: z.string()
 });
@@ -401,11 +391,6 @@ export const DeleteSongResponseSchema = z.object({
 });
 export type DeleteSongResponse = z.infer<typeof DeleteSongResponseSchema>;
 
-export const DeleteSubGenreRequestSchema = z.object({
-  id: z.string()
-});
-export type DeleteSubGenreRequest = z.infer<typeof DeleteSubGenreRequestSchema>;
-
 export const DeleteTagRequestSchema = z.object({
   tag_id: z.string(),
   deleted_by: z.string().nullable()
@@ -427,9 +412,8 @@ export const FavoriteAlbumResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -598,9 +582,8 @@ export const FavoriteSongResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -732,23 +715,6 @@ export const FilterSetSchema = z.object({
 });
 export type FilterSet = z.infer<typeof FilterSetSchema>;
 
-export const FindOrCreateSubGenreRequestSchema = z.object({
-  name: z.string(),
-  parent_genre_id: z.string()
-});
-export type FindOrCreateSubGenreRequest = z.infer<typeof FindOrCreateSubGenreRequestSchema>;
-
-export const FindOrCreateSubGenreResponseSchema = z.object({
-  sub_genre: z.object({
-  id: z.string(),
-  name: z.string(),
-  parent_genre_id: z.string().nullable(),
-  created_at: z.number()
-}),
-  created: z.boolean()
-});
-export type FindOrCreateSubGenreResponse = z.infer<typeof FindOrCreateSubGenreResponseSchema>;
-
 export const GenreSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -772,7 +738,6 @@ export type GenreQueryResult = z.infer<typeof GenreQueryResultSchema>;
 export const GenreSearchResultSchema = z.object({
   genre: z.string(),
   genre_id: z.string(),
-  sub_genres: z.array(z.string()),
   song_count: z.number(),
   artist_count: z.number(),
   representative_song_id: z.string().nullable(),
@@ -853,11 +818,6 @@ export const GetReleaseRequestSchema = z.object({
 });
 export type GetReleaseRequest = z.infer<typeof GetReleaseRequestSchema>;
 
-export const GetSubGenreRequestSchema = z.object({
-  id: z.string()
-});
-export type GetSubGenreRequest = z.infer<typeof GetSubGenreRequestSchema>;
-
 export const GetTagRequestSchema = z.object({
   tag_id: z.string()
 });
@@ -925,11 +885,6 @@ export const ListJobsRequestSchema = z.object({
   offset: z.number().nullable()
 });
 export type ListJobsRequest = z.infer<typeof ListJobsRequestSchema>;
-
-export const ListSubGenresForGenreRequestSchema = z.object({
-  parent_genre_id: z.string()
-});
-export type ListSubGenresForGenreRequest = z.infer<typeof ListSubGenresForGenreRequestSchema>;
 
 export const ListeningHistoryItemSchema = z.object({
   id: z.string(),
@@ -1164,9 +1119,8 @@ export const PlaylistSongResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1278,9 +1232,8 @@ export const PlaylistSongsQueryResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1413,11 +1366,6 @@ export const QueryPlaylistSongsRequestSchema = z.object({
   offset: z.number().nullable()
 });
 export type QueryPlaylistSongsRequest = z.infer<typeof QueryPlaylistSongsRequestSchema>;
-
-export const QuerySubGenresRequestSchema = z.object({
-  search: z.string()
-});
-export type QuerySubGenresRequest = z.infer<typeof QuerySubGenresRequestSchema>;
 
 export const QueryTagsRequestSchema = z.object({
   search: z.string().nullable()
@@ -1568,8 +1516,7 @@ export const SearchResponseSchema = z.object({
   id: z.string(),
   title: z.string(),
   artist_names: z.array(z.string()),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()),
+  genres: z.array(z.string()),
   song_count: z.number(),
   thumbnail_url: z.string().nullable(),
   user_rating: z.number().nullable(),
@@ -1580,7 +1527,6 @@ export const SearchResponseSchema = z.object({
   genres: z.array(z.object({
   genre: z.string(),
   genre_id: z.string(),
-  sub_genres: z.array(z.string()),
   song_count: z.number(),
   artist_count: z.number(),
   representative_song_id: z.string().nullable(),
@@ -1775,9 +1721,8 @@ export const SongQueryResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1907,9 +1852,8 @@ export const SongsQueryResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1977,20 +1921,12 @@ export const StartLoginRequestSchema = z.object({
 });
 export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;
 
-export const SubGenreSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  parent_genre_id: z.string().nullable(),
-  created_at: z.number()
-});
-export type SubGenre = z.infer<typeof SubGenreSchema>;
-
 export const SuggestionSchema = z.object({
   value: z.string(),
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")]),
   confidence: z.number(),
   metadata: z.any().nullable(),
   entity_id: z.string(),
@@ -1998,7 +1934,7 @@ export const SuggestionSchema = z.object({
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
-export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")]);
+export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")]);
 export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
 
 export const SuggestionsRequestSchema = z.object({
@@ -2024,7 +1960,7 @@ export const SuggestionsResponseSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("subgenre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")]),
   confidence: z.number(),
   metadata: z.any().nullable(),
   entity_id: z.string(),
@@ -2114,10 +2050,8 @@ export const UpdateAlbumRequestSchema = z.object({
   album_type: z.string().nullable(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genre_ids: z.array(z.string()).nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
   updated_by: z.string().nullable()
 });
 export type UpdateAlbumRequest = z.infer<typeof UpdateAlbumRequestSchema>;
@@ -2219,9 +2153,8 @@ export const UpdateSongsResultSchema = z.object({
   release_date: z.string().nullable(),
   release_date_precision: z.string().nullable(),
   label: z.string().nullable(),
-  genre_id: z.string().nullable(),
-  genre: z.string().nullable(),
-  sub_genres: z.array(z.string()).nullable(),
+  genres: z.array(z.string()).nullable(),
+  genre_ids: z.array(z.string()).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2239,12 +2172,6 @@ export const UpdateSongsResultSchema = z.object({
   genre: z.object({
   id: z.string(),
   name: z.string(),
-  created_at: z.number()
-}).nullable(),
-  sub_genre: z.object({
-  id: z.string(),
-  name: z.string(),
-  parent_genre_id: z.string().nullable(),
   created_at: z.number()
 }).nullable(),
   tags_modified: z.boolean()

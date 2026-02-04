@@ -170,33 +170,6 @@ export const getGenreRequest: s.GetGenreRequest = {
   id: PLACEHOLDER_ID,
 };
 
-// Sub-genres
-export const getSubGenreRequest: s.GetSubGenreRequest = {
-  id: PLACEHOLDER_ID,
-};
-
-export const createSubGenreRequest: s.CreateSubGenreRequest = {
-  name: "Test Sub-Genre",
-  parent_genre_id: null,
-};
-
-export const deleteSubGenreRequest: s.DeleteSubGenreRequest = {
-  id: PLACEHOLDER_ID,
-};
-
-export const querySubGenresRequest: s.QuerySubGenresRequest = {
-  search: "test",
-};
-
-export const listSubGenresForGenreRequest: s.ListSubGenresForGenreRequest = {
-  parent_genre_id: PLACEHOLDER_ID,
-};
-
-export const findOrCreateSubGenreRequest: s.FindOrCreateSubGenreRequest = {
-  name: "Test Sub-Genre",
-  parent_genre_id: PLACEHOLDER_ID,
-};
-
 // Favorites
 export const listFavoritesRequest: s.ListFavoritesRequest = {
   user_id: PLACEHOLDER_ID,
@@ -439,14 +412,6 @@ export const fixtures = {
 
   // genres
   getGenre: getGenreRequest,
-
-  // sub-genres
-  getSubGenre: getSubGenreRequest,
-  createSubGenre: createSubGenreRequest,
-  deleteSubGenre: deleteSubGenreRequest,
-  querySubGenres: querySubGenresRequest,
-  listSubGenresForGenre: listSubGenresForGenreRequest,
-  findOrCreateSubGenre: findOrCreateSubGenreRequest,
 
   // favorites
   listFavorites: listFavoritesRequest,

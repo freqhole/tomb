@@ -179,35 +179,6 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["get_genre"].path,
             get(music::genres::get_genre_handler),
         )
-        // sub-genres routes
-        .route(
-            routes["music"]["list_sub_genres"].path,
-            get(music::genres::list_sub_genres_handler),
-        )
-        .route(
-            routes["music"]["query_sub_genres"].path,
-            post(music::genres::query_sub_genres_handler),
-        )
-        .route(
-            routes["music"]["get_sub_genre"].path,
-            get(music::genres::get_sub_genre_handler),
-        )
-        .route(
-            routes["music"]["create_sub_genre"].path,
-            post(music::genres::create_sub_genre_handler),
-        )
-        .route(
-            routes["music"]["delete_sub_genre"].path,
-            post(music::genres::delete_sub_genre_handler),
-        )
-        .route(
-            routes["music"]["list_sub_genres_for_genre"].path,
-            post(music::genres::list_sub_genres_for_genre_handler),
-        )
-        .route(
-            routes["music"]["find_or_create_sub_genre"].path,
-            post(music::genres::find_or_create_sub_genre_handler),
-        )
         // jobs routes
         .route(
             routes["music"]["get_job_status"].path,

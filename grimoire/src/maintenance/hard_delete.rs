@@ -37,7 +37,6 @@ pub struct HardDeleteSummary {
     pub albums_deleted: u32,
     pub tags_deleted: u32,
     pub genres_deleted: u32,
-    pub sub_genres_deleted: u32,
     pub media_blobs_deleted: u32,
     pub blob_data_deleted: u32,
     pub total_records_deleted: u32,
@@ -54,7 +53,6 @@ impl HardDeleteSummary {
             albums_deleted: 0,
             tags_deleted: 0,
             genres_deleted: 0,
-            sub_genres_deleted: 0,
             media_blobs_deleted: 0,
             blob_data_deleted: 0,
             total_records_deleted: 0,
@@ -70,7 +68,6 @@ impl HardDeleteSummary {
             + self.albums_deleted
             + self.tags_deleted
             + self.genres_deleted
-            + self.sub_genres_deleted
             + self.media_blobs_deleted
             + self.blob_data_deleted;
     }
@@ -85,8 +82,7 @@ impl HardDeleteSummary {
 /// 4. Delete old artists: cascade to remaining albums/songs, then delete artist
 /// 5. Delete old playlists: delete playlist only (never songs)
 /// 6. Delete old tags: unlink from albums first
-/// 7. Delete old sub-genres: unlink from albums first
-/// 8. Delete old genres: NULL out album references first
+/// 7. Delete old genres: unlink from albums via album_genrez junction first
 ///
 /// Note: Blob cleanup is handled separately by filesystem sync, not here
 pub async fn hard_delete_old_records(
@@ -243,7 +239,7 @@ async fn hard_delete_old_records_internal(
         sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query!("DELETE FROM album_sub_genrez WHERE album_id = ?", album_id)
+        sqlx::query!("DELETE FROM album_genrez WHERE album_id = ?", album_id)
             .execute(&mut *tx)
             .await?;
         sqlx::query!("DELETE FROM album_imagez WHERE album_id = ?", album_id)
@@ -264,9 +260,6 @@ async fn hard_delete_old_records_internal(
         )
         .execute(&mut *tx)
         .await?;
-        sqlx::query!("UPDATE albumz SET genre_id = NULL WHERE id = ?", album_id)
-            .execute(&mut *tx)
-            .await?;
         sqlx::query!("DELETE FROM albumz WHERE id = ?", album_id)
             .execute(&mut *tx)
             .await?;
@@ -337,7 +330,7 @@ async fn hard_delete_old_records_internal(
             sqlx::query!("DELETE FROM album_tagz WHERE album_id = ?", album_id)
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query!("DELETE FROM album_sub_genrez WHERE album_id = ?", album_id)
+            sqlx::query!("DELETE FROM album_genrez WHERE album_id = ?", album_id)
                 .execute(&mut *tx)
                 .await?;
             sqlx::query!("DELETE FROM album_imagez WHERE album_id = ?", album_id)
@@ -358,7 +351,7 @@ async fn hard_delete_old_records_internal(
             )
             .execute(&mut *tx)
             .await?;
-            sqlx::query!("UPDATE albumz SET genre_id = NULL WHERE id = ?", album_id)
+            sqlx::query!("DELETE FROM album_genrez WHERE album_id = ?", album_id)
                 .execute(&mut *tx)
                 .await?;
             sqlx::query!("DELETE FROM albumz WHERE id = ?", album_id)
@@ -494,30 +487,7 @@ async fn hard_delete_old_records_internal(
     }
     summary.tags_deleted = tag_ids.len() as u32;
 
-    // Step 6: Delete old sub-genres (unlink from albums first)
-    let sub_genre_ids: Vec<String> = sqlx::query_scalar!(
-        r#"SELECT id as "id!" FROM sub_genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
-        cutoff_timestamp
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    for sub_genre_id in &sub_genre_ids {
-        // Unlink from albums
-        sqlx::query!(
-            "DELETE FROM album_sub_genrez WHERE sub_genre_id = ?",
-            sub_genre_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        // Delete the sub-genre
-        sqlx::query!("DELETE FROM sub_genrez WHERE id = ?", sub_genre_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-    summary.sub_genres_deleted = sub_genre_ids.len() as u32;
-
-    // Step 7: Delete old genres (NULL out album references first)
+    // Step 6: Delete old genres (unlink from albums first via album_genrez junction)
     let genre_ids: Vec<String> = sqlx::query_scalar!(
         r#"SELECT id as "id!" FROM genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?"#,
         cutoff_timestamp
@@ -526,9 +496,9 @@ async fn hard_delete_old_records_internal(
     .await?;
 
     for genre_id in &genre_ids {
-        // NULL out album genre_id references
+        // Unlink from albums via junction table
         sqlx::query!(
-            "UPDATE albumz SET genre_id = NULL WHERE genre_id = ?",
+            "DELETE FROM album_genrez WHERE genre_id = ?",
             genre_id
         )
         .execute(&mut *tx)
@@ -615,15 +585,6 @@ async fn dry_run_count(cutoff_timestamp: i64) -> GrimoireResult<HardDeleteSummar
     .await?
     .count;
     summary.genres_deleted = genres as u32;
-
-    let sub_genres = sqlx::query!(
-        "SELECT COUNT(*) as count FROM sub_genrez WHERE deleted_at IS NOT NULL AND deleted_at < ?",
-        cutoff_timestamp
-    )
-    .fetch_one(&pool)
-    .await?
-    .count;
-    summary.sub_genres_deleted = sub_genres as u32;
 
     summary.add_totals();
     Ok(summary)

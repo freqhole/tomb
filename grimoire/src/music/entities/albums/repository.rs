@@ -2,10 +2,10 @@
 //! album repository
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use crate::music::crud::ImageMetadata;
 use super::models::{Album, CreateAlbumRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
+use crate::music::crud::ImageMetadata;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
 use time::OffsetDateTime;
@@ -22,18 +22,18 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         }
     };
 
-    let album_type = req.album_type.unwrap_or_else(|| "album".to_string());
+    let album_type = req.album_type.clone().unwrap_or_else(|| "album".to_string());
+    let now = OffsetDateTime::now_utc().unix_timestamp();
 
     let album_id = match sqlx::query_scalar!(
-        r#"INSERT INTO albumz (title, album_type, release_date, release_date_precision, label, genre_id, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO albumz (title, album_type, release_date, release_date_precision, label, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          RETURNING id"#,
         req.title,
         album_type,
         req.release_date,
         req.release_date_precision,
         req.label,
-        req.genre_id,
         req.created_by,
         req.created_by
     )
@@ -55,8 +55,29 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         }
     };
 
-    // fetch the complete album with genre and sub_genres
-    super::get_album(&album_id).await
+    // return the album directly without fetching from view
+    // (the view filters out albums with song_count = 0)
+    let album = Album {
+        id: album_id,
+        title: req.title,
+        album_type,
+        release_date: req.release_date,
+        release_date_precision: req.release_date_precision,
+        label: req.label,
+        genres: None,
+        genre_ids: None,
+        images: None,
+        song_count: 0,
+        total_duration: 0,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+        deleted_by: None,
+        created_by: req.created_by.clone(),
+        updated_by: req.created_by,
+    };
+
+    GrimoireResponse::success("album created successfully", album)
 }
 
 /// list all albums (non-deleted only)
@@ -82,9 +103,8 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_release_date as "release_date?",
             album_release_date_precision as "release_date_precision?",
             album_label as "label?",
-            album_genre_id as "genre_id?",
-            album_genre_name as "genre?",
-            album_sub_genres as "sub_genres: crate::JsonVec<String>",
+            album_genres as "genres: crate::JsonVec<String>",
+            album_genre_ids as "genre_ids: crate::JsonVec<String>",
             album_song_count as "song_count!",
             album_total_duration as "total_duration!",
             album_created_at as "created_at!",
@@ -134,9 +154,8 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_release_date as "release_date?",
             album_release_date_precision as "release_date_precision?",
             album_label as "label?",
-            album_genre_id as "genre_id?",
-            album_genre_name as "genre?",
-            album_sub_genres as "sub_genres: crate::JsonVec<String>",
+            album_genres as "genres: crate::JsonVec<String>",
+            album_genre_ids as "genre_ids: crate::JsonVec<String>",
             album_song_count as "song_count!",
             album_total_duration as "total_duration!",
             album_created_at as "created_at!",
@@ -345,7 +364,9 @@ pub async fn add_album_image(
     .await
     {
         Ok(_) => GrimoireResponse::success("Image added to album", ()),
-        Err(e) => GrimoireResponse::failure("Failed to add image to album", vec![ErrorDetail::from(e)]),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to add image to album", vec![ErrorDetail::from(e)])
+        }
     }
 }
 
@@ -376,9 +397,10 @@ pub async fn remove_album_image(album_id: &str, media_blob_id: &str) -> Grimoire
                 GrimoireResponse::success("Image removed from album", ())
             }
         }
-        Err(e) => {
-            GrimoireResponse::failure("Failed to remove image from album", vec![ErrorDetail::from(e)])
-        }
+        Err(e) => GrimoireResponse::failure(
+            "Failed to remove image from album",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }
 
