@@ -30,9 +30,7 @@ interface GenreOption {
 }
 
 export function GenreAutocomplete(props: GenreAutocompleteProps) {
-  const [searchInput, setSearchInput] = createSignal<string | undefined>(
-    undefined,
-  );
+  const [searchInput, setSearchInput] = createSignal<string | undefined>(undefined);
   const [localValue, setLocalValue] = createSignal<GenreOption[]>([]);
   const [isOpen, setIsOpen] = createSignal(false);
 
@@ -112,7 +110,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
     props.onSelect(
       newOptions.map((opt) => opt.value),
       newOptions.map((opt) => opt.id).filter((id): id is string => !!id),
-      newOptions.filter((opt) => !opt.id).map((opt) => opt.value),
+      newOptions.filter((opt) => !opt.id).map((opt) => opt.value)
     );
   };
 
@@ -127,7 +125,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
         props.onSelect(
           options.map((opt) => opt.value),
           options.map((opt) => opt.id).filter((id): id is string => !!id),
-          options.filter((opt) => !opt.id).map((opt) => opt.value),
+          options.filter((opt) => !opt.id).map((opt) => opt.value)
         );
         // close dropdown after selection
         setIsOpen(false);
@@ -151,9 +149,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
       itemComponent={(itemProps) => (
         <Combobox.Item item={itemProps.item} class="outline-none">
           <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors text-sm">
-            <Combobox.ItemLabel>
-              {itemProps.item.rawValue.label}
-            </Combobox.ItemLabel>
+            <Combobox.ItemLabel>{itemProps.item.rawValue.label}</Combobox.ItemLabel>
           </div>
         </Combobox.Item>
       )}

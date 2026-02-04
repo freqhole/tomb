@@ -21,14 +21,14 @@ export function AlbumCard(props: AlbumCardProps) {
     console.log(`[AlbumCard] hover enter: ${props.album.title}`);
     setIsCardHovered(true);
   };
-  
+
   const handleMouseLeave = () => {
     console.log(`[AlbumCard] hover leave: ${props.album.title}`);
     setIsCardHovered(false);
   };
 
   return (
-    <div 
+    <div
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.album)}
       onContextMenu={(e) => {
@@ -104,10 +104,17 @@ export function AlbumCard(props: AlbumCardProps) {
         </Show>
         <Show when={props.album.year || props.album.song_count}>
           <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors truncate">
-            {[props.album.year, props.album.song_count && `${props.album.song_count} tracks`].filter(Boolean).join(" • ")}
+            {[props.album.year, props.album.song_count && `${props.album.song_count} tracks`]
+              .filter(Boolean)
+              .join(" • ")}
           </div>
         </Show>
-        <Show when={props.album.genres && props.album.genres.length > 0 || props.album.tags && props.album.tags.length > 0}>
+        <Show
+          when={
+            (props.album.genres && props.album.genres.length > 0) ||
+            (props.album.tags && props.album.tags.length > 0)
+          }
+        >
           <div class="flex flex-wrap gap-1 mt-2 min-h-[20px] max-h-[48px] overflow-y-clip pb-1">
             <For each={props.album.genres}>
               {(genre) => (

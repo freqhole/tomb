@@ -22,7 +22,10 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         }
     };
 
-    let album_type = req.album_type.clone().unwrap_or_else(|| "album".to_string());
+    let album_type = req
+        .album_type
+        .clone()
+        .unwrap_or_else(|| "album".to_string());
     let now = OffsetDateTime::now_utc().unix_timestamp();
 
     let album_id = match sqlx::query_scalar!(

@@ -446,8 +446,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 <div class="flex items-center justify-between">
                   <Show
                     when={
-                      JSON.stringify(formData().genres) !==
-                      JSON.stringify(initialData()?.genres)
+                      JSON.stringify(formData().genres) !== JSON.stringify(initialData()?.genres)
                     }
                   >
                     <button
