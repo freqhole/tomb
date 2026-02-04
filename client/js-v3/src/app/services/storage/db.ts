@@ -7,6 +7,7 @@ import {
   APP_DB_NAME,
   APP_DB_VERSION,
   STORE_APP_STATE,
+  STORE_REMOTES,
   type AppState,
 } from "./types";
 
@@ -24,6 +25,16 @@ async function initAppDB(): Promise<IDBPDatabase> {
       // create app_state store
       if (!db.objectStoreNames.contains(STORE_APP_STATE)) {
         db.createObjectStore(STORE_APP_STATE, { keyPath: "id" });
+      }
+
+      // create remotes store (v2)
+      if (!db.objectStoreNames.contains(STORE_REMOTES)) {
+        const remotesStore = db.createObjectStore(STORE_REMOTES, {
+          keyPath: "remote_id",
+        });
+        remotesStore.createIndex("by_name", "name");
+        remotesStore.createIndex("by_is_active", "is_active");
+        remotesStore.createIndex("by_created_at", "created_at");
       }
     },
   });

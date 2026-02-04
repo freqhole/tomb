@@ -2,12 +2,12 @@
 // auth is handled via cookies, so no credentials stored here
 
 import { app } from "freqhole-api-client";
-import { initMusicDB } from "../storage/db";
-import { STORE_REMOTES, type Remote } from "../storage/types";
+import { initAppDB } from "../../../app/services/storage/db";
+import { STORE_REMOTES, type Remote } from "../../../app/services/storage/types";
 
 // get all remotes
 export async function getAllRemotes(): Promise<Remote[]> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
   const remotes = await db.getAll(STORE_REMOTES);
   return remotes.sort((a, b) => b.created_at - a.created_at);
 }
@@ -16,7 +16,7 @@ export async function getAllRemotes(): Promise<Remote[]> {
 export async function getRemoteById(
   remoteId: string,
 ): Promise<Remote | undefined> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
   return db.get(STORE_REMOTES, remoteId);
 }
 
@@ -28,14 +28,18 @@ export async function getRemoteByUrl(url: string): Promise<Remote | undefined> {
 
 // get currently active remote (if any)
 export async function getActiveRemote(): Promise<Remote | null> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
   const remotes = await db.getAllFromIndex(STORE_REMOTES, "by_is_active", 1);
   return remotes[0] || null;
 }
 
 // sanitize server id for url safety (alphanumeric, dash, underscore only)
 function sanitizeServerId(serverId: string): string {
-  return serverId.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+  return serverId
+    .replace(/[^a-zA-Z0-9_-]/g, "-") // replace invalid chars with hyphens
+    .replace(/-+/g, "-") // collapse multiple hyphens
+    .replace(/^-|-$/g, "") // trim leading/trailing hyphens
+    .toLowerCase();
 }
 
 // create a new remote
@@ -43,10 +47,16 @@ export async function createRemote(data: {
   name?: string; // optional - uses server name from /api/hello if not provided
   base_url: string;
 }): Promise<Remote> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   // normalize url - remove trailing slash
   const baseUrl = data.base_url.replace(/\/$/, "");
+
+  // check if remote with this url already exists
+  const existingByUrl = await getRemoteByUrl(baseUrl);
+  if (existingByUrl) {
+    throw new Error(`remote already exists for this url: ${existingByUrl.name}`);
+  }
 
   // fetch server info from /api/hello
   let serverInfo = null;
@@ -68,6 +78,12 @@ export async function createRemote(data: {
 
   // use server_id as the remote_id (sanitized for URL safety)
   const remoteId = sanitizeServerId(serverInfo.server_id);
+
+  // check if remote with this id already exists
+  const existingById = await getRemoteById(remoteId);
+  if (existingById) {
+    throw new Error(`remote already exists with id "${remoteId}" (${existingById.name})`);
+  }
 
   // use server name from /api/hello if no name provided
   const remoteName = data.name || serverInfo.name || baseUrl;
@@ -99,7 +115,7 @@ export async function updateRemote(
   remoteId: string,
   updates: Partial<Pick<Remote, "name" | "base_url">>,
 ): Promise<Remote> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   const existing = await db.get(STORE_REMOTES, remoteId);
   if (!existing) {
@@ -125,7 +141,7 @@ export async function updateRemote(
 
 // delete a remote
 export async function deleteRemote(remoteId: string): Promise<void> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   const existing = await db.get(STORE_REMOTES, remoteId);
   if (!existing) {
@@ -138,7 +154,7 @@ export async function deleteRemote(remoteId: string): Promise<void> {
 
 // set a remote as active (deactivates all others)
 export async function setActiveRemote(remoteId: string): Promise<void> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   const remote = await db.get(STORE_REMOTES, remoteId);
   if (!remote) {
@@ -170,7 +186,7 @@ export async function setActiveRemote(remoteId: string): Promise<void> {
 
 // deactivate all remotes (switch to local)
 export async function deactivateAllRemotes(): Promise<void> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   const allRemotes = await db.getAll(STORE_REMOTES);
   for (const remote of allRemotes) {
@@ -190,7 +206,7 @@ export async function deactivateAllRemotes(): Promise<void> {
 export async function updateRemoteConnectionTime(
   remoteId: string,
 ): Promise<void> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   const remote = await db.get(STORE_REMOTES, remoteId);
   if (!remote) return;
@@ -204,7 +220,7 @@ export async function updateRemoteConnectionTime(
 
 // refresh server info for a remote (fetch from /api/hello)
 export async function refreshServerInfo(remoteId: string): Promise<void> {
-  const db = await initMusicDB();
+  const db = await initAppDB();
 
   const remote = await db.get(STORE_REMOTES, remoteId);
   if (!remote) {

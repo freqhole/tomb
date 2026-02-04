@@ -242,24 +242,5 @@ export const STORE_PLAYLISTS = "playlists";
 export const STORE_PLAYLIST_SONGS = "playlist_songs";
 export const STORE_FAVORITES = "favorites";
 export const STORE_RATINGS = "ratings";
-export const STORE_REMOTES = "remotes";
 export const STORE_TAGS = "tags";
 export const STORE_ALBUM_TAGS = "album_tags";
-
-// ===== REMOTES TABLE =====
-// remote server configurations (no credentials - uses cookies)
-export interface Remote {
-  remote_id: string; // uuid
-  name: string; // user-friendly name (e.g. "home server", "work laptop")
-  base_url: string; // server url (e.g. "https://music.example.com")
-  is_active: boolean; // currently selected remote
-  last_connected_at: number | null; // timestamp of last successful connection
-  created_at: number;
-  updated_at: number;
-  // server info (fetched from /api/hello)
-  server_id: string | null; // stable unique identifier from server
-  description: string | null; // server description
-  image_url: string | null; // server image/logo url
-  version: string | null; // server version
-  last_info_check: number | null; // timestamp of last server info fetch
-}
