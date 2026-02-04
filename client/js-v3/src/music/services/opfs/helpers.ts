@@ -141,6 +141,33 @@ export async function deleteAudioFromOPFS(path: string): Promise<void> {
   }
 }
 
+// delete thumbnail file from opfs by blob id
+export async function deleteThumbnailFromOPFS(blobId: string): Promise<void> {
+  try {
+    const thumbnailsDir = await ensureThumbnailsDir();
+    
+    // we don't know the exact extension, so iterate to find the file
+    for await (const [name, handle] of thumbnailsDir.entries()) {
+      if (handle.kind === "file" && name.startsWith(blobId + ".")) {
+        await thumbnailsDir.removeEntry(name);
+        console.log(`deleted thumbnail from opfs: ${name}`);
+        return;
+      }
+    }
+    
+    // if not found by prefix, try exact match (for legacy files without extension)
+    try {
+      await thumbnailsDir.removeEntry(blobId);
+      console.log(`deleted thumbnail from opfs: ${blobId}`);
+    } catch {
+      // file doesn't exist, that's fine
+    }
+  } catch (error) {
+    console.error(`failed to delete thumbnail from opfs (${blobId}):`, error);
+    throw new Error(`failed to delete thumbnail from opfs: ${error}`);
+  }
+}
+
 // get opfs storage usage info
 export async function getOPFSUsage(): Promise<{
   usage: number;

@@ -1,12 +1,5 @@
 // artist editor modal - edit artist metadata
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { updateArtist } from "../../music/services/storage/db";
@@ -15,6 +8,8 @@ import { useUpdateArtistMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../utils/jobs";
+import { queryClient } from "../../queryClient";
+import { confirm } from "../../utils/confirm";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -92,9 +87,11 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     const initial = initialData();
     if (!initial) return false;
 
-    return current.name !== initial.name || 
-           current.bio !== initial.bio || 
-           current.uploaded_blob_id !== null;
+    return (
+      current.name !== initial.name ||
+      current.bio !== initial.bio ||
+      current.uploaded_blob_id !== null
+    );
   });
 
   const handleSave = async () => {
@@ -123,6 +120,37 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     if (initial) {
       setFormData({ ...initial });
       setImagePreview(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    const artist = artistQuery.data;
+    if (!artist) return;
+
+    const confirmed = await confirm({
+      title: "delete artist",
+      message: `are you sure you want to delete "${artist.name}"? this will also delete all albums and songs by this artist. this cannot be undone.`,
+      confirmText: "delete",
+      variant: "danger",
+    });
+
+    if (confirmed) {
+      try {
+        const dataSource = getDataSource();
+        if (dataSource.deleteArtist) {
+          await dataSource.deleteArtist(props.artistId);
+          toast.success(`deleted "${artist.name}"`);
+          queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+          queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+          queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+          props.onClose();
+        } else {
+          toast.error("delete not supported for this data source");
+        }
+      } catch (error) {
+        console.error("failed to delete artist:", error);
+        toast.error("failed to delete artist");
+      }
     }
   };
 
@@ -187,7 +215,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
   const handleTogglePrimary = async (index: number) => {
     const imageToSet = images()[index];
     const blobId = imageToSet.remote_blob_id || imageToSet.local_blob_id;
-    
+
     if (!blobId) {
       toast.error("no blob ID found for this image");
       return;
@@ -221,18 +249,18 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       const imageToRemove = images()[index];
       const artistData = artistQuery.data;
       if (!artistData) return;
-      
+
       const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
       if (!blobId) {
-        console.error('image missing blob ID:', imageToRemove);
+        console.error("image missing blob ID:", imageToRemove);
         toast.error("cannot delete image: missing blob ID");
         return;
       }
-      
+
       // call API to remove image association
       const dataSource = getDataSource();
       await dataSource.removeImage({
-        entityType: 'artist',
+        entityType: "artist",
         entityId: artistData.artist_id,
         blobId: blobId,
       });
@@ -257,14 +285,10 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       class="fixed inset-0 bg-black/50 flex items-center justify-center"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
     >
-      <div
-        class="bg-[var(--color-bg-elevated)] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-      >
+      <div class="bg-[var(--color-bg-elevated)] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* header */}
         <div class="flex items-center justify-between p-6 border-b border-[var(--color-border)]">
-          <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">
-            edit artist
-          </h2>
+          <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit artist</h2>
           <button
             onClick={props.onClose}
             class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
@@ -282,114 +306,117 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
             </div>
           }
         >
-          <Tabs activeTab={activeTab()} onTabChange={setActiveTab} class="flex-1 flex flex-col min-h-0">
+          <Tabs
+            activeTab={activeTab()}
+            onTabChange={setActiveTab}
+            class="flex-1 flex flex-col min-h-0"
+          >
             <TabList class="px-6">
               <Tab id="metadata" label="metadata" />
               <Tab id="images" label="images" badge={images().length || undefined} />
             </TabList>
 
             <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* artist name */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  artist name
-                </label>
-                <Show when={formData().name !== initialData()?.name}>
-                  <button
-                    onClick={() => handleResetField("name")}
-                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <TextInput
-                value={formData().name}
-                onInput={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    name: e.currentTarget.value,
-                  }))
-                }
-                placeholder="artist name"
-                class="w-full"
-              />
-            </div>
-
-            {/* artist bio */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  biography
-                </label>
-                <Show when={formData().bio !== initialData()?.bio}>
-                  <button
-                    onClick={() => handleResetField("bio")}
-                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <textarea
-                value={formData().bio}
-                onInput={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    bio: e.currentTarget.value,
-                  }))
-                }
-                placeholder="artist biography..."
-                class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
-                rows={5}
-              />
-            </div>
-              </TabPanel>
-
-              <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
-                <div class="space-y-6">
-                  <EntityImages
-                    images={images()}
-                    onUpload={(file) => {
-                      const event = new Event("change") as any;
-                      const input = document.createElement("input");
-                      input.type = "file";
-                      const dataTransfer = new DataTransfer();
-                      dataTransfer.items.add(file);
-                      input.files = dataTransfer.files;
-                      Object.defineProperty(event, "target", { value: input, writable: false });
-                      handleImageSelect(event);
-                    }}
-                    onDelete={handleRemoveImage}
-                    onSetPrimary={handleTogglePrimary}
-                    uploading={!!processingJob()}
-                  />
+              {/* artist name */}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                    artist name
+                  </label>
+                  <Show when={formData().name !== initialData()?.name}>
+                    <button
+                      onClick={() => handleResetField("name")}
+                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                    >
+                      reset
+                    </button>
+                  </Show>
                 </div>
-              </TabPanel>
+                <TextInput
+                  value={formData().name}
+                  onInput={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      name: e.currentTarget.value,
+                    }))
+                  }
+                  placeholder="artist name"
+                  class="w-full"
+                />
+              </div>
+
+              {/* artist bio */}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                    biography
+                  </label>
+                  <Show when={formData().bio !== initialData()?.bio}>
+                    <button
+                      onClick={() => handleResetField("bio")}
+                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                    >
+                      reset
+                    </button>
+                  </Show>
+                </div>
+                <textarea
+                  value={formData().bio}
+                  onInput={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      bio: e.currentTarget.value,
+                    }))
+                  }
+                  placeholder="artist biography..."
+                  class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
+                  rows={5}
+                />
+              </div>
+            </TabPanel>
+
+            <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
+              <div class="space-y-6">
+                <EntityImages
+                  images={images()}
+                  onUpload={(file) => {
+                    const event = new Event("change") as any;
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    input.files = dataTransfer.files;
+                    Object.defineProperty(event, "target", { value: input, writable: false });
+                    handleImageSelect(event);
+                  }}
+                  onDelete={handleRemoveImage}
+                  onSetPrimary={handleTogglePrimary}
+                  uploading={!!processingJob()}
+                />
+              </div>
+            </TabPanel>
           </Tabs>
         </Show>
 
         {/* footer */}
         <Show when={initialData() && activeTab() === "metadata"}>
           <div class="flex items-center justify-between p-6 border-t border-[var(--color-border)]">
-            <Show when={hasChanges()}>
-              <button
-                onClick={handleReset}
-                class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-              >
-                reset all
-              </button>
-            </Show>
-            <div class="flex items-center gap-3 ml-auto">
+            <Button onClick={handleDelete} variant="danger">
+              delete
+            </Button>
+            <div class="flex items-center gap-3">
+              <Show when={hasChanges()}>
+                <button
+                  onClick={handleReset}
+                  class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                >
+                  reset all
+                </button>
+              </Show>
               <Button variant="secondary" onClick={props.onClose}>
                 cancel
               </Button>
-              <Button
-                variant="primary"
-                onClick={handleSave}
-                disabled={!hasChanges()}
-              >
+              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
                 save changes
               </Button>
             </div>

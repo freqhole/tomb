@@ -52,3 +52,9 @@ pub async fn find_user_by_api_key(api_key: &str) -> crate::response::GrimoireRes
     let service = UserService::new();
     service.get_user_by_api_key(api_key).await
 }
+
+/// Get a user by their ID
+pub async fn get_user(user_id: &str) -> crate::response::GrimoireResponse<User> {
+    let service = UserService::new();
+    service.get_user(user_id).await
+}

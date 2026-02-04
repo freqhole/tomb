@@ -2,6 +2,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { Song } from "../../music/data/types";
 import { isMobile } from "../../utils/isMobile";
+import { formatDuration } from "../../utils/formatDuration";
 import { Badge } from "../badges/Badge";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -35,22 +36,12 @@ export interface QueueSidebarProps {
   class?: string;
 }
 
-// format seconds to MM:SS
-function formatDuration(seconds: number | undefined): string {
-  if (!seconds || !isFinite(seconds) || seconds < 0) return "--:--";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 // queue sidebar component
 export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
 
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
-  const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
-    null,
-  );
+  const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
 
   const virtualizer = createVirtualizer({
     get count() {
@@ -121,10 +112,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
     <>
       {/* backdrop for overlay mode */}
       <Show when={isOverlay() && props.isOpen}>
-        <div
-          class="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => props.onClose()}
-        />
+        <div class="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => props.onClose()} />
       </Show>
 
       <div
@@ -135,9 +123,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                inset-x-0 bottom-0 h-[70vh] rounded-t-2xl border-t border-[var(--color-accent-500)]/30
                md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:h-auto md:rounded-t-none md:rounded-none
                md:w-96 md:border-l md:border-t-0
-               ${props.isOpen
-                 ? "translate-y-0 md:translate-y-0 md:translate-x-0"
-                 : "translate-y-full md:translate-y-0 md:translate-x-full"
+               ${
+                 props.isOpen
+                   ? "translate-y-0 md:translate-y-0 md:translate-x-0"
+                   : "translate-y-full md:translate-y-0 md:translate-x-full"
                }`
             : props.isOpen
               ? "w-96 flex-shrink-0 border-l border-[var(--color-accent-500)]/30"
@@ -153,191 +142,178 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
         {/* header */}
         <div class="flex items-center justify-between p-4 border-b border-[var(--color-accent-500)]/30">
-        <div class="flex items-center gap-3">
-          <Icon name="queue" size={20} color="var(--color-accent-500)" />
-          <h2 class="text-lg font-medium text-[var(--color-text-primary)] m-0">
-            queue
-          </h2>
-          <Badge variant="default" size="sm">
-            {props.songs.length} {props.songs.length === 1 ? "song" : "songs"}
-          </Badge>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <Show when={props.songs.length > 0}>
-            <button
-              class="px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
-              onClick={() => props.onClearAll()}
-              title="clear all"
-            >
-              clear all
-            </button>
-          </Show>
-
-          <button
-            class="p-2 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
-            onClick={() => props.onClose()}
-            title="close queue"
-            aria-label="close queue"
-          >
-            <Icon name="close" size={20} color="var(--color-accent-500)" />
-          </button>
-        </div>
-      </div>
-
-      {/* queue list */}
-      <div
-        ref={scrollElementRef}
-        class="flex-1 overflow-y-auto"
-        style={{ "overflow-anchor": "none" }}
-      >
-        <Show
-          when={props.songs.length > 0}
-          fallback={
-            <div class="flex flex-col items-center justify-center h-full text-center px-8">
-              <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 rounded-full flex items-center justify-center">
-                <Icon name="queue" size={32} color="var(--color-accent-500)" />
-              </div>
-              <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
-                queue is empty
-              </p>
-              <p class="text-[var(--color-text-muted)] text-xs m-0">
-                add songs to see them here
-              </p>
-            </div>
-          }
-        >
-          <div
-            class="relative p-2"
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-            }}
-          >
-            <For each={virtualizer.getVirtualItems()} fallback={null}>
-              {(virtualItem) => {
-                const itemIndex = virtualItem.index;
-                const song = () => props.songs[itemIndex];
-                const isCurrentlyPlaying = () =>
-                  itemIndex === props.currentIndex;
-
-                const isDragging = () => draggedIndex() === itemIndex;
-                const isDropTarget = () => dropTargetIndex() === itemIndex;
-
-                const songRow = (
-                  <div
-                    draggable={true}
-                    class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 rounded-lg group transition-all duration-200 cursor-move ${
-                      isDropTarget()
-                        ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
-                        : isDragging()
-                          ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
-                          : isCurrentlyPlaying()
-                            ? "bg-[var(--color-accent-500)]/20 border border-[var(--color-accent-500)]/50"
-                            : "hover:bg-[var(--color-accent-500)]/10 border border-transparent"
-                    }`}
-                    style={{
-                      transform: `translateY(${virtualItem.start}px)`,
-                    }}
-                    onDragStart={handleDragStart(itemIndex)}
-                    onDragOver={handleDragOver(itemIndex)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={() => handleDrop(itemIndex)}
-                    onClick={() => {
-                      if (isMobile()) {
-                        // on mobile, single tap plays
-                        handleSongDoubleClick(itemIndex);
-                      }
-                      // on desktop, single click does nothing - only double-click plays
-                    }}
-                    onDblClick={() => {
-                      // on desktop, double-click plays
-                      if (!isMobile()) {
-                        handleSongDoubleClick(itemIndex);
-                      }
-                    }}
-                    title={
-                      isCurrentlyPlaying()
-                        ? "currently playing"
-                        : isMobile()
-                          ? "tap to play"
-                          : "double-click to play"
-                    }
-                  >
-                    {/* thumbnail with index overlay */}
-                    <MediaThumbnail
-                      images={song()?.images}
-                      index={itemIndex}
-                      hideIndex={false}
-                      onPlayClick={() => handleSongDoubleClick(itemIndex)}
-                      size={48}
-                      class="mr-3"
-                    />
-
-                    {/* song info */}
-                    <div class="flex-1 min-w-0">
-                      <h4
-                        class={`text-sm font-medium m-0 ${
-                          isCurrentlyPlaying()
-                            ? "text-[var(--color-accent-500)]"
-                            : "text-[var(--color-text-primary)]"
-                        }`}
-                      >
-                        <MarqueeText
-                          text={song()?.title || ""}
-                          hoverOnly={!isCurrentlyPlaying()}
-                        />
-                      </h4>
-                      <p class="text-xs text-[var(--color-text-secondary)] m-0">
-                        <MarqueeText
-                          text={song()?.artist_name || ""}
-                          hoverOnly={!isCurrentlyPlaying()}
-                        />
-                      </p>
-                    </div>
-
-                    {/* duration and favorite indicator */}
-                    <div class="flex items-center gap-2 ml-3 flex-shrink-0">
-                      <div class="text-xs text-[var(--color-text-muted)]">
-                        {formatDuration(song()?.duration_seconds)}
-                      </div>
-                      <Show when={song()?.is_favorite}>
-                        <div title="favorited">
-                          <Icon
-                            name="favorite"
-                            size={12}
-                            color="var(--color-accent-500)"
-                          />
-                        </div>
-                      </Show>
-                    </div>
-
-                    {/* remove button */}
-                    <button
-                      class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-all duration-200 flex-shrink-0`}
-                      onClick={(e) => handleRemove(e, itemIndex)}
-                      title="remove from queue"
-                      aria-label="remove from queue"
-                    >
-                      <Icon name="close" size={14} />
-                    </button>
-                  </div>
-                );
-
-                return props.getContextMenuActions && song() ? (
-                  <ContextMenu
-                    actions={props.getContextMenuActions(itemIndex, song()!)}
-                  >
-                    {songRow}
-                  </ContextMenu>
-                ) : (
-                  songRow
-                );
-              }}
-            </For>
+          <div class="flex items-center gap-3">
+            <Icon name="queue" size={20} color="var(--color-accent-500)" />
+            <h2 class="text-lg font-medium text-[var(--color-text-primary)] m-0">queue</h2>
+            <Badge variant="default" size="sm">
+              {props.songs.length} {props.songs.length === 1 ? "song" : "songs"}
+            </Badge>
           </div>
-        </Show>
+
+          <div class="flex items-center gap-2">
+            <Show when={props.songs.length > 0}>
+              <button
+                class="px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
+                onClick={() => props.onClearAll()}
+                title="clear all"
+              >
+                clear all
+              </button>
+            </Show>
+
+            <button
+              class="p-2 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
+              onClick={() => props.onClose()}
+              title="close queue"
+              aria-label="close queue"
+            >
+              <Icon name="close" size={20} color="var(--color-accent-500)" />
+            </button>
+          </div>
+        </div>
+
+        {/* queue list */}
+        <div
+          ref={scrollElementRef}
+          class="flex-1 overflow-y-auto"
+          style={{ "overflow-anchor": "none" }}
+        >
+          <Show
+            when={props.songs.length > 0}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 rounded-full flex items-center justify-center">
+                  <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                </div>
+                <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
+                <p class="text-[var(--color-text-muted)] text-xs m-0">add songs to see them here</p>
+              </div>
+            }
+          >
+            <div
+              class="relative p-2"
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+              }}
+            >
+              <For each={virtualizer.getVirtualItems()} fallback={null}>
+                {(virtualItem) => {
+                  const itemIndex = virtualItem.index;
+                  const song = () => props.songs[itemIndex];
+                  const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
+
+                  const isDragging = () => draggedIndex() === itemIndex;
+                  const isDropTarget = () => dropTargetIndex() === itemIndex;
+
+                  const songRow = (
+                    <div
+                      draggable={true}
+                      class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 rounded-lg group transition-all duration-200 cursor-move ${
+                        isDropTarget()
+                          ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
+                          : isDragging()
+                            ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
+                            : isCurrentlyPlaying()
+                              ? "bg-[var(--color-accent-500)]/20 border border-[var(--color-accent-500)]/50"
+                              : "hover:bg-[var(--color-accent-500)]/10 border border-transparent"
+                      }`}
+                      style={{
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                      onDragStart={handleDragStart(itemIndex)}
+                      onDragOver={handleDragOver(itemIndex)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={() => handleDrop(itemIndex)}
+                      onClick={() => {
+                        if (isMobile()) {
+                          // on mobile, single tap plays
+                          handleSongDoubleClick(itemIndex);
+                        }
+                        // on desktop, single click does nothing - only double-click plays
+                      }}
+                      onDblClick={() => {
+                        // on desktop, double-click plays
+                        if (!isMobile()) {
+                          handleSongDoubleClick(itemIndex);
+                        }
+                      }}
+                      title={
+                        isCurrentlyPlaying()
+                          ? "currently playing"
+                          : isMobile()
+                            ? "tap to play"
+                            : "double-click to play"
+                      }
+                    >
+                      {/* thumbnail with index overlay */}
+                      <MediaThumbnail
+                        images={song()?.images}
+                        index={itemIndex}
+                        hideIndex={false}
+                        onPlayClick={() => handleSongDoubleClick(itemIndex)}
+                        size={48}
+                        class="mr-3"
+                      />
+
+                      {/* song info */}
+                      <div class="flex-1 min-w-0">
+                        <h4
+                          class={`text-sm font-medium m-0 ${
+                            isCurrentlyPlaying()
+                              ? "text-[var(--color-accent-500)]"
+                              : "text-[var(--color-text-primary)]"
+                          }`}
+                        >
+                          <MarqueeText
+                            text={song()?.title || ""}
+                            hoverOnly={!isCurrentlyPlaying()}
+                          />
+                        </h4>
+                        <p class="text-xs text-[var(--color-text-secondary)] m-0">
+                          <MarqueeText
+                            text={song()?.artist_name || ""}
+                            hoverOnly={!isCurrentlyPlaying()}
+                          />
+                        </p>
+                      </div>
+
+                      {/* duration and favorite indicator */}
+                      <div class="flex items-center gap-2 ml-3 flex-shrink-0">
+                        <div class="text-xs text-[var(--color-text-muted)]">
+                          {formatDuration(song()?.duration_seconds)}
+                        </div>
+                        <Show when={song()?.is_favorite}>
+                          <div title="favorited">
+                            <Icon name="favorite" size={12} color="var(--color-accent-500)" />
+                          </div>
+                        </Show>
+                      </div>
+
+                      {/* remove button */}
+                      <button
+                        class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-all duration-200 flex-shrink-0`}
+                        onClick={(e) => handleRemove(e, itemIndex)}
+                        title="remove from queue"
+                        aria-label="remove from queue"
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  );
+
+                  return props.getContextMenuActions && song() ? (
+                    <ContextMenu actions={props.getContextMenuActions(itemIndex, song()!)}>
+                      {songRow}
+                    </ContextMenu>
+                  ) : (
+                    songRow
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </div>
       </div>
-    </div>
     </>
   );
 }

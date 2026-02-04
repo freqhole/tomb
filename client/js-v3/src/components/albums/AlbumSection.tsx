@@ -2,7 +2,7 @@
 import { For, type JSX } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { formatDuration } from "../../utils/formatDuration";
+import { formatDuration, formatHumanDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
@@ -62,16 +62,6 @@ export interface AlbumSectionProps {
   class?: string;
 }
 
-// format album duration to human readable
-function formatAlbumDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m`;
-}
-
 function AlbumHeader(props: {
   albumId: string;
   albumTitle: string;
@@ -97,8 +87,8 @@ function AlbumHeader(props: {
     const parts: string[] = [];
     if (props.genre) parts.push(props.genre);
     if (props.subGenres) parts.push(...props.subGenres);
-    if (props.tags) parts.push(...props.tags.map(t => `#${t}`));
-    return parts.join(' · ');
+    if (props.tags) parts.push(...props.tags.map((t) => `#${t}`));
+    return parts.join(" · ");
   };
 
   return (
@@ -133,7 +123,7 @@ function AlbumHeader(props: {
             {/* track info + actions */}
             <div class="flex items-center justify-between gap-2">
               <div class="text-xs text-[var(--color-text-secondary)]">
-                {props.songs.length} tracks · {formatAlbumDuration(props.totalDuration)}
+                {props.songs.length} tracks · {formatHumanDuration(props.totalDuration)}
                 {props.year && ` · ${props.year}`}
               </div>
               <div class="flex gap-0.5 flex-shrink-0">
@@ -158,7 +148,12 @@ function AlbumHeader(props: {
                   title="add to queue"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 4v16m8-8H4"
+                    />
                   </svg>
                 </button>
                 <FavoriteHeart
@@ -212,7 +207,7 @@ function AlbumHeader(props: {
           {/* row 2: track info + actions */}
           <div class="flex items-start justify-between gap-2 mt-0.5">
             <div class="text-sm text-[var(--color-text-secondary)] flex-shrink-0">
-              {props.songs.length} tracks · {formatAlbumDuration(props.totalDuration)}
+              {props.songs.length} tracks · {formatHumanDuration(props.totalDuration)}
               {props.year && ` · ${props.year}`}
             </div>
             {/* album actions - can wrap to multiple lines */}
@@ -238,7 +233,12 @@ function AlbumHeader(props: {
                 title="add to queue"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 4v16m8-8H4"
+                  />
                 </svg>
               </button>
               <FavoriteHeart
@@ -246,11 +246,7 @@ function AlbumHeader(props: {
                 onToggle={props.onFavoriteToggle}
                 size="md"
               />
-              <Rating
-                rating={props.rating ?? 0}
-                size="md"
-                onRatingChange={props.onRatingChange}
-              />
+              <Rating rating={props.rating ?? 0} size="md" onRatingChange={props.onRatingChange} />
             </div>
           </div>
           {/* row 3: genres and tags with marquee */}
@@ -267,8 +263,7 @@ function AlbumHeader(props: {
 
 export function AlbumSection(props: AlbumSectionProps): JSX.Element {
   const totalDuration = () =>
-    props.totalDuration ??
-    props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
+    props.totalDuration ?? props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
 
   const handleAlbumClick = () => {
     props.onAlbumClick?.(props.albumId);
@@ -330,9 +325,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
         <For each={props.songs}>
           {(song) => {
             const trackDisplay =
-              song.disc_number > 1
-                ? `${song.disc_number}-${song.track_number}`
-                : song.track_number;
+              song.disc_number > 1 ? `${song.disc_number}-${song.track_number}` : song.track_number;
 
             return (
               <SongRow

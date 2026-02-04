@@ -3,6 +3,7 @@ import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { getPlayingIndicatorClasses } from "../../../design-system/colors";
+import { formatDuration } from "../../utils/formatDuration";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -165,14 +166,6 @@ export interface DraggableRowSongContentProps {
   actions?: JSX.Element;
   /** additional classes */
   class?: string;
-}
-
-// format seconds to mm:ss
-function formatDuration(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "—";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 // song content for draggable rows

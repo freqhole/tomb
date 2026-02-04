@@ -1,13 +1,9 @@
 -- add triggers to maintain album.song_count when songs are added/removed
 -- this field was defined as "computed from songz count" but never had triggers
 
--- first, update all existing albums with correct song counts (COMMENTED OUT, DELETE THIS LATER)
--- UPDATE albumz
--- SET song_count = (
---     SELECT COUNT(*)
---     FROM album_songz
---     WHERE album_songz.album_id = albumz.id
--- );
+-- drop existing triggers if they exist (for idempotency)
+DROP TRIGGER IF EXISTS trg_album_songz_insert_count;
+DROP TRIGGER IF EXISTS trg_album_songz_delete_count;
 
 -- trigger to increment song_count when a song is linked to an album
 CREATE TRIGGER trg_album_songz_insert_count

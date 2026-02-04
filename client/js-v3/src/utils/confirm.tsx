@@ -36,11 +36,16 @@ export function confirm(options: ConfirmOptions): Promise<boolean> {
     const container = document.createElement("div");
     document.body.appendChild(container);
 
+    // track if we've already cleaned up to prevent double-removal
+    let cleaned = false;
+
     // create signals for dialog state
     let isOpen: () => boolean;
     let setIsOpen: (value: boolean) => void;
 
     const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       dispose();
       document.body.removeChild(container);
     };

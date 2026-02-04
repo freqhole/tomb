@@ -9,6 +9,7 @@ import { AlbumCard } from "../cards/AlbumCard";
 import { ArtistCard } from "../cards/ArtistCard";
 import { PlaylistCard } from "../cards/PlaylistCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { formatDuration } from "../../utils/formatDuration";
 import type { Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../../music/data/types";
 import { useScrollRestore } from "../../utils/scrollRestore";
 
@@ -286,9 +287,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                     const subtitle = [song.artist_name, song.album_title]
                       .filter(Boolean)
                       .join(" • ");
-                    const duration_display = song.duration_seconds
-                      ? `${Math.floor(song.duration_seconds / 60)}:${String(song.duration_seconds % 60).padStart(2, "0")}`
-                      : "";
+                    const duration_display = formatDuration(song.duration_seconds);
                     const row = (
                       <div
                         class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"

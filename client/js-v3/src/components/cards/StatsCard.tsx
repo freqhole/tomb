@@ -37,8 +37,7 @@ export function StatsCard(props: StatsCardProps) {
   const isClickable = () => !!local.onClick;
 
   const containerClasses = () => {
-    const base =
-      "rounded-lg transition-all duration-200 flex flex-col justify-center";
+    const base = "rounded-lg transition-all duration-200 flex flex-col justify-center";
     const variants = {
       default: "p-4 bg-[var(--color-bg-secondary)]",
       compact: "p-3 bg-[var(--color-bg-secondary)]",
@@ -101,9 +100,7 @@ export function StatsCard(props: StatsCardProps) {
             <div class={labelClasses()}>{local.label}</div>
             <div class={valueClasses()}>{local.value}</div>
             <Show when={local.subtitle}>
-              <div class="text-[var(--color-text-tertiary)] text-xs mt-0.5">
-                {local.subtitle}
-              </div>
+              <div class="text-[var(--color-text-tertiary)] text-xs mt-0.5">{local.subtitle}</div>
             </Show>
           </div>
         </div>
@@ -112,18 +109,9 @@ export function StatsCard(props: StatsCardProps) {
   );
 }
 
-// helper to format duration as hours/minutes
-export function formatDuration(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "0m";
-
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m`;
-}
+// re-export formatHumanDuration as formatDuration for backward compatibility
+// this is the "2h 30m" style format used in stats displays
+export { formatHumanDuration as formatDuration } from "../../utils/formatDuration";
 
 // helper to format large numbers with commas
 export function formatNumber(num: number): string {
@@ -143,12 +131,7 @@ export interface StatsGridProps {
 }
 
 export function StatsGrid(props: StatsGridProps) {
-  const [local, others] = splitProps(props, [
-    "columns",
-    "gap",
-    "class",
-    "children",
-  ]);
+  const [local, others] = splitProps(props, ["columns", "gap", "class", "children"]);
 
   const columns = () => local.columns || 3;
   const gap = () => local.gap || "md";

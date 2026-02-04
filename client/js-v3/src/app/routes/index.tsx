@@ -2,10 +2,7 @@ import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { onMount } from "solid-js";
 import { useLocalSource, useRemoteSource } from "../../music/data";
-import {
-  getActiveRemote,
-  getRemoteById,
-} from "../../music/services/remotes/remoteManager";
+import { getActiveRemote, getRemoteById } from "../../music/services/remotes/remoteManager";
 import { AlbumDetailView } from "../../music/views/AlbumDetailView";
 import { AlbumsView } from "../../music/views/AlbumsView";
 import { ArtistDetailView } from "../../music/views/ArtistDetailView";
@@ -32,11 +29,7 @@ function RootRedirect() {
 
     if (activeRemote) {
       // switch to that remote and navigate to its route
-      await useRemoteSource(
-        activeRemote.remote_id,
-        activeRemote.name,
-        activeRemote.base_url,
-      );
+      await useRemoteSource(activeRemote.remote_id, activeRemote.name, activeRemote.base_url);
       queryClient.invalidateQueries();
       navigate(`/${activeRemote.remote_id}/songs`, { replace: true });
     } else {
@@ -54,105 +47,102 @@ export function routes(props: RoutesProps) {
   return (
     <>
       {/* settings routes - outside AppLayout */}
-      <Route
-        path="/settings"
-        component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}
-      >
+      <Route path="/settings" component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}>
         <Route path="/storage" component={StorageSettingsView} />
         {/* redirect /settings to /settings/storage */}
-        <Route path="/" component={() => {
-          const navigate = useNavigate();
-          onMount(() => navigate("/settings/storage", { replace: true }));
-          return null;
-        }} />
+        <Route
+          path="/"
+          component={() => {
+            const navigate = useNavigate();
+            onMount(() => navigate("/settings/storage", { replace: true }));
+            return null;
+          }}
+        />
       </Route>
 
       <Route path="/" component={AppLayout}>
-      {/* root redirect - goes to last active remote or local */}
-      <Route path="/" component={RootRedirect} />
+        {/* root redirect - goes to last active remote or local */}
+        <Route path="/" component={RootRedirect} />
 
-      {/* local context routes */}
-      <Route path="/local" component={LocalContextHandler}>
-        <Route
-          path="/songs"
-          component={() => (
-            <SongsView
-              onAddMusic={props.onAddMusic}
-              onSongDoubleClick={props.onSongDoubleClick}
-            />
-          )}
-        />
-        <Route
-          path="/albums"
-          component={() => <AlbumsView onAddMusic={props.onAddMusic} />}
-        />
-        <Route path="/albums/:id" component={AlbumDetailView} />
-        <Route
-          path="/artists/:id?"
-          component={() => (
-            <ArtistsView
-              onAddMusic={props.onAddMusic}
-              onArtistClick={(artistId) =>
-                console.log("artist clicked:", artistId)
-              }
-            />
-          )}
-        />
-        <Route
-          path="/genres"
-          component={() => <GenresView onAddMusic={props.onAddMusic} />}
-        />
-        <Route
-          path="/playlists/:id?"
-          component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
-        />
-        <Route
-          path="/favorites"
-          component={() => <FavoritesView onAddMusic={props.onAddMusic} onSongDoubleClick={props.onSongDoubleClick} />}
-        />
-      </Route>
+        {/* local context routes */}
+        <Route path="/local" component={LocalContextHandler}>
+          <Route
+            path="/songs"
+            component={() => (
+              <SongsView
+                onAddMusic={props.onAddMusic}
+                onSongDoubleClick={props.onSongDoubleClick}
+              />
+            )}
+          />
+          <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+          <Route path="/albums/:id" component={AlbumDetailView} />
+          <Route
+            path="/artists/:id?"
+            component={() => (
+              <ArtistsView
+                onAddMusic={props.onAddMusic}
+                onArtistClick={(artistId) => console.log("artist clicked:", artistId)}
+              />
+            )}
+          />
+          <Route path="/genres" component={() => <GenresView onAddMusic={props.onAddMusic} />} />
+          <Route
+            path="/playlists/:id?"
+            component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+          />
+          <Route
+            path="/favorites"
+            component={() => (
+              <FavoritesView
+                onAddMusic={props.onAddMusic}
+                onSongDoubleClick={props.onSongDoubleClick}
+              />
+            )}
+          />
+        </Route>
 
-      {/* remote context routes */}
-      <Route path="/:remoteId" component={RemoteContextHandler}>
-        <Route
-          path="/songs"
-          component={() => (
-            <SongsView
-              onAddMusic={props.onAddMusic}
-              onSongDoubleClick={props.onSongDoubleClick}
-            />
-          )}
-        />
-        <Route
-          path="/albums"
-          component={() => <AlbumsView onAddMusic={props.onAddMusic} />}
-        />
-        <Route path="/albums/:id" component={AlbumDetailView} />
-        <Route
-          path="/artists/:id?"
-          component={() => (
-            <ArtistsView
-              onAddMusic={props.onAddMusic}
-              onArtistClick={(artistId) =>
-                console.log("artist clicked:", artistId)
-              }
-            />
-          )}
-        />
-        <Route
-          path="/genres/:genreId?"
-          component={() => <GenresView onAddMusic={props.onAddMusic} />}
-        />
-        <Route
-          path="/playlists/:id?"
-          component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
-        />
-        <Route
-          path="/favorites"
-          component={() => <FavoritesView onAddMusic={props.onAddMusic} onSongDoubleClick={props.onSongDoubleClick} />}
-        />
+        {/* remote context routes */}
+        <Route path="/:remoteId" component={RemoteContextHandler}>
+          <Route
+            path="/songs"
+            component={() => (
+              <SongsView
+                onAddMusic={props.onAddMusic}
+                onSongDoubleClick={props.onSongDoubleClick}
+              />
+            )}
+          />
+          <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+          <Route path="/albums/:id" component={AlbumDetailView} />
+          <Route
+            path="/artists/:id?"
+            component={() => (
+              <ArtistsView
+                onAddMusic={props.onAddMusic}
+                onArtistClick={(artistId) => console.log("artist clicked:", artistId)}
+              />
+            )}
+          />
+          <Route
+            path="/genres/:genreId?"
+            component={() => <GenresView onAddMusic={props.onAddMusic} />}
+          />
+          <Route
+            path="/playlists/:id?"
+            component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+          />
+          <Route
+            path="/favorites"
+            component={() => (
+              <FavoritesView
+                onAddMusic={props.onAddMusic}
+                onSongDoubleClick={props.onSongDoubleClick}
+              />
+            )}
+          />
+        </Route>
       </Route>
-    </Route>
     </>
   );
 }

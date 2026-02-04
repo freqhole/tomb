@@ -688,7 +688,8 @@ pub struct RecentSongsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteSongRequest {
     pub id: String,
-    pub user_id: String,
+    /// optional - server uses authenticated user from session
+    pub user_id: Option<String>,
 }
 
 /// response for song deletion
@@ -756,7 +757,8 @@ pub struct GetArtistRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteArtistRequest {
     pub id: String,
-    pub user_id: String,
+    /// optional - server uses authenticated user from session
+    pub user_id: Option<String>,
 }
 
 /// response for artist deletion
@@ -800,7 +802,8 @@ pub struct GetAlbumRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteAlbumRequest {
     pub id: String,
-    pub user_id: String,
+    /// optional - server uses authenticated user from session
+    pub user_id: Option<String>,
 }
 
 /// response for album deletion

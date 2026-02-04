@@ -265,6 +265,13 @@ export const replaceAlbumsTagsRequest: s.ReplaceAlbumsTagsRequest = {
   tag_ids: [PLACEHOLDER_ID],
 };
 
+// Images
+export const deleteImageRequest: s.DeleteImageRequest = {
+  entity_type: "album",
+  entity_id: PLACEHOLDER_ID,
+  blob_id: testIds.blob,
+};
+
 // Analytics
 export const recordPlayRequest: s.RecordPlayRequest = {
   media_blob_id: PLACEHOLDER_ID,
@@ -458,6 +465,9 @@ export const fixtures = {
   addAlbumTags: addAlbumsTagsRequest,
   removeAlbumTags: removeAlbumsTagsRequest,
   replaceAlbumTags: replaceAlbumsTagsRequest,
+
+  // images
+  deleteImage: deleteImageRequest,
 
   // analytics
   recordPlay: recordPlayRequest,

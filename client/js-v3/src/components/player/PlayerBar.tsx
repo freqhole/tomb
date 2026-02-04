@@ -4,6 +4,7 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
 import MediaImage from "../media/MediaImage";
+import { formatDuration } from "../../utils/formatDuration";
 
 export interface PlayerBarSong {
   /** song id */
@@ -69,20 +70,11 @@ export interface PlayerBarProps {
   class?: string;
 }
 
-// format seconds to MM:SS
-function formatTime(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "0:00";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
 // player bar component for bottom of screen
 export function PlayerBar(props: PlayerBarProps) {
   const canGoPrevious = () => props.canGoPrevious ?? true;
   const canGoNext = () => props.canGoNext ?? true;
-  const progress = () =>
-    props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0;
+  const progress = () => (props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0);
 
   let isDragging = false;
 
@@ -151,7 +143,7 @@ export function PlayerBar(props: PlayerBarProps) {
               images={props.song?.images}
               blobId={props.song?.thumbnailBlobId}
               imageUrl={props.song?.thumbnailUrl}
-              alt={props.song?.title || 'song artwork'}
+              alt={props.song?.title || "song artwork"}
               domainType="song"
               class="w-10 h-10 rounded object-cover"
             />
@@ -176,9 +168,7 @@ export function PlayerBar(props: PlayerBarProps) {
             <Show
               when={props.song}
               fallback={
-                <div class="text-[var(--color-text-secondary)] text-sm">
-                  no song playing
-                </div>
+                <div class="text-[var(--color-text-secondary)] text-sm">no song playing</div>
               }
             >
               <MarqueeText
@@ -213,7 +203,9 @@ export function PlayerBar(props: PlayerBarProps) {
             >
               <Show
                 when={!props.isLoading}
-                fallback={<div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                fallback={
+                  <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                }
               >
                 <Icon name={props.isPlaying ? "pause" : "play"} size={20} />
               </Show>
@@ -255,7 +247,7 @@ export function PlayerBar(props: PlayerBarProps) {
         {/* row 2: time + full-width progress + duration */}
         <div class="flex items-center gap-2 h-6">
           <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] text-right tabular-nums">
-            {formatTime(props.currentTime)}
+            {formatDuration(props.currentTime)}
           </span>
 
           <div
@@ -272,7 +264,7 @@ export function PlayerBar(props: PlayerBarProps) {
           </div>
 
           <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums">
-            {formatTime(props.duration)}
+            {formatDuration(props.duration)}
           </span>
         </div>
       </div>
@@ -287,7 +279,7 @@ export function PlayerBar(props: PlayerBarProps) {
               images={props.song?.images}
               blobId={props.song?.thumbnailBlobId}
               imageUrl={props.song?.thumbnailUrl}
-              alt={props.song?.title || 'song artwork'}
+              alt={props.song?.title || "song artwork"}
               domainType="song"
               class="w-12 h-12 rounded object-cover"
             />
@@ -350,20 +342,8 @@ export function PlayerBar(props: PlayerBarProps) {
             class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
             onClick={() => props.onPlayPause()}
             disabled={props.isLoading}
-            title={
-              props.isLoading
-                ? "loading..."
-                : props.isPlaying
-                  ? "pause"
-                  : "play"
-            }
-            aria-label={
-              props.isLoading
-                ? "loading..."
-                : props.isPlaying
-                  ? "pause"
-                  : "play"
-            }
+            title={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
+            aria-label={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
           >
             <Show
               when={!props.isLoading}
@@ -392,7 +372,7 @@ export function PlayerBar(props: PlayerBarProps) {
             class="text-sm text-[var(--color-accent-500)] font-light min-w-[2.5rem] text-right"
             title="current time"
           >
-            {formatTime(props.currentTime)}
+            {formatDuration(props.currentTime)}
           </span>
 
           <div
@@ -411,7 +391,7 @@ export function PlayerBar(props: PlayerBarProps) {
             class="text-sm text-[var(--color-accent-500)] font-light min-w-[2.5rem]"
             title="total duration"
           >
-            {formatTime(props.duration)}
+            {formatDuration(props.duration)}
           </span>
         </div>
 

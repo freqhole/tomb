@@ -12,7 +12,7 @@ import {
   type JSX,
 } from "solid-js";
 import { CollectionCard } from "../cards/CollectionCard";
-import { formatDuration } from "../cards/StatsCard";
+import { formatLongDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -266,7 +266,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                                 domainType: "album",
                                 year: album.year,
                                 trackCount: album.songCount,
-                                totalDuration: formatDuration(album.totalDuration),
+                                totalDuration: formatLongDuration(album.totalDuration),
                                 images: album.images,
                               }}
                               showYear={true}

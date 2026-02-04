@@ -18,7 +18,7 @@ const navItems: SettingsNavItem[] = [
 
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();
-  
+
   return (
     <div class="min-h-screen bg-[var(--color-bg-primary)]">
       {/* mobile header */}
@@ -49,7 +49,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
           </For>
         </nav>
       </div>
-      
+
       <div class="lg:flex">
         {/* desktop sidebar */}
         <aside class="hidden lg:block w-64 min-h-screen border-r border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
@@ -84,11 +84,9 @@ export function SettingsLayout(props: { children: JSX.Element }) {
             </nav>
           </div>
         </aside>
-        
+
         {/* main content */}
-        <main class="flex-1 min-w-0">
-          {props.children}
-        </main>
+        <main class="flex-1 min-w-0">{props.children}</main>
       </div>
     </div>
   );

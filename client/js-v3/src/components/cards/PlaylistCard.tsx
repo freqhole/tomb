@@ -2,8 +2,8 @@ import { Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
+import { formatHumanDuration } from "../../utils/formatDuration";
 import type { PlaylistSummary } from "../../music/data/types";
-
 
 export interface PlaylistCardProps {
   playlist: PlaylistSummary;
@@ -15,16 +15,6 @@ export interface PlaylistCardProps {
 
 export function PlaylistCard(props: PlaylistCardProps) {
   const [isCardHovered, setIsCardHovered] = createSignal(false);
-
-  // format duration from seconds
-  const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
 
   // format relative time
   const formatRelativeTime = (timestamp: number) => {
@@ -42,7 +32,7 @@ export function PlaylistCard(props: PlaylistCardProps) {
   };
 
   return (
-    <div 
+    <div
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.playlist)}
       onContextMenu={(e) => {

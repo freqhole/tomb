@@ -2,8 +2,8 @@ import { Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
+import { formatDuration } from "../../utils/formatDuration";
 import type { Song } from "../../music/data/types";
-
 
 export interface SongCardProps {
   song: Song;
@@ -19,7 +19,7 @@ export function SongCard(props: SongCardProps) {
   const [isCardHovered, setIsCardHovered] = createSignal(false);
 
   return (
-    <div 
+    <div
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => {
         // card click navigates to album detail
@@ -103,7 +103,7 @@ export function SongCard(props: SongCardProps) {
         </Show>
         {/* duration */}
         <div class="text-xs text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] transition-colors">
-          {Math.floor(props.song.duration_seconds / 60)}:{String(props.song.duration_seconds % 60).padStart(2, '0')}
+          {formatDuration(props.song.duration_seconds)}
         </div>
       </div>
     </div>

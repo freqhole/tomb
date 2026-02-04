@@ -11,6 +11,7 @@ import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
+import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { getCurrentRemote, getDataSource } from "../data";
 import { showAlbumEditor } from "../modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
@@ -23,14 +24,6 @@ import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
-
-// format seconds to MM:SS
-function formatDuration(seconds: number): string {
-  if (!isFinite(seconds) || seconds < 0) return "0:00";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -225,7 +218,7 @@ export function AlbumDetailView() {
                       {songs().length} {songs().length === 1 ? "song" : "songs"}
                     </span>
                     <span>•</span>
-                    <span>{formatDuration(totalDuration())}</span>
+                    <span>{formatLongDuration(totalDuration())}</span>
                   </div>
 
                   {/* play button, edit button, and favorite toggle */}

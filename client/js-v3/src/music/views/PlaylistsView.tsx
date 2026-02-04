@@ -29,6 +29,7 @@ import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
+import { formatHumanDuration } from "../../utils/formatDuration";
 import { generateUUID } from "../../utils/uuid";
 import { pollJobUntilComplete } from "../../utils/jobs";
 import { buildRoute } from "../utils/routing";
@@ -447,15 +448,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const songs = playlistSongs();
     return songs.reduce((sum, song) => sum + (song.duration_seconds || 0), 0);
   });
-
-  const formatDuration = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours} hr ${minutes} min`;
-    }
-    return `${minutes} min`;
-  };
 
   // open image carousel with all playlist and song images
   const handleOpenImageCarousel = () => {
@@ -944,7 +936,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                 {playlistSongs().length === 1 ? "song" : "songs"}
                               </span>
                               <Show when={totalDuration() > 0}>
-                                <span>{formatDuration(totalDuration())}</span>
+                                <span>{formatHumanDuration(totalDuration())}</span>
                               </Show>
                               {/* line break on narrow screens */}
                               <div class="basis-full md:hidden" />

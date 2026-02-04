@@ -2,8 +2,10 @@
 // provides reusable action builders for songs, albums, artists, playlists, etc.
 
 import { useNavigate } from "@solidjs/router";
+import { toast } from "../../components/feedback/Toast";
 import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
+import { queryClient } from "../../queryClient";
 import { confirm } from "../../utils/confirm";
 import { showPlaylistSelector } from "../../utils/playlistSelector";
 import { showTagSelector } from "../../utils/tagSelector";
@@ -14,6 +16,7 @@ import {
   useToggleFavoriteMutation,
   type FavoriteTarget,
 } from "../queries/favorites";
+import { queryKeys } from "../queries/queryKeys";
 import { routes } from "../utils/routing";
 import { addToQueue, playQueue } from "./audio/player";
 
@@ -216,10 +219,22 @@ export function useSongContextMenu(
       });
 
       if (confirmed) {
-        // TODO: implement delete API call
-        console.log("delete song:", song.sha256);
-        // TODO: show toast notification
-        // TODO: invalidate queries to refresh views
+        try {
+          const dataSource = getDataSource();
+          if (dataSource.deleteSong) {
+            await dataSource.deleteSong(song.id);
+            toast.success(`deleted "${song.title}"`);
+            // invalidate queries to refresh views
+            queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+          } else {
+            toast.error("delete not supported for this data source");
+          }
+        } catch (error) {
+          console.error("failed to delete song:", error);
+          toast.error("failed to delete song");
+        }
       }
     },
   });
@@ -315,10 +330,27 @@ export function useMultipleSongsContextMenu(
       });
 
       if (confirmed) {
-        // TODO: implement delete API call
-        console.log("delete multiple songs:", songs.length);
-        // TODO: show toast notification
-        // TODO: invalidate queries to refresh views
+        try {
+          const dataSource = getDataSource();
+          if (dataSource.deleteSong) {
+            // delete songs one by one
+            let deleted = 0;
+            for (const song of songs) {
+              await dataSource.deleteSong(song.id);
+              deleted++;
+            }
+            toast.success(`deleted ${deleted} songs`);
+            // invalidate queries to refresh views
+            queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+          } else {
+            toast.error("delete not supported for this data source");
+          }
+        } catch (error) {
+          console.error("failed to delete songs:", error);
+          toast.error("failed to delete songs");
+        }
       }
     },
   });
@@ -546,11 +578,18 @@ export function usePlaylistContextMenu(
       });
 
       if (confirmed) {
-        const dataSource = getDataSource();
-        if (dataSource.deletePlaylist) {
-          await dataSource.deletePlaylist(playlist.id);
-          // TODO: show toast notification
-          // TODO: invalidate playlists query
+        try {
+          const dataSource = getDataSource();
+          if (dataSource.deletePlaylist) {
+            await dataSource.deletePlaylist(playlist.id);
+            toast.success(`deleted "${playlist.title}"`);
+            queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+          } else {
+            toast.error("delete not supported for this data source");
+          }
+        } catch (error) {
+          console.error("failed to delete playlist:", error);
+          toast.error("failed to delete playlist");
         }
       }
     },

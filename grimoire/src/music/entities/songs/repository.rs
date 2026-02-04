@@ -1,11 +1,11 @@
 //! song service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use crate::music::crud::ImageMetadata;
 use super::models::{CreateSongRequest, Song};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::remove_song_from_all_playlists;
+use crate::music::crud::ImageMetadata;
 use crate::response::GrimoireResponse;
 use crate::GrimoireResult;
 use crate::JsonVec;
@@ -202,6 +202,22 @@ pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireRespon
             )
         }
     };
+
+    // get album_id and artist_id before deleting (for orphan cleanup)
+    let album_id: Option<String> =
+        sqlx::query_scalar!("SELECT album_id FROM album_songz WHERE song_id = ?", id)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+
+    let artist_id: Option<String> =
+        sqlx::query_scalar!("SELECT artist_id FROM artist_songz WHERE song_id = ?", id)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+
     let rows_affected = match sqlx::query!(
         "UPDATE songz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
         deleted_by,
@@ -225,13 +241,29 @@ pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireRespon
         return GrimoireResponse::failure("Song not found", vec![ErrorDetail::from(&err)]);
     }
 
-    // Remove song from all playlists when soft-deleting
+    // remove from junction tables (triggers will update counts)
+    let _ = sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query!("DELETE FROM artist_songz WHERE song_id = ?", id)
+        .execute(&pool)
+        .await;
+
+    // remove song from all playlists when soft-deleting
     let playlist_removal = remove_song_from_all_playlists(id).await;
     if !playlist_removal.success {
         return GrimoireResponse::failure(
             "Failed to remove song from playlists",
             playlist_removal.errors,
         );
+    }
+
+    // check for orphaned album and artist (soft-delete if no more songs)
+    if let Some(album_id) = album_id {
+        let _ = crate::music::crud::delete_album_if_unused(&album_id).await;
+    }
+    if let Some(artist_id) = artist_id {
+        let _ = crate::music::crud::delete_artist_if_unused(&artist_id).await;
     }
 
     GrimoireResponse::success("Song deleted successfully", ())
@@ -295,7 +327,9 @@ pub async fn add_song_image(
     .await
     {
         Ok(_) => GrimoireResponse::success("Image added to song", ()),
-        Err(e) => GrimoireResponse::failure("Failed to add image to song", vec![ErrorDetail::from(e)]),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to add image to song", vec![ErrorDetail::from(e)])
+        }
     }
 }
 
@@ -326,9 +360,10 @@ pub async fn remove_song_image(song_id: &str, media_blob_id: &str) -> GrimoireRe
                 GrimoireResponse::success("Image removed from song", ())
             }
         }
-        Err(e) => {
-            GrimoireResponse::failure("Failed to remove image from song", vec![ErrorDetail::from(e)])
-        }
+        Err(e) => GrimoireResponse::failure(
+            "Failed to remove image from song",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }
 

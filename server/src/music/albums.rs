@@ -9,7 +9,9 @@ use grimoire::music::crud::{
     delete_album, get_album, query_albums, AlbumsQueryResult, DeleteAlbumRequest,
     DeleteAlbumResponse, QueryParams,
 };
-use grimoire::music::entities::albums::{get_album_images, update_album, Album, UpdateAlbumRequest};
+use grimoire::music::entities::albums::{
+    get_album_images, update_album, Album, UpdateAlbumRequest,
+};
 use grimoire::response::GrimoireResponse;
 use inventory;
 
@@ -141,17 +143,26 @@ pub async fn get_album_handler(
     Ok(Json(response))
 }
 
-/// Delete an album
+/// Delete an album (admin only)
 ///
 /// DELETE /api/albums/{id}
 pub async fn delete_album_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(_state): State<AppState>,
     Path(album_id): Path<String>,
-    Json(request): Json<DeleteAlbumRequest>,
+    body: Option<Json<DeleteAlbumRequest>>,
 ) -> Result<Json<DeleteAlbumResponse>, ApiError> {
-    tracing::debug!("delete_album: id={}, user_id={}", album_id, request.user_id);
+    // require admin
+    if !user.role.is_admin() {
+        return Err(ApiError::Forbidden);
+    }
 
-    let response = delete_album(&album_id, Some(request.user_id.clone())).await;
+    let user_id = body
+        .and_then(|b| b.user_id.clone())
+        .unwrap_or_else(|| user.user_id.clone());
+    tracing::debug!("delete_album: id={}, user_id={}", album_id, user_id);
+
+    let response = delete_album(&album_id, Some(user_id)).await;
 
     if !response.success {
         return Err(ApiError::Internal(response.message));

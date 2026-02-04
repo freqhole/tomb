@@ -53,9 +53,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   const heightStyle = () => (props.height ? `${props.height}px` : "100%");
 
   // scroll restoration using browser history state
-  const { restoreScroll, saveScroll } = useScrollRestore(
-    props.scrollRestoreKey || "item-list",
-  );
+  const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "item-list");
 
   // create virtualizer instance - wrap in memo to recreate when items change
   const rowVirtualizer = createMemo((prev) => {
@@ -63,7 +61,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     if (prev && parentRef) {
       setSavedScrollOffset(parentRef.scrollTop);
     }
-    
+
     props.items.length; // track items for reactivity
     const virtualizer = createVirtualizer({
       count: props.items.length,
@@ -97,10 +95,10 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
 
   const handleScroll = (e: Event) => {
     if (!parentRef) return;
-    
+
     // save scroll position to history state
     saveScroll(parentRef);
-    
+
     // check for infinite scroll trigger
     if (!props.onEndReached) return;
 
@@ -200,12 +198,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                 }}
               >
                 {props.getContextMenuActions ? (
-                  <ContextMenu
-                    actions={props.getContextMenuActions(
-                      item(),
-                      virtualRow().index,
-                    )}
-                  >
+                  <ContextMenu actions={props.getContextMenuActions(item(), virtualRow().index)}>
                     {itemButton}
                   </ContextMenu>
                 ) : (

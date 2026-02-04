@@ -16,6 +16,7 @@ import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu } from "../services/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
+import { formatLongDuration } from "../../utils/formatDuration";
 
 export interface AlbumsViewProps {
   onAddMusic: () => void;
@@ -105,18 +106,6 @@ export function AlbumsView(props: AlbumsViewProps) {
     }
   };
 
-  // format duration as mm:ss or hh:mm:ss
-  const formatDuration = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, "0")}`;
-  };
-
   // flatten all pages into albums list
   const albums = createMemo((): CollectionCardData[] => {
     const pages = albumsQuery.data?.pages ?? [];
@@ -141,7 +130,7 @@ export function AlbumsView(props: AlbumsViewProps) {
         artist: album.artist_name,
         year: year,
         trackCount: album.song_count,
-        totalDuration: formatDuration(album.total_duration),
+        totalDuration: formatLongDuration(album.total_duration),
         imageUrl: undefined,
         images: album.images,
         isFavorite: album.is_favorite ?? false,

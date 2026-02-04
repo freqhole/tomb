@@ -89,7 +89,8 @@ async function getAudioDuration(file: File): Promise<number> {
 
     audio.addEventListener("loadedmetadata", () => {
       URL.revokeObjectURL(url);
-      resolve(audio.duration);
+      // round to integer seconds to avoid floating point precision issues
+      resolve(Math.round(audio.duration));
     });
 
     audio.addEventListener("error", () => {

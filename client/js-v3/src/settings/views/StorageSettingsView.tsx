@@ -24,12 +24,8 @@ function ConfirmDialog(props: {
     <Show when={props.isOpen}>
       <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
         <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-          <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
-            {props.title}
-          </h3>
-          <p class="text-sm text-[var(--color-text-secondary)] mb-6">
-            {props.message}
-          </p>
+          <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">{props.title}</h3>
+          <p class="text-sm text-[var(--color-text-secondary)] mb-6">{props.message}</p>
           <div class="flex gap-3 justify-end">
             <button
               class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
@@ -70,15 +66,13 @@ function StorageCard(props: {
       <div class="flex items-start justify-between mb-3">
         <div class="flex items-center gap-2">
           <span class="text-xl">{props.icon}</span>
-          <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
-            {props.title}
-          </h3>
+          <h3 class="text-sm font-medium text-[var(--color-text-primary)]">{props.title}</h3>
         </div>
         <span class="text-lg font-semibold text-[var(--color-text-primary)]">
           {formatBytes(props.size)}
         </span>
       </div>
-      
+
       <Show when={props.details && props.details.length > 0}>
         <div class="space-y-1 mb-4">
           <For each={props.details}>
@@ -91,7 +85,7 @@ function StorageCard(props: {
           </For>
         </div>
       </Show>
-      
+
       <Show when={props.onClear}>
         <button
           class={`w-full px-3 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -114,7 +108,7 @@ export function StorageSettingsView() {
   const [loading, setLoading] = createSignal(true);
   const [clearing, setClearing] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
-  
+
   // confirmation dialog state
   const [confirmDialog, setConfirmDialog] = createSignal<{
     isOpen: boolean;
@@ -131,7 +125,7 @@ export function StorageSettingsView() {
     confirmDanger: false,
     action: async () => {},
   });
-  
+
   const refreshBreakdown = async () => {
     setLoading(true);
     setError(null);
@@ -144,11 +138,11 @@ export function StorageSettingsView() {
       setLoading(false);
     }
   };
-  
+
   onMount(() => {
     refreshBreakdown();
   });
-  
+
   const showConfirmDialog = (
     title: string,
     message: string,
@@ -165,11 +159,11 @@ export function StorageSettingsView() {
       action,
     });
   };
-  
+
   const handleConfirm = async () => {
     const dialog = confirmDialog();
     setConfirmDialog({ ...dialog, isOpen: false });
-    
+
     try {
       await dialog.action();
       await refreshBreakdown();
@@ -177,7 +171,7 @@ export function StorageSettingsView() {
       setError(err instanceof Error ? err.message : "operation failed");
     }
   };
-  
+
   const handleClearCache = () => {
     showConfirmDialog(
       "clear cache data",
@@ -191,7 +185,7 @@ export function StorageSettingsView() {
       }
     );
   };
-  
+
   const handleClearOPFS = () => {
     showConfirmDialog(
       "clear local files",
@@ -205,7 +199,7 @@ export function StorageSettingsView() {
       }
     );
   };
-  
+
   const handleClearMusicDb = () => {
     showConfirmDialog(
       "clear music library",
@@ -219,7 +213,7 @@ export function StorageSettingsView() {
       }
     );
   };
-  
+
   const handleClearAll = () => {
     showConfirmDialog(
       "delete everything",
@@ -235,25 +229,21 @@ export function StorageSettingsView() {
       }
     );
   };
-  
+
   return (
     <div class="p-6 max-w-2xl mx-auto">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-[var(--color-text-primary)] mb-1">
-          storage
-        </h1>
-        <p class="text-sm text-[var(--color-text-muted)]">
-          manage local storage used by freqhole
-        </p>
+        <h1 class="text-2xl font-bold text-[var(--color-text-primary)] mb-1">storage</h1>
+        <p class="text-sm text-[var(--color-text-muted)]">manage local storage used by freqhole</p>
       </div>
-      
+
       {/* error display */}
       <Show when={error()}>
         <div class="mb-4 p-3 bg-red-600/20 border border-red-600/30 rounded-lg text-sm text-red-400">
           {error()}
         </div>
       </Show>
-      
+
       {/* loading state */}
       <Show when={loading() && !breakdown()}>
         <div class="flex items-center justify-center py-12">
@@ -261,7 +251,7 @@ export function StorageSettingsView() {
           <span class="ml-3 text-[var(--color-text-muted)]">analyzing storage...</span>
         </div>
       </Show>
-      
+
       {/* storage breakdown */}
       <Show when={breakdown()}>
         {(data) => (
@@ -280,8 +270,8 @@ export function StorageSettingsView() {
                     data().total.percentUsed > 90
                       ? "bg-red-500"
                       : data().total.percentUsed > 70
-                      ? "bg-yellow-500"
-                      : "bg-[var(--color-accent-500)]"
+                        ? "bg-yellow-500"
+                        : "bg-[var(--color-accent-500)]"
                   }`}
                   style={{ width: `${Math.min(data().total.percentUsed, 100)}%` }}
                 />
@@ -290,7 +280,7 @@ export function StorageSettingsView() {
                 {data().total.percentUsed}% used
               </div>
             </div>
-            
+
             {/* storage category cards */}
             <div class="grid gap-4 mb-6">
               {/* cache api */}
@@ -298,54 +288,54 @@ export function StorageSettingsView() {
                 title="remote cache"
                 icon=""
                 size={data().cacheApi.size}
-                details={[
-                  { label: "cached items", value: data().cacheApi.entryCount.toString() },
-                ]}
+                details={[{ label: "cached items", value: data().cacheApi.entryCount.toString() }]}
                 onClear={handleClearCache}
                 clearLabel="clear cached data"
                 loading={clearing() === "cache"}
               />
-              
+
               {/* opfs */}
               <StorageCard
                 title="local files (OPFS)"
                 icon=""
                 size={data().opfs.size}
                 details={[
-                  { label: "audio files", value: `${data().opfs.audioCount} (${formatBytes(data().opfs.audioSize)})` },
-                  { label: "thumbnails", value: `${data().opfs.thumbnailCount} (${formatBytes(data().opfs.thumbnailsSize)})` },
+                  {
+                    label: "audio files",
+                    value: `${data().opfs.audioCount} (${formatBytes(data().opfs.audioSize)})`,
+                  },
+                  {
+                    label: "thumbnails",
+                    value: `${data().opfs.thumbnailCount} (${formatBytes(data().opfs.thumbnailsSize)})`,
+                  },
                 ]}
                 onClear={handleClearOPFS}
                 clearLabel="clear local files"
                 clearDanger
                 loading={clearing() === "opfs"}
               />
-              
+
               {/* indexeddb */}
               <StorageCard
                 title="music library database"
                 icon=""
                 size={data().indexedDb.musicDbSize}
-                details={[
-                  { label: "songs, albums, artists, playlists", value: "" },
-                ]}
+                details={[{ label: "songs, albums, artists, playlists", value: "" }]}
                 onClear={handleClearMusicDb}
                 clearLabel="clear music library"
                 clearDanger
                 loading={clearing() === "musicdb"}
               />
-              
+
               {/* app state (no clear button, just info) */}
               <StorageCard
                 title="app settings"
                 icon=""
                 size={data().indexedDb.appDbSize + data().indexedDb.cacheMetadataDbSize}
-                details={[
-                  { label: "playback state, queue, preferences", value: "" },
-                ]}
+                details={[{ label: "playback state, queue, preferences", value: "" }]}
               />
             </div>
-            
+
             {/* nuclear option */}
             <div class="border-t border-[var(--color-border-subtle)] pt-6">
               <h2 class="text-sm font-medium text-red-400 mb-3">danger zone</h2>
@@ -360,7 +350,7 @@ export function StorageSettingsView() {
                 permanently removes all freqhole data. cannot be undone.
               </p>
             </div>
-            
+
             {/* refresh button */}
             <div class="mt-6 flex justify-center">
               <button
@@ -374,7 +364,7 @@ export function StorageSettingsView() {
           </>
         )}
       </Show>
-      
+
       {/* confirmation dialog */}
       <ConfirmDialog
         isOpen={confirmDialog().isOpen}

@@ -282,6 +282,9 @@ export interface MusicDataSource {
     },
   ): Promise<PlaylistSummary>;
   deletePlaylist?(playlistId: string): Promise<void>;
+  deleteSong?(songId: string): Promise<void>;
+  deleteAlbum?(albumId: string): Promise<void>;
+  deleteArtist?(artistId: string): Promise<void>;
   addSongsToPlaylist?(playlistId: string, songIds: string[]): Promise<void>;
   removeSongsFromPlaylist?(
     playlistId: string,

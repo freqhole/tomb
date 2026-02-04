@@ -7,7 +7,11 @@ import {
   countSongsByArtist,
   createTag,
   deleteAlbum,
+  deleteAlbumCascade,
   deleteArtist,
+  deleteArtistCascade,
+  deleteSong,
+  deleteSongCascade,
   deleteTag,
   findTagByName,
   getAlbumById,
@@ -596,6 +600,21 @@ export class LocalMusicDataSource implements MusicDataSource {
   async deletePlaylist(playlistId: string): Promise<void> {
     const db = await initMusicDB();
     await deletePlaylistFromDB(db, playlistId);
+  }
+
+  async deleteSong(songId: string): Promise<void> {
+    // use cascade delete to clean up blobs and check for orphaned albums/artists
+    await deleteSongCascade(songId, true);
+  }
+
+  async deleteAlbum(albumId: string): Promise<void> {
+    // use cascade delete to clean up songs, blobs, and check for orphaned artists
+    await deleteAlbumCascade(albumId, true);
+  }
+
+  async deleteArtist(artistId: string): Promise<void> {
+    // use cascade delete to clean up albums, songs, and blobs
+    await deleteArtistCascade(artistId);
   }
 
   async addSongsToPlaylist(

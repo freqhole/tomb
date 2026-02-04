@@ -159,17 +159,26 @@ pub async fn update_songs_handler(
     Ok(Json(response))
 }
 
-/// Delete a song
+/// Delete a song (admin only)
 ///
 /// DELETE /api/songs/{id}
 pub async fn delete_song_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(_state): State<AppState>,
     Path(song_id): Path<String>,
-    Json(request): Json<DeleteSongRequest>,
+    body: Option<Json<DeleteSongRequest>>,
 ) -> Result<Json<DeleteSongResponse>, ApiError> {
-    tracing::debug!("delete_song: id={}, user_id={}", song_id, request.user_id);
+    // require admin
+    if !user.role.is_admin() {
+        return Err(ApiError::Forbidden);
+    }
 
-    let response = delete_song(&song_id, Some(request.user_id.clone())).await;
+    let user_id = body
+        .and_then(|b| b.user_id.clone())
+        .unwrap_or_else(|| user.user_id.clone());
+    tracing::debug!("delete_song: id={}, user_id={}", song_id, user_id);
+
+    let response = delete_song(&song_id, Some(user_id)).await;
 
     if !response.success {
         return Err(ApiError::Internal(response.message));

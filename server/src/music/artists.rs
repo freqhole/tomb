@@ -167,21 +167,26 @@ pub async fn get_artist_handler(
     Ok(Json(response))
 }
 
-/// Delete an artist
+/// Delete an artist (admin only)
 ///
 /// DELETE /api/artists/{id}
 pub async fn delete_artist_handler(
+    Extension(user): Extension<AuthenticatedUser>,
     State(_state): State<AppState>,
     Path(artist_id): Path<String>,
-    Json(request): Json<DeleteArtistRequest>,
+    body: Option<Json<DeleteArtistRequest>>,
 ) -> Result<Json<DeleteArtistResponse>, ApiError> {
-    tracing::debug!(
-        "delete_artist: id={}, user_id={}",
-        artist_id,
-        request.user_id
-    );
+    // require admin
+    if !user.role.is_admin() {
+        return Err(ApiError::Forbidden);
+    }
 
-    let response = delete_artist(&artist_id, Some(request.user_id.clone())).await;
+    let user_id = body
+        .and_then(|b| b.user_id.clone())
+        .unwrap_or_else(|| user.user_id.clone());
+    tracing::debug!("delete_artist: id={}, user_id={}", artist_id, user_id);
+
+    let response = delete_artist(&artist_id, Some(user_id)).await;
 
     if !response.success {
         return Err(ApiError::Internal(response.message));

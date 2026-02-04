@@ -9,17 +9,11 @@ import { SearchSortControls } from "../../components/controls/SearchSortControls
 import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
-import {
-  VirtualItemList,
-  type ListItem,
-} from "../../components/virtualized/VirtualItemList";
+import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getCurrentRemote, getDataSource } from "../data";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
-import {
-  useAlbumContextMenu,
-  useGenreContextMenu,
-} from "../services/contextMenu";
+import { useAlbumContextMenu, useGenreContextMenu } from "../services/contextMenu";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
@@ -41,7 +35,7 @@ export function GenresView(props: GenresViewProps) {
   const navigate = useNavigate();
   const params = useParams<{ genreId?: string }>();
   const [searchParams] = useSearchParams();
-  
+
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
@@ -64,58 +58,54 @@ export function GenresView(props: GenresViewProps) {
       clearPageInfo(); // clear page info when leaving view
     });
   });
-  
+
   // use genre from URL params, fallback to history state
-  const initialGenreId = params.genreId || 
-    (typeof window !== "undefined" 
+  const initialGenreId =
+    params.genreId ||
+    (typeof window !== "undefined"
       ? (window.history.state?.selectedGenreId as string | null)
       : null);
-    
-  const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(
-    initialGenreId,
-  );
+
+  const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(initialGenreId);
   const [sortBy, setSortBy] = createSignal("name");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
-  
+
   // store scrollToIndex function from virtualizer
   const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
-  
+
   // track if genre change is from local click (don't scroll) vs navigation (do scroll)
   const [isLocalClick, setIsLocalClick] = createSignal(false);
 
   // track query changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);
-  
+
   // update selected genre when URL param changes and scroll to it (only if from navigation)
   createEffect(() => {
     const urlGenreId = params.genreId;
-    
+
     if (urlGenreId && urlGenreId !== selectedGenreId()) {
       setSelectedGenreId(urlGenreId);
-      
+
       // only scroll if this is from navigation (back/forward/initial), not from clicking in the list
       const shouldScroll = !isLocalClick();
       if (shouldScroll && scrollToIndex()) {
-        const genreIndex = sortedGenres().findIndex(g => g.genre_id === urlGenreId);
+        const genreIndex = sortedGenres().findIndex((g) => g.genre_id === urlGenreId);
         if (genreIndex >= 0) {
           scrollToIndex()!(genreIndex);
         }
       }
-      
+
       // reset flag after capturing its value
       setIsLocalClick(false);
     }
   });
-  
+
   // save selected genre to history state when it changes
   createEffect(() => {
     const genreId = selectedGenreId();
     if (genreId && typeof window !== "undefined") {
       const currentState = window.history.state || {};
-      window.history.replaceState(
-        { ...currentState, selectedGenreId: genreId },
-        ""
-      );
+      window.history.replaceState({ ...currentState, selectedGenreId: genreId }, "");
     }
   });
 
@@ -317,8 +307,7 @@ export function GenresView(props: GenresViewProps) {
                   no genres in your library yet
                 </p>
                 <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                  click "add music" above to import local audio files or
-                  download from urls
+                  click "add music" above to import local audio files or download from urls
                 </p>
                 <Button variant="primary" onClick={props.onAddMusic}>
                   add music
@@ -341,11 +330,11 @@ export function GenresView(props: GenresViewProps) {
             }}
             onVirtualizerReady={(scrollFn) => {
               setScrollToIndex(() => scrollFn);
-              
+
               // only scroll if current genre matches the initial one (prevents scroll on subsequent clicks)
               const current = selectedGenreId();
               if (current && current === initialGenreId) {
-                const index = sortedGenres().findIndex(g => g.genre_id === current);
+                const index = sortedGenres().findIndex((g) => g.genre_id === current);
                 if (index >= 0) {
                   setTimeout(() => scrollFn(index), 50);
                 }
@@ -392,7 +381,7 @@ export function GenresView(props: GenresViewProps) {
                     const currentQueue = state?.queue || [];
                     await setQueue([...currentQueue, ...songs]);
                   },
-                },
+                }
               );
             }}
             height={window.innerHeight - 120}
@@ -409,11 +398,7 @@ export function GenresView(props: GenresViewProps) {
       fallback={
         <div class="flex items-center justify-center h-full">
           <div class="text-center text-[var(--color-text-tertiary)]">
-            <svg
-              class="w-24 h-24 mx-auto mb-4 opacity-30"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
+            <svg class="w-24 h-24 mx-auto mb-4 opacity-30" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
             </svg>
             <p class="text-xl mb-2">select a genre</p>
@@ -437,9 +422,7 @@ export function GenresView(props: GenresViewProps) {
           onArtistClick={handleArtistClick}
           getAlbumContextMenuActions={(albumId) => {
             // find album info from songs
-            const albumSongs = genreSongs().filter(
-              (s) => s.album_id === albumId,
-            );
+            const albumSongs = genreSongs().filter((s) => s.album_id === albumId);
             if (albumSongs.length === 0) return [];
 
             const firstSong = albumSongs[0];
@@ -450,7 +433,7 @@ export function GenresView(props: GenresViewProps) {
                 artist_name: firstSong.artist_name,
                 song_count: albumSongs.length,
               },
-              { showPlayActions: true },
+              { showPlayActions: true }
             );
           }}
           showBackButton={isNarrow() && showingDetailOnNarrow()}

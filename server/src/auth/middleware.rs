@@ -38,13 +38,18 @@ pub async fn require_auth(
 ) -> Result<Response, ApiError> {
     // Try session authentication first
     if let Some(session_data) = session::load_session(&session).await? {
-        let user = AuthenticatedUser {
-            user_id: session_data.user_id,
-            username: session_data.username,
-            role: grimoire::users::UserRole::from(session_data.role),
-        };
-        request.extensions_mut().insert(user);
-        return Ok(next.run(request).await);
+        // fetch current user from DB to get fresh role (in case it changed since login)
+        let user_response = grimoire::users::get_user(&session_data.user_id).await;
+        if let Some(user) = user_response.data {
+            let auth_user = AuthenticatedUser {
+                user_id: user.id,
+                username: user.username,
+                role: user.role,
+            };
+            request.extensions_mut().insert(auth_user);
+            return Ok(next.run(request).await);
+        }
+        // user not found in DB (deleted?) - fall through to unauthorized
     }
 
     // Try API key authentication

@@ -435,6 +435,36 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
+  async deleteSong(songId: string): Promise<void> {
+    const result = await apiClient.music.deleteSong(this.baseUrl, {
+      id: songId,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to delete song");
+    }
+  }
+
+  async deleteAlbum(albumId: string): Promise<void> {
+    const result = await apiClient.music.deleteAlbum(this.baseUrl, {
+      id: albumId,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to delete album");
+    }
+  }
+
+  async deleteArtist(artistId: string): Promise<void> {
+    const result = await apiClient.music.deleteArtist(this.baseUrl, {
+      id: artistId,
+    });
+
+    if (!result.success) {
+      throw new Error("failed to delete artist");
+    }
+  }
+
   async addSongsToPlaylist(
     playlistId: string,
     songIds: string[],
