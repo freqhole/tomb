@@ -332,10 +332,8 @@ pub async fn import_song_with_metadata(
                 "album".to_string()
             }),
             release_date: req.year.map(|y| y.to_string()),
-            release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
             genre_ids,
-            year: req.year,
             created_by: req.created_by.clone(),
         };
         let (album, created) =
@@ -361,10 +359,8 @@ pub async fn import_song_with_metadata(
             title: "Unknown Album".to_string(),
             album_type: Some("album".to_string()),
             release_date: req.year.map(|y| y.to_string()),
-            release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
             genre_ids,
-            year: req.year,
             created_by: req.created_by.clone(),
         };
         let (album, created) =
@@ -413,10 +409,8 @@ pub async fn import_song_with_metadata(
             title: "Unknown Album".to_string(),
             album_type: Some("album".to_string()),
             release_date: req.year.map(|y| y.to_string()),
-            release_date_precision: req.year.map(|_| "year".to_string()),
             label: None,
             genre_ids,
-            year: req.year,
             created_by: req.created_by.clone(),
         };
         let (unknown_album, album_created) =
@@ -442,7 +436,6 @@ pub async fn import_song_with_metadata(
         track_number: req.track_number,
         disc_number: req.disc_number,
         duration: req.duration,
-        year: req.year,
         bpm: req.bpm,
         key_signature: req.key_signature,
         metadata: req.metadata,
@@ -613,7 +606,6 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
                 title as "title!",
                 album_type as "album_type!",
                 release_date,
-                release_date_precision,
                 label,
                 song_count as "song_count!",
                 total_duration as "total_duration!",
@@ -634,7 +626,6 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             title: row.title,
             album_type: row.album_type,
             release_date: row.release_date,
-            release_date_precision: row.release_date_precision,
             label: row.label,
             genres: None,
             genre_ids: None,
@@ -756,7 +747,6 @@ pub async fn find_or_create_album_for_artist(
             al.title as "title!",
             al.album_type as "album_type!",
             al.release_date,
-            al.release_date_precision,
             al.label,
             al.song_count as "song_count!",
             al.total_duration as "total_duration!",
@@ -783,7 +773,6 @@ pub async fn find_or_create_album_for_artist(
                 title: row.title,
                 album_type: row.album_type,
                 release_date: row.release_date,
-                release_date_precision: row.release_date_precision,
                 label: row.label,
                 genres: None,
                 genre_ids: None,
@@ -805,7 +794,6 @@ pub async fn find_or_create_album_for_artist(
             title: req.title,
             album_type: req.album_type,
             release_date: req.release_date,
-            release_date_precision: req.release_date_precision,
             label: req.label,
             created_by: req.created_by,
         };

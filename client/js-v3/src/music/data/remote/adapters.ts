@@ -151,7 +151,15 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
         findWaveform(songImages),       // 5. song waveform (last resort)
       ].filter(Boolean) as ReturnType<typeof mapImage>[];
       
-      return candidates.length > 0 ? candidates : undefined;
+      // deduplicate by blob_id (same image could match multiple priority slots)
+      const seen = new Set<string>();
+      const deduped = candidates.filter(img => {
+        if (seen.has(img.remote_blob_id)) return false;
+        seen.add(img.remote_blob_id);
+        return true;
+      });
+      
+      return deduped.length > 0 ? deduped : undefined;
     })(),
 
     // user-specific metadata (from API response top-level)

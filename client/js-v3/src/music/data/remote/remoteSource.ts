@@ -781,10 +781,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     updated_by?: string | null;
   }): Promise<void> {
     // map simpler params to API schema
+    // use the simple string fields (artist_name, album_title) rather than object fields
     const apiParams: any = {
       song_ids: params.song_ids,
       title: params.title,
-      artist_name: params.artist,  // use artist_name field
+      artist_name: params.artist,  // simple string field
+      album_title: params.album,   // simple string field
       track_number: params.track_number,
       disc_number: params.disc_number,
       year: params.year,

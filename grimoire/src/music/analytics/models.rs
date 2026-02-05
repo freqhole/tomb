@@ -126,8 +126,6 @@ pub struct ListeningHistoryItem {
     pub duration: Option<i32>,
     /// Genre
     pub genre: Option<String>,
-    /// Year
-    pub year: Option<i32>,
     /// Playlist ID if played from playlist
     pub playlist_id: Option<String>,
     /// Playlist name if played from playlist

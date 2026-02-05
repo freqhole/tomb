@@ -149,10 +149,8 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 title: album_req.title,
                 album_type: album_req.album_type,
                 release_date: album_req.release_date,
-                release_date_precision: album_req.release_date_precision,
                 label: album_req.label,
                 genre_ids: genre.as_ref().map(|g| vec![g.id.clone()]),
-                year: album_req.year,
                 created_by: req.updated_by.clone(),
             };
             match find_or_create_album_for_artist(import_req, &artist.id).await {
@@ -185,10 +183,8 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     title: current_album.title.clone(),
                     album_type: current_album.album_type.clone().into(),
                     release_date: current_album.release_date.clone(),
-                    release_date_precision: current_album.release_date_precision.clone(),
                     label: current_album.label.clone(),
                     genre_ids: current_album.genres.as_ref().map(|g| g.0.clone()),
-                    year: None,
                     created_by: req.updated_by.clone(),
                 };
                 match find_or_create_album_for_artist(import_req, &new_artist.id).await {
@@ -208,10 +204,8 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     title: "Unknown Album".to_string(),
                     album_type: Some("album".to_string()),
                     release_date: None,
-                    release_date_precision: None,
                     label: None,
                     genre_ids: genre.as_ref().map(|g| vec![g.id.clone()]),
-                    year: None,
                     created_by: req.updated_by.clone(),
                 };
                 match find_or_create_album_for_artist(import_req, &new_artist.id).await {
@@ -261,7 +255,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     track_number = COALESCE(?, track_number),
                     disc_number = COALESCE(?, disc_number),
                     duration = COALESCE(?, duration),
-                    year = COALESCE(?, year),
                     bpm = COALESCE(?, bpm),
                     key_signature = COALESCE(?, key_signature),
                     lyrics = COALESCE(?, lyrics),
@@ -276,7 +269,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 req.track_number,
                 req.disc_number,
                 req.duration,
-                req.year,
                 req.bpm,
                 req.key_signature,
                 req.lyrics,

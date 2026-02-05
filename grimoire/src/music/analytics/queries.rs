@@ -135,7 +135,6 @@ pub async fn get_user_listening_history(
             s.track_number,
             s.disc_number,
             s.duration,
-            s.year,
             me.event_data,
             -- Get artist name (first artist from join)
             (SELECT a.name FROM artist_songz asz
@@ -197,7 +196,6 @@ pub async fn get_user_listening_history(
                 disc_number: Some(row.disc_number as i32),
                 duration: row.duration.map(|d| d as i32),
                 genre: row.genre_name,
-                year: row.year.map(|y| y as i32),
                 playlist_id: row.playlist_id,
                 playlist_name: row.playlist_name,
                 user_id: Some(user_id.to_string()),

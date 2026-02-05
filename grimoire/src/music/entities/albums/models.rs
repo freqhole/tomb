@@ -13,7 +13,6 @@ pub struct Album {
     pub title: String,
     pub album_type: String,
     pub release_date: Option<String>,
-    pub release_date_precision: Option<String>,
     pub label: Option<String>,
     pub genres: Option<JsonVec<String>>,
     pub genre_ids: Option<JsonVec<String>>,
@@ -35,7 +34,6 @@ pub struct CreateAlbumRequest {
     pub title: String,
     pub album_type: Option<String>,
     pub release_date: Option<String>,
-    pub release_date_precision: Option<String>,
     pub label: Option<String>,
     pub created_by: Option<String>,
 }

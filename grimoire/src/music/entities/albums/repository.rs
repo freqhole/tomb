@@ -29,13 +29,12 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
     let now = OffsetDateTime::now_utc().unix_timestamp();
 
     let album_id = match sqlx::query_scalar!(
-        r#"INSERT INTO albumz (title, album_type, release_date, release_date_precision, label, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO albumz (title, album_type, release_date, label, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?)
          RETURNING id"#,
         req.title,
         album_type,
         req.release_date,
-        req.release_date_precision,
         req.label,
         req.created_by,
         req.created_by
@@ -45,16 +44,10 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
     {
         Ok(Some(id)) => id,
         Ok(None) => {
-            return GrimoireResponse::failure(
-                "failed to get album id after insert",
-                vec![],
-            )
+            return GrimoireResponse::failure("failed to get album id after insert", vec![])
         }
         Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to create album",
-                vec![ErrorDetail::from(e)],
-            )
+            return GrimoireResponse::failure("failed to create album", vec![ErrorDetail::from(e)])
         }
     };
 
@@ -65,7 +58,6 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         title: req.title,
         album_type,
         release_date: req.release_date,
-        release_date_precision: req.release_date_precision,
         label: req.label,
         genres: None,
         genre_ids: None,
@@ -104,7 +96,6 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_title as "title!",
             album_album_type as "album_type!",
             album_release_date as "release_date?",
-            album_release_date_precision as "release_date_precision?",
             album_label as "label?",
             album_genres as "genres: crate::JsonVec<String>",
             album_genre_ids as "genre_ids: crate::JsonVec<String>",
@@ -155,7 +146,6 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_title as "title!",
             album_album_type as "album_type!",
             album_release_date as "release_date?",
-            album_release_date_precision as "release_date_precision?",
             album_label as "label?",
             album_genres as "genres: crate::JsonVec<String>",
             album_genre_ids as "genre_ids: crate::JsonVec<String>",

@@ -79,10 +79,8 @@ pub struct AlbumImportRequest {
     pub title: String,
     pub album_type: Option<String>,
     pub release_date: Option<String>,
-    pub release_date_precision: Option<String>,
     pub label: Option<String>,
     pub genre_ids: Option<Vec<String>>,
-    pub year: Option<i64>,
     pub created_by: Option<String>,
 }
 
@@ -519,9 +517,7 @@ impl UpdateSongsRequest {
                 title: self.album_title.take().unwrap(),
                 album_type: self.album_type.take(),
                 release_date: self.release_date.take(),
-                release_date_precision: None,
                 label: self.label.take(),
-                year: None,
             });
         }
 
@@ -581,9 +577,7 @@ pub struct UpdateAlbumRequest {
     pub title: String,
     pub album_type: Option<String>,
     pub release_date: Option<String>,
-    pub release_date_precision: Option<String>,
     pub label: Option<String>,
-    pub year: Option<i64>,
 }
 
 /// favorite update request (polymorphic: song, artist, album)

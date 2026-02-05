@@ -25,9 +25,9 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
     let song = match sqlx::query_as!(
         Song,
         "INSERT INTO songz (
-            media_blob_id, title, track_number, disc_number, duration, year, bpm, key_signature, metadata, lyrics,
+            media_blob_id, title, track_number, disc_number, duration, bpm, key_signature, metadata, lyrics,
             created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
             id as \"id!\",
             media_blob_id as \"media_blob_id!\",
@@ -35,7 +35,6 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
             track_number,
             disc_number,
             duration,
-            year,
             bpm,
             key_signature,
             metadata,
@@ -54,7 +53,6 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         req.track_number,
         req.disc_number,
         req.duration,
-        req.year,
         req.bpm,
         req.key_signature,
         req.metadata,
@@ -101,7 +99,6 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
             song_track_number as "track_number!",
             song_disc_number as "disc_number!",
             song_duration as duration,
-            song_year as year,
             song_bpm as bpm,
             song_key_signature as key_signature,
             song_metadata as metadata,
@@ -155,7 +152,6 @@ pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
             song_track_number as "track_number!",
             song_disc_number as "disc_number!",
             song_duration as "duration?",
-            song_year as "year?",
             song_bpm as "bpm?",
             song_key_signature as "key_signature?",
             song_metadata as "metadata?",

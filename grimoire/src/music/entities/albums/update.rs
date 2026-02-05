@@ -14,9 +14,10 @@ use crate::music::entities::genres;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
 
-/// parse flexible release date string into (release_date, precision, year)
+/// parse flexible release date string and validate format
 /// supports: "2023", "2023-06", "2023-06-15"
-fn parse_release_date(input: &str) -> Result<(String, String, i64), String> {
+/// returns the normalized date string if valid
+fn parse_release_date(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err("empty date string".to_string());
@@ -25,7 +26,7 @@ fn parse_release_date(input: &str) -> Result<(String, String, i64), String> {
     // try to parse as year only: "2023"
     if let Ok(year) = trimmed.parse::<i64>() {
         if year >= 1000 && year <= 9999 {
-            return Ok((trimmed.to_string(), "year".to_string(), year));
+            return Ok(trimmed.to_string());
         }
     }
 
@@ -34,7 +35,7 @@ fn parse_release_date(input: &str) -> Result<(String, String, i64), String> {
     if parts.len() == 2 {
         if let (Ok(year), Ok(month)) = (parts[0].parse::<i64>(), parts[1].parse::<u32>()) {
             if year >= 1000 && year <= 9999 && month >= 1 && month <= 12 {
-                return Ok((trimmed.to_string(), "month".to_string(), year));
+                return Ok(trimmed.to_string());
             }
         }
     }
@@ -47,7 +48,7 @@ fn parse_release_date(input: &str) -> Result<(String, String, i64), String> {
             parts[2].parse::<u32>(),
         ) {
             if year >= 1000 && year <= 9999 && month >= 1 && month <= 12 && day >= 1 && day <= 31 {
-                return Ok((trimmed.to_string(), "day".to_string(), year));
+                return Ok(trimmed.to_string());
             }
         }
     }
@@ -75,7 +76,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             title as "title!",
             album_type as "album_type!",
             release_date,
-            release_date_precision,
             label,
             song_count as "song_count!",
             total_duration as "total_duration!",
@@ -97,7 +97,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             title: row.title,
             album_type: row.album_type,
             release_date: row.release_date,
-            release_date_precision: row.release_date_precision,
             label: row.label,
             genres: None,
             genre_ids: None,
@@ -155,7 +154,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     // parse release date if provided
     let parsed_date = if let Some(ref date_str) = req.release_date {
         match parse_release_date(date_str) {
-            Ok((date, precision, year)) => Some((date, precision, year)),
+            Ok(date) => Some(date),
             Err(e) => {
                 return GrimoireResponse::failure(
                     "invalid release date format",
@@ -465,17 +464,9 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     .album_type
                     .clone()
                     .or(Some(existing_album.album_type.clone())),
-                release_date: parsed_date
-                    .as_ref()
-                    .map(|(d, _, _)| d.clone())
-                    .or(existing_album.release_date.clone()),
-                release_date_precision: parsed_date
-                    .as_ref()
-                    .map(|(_, p, _)| p.clone())
-                    .or(existing_album.release_date_precision.clone()),
+                release_date: parsed_date.clone().or(existing_album.release_date.clone()),
                 label: req.label.clone().or(existing_album.label.clone()),
                 genre_ids: None, // genres handled via junction table
-                year: parsed_date.as_ref().map(|(_, _, y)| *y),
                 created_by: req.updated_by.clone(),
             },
             &new_artist.id,
@@ -588,26 +579,19 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         (req.album_id.clone(), None, Vec::new())
     };
 
-    // extract date values before query to avoid temporary borrow issues
-    let release_date_value = parsed_date.as_ref().map(|(d, _, _)| d.clone());
-    let release_date_precision_value = parsed_date.as_ref().map(|(_, p, _)| p.clone());
-    let year_value = parsed_date.as_ref().map(|(_, _, y)| *y);
-
     // update the album record (either the new one or existing one)
     let _final_album = match sqlx::query!(
         r#"UPDATE albumz
         SET title = COALESCE(?, title),
             album_type = COALESCE(?, album_type),
             release_date = COALESCE(?, release_date),
-            release_date_precision = COALESCE(?, release_date_precision),
             label = COALESCE(?, label),
             updated_by = COALESCE(?, updated_by),
             updated_at = unixepoch()
         WHERE id = ?"#,
         req.title,
         req.album_type,
-        release_date_value,
-        release_date_precision_value,
+        parsed_date,
         req.label,
         req.updated_by,
         new_album_id
@@ -626,23 +610,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             response => {
                 return GrimoireResponse::failure("failed to update album genres", response.errors)
             }
-        }
-    }
-
-    // if release date changed, update all songs in album with the extracted year
-    if let Some(year) = year_value {
-        if let Err(e) = sqlx::query!(
-            r#"UPDATE songz
-            SET year = ?,
-                updated_at = unixepoch()
-            WHERE id IN (SELECT song_id FROM album_songz WHERE album_id = ?)"#,
-            year,
-            new_album_id
-        )
-        .execute(&pool)
-        .await
-        {
-            return GrimoireResponse::failure("failed to update song years", vec![e.into()]);
         }
     }
 
