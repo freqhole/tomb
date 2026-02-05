@@ -1,8 +1,8 @@
 //! artist domain models
 
 use crate::music::crud::ImageMetadata;
-use serde::{Deserialize, Serialize};
 use crate::JsonVec;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
