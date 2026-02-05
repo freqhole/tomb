@@ -66,6 +66,8 @@ export interface PlayerBarProps {
   queueLength?: number;
   /** hide the queue toggle button (e.g., on narrow views when it's in top nav) */
   hideQueueToggle?: boolean;
+  /** callback when thumbnail image is clicked */
+  onImageClick?: () => void;
   /** additional classes */
   class?: string;
 }
@@ -138,7 +140,10 @@ export function PlayerBar(props: PlayerBarProps) {
         {/* row 1: thumbnail, fav, title/artist, controls, queue */}
         <div class="flex items-center gap-2 flex-1 min-h-0">
           {/* thumbnail */}
-          <div class="w-10 h-10 flex-shrink-0">
+          <div
+            class={`w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
+            onClick={() => props.onImageClick?.()}
+          >
             <MediaImage
               images={props.song?.images}
               blobId={props.song?.thumbnailBlobId}
@@ -176,7 +181,11 @@ export function PlayerBar(props: PlayerBarProps) {
                 class="text-[var(--color-text-primary)] font-medium text-sm"
               />
               <MarqueeText
-                text={props.song!.artist}
+                text={
+                  props.song!.album
+                    ? `${props.song!.artist} - ${props.song!.album}`
+                    : props.song!.artist
+                }
                 class="text-[var(--color-text-tertiary)] text-xs"
               />
             </Show>
@@ -274,7 +283,10 @@ export function PlayerBar(props: PlayerBarProps) {
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
           {/* thumbnail */}
-          <div class="w-12 h-12 flex-shrink-0">
+          <div
+            class={`w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+            onClick={() => props.onImageClick?.()}
+          >
             <MediaImage
               images={props.song?.images}
               blobId={props.song?.thumbnailBlobId}
@@ -319,7 +331,11 @@ export function PlayerBar(props: PlayerBarProps) {
                 class="text-[var(--color-text-primary)] font-medium text-base"
               />
               <MarqueeText
-                text={props.song!.artist}
+                text={
+                  props.song!.album
+                    ? `${props.song!.artist} - ${props.song!.album}`
+                    : props.song!.artist
+                }
                 class="text-[var(--color-text-secondary)] font-light text-sm"
               />
             </Show>

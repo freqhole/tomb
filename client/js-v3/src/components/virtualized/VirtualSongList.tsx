@@ -244,12 +244,15 @@ export function VirtualSongList(props: VirtualSongListProps) {
             position: "relative",
           }}
           onClick={handleContainerClick}
+          onMouseOver={handleContainerMouseOver}
+          onMouseLeave={handleContainerMouseLeave}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const song = props.songs[virtualRow.index];
             if (!song) return null;
 
             const isPlaying = props.playingSongId === song.sha256;
+            const isHovered = () => hoveredRowIndex() === virtualRow.index;
 
             const compactRow = (
               <div
@@ -270,6 +273,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     images={getImages(song)}
                     indexText={getTrackText(song, virtualRow.index)}
                     size={48}
+                    hideIndex={isHovered()}
                     onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
                     enablePlayClick={!!props.onPlayClick}
                     showPlayIcon={true}
@@ -411,6 +415,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     images={getImages(song)}
                     indexText={getTrackText(song, virtualRow.index)}
                     size={IMAGE_SIZE}
+                    hideIndex={isHovered()}
                     onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
                     enablePlayClick={!!props.onPlayClick}
                     showPlayIcon={true}

@@ -13,23 +13,23 @@ type ImageData = ImageMetadata & { type?: string };
  */
 function pickBestImage(images?: ImageData[]): ImageData | null {
   if (!images || images.length === 0) return null;
-  
+
   // spread to unwrap SolidJS store proxies
   const arr = [...images];
   if (arr.length === 0) return null;
-  
+
   const getType = (img: ImageData) => img.blob_type || img.type;
-  
+
   // priority: primary thumbnail → any thumbnail → first available
-  const primaryThumb = arr.find(img => img.is_primary && getType(img) === 'thumbnail');
+  const primaryThumb = arr.find((img) => img.is_primary && getType(img) === "thumbnail");
   if (primaryThumb) return primaryThumb;
-  
-  const anyThumb = arr.find(img => getType(img) === 'thumbnail');
+
+  const anyThumb = arr.find((img) => getType(img) === "thumbnail");
   if (anyThumb) return anyThumb;
-  
-  const primary = arr.find(img => img.is_primary);
+
+  const primary = arr.find((img) => img.is_primary);
   if (primary) return primary;
-  
+
   return arr[0] || null;
 }
 
@@ -44,13 +44,13 @@ async function resolveImageUrl(
   // try remote_url first (already a usable URL)
   if (image?.remote_url) return image.remote_url;
   if (legacyUrl) return legacyUrl;
-  
+
   // try local_blob_id (needs OPFS lookup)
   const blobId = image?.local_blob_id || legacyBlobId;
   if (blobId) {
     return await getBlobObjectURL(blobId);
   }
-  
+
   return null;
 }
 
@@ -81,13 +81,13 @@ export interface MediaThumbnailProps {
 
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   const [imageUrl, setImageUrl] = createSignal<string | null>(null);
-  
+
   // resolve image URL when props change
   createEffect(() => {
     const image = pickBestImage(props.images as ImageData[]);
     resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl).then(setImageUrl);
   });
-  
+
   const size = () => props.size ?? 48;
   const showPlayIcon = () => props.showPlayIcon !== false;
   const displayText = () => {
@@ -102,7 +102,7 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
 
   return (
     <div
-      class={`group flex-shrink-0 relative ${props.enablePlayClick !== false ? "cursor-pointer" : ""} ${props.class || ""}`}
+      class={`group/thumbnail flex-shrink-0 relative ${props.enablePlayClick !== false ? "cursor-pointer" : ""} ${props.class || ""}`}
       style={{ width: `${size()}px`, height: `${size()}px` }}
       draggable={false}
       data-thumbnail="true"
@@ -142,11 +142,11 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
         </Show>
       </div>
 
-      {/* index number overlay - hidden when hideIndex is true or on group hover */}
+      {/* index number overlay - hidden when hideIndex is true or on thumbnail hover */}
       <div
         class="absolute inset-0 flex items-center justify-center transition-opacity duration-200 pointer-events-none"
         classList={{
-          "group-hover:opacity-0": showPlayIcon(),
+          "group-hover/thumbnail:opacity-0": showPlayIcon(),
         }}
         style={{ opacity: props.hideIndex ? 0 : 1 }}
       >
@@ -155,9 +155,9 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
         </span>
       </div>
 
-      {/* play icon - shown on group hover */}
+      {/* play icon - shown on thumbnail hover */}
       <Show when={showPlayIcon()}>
-        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 pointer-events-none">
+        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumbnail:opacity-100 transition-opacity bg-black/40 pointer-events-none">
           <Icon name="play" size={24} color="white" />
         </div>
       </Show>

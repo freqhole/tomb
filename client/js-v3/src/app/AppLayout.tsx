@@ -51,6 +51,7 @@ import {
   playlistSelectorState,
   closePlaylistSelector,
 } from "../music/services/playlistSelectorState";
+import { showImageCarousel } from "../music/modals";
 import { appState, setCurrentSong, setQueue, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 
@@ -214,6 +215,47 @@ export function AppLayout(props: AppLayoutProps) {
       targetId: songId,
       sha256: song.sha256,
       isFavorite: !(song.is_favorite || false),
+    });
+  };
+
+  // handle player bar image click - show song + album images in carousel
+  const handlePlayerImageClick = () => {
+    const song = currentSongData();
+    if (!song) return;
+
+    const imageMap = new Map<string, string>();
+
+    // add song images (except waveforms), deduplicate by blob_id
+    if (song.images?.length) {
+      for (const img of song.images) {
+        if (img.blob_type !== "waveform") {
+          const blobId = img.remote_blob_id || img.local_blob_id;
+          const url = img.remote_url || img.local_blob_id;
+          if (blobId && url) imageMap.set(blobId, url);
+        }
+      }
+    }
+
+    // add album images (except waveforms), deduplicate by blob_id
+    if (song.album_images?.length) {
+      for (const img of song.album_images) {
+        if (img.blob_type !== "waveform") {
+          const blobId = img.remote_blob_id || img.local_blob_id;
+          const url = img.remote_url || img.local_blob_id;
+          if (blobId && url) imageMap.set(blobId, url);
+        }
+      }
+    }
+
+    const imageUrls = Array.from(imageMap.values());
+
+    if (imageUrls.length === 0) {
+      return;
+    }
+
+    showImageCarousel({
+      images: imageUrls,
+      title: `${song.title} images`,
     });
   };
 
@@ -420,6 +462,7 @@ export function AppLayout(props: AppLayoutProps) {
           onVolumeChange={setPlayerVolume}
           onQueueToggle={handleQueueToggle}
           onFavoriteToggle={handleSongFavoriteToggle}
+          onImageClick={handlePlayerImageClick}
           queueLength={appState()?.queue.length || 0}
           hideQueueToggle={isNarrow()}
           canGoNext={canGoNext()}

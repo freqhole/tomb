@@ -204,22 +204,25 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                   const isDragging = () => draggedIndex() === itemIndex;
                   const isDropTarget = () => dropTargetIndex() === itemIndex;
+                  const [isRowHovered, setIsRowHovered] = createSignal(false);
 
                   const songRow = (
                     <div
                       draggable={true}
-                      class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 rounded-lg group transition-all duration-200 cursor-move ${
+                      class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 group transition-all duration-200 cursor-move ${
                         isDropTarget()
-                          ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
+                          ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02] rounded-lg"
                           : isDragging()
-                            ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
+                            ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95 rounded-lg"
                             : isCurrentlyPlaying()
-                              ? "bg-[var(--color-accent-500)]/20 border border-[var(--color-accent-500)]/50"
-                              : "hover:bg-[var(--color-accent-500)]/10 border border-transparent"
+                              ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                              : "hover:bg-[var(--color-accent-500)]/10 rounded-lg"
                       }`}
                       style={{
                         transform: `translateY(${virtualItem.start}px)`,
                       }}
+                      onMouseEnter={() => setIsRowHovered(true)}
+                      onMouseLeave={() => setIsRowHovered(false)}
                       onDragStart={handleDragStart(itemIndex)}
                       onDragOver={handleDragOver(itemIndex)}
                       onDragLeave={handleDragLeave}
@@ -249,7 +252,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       <MediaThumbnail
                         images={song()?.images}
                         index={itemIndex}
-                        hideIndex={false}
+                        hideIndex={isRowHovered()}
                         onPlayClick={() => handleSongDoubleClick(itemIndex)}
                         size={48}
                         class="mr-3"
@@ -266,15 +269,23 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         >
                           <MarqueeText
                             text={song()?.title || ""}
-                            hoverOnly={!isCurrentlyPlaying()}
+                            isHovering={() => isRowHovered() || isCurrentlyPlaying()}
                           />
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
                           <MarqueeText
                             text={song()?.artist_name || ""}
-                            hoverOnly={!isCurrentlyPlaying()}
+                            isHovering={() => isRowHovered() || isCurrentlyPlaying()}
                           />
                         </p>
+                        <Show when={song()?.album_title}>
+                          <p class="text-xs text-[var(--color-text-tertiary)] m-0">
+                            <MarqueeText
+                              text={song()?.album_title || ""}
+                              isHovering={() => isRowHovered() || isCurrentlyPlaying()}
+                            />
+                          </p>
+                        </Show>
                       </div>
 
                       {/* duration and favorite indicator */}

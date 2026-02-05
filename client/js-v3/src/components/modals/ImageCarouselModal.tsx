@@ -74,7 +74,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
       {/* main content - prevent close when clicking image */}
       <div
-        class="relative flex items-center justify-center w-full h-full p-16"
+        class="relative flex items-center justify-center w-full h-full p-16 mb-10"
         onClick={(e) => e.stopPropagation()}
       >
         {/* prev button */}
@@ -116,10 +116,8 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
           {(img, idx) => (
             <button
               onClick={() => setCurrentIndex(idx())}
-              class={`flex-shrink-0 w-16 h-16 rounded overflow-hidden border-2 transition-all ${
-                idx() === currentIndex()
-                  ? "border-white scale-110"
-                  : "border-transparent opacity-60 hover:opacity-100"
+              class={`flex-shrink-0 w-16 h-16 overflow-hidden transition-all ${
+                idx() === currentIndex() ? "scale-110" : "opacity-60 hover:opacity-100"
               }`}
             >
               <img src={img} alt={`thumbnail ${idx() + 1}`} class="w-full h-full object-cover" />
