@@ -45,9 +45,7 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
 
     if (readonly()) {
       return `${baseClass} cursor-default ${
-        isFavorite()
-          ? "text-[var(--color-accent-500)]"
-          : "text-[var(--color-text-disabled)]"
+        isFavorite() ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-disabled)]"
       }`;
     }
 
@@ -80,6 +78,7 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
       class={`p-1 transition-colors ${props.class || ""}`}
       onClick={(e) => {
         e.stopPropagation();
+        e.preventDefault();
         handleToggle();
       }}
       title={getTitle()}
@@ -87,12 +86,7 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
       <Show
         when={isFavorite()}
         fallback={
-          <svg
-            class={getHeartClass()}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
+          <svg class={getHeartClass()} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
               stroke-linejoin="round"

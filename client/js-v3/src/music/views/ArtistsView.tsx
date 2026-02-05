@@ -18,10 +18,7 @@ import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
-import { querySongsWithDetails } from "../services/storage/db";
-import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
-import { sortSongsCanonical } from "../utils/songSort";
 
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
@@ -605,6 +602,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   );
 
   // right column - artist detail
+  // use selectedArtist() for Show condition - it's falsy when no artist selected OR artist data not loaded
   const rightColumn = (
     <Show
       when={selectedArtist()}

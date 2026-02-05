@@ -314,7 +314,12 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
       }
 
-      const result = await dataSource.getArtistSongs(id, { limit: 1000 });
+      // sort by album release date (year) to group albums chronologically
+      const result = await dataSource.getArtistSongs(id, { 
+        limit: 1000,
+        sort_by: "year",
+        sort_direction: "desc",
+      });
       
       // songs already have thumbnail_url from data source
       return result;

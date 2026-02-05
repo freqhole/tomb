@@ -1,5 +1,5 @@
 // reusable artist detail panel component for displaying artist info and albums
-import { createMemo, For, Show, type JSX } from "solid-js";
+import { createMemo, For, Index, Show, type JSX } from "solid-js";
 import {
   useAlbumContextMenu,
   useArtistContextMenu,
@@ -133,29 +133,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       group.totalDuration += song.duration_seconds;
     });
 
-    // sort albums by year (newest first, nulls last)
-    const sortedGroups = Array.from(groups.values()).sort((a, b) => {
-      // nulls go to the end
-      if (a.year === null && b.year === null) return a.albumTitle.localeCompare(b.albumTitle);
-      if (a.year === null) return 1;
-      if (b.year === null) return -1;
-      // newest first (descending)
-      if (b.year !== a.year) return b.year - a.year;
-      // same year: sort by title
-      return a.albumTitle.localeCompare(b.albumTitle);
-    });
-
-    // sort songs within each album by disc/track
-    sortedGroups.forEach((group) => {
-      group.songs.sort((a, b) => {
-        if (a.disc_number !== b.disc_number) {
-          return a.disc_number - b.disc_number;
-        }
-        return a.track_number - b.track_number;
-      });
-    });
-
-    return sortedGroups;
+    // server should return songs sorted by album release date (newest first),
+    // then by disc/track number - no client-side sorting needed
+    // Map preserves insertion order, so albums will be in server order
+    return Array.from(groups.values());
   });
 
   // collect unique genre names from all albums with their IDs
@@ -348,31 +329,35 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             fallback={<p class="text-[var(--color-text-tertiary)] text-sm">no albums found</p>}
           >
             <div class="space-y-6">
-              <For each={albumGroups()}>
+              <Index each={albumGroups()}>
                 {(album) => (
                   <AlbumSection
-                    albumId={album.albumId}
-                    albumTitle={album.albumTitle}
-                    year={album.year}
-                    songs={album.songs}
-                    totalDuration={album.totalDuration}
-                    images={album.images}
-                    artworkUrl={album.artworkUrl}
-                    blobId={album.blobId}
-                    isFavorite={album.isFavorite}
-                    rating={album.rating}
-                    genre={album.genre}
-                    genres={album.genres}
-                    tags={album.tags}
-                    onRatingChange={(rating) => props.onAlbumRatingChange?.(album.albumId, rating)}
+                    albumId={album().albumId}
+                    albumTitle={album().albumTitle}
+                    year={album().year}
+                    songs={album().songs}
+                    totalDuration={album().totalDuration}
+                    images={album().images}
+                    artworkUrl={album().artworkUrl}
+                    blobId={album().blobId}
+                    isFavorite={album().isFavorite}
+                    rating={album().rating}
+                    genre={album().genre}
+                    genres={album().genres}
+                    tags={album().tags}
+                    onRatingChange={(rating) =>
+                      props.onAlbumRatingChange?.(album().albumId, rating)
+                    }
                     onFavoriteToggle={(isFavorite) =>
-                      props.onAlbumFavoriteToggle?.(album.albumId, isFavorite)
+                      props.onAlbumFavoriteToggle?.(album().albumId, isFavorite)
                     }
                     playingSongId={props.playingSongId}
                     onAlbumClick={props.onAlbumClick}
-                    onPlayAlbum={() => props.onPlayAlbum?.(album.albumId)}
-                    onAddToQueue={() => props.onAddAlbumToQueue?.(album.albumId)}
-                    onSongDoubleClick={(song) => props.onSongDoubleClick?.(song.id, album.albumId)}
+                    onPlayAlbum={() => props.onPlayAlbum?.(album().albumId)}
+                    onAddToQueue={() => props.onAddAlbumToQueue?.(album().albumId)}
+                    onSongDoubleClick={(song) =>
+                      props.onSongDoubleClick?.(song.id, album().albumId)
+                    }
                     onSongRatingChange={(songId, rating) =>
                       props.onSongRatingChange?.(songId, rating)
                     }
@@ -381,15 +366,15 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     }
                     getAlbumContextMenuActions={() => {
                       // get favorite status from any song in the album
-                      const firstSongData = album.songs[0]
-                        ? props.getSongData?.(album.songs[0].id)
+                      const firstSongData = album().songs[0]
+                        ? props.getSongData?.(album().songs[0].id)
                         : null;
                       return useAlbumContextMenu(
                         {
-                          id: album.albumId,
-                          title: album.albumTitle,
+                          id: album().albumId,
+                          title: album().albumTitle,
                           artist_name: props.artist.name,
-                          song_count: album.songs.length,
+                          song_count: album().songs.length,
                         },
                         {
                           showPlayActions: true,
@@ -407,7 +392,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     }}
                   />
                 )}
-              </For>
+              </Index>
             </div>
           </Show>
         </div>
