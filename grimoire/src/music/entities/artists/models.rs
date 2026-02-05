@@ -12,7 +12,6 @@ pub struct Artist {
     pub id: String,
     pub name: String,
     pub bio: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<JsonVec<ImageMetadata>>,
     pub created_at: i64,         // unix timestamp UTC
     pub updated_at: i64,         // unix timestamp UTC

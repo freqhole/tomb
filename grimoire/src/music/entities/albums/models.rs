@@ -16,7 +16,6 @@ pub struct Album {
     pub label: Option<String>,
     pub genres: Option<JsonVec<String>>,
     pub genre_ids: Option<JsonVec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<JsonVec<ImageMetadata>>,
     pub song_count: i64,
     pub total_duration: i64,
