@@ -1,6 +1,9 @@
 //! route composition
 
-use axum::{middleware as axum_middleware, routing::get, routing::head, routing::post, Router};
+use axum::{
+    extract::DefaultBodyLimit, middleware as axum_middleware, routing::get, routing::head,
+    routing::post, Router,
+};
 use grimoire::api_registry;
 
 use crate::{auth, blobs, health, jobs, music, state::AppState, static_files, upload};
@@ -276,6 +279,8 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["upload_music"].path,
             post(upload::upload_music_handler),
         )
+        // allow uploads up to 10MB (default is 2MB)
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 

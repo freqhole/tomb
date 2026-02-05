@@ -169,6 +169,7 @@ export function useUpdatePlaylistMutation() {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      images?: import("../services/storage/types").ImageMetadata[] | null;
     }) => {
       const dataSource = getDataSource();
 

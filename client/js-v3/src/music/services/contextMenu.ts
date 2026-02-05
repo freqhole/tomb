@@ -142,10 +142,12 @@ export function useSongContextMenu(
         const dataSource = getDataSource();
         if (dataSource.removeSongsFromPlaylist) {
           await dataSource.removeSongsFromPlaylist(options.playlistId!, [
-            song.sha256,
+            song.id,
           ]);
-          // TODO: show toast notification
-          // TODO: invalidate playlist query
+          toast.success("removed from playlist");
+          // invalidate playlist queries to refresh song list
+          queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+          queryClient.invalidateQueries({ queryKey: ["playlists", options.playlistId, "songs"] });
         }
       },
     });

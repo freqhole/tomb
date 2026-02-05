@@ -153,6 +153,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         playlistId: props.playlist.playlist_id,
         title: editTitle() || null,
         description: editDescription() || null,
+        images: playlistImages(),
       });
 
       toast.success("playlist updated", {

@@ -958,7 +958,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                           </Show>
 
                           {/* action buttons - only render here on wide screens */}
-                          <Show when={playlistSongs().length > 0 && !editMode() && !isNarrow()}>
+                          <Show when={!editMode() && !isNarrow()}>
                             <div class="flex gap-2 sticky top-0 bg-[var(--color-background-primary)] py-2 z-10">
                               <Show when={selectedPlaylist()?.is_editable !== false}>
                                 <IconButton
@@ -969,12 +969,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   aria-label="edit playlist"
                                 />
                               </Show>
-                              <Button variant="primary" onClick={handlePlayAll}>
-                                play all
-                              </Button>
-                              <Button variant="secondary" onClick={handleAddToQueue}>
-                                add to queue
-                              </Button>
+                              <Show when={playlistSongs().length > 0}>
+                                <Button variant="primary" onClick={handlePlayAll}>
+                                  play all
+                                </Button>
+                                <Button variant="secondary" onClick={handleAddToQueue}>
+                                  add to queue
+                                </Button>
+                              </Show>
                               <IconButton
                                 icon="library"
                                 size="default"
@@ -1067,7 +1069,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                       </div>
 
                       {/* sticky action buttons for narrow - direct child of scroll container */}
-                      <Show when={playlistSongs().length > 0 && !editMode() && isNarrow()}>
+                      <Show when={!editMode() && isNarrow()}>
                         <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
                           <Show when={selectedPlaylist()?.is_editable !== false}>
                             <IconButton
@@ -1078,16 +1080,18 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               aria-label="edit playlist"
                             />
                           </Show>
-                          <Button variant="primary" onClick={handlePlayAll}>
-                            <Show when={!isNarrow()} fallback={"play"}>
-                              play all
-                            </Show>
-                          </Button>
-                          <Button variant="secondary" onClick={handleAddToQueue}>
-                            <Show when={!isNarrow()} fallback={"queue"}>
-                              add to queue
-                            </Show>
-                          </Button>
+                          <Show when={playlistSongs().length > 0}>
+                            <Button variant="primary" onClick={handlePlayAll}>
+                              <Show when={!isNarrow()} fallback={"play"}>
+                                play all
+                              </Show>
+                            </Button>
+                            <Button variant="secondary" onClick={handleAddToQueue}>
+                              <Show when={!isNarrow()} fallback={"queue"}>
+                                add to queue
+                              </Show>
+                            </Button>
+                          </Show>
                           <IconButton
                             icon="library"
                             size="default"
