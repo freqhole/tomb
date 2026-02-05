@@ -89,6 +89,69 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     return virtualizer;
   });
 
+  // detect when container becomes visible again (for mobile back navigation)
+  // and force virtualizer to remeasure using ResizeObserver
+  onMount(() => {
+    if (!parentRef) return;
+
+    let lastWidth = parentRef.offsetWidth;
+    let lastHeight = parentRef.offsetHeight;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+
+      const newWidth = entry.contentRect.width;
+      const newHeight = entry.contentRect.height;
+
+      // if container is going from visible to hidden, save scroll position
+      const becomingHidden = lastWidth > 0 && lastHeight > 0 && (newWidth === 0 || newHeight === 0);
+      if (becomingHidden && parentRef) {
+        setSavedScrollOffset(parentRef.scrollTop);
+      }
+
+      // if container went from 0 to non-zero dimensions, it just became visible
+      const becameVisible = (lastWidth === 0 || lastHeight === 0) && newWidth > 0 && newHeight > 0;
+
+      if (becameVisible) {
+        // force virtualizer to remeasure and restore scroll position
+        queueMicrotask(() => {
+          // restore saved scroll position first
+          if (savedScrollOffset() > 0 && parentRef) {
+            parentRef.scrollTop = savedScrollOffset();
+          }
+          // then remeasure
+          rowVirtualizer().measure();
+          // dispatch scroll event to trigger virtualizer recalculation
+          if (parentRef) {
+            parentRef.dispatchEvent(new Event("scroll"));
+          }
+        });
+      } else if (newWidth > 0 && newHeight > 0) {
+        // for any other size change while visible, also remeasure
+        rowVirtualizer().measure();
+      }
+
+      lastWidth = newWidth;
+      lastHeight = newHeight;
+    });
+
+    resizeObserver.observe(parentRef);
+
+    onCleanup(() => {
+      resizeObserver.disconnect();
+    });
+
+    // restore scroll position (use double RAF to ensure virtualizer has calculated sizes)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (parentRef) {
+          restoreScroll(parentRef);
+        }
+      });
+    });
+  });
+
   const handleItemClick = (item: ListItem) => {
     props.onItemClick?.(item);
   };
@@ -112,20 +175,6 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       props.onEndReached();
     }
   };
-
-  // restore scroll position on mount
-  onMount(() => {
-    if (parentRef) {
-      // use double RAF to ensure virtualizer has calculated sizes and rendered
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (parentRef) {
-            restoreScroll(parentRef);
-          }
-        });
-      });
-    }
-  });
 
   return (
     <div

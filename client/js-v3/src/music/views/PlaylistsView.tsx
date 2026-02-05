@@ -83,34 +83,21 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [isResetting, setIsResetting] = createSignal(false);
   const navigate = useNavigate();
 
-  // responsive: track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
-  // track whether detail is showing on narrow (for back navigation)
-  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(false);
-
-  onMount(() => {
-    const handleResize = () => {
-      const narrow = window.innerWidth < NARROW_BREAKPOINT;
-      setIsNarrow(narrow);
-      // reset detail view state when going from narrow to wide
-      if (!narrow) {
-        setShowingDetailOnNarrow(false);
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    onCleanup(() => {
-      window.removeEventListener("resize", handleResize);
-      clearPageInfo(); // clear page info when leaving view
-    });
-  });
-
   // restore selected playlist from history state on mount, fallback to params.id
   const initialPlaylistId =
     typeof window !== "undefined"
       ? (window.history.state?.selectedPlaylistId as string | null) || params.id || null
       : params.id || null;
+
+  // responsive: track narrow viewport
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
+  // track whether detail is showing on narrow (for back navigation)
+  // initialize to true if we have an initial ID and are on a narrow screen
+  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
+    typeof window !== "undefined" && window.innerWidth < NARROW_BREAKPOINT && !!initialPlaylistId
+  );
 
   const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<string | null>(
     initialPlaylistId
@@ -128,6 +115,22 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<string | null>(null);
   const [localThumbnailUrl, setLocalThumbnailUrl] = createSignal<string | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
+
+  onMount(() => {
+    const handleResize = () => {
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      setIsNarrow(narrow);
+      // reset detail view state when going from narrow to wide
+      if (!narrow) {
+        setShowingDetailOnNarrow(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => {
+      window.removeEventListener("resize", handleResize);
+      clearPageInfo(); // clear page info when leaving view
+    });
+  });
   const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
   const [isDownloading, setIsDownloading] = createSignal(false);
   const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
@@ -817,40 +820,44 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                       </div>
                     </Show>
 
-                    <VirtualItemList
-                      items={playlistListItems()}
-                      selectedId={selectedPlaylistId()}
-                      onItemClick={handlePlaylistClick}
-                      onVirtualizerReady={(scrollFn) => {
-                        setScrollToIndex(() => scrollFn);
+                    <div
+                      style={{ height: isNarrow() ? "calc(100% - 68px)" : "calc(100% - 128px)" }}
+                    >
+                      <VirtualItemList
+                        items={playlistListItems()}
+                        selectedId={selectedPlaylistId()}
+                        onItemClick={handlePlaylistClick}
+                        onVirtualizerReady={(scrollFn) => {
+                          setScrollToIndex(() => scrollFn);
 
-                        // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
-                        const current = selectedPlaylistId();
-                        if (current && current === initialPlaylistId) {
-                          const index = playlists().findIndex((p) => p.playlist_id === current);
-                          if (index >= 0) {
-                            setTimeout(() => scrollFn(index), 50);
+                          // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
+                          const current = selectedPlaylistId();
+                          if (current && current === initialPlaylistId) {
+                            const index = playlists().findIndex((p) => p.playlist_id === current);
+                            if (index >= 0) {
+                              setTimeout(() => scrollFn(index), 50);
+                            }
                           }
-                        }
-                      }}
-                      onEndReached={handlePlaylistsLoadMore}
-                      getContextMenuActions={(item) => {
-                        const playlist = playlists().find((p) => p.playlist_id === item.id);
-                        if (!playlist) return [];
+                        }}
+                        onEndReached={handlePlaylistsLoadMore}
+                        getContextMenuActions={(item) => {
+                          const playlist = playlists().find((p) => p.playlist_id === item.id);
+                          if (!playlist) return [];
 
-                        return usePlaylistContextMenu(
-                          {
-                            id: playlist.playlist_id,
-                            title: playlist.title,
-                            song_count: playlist.song_count,
-                          },
-                          {
-                            showPlayActions: true,
-                            isFavorite: false, // playlist-level favorites not yet implemented on frontend
-                          }
-                        );
-                      }}
-                    />
+                          return usePlaylistContextMenu(
+                            {
+                              id: playlist.playlist_id,
+                              title: playlist.title,
+                              song_count: playlist.song_count,
+                            },
+                            {
+                              showPlayActions: true,
+                              isFavorite: false, // playlist-level favorites not yet implemented on frontend
+                            }
+                          );
+                        }}
+                      />
+                    </div>
                     <div class="sticky bottom-0 bg-[var(--color-background-primary)] p-4">
                       <Button variant="primary" fullWidth={true} onClick={handleCreatePlaylist}>
                         create playlist

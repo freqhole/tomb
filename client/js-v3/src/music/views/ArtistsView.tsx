@@ -39,12 +39,32 @@ export function ArtistsView(props: ArtistsViewProps) {
   const params = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
 
+  // restore selected artist from URL params or history state on mount
+  const initialArtistId =
+    params.id ||
+    (typeof window !== "undefined"
+      ? (window.history.state?.selectedArtistId as string | null)
+      : null);
+
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
   // track whether detail is showing on narrow (for back navigation)
-  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(false);
+  // initialize to true if we have an initial ID and are on a narrow screen
+  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
+    typeof window !== "undefined" && window.innerWidth < NARROW_BREAKPOINT && !!initialArtistId
+  );
+
+  const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(initialArtistId);
+  const [sortBy, setSortBy] = createSignal("name");
+  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
+  const [currentLetter, setCurrentLetter] = createSignal<string | null>(null);
+  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
+  const [isLocalClick, setIsLocalClick] = createSignal(false);
+
+  // track query changes to force list reset
+  const [isResetting, setIsResetting] = createSignal(false);
 
   onMount(() => {
     const handleResize = () => {
@@ -61,23 +81,6 @@ export function ArtistsView(props: ArtistsViewProps) {
       clearPageInfo(); // clear page info when leaving view
     });
   });
-
-  // restore selected artist from URL params or history state on mount
-  const initialArtistId =
-    params.id ||
-    (typeof window !== "undefined"
-      ? (window.history.state?.selectedArtistId as string | null)
-      : null);
-
-  const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(initialArtistId);
-  const [sortBy, setSortBy] = createSignal("name");
-  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
-  const [currentLetter, setCurrentLetter] = createSignal<string | null>(null);
-  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
-  const [isLocalClick, setIsLocalClick] = createSignal(false);
-
-  // track query changes to force list reset
-  const [isResetting, setIsResetting] = createSignal(false);
 
   // save selected artist to history state when it changes
   createEffect(() => {

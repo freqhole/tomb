@@ -36,12 +36,35 @@ export function GenresView(props: GenresViewProps) {
   const params = useParams<{ genreId?: string }>();
   const [searchParams] = useSearchParams();
 
+  // use genre from URL params, fallback to history state
+  const initialGenreId =
+    params.genreId ||
+    (typeof window !== "undefined"
+      ? (window.history.state?.selectedGenreId as string | null)
+      : null);
+
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
   // track whether detail is showing on narrow (for back navigation)
-  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(false);
+  // initialize to true if we have an initial ID and are on a narrow screen
+  const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
+    typeof window !== "undefined" && window.innerWidth < NARROW_BREAKPOINT && !!initialGenreId
+  );
+
+  const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(initialGenreId);
+  const [sortBy, setSortBy] = createSignal("name");
+  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
+
+  // store scrollToIndex function from virtualizer
+  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
+
+  // track if genre change is from local click (don't scroll) vs navigation (do scroll)
+  const [isLocalClick, setIsLocalClick] = createSignal(false);
+
+  // track query changes to force list reset
+  const [isResetting, setIsResetting] = createSignal(false);
 
   onMount(() => {
     const handleResize = () => {
@@ -58,26 +81,6 @@ export function GenresView(props: GenresViewProps) {
       clearPageInfo(); // clear page info when leaving view
     });
   });
-
-  // use genre from URL params, fallback to history state
-  const initialGenreId =
-    params.genreId ||
-    (typeof window !== "undefined"
-      ? (window.history.state?.selectedGenreId as string | null)
-      : null);
-
-  const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(initialGenreId);
-  const [sortBy, setSortBy] = createSignal("name");
-  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
-
-  // store scrollToIndex function from virtualizer
-  const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
-
-  // track if genre change is from local click (don't scroll) vs navigation (do scroll)
-  const [isLocalClick, setIsLocalClick] = createSignal(false);
-
-  // track query changes to force list reset
-  const [isResetting, setIsResetting] = createSignal(false);
 
   // update selected genre when URL param changes and scroll to it (only if from navigation)
   createEffect(() => {
