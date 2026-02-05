@@ -13,6 +13,7 @@ import {
 } from "solid-js";
 import { CollectionCard } from "../cards/CollectionCard";
 import { formatLongDuration } from "../../utils/formatDuration";
+import { useScrollRestore } from "../../utils/scrollRestore";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 
@@ -29,6 +30,7 @@ export interface VirtualGenreDetailSong {
   year: number | null;
   images?: import("../../music/services/storage/types").ImageMetadata[];
   album_images?: import("../../music/services/storage/types").ImageMetadata[];
+  album_is_favorite?: boolean;
 }
 
 interface AlbumGroup {
@@ -40,6 +42,7 @@ interface AlbumGroup {
   songCount: number;
   totalDuration: number;
   images?: import("../../music/services/storage/types").ImageMetadata[];
+  isFavorite?: boolean;
 }
 
 interface ArtistGroup {
@@ -55,23 +58,49 @@ export interface VirtualGenreDetailProps {
   onAlbumClick?: (albumId: string) => void;
   /** callback when album play button is clicked */
   onPlayAlbum?: (albumId: string) => void;
+  /** callback when album favorite is toggled */
+  onAlbumFavoriteToggle?: (albumId: string, isFavorite: boolean) => void;
   /** callback when artist name is clicked */
   onArtistClick?: (artistId: string) => void;
   /** callback to get context menu actions for an album */
   getAlbumContextMenuActions?: (albumId: string) => MenuAction[];
   /** number of columns in grid */
   gridColumns?: number;
-  /** getter function for scroll container element */
-  getScrollElement?: () => HTMLElement | null;
+  /** height of the container - required for virtualization */
+  height: number;
+  /** optional header content that scrolls with the list (e.g., stats cards on mobile) */
+  header?: JSX.Element;
+  /** unique key for scroll restoration (e.g., 'genre-detail-rock') */
+  scrollRestoreKey?: string;
   /** additional css classes */
   class?: string;
 }
 
 export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element {
-  let scrollElementRef: HTMLDivElement | undefined;
+  // component OWNS its scroll container - this is the key pattern from working virtualizers
+  let parentRef: HTMLDivElement | undefined;
   const [isNarrow, setIsNarrow] = createSignal(window.innerWidth < NARROW_BREAKPOINT);
+  const [containerWidth, setContainerWidth] = createSignal(0);
+  const gap = 16;
+
+  // scroll restoration using browser history state
+  const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "genre-detail");
 
   const gridColumns = () => (isNarrow() ? 2 : (props.gridColumns ?? 5));
+
+  // calculate card height dynamically based on container width
+  const getCardHeight = () => {
+    const width = containerWidth();
+    if (width === 0) {
+      // initial estimate before measurement
+      return 280;
+    }
+    const cols = gridColumns();
+    const effectiveWidth = width - gap * 2; // padding on sides
+    const columnWidth = (effectiveWidth - gap * (cols - 1)) / cols;
+    const textHeight = 100; // space for title, subtitle, metadata
+    return columnWidth + textHeight;
+  };
 
   // group albums by artist
   const artistGroups = createMemo((): ArtistGroup[] => {
@@ -90,12 +119,17 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
           songCount: 0,
           totalDuration: 0,
           images: song.album_images, // use album images, not song images
+          isFavorite: song.album_is_favorite,
         });
       }
 
       const album = albumsMap.get(song.album_id)!;
       album.songCount += 1;
       album.totalDuration += song.duration_seconds;
+      // update isFavorite if any song has it set (they should all be consistent)
+      if (song.album_is_favorite !== undefined) {
+        album.isFavorite = song.album_is_favorite;
+      }
     });
 
     // then, group albums by artist
@@ -129,50 +163,74 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
     return sortedArtists;
   });
 
-  // getter for scroll element - use prop getter or fall back to local ref
-  const getScrollElement = () =>
-    props.getScrollElement?.() ?? scrollElementRef?.parentElement?.parentElement ?? null;
+  // reactive count for virtualizer
+  const groupCount = createMemo(() => artistGroups().length);
 
-  // track scroll element dimensions with ResizeObserver to trigger re-renders
-  const [scrollHeight, setScrollHeight] = createSignal(0);
+  // estimate row size - needs access to current groups and columns
+  // 60px for artist header, cardHeight for each album row, 32px for padding
+  const estimateRowSize = (index: number) => {
+    const artist = artistGroups()[index];
+    if (!artist) return 0;
+    const albumRows = Math.ceil(artist.albums.length / gridColumns());
+    return 60 + albumRows * (getCardHeight() + gap) + 32;
+  };
 
-  createEffect(() => {
-    const scrollEl = getScrollElement();
-    if (!scrollEl) return;
+  // single stable virtualizer with reactive count
+  // getScrollElement returns parentRef directly - component owns its scroll container
+  const rowVirtualizer = createVirtualizer({
+    get count() {
+      return groupCount();
+    },
+    getScrollElement: () => parentRef ?? null,
+    estimateSize: estimateRowSize,
+    overscan: 2,
+  });
 
+  // measure container width and remeasure virtualizer
+  onMount(() => {
+    if (!parentRef) return;
+
+    // set initial width
+    setContainerWidth(parentRef.clientWidth);
+
+    // restore scroll position from history state (use double RAF to ensure virtualizer is ready)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (parentRef) {
+          restoreScroll(parentRef);
+        }
+      });
+    });
+
+    // observe for size changes
     const observer = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height ?? 0;
-      if (height > 0) {
-        setScrollHeight(height);
+      const width = entries[0]?.contentRect.width;
+      if (width && width > 0) {
+        setContainerWidth(width);
       }
     });
 
-    observer.observe(scrollEl);
-    if (scrollEl.clientHeight > 0) {
-      setScrollHeight(scrollEl.clientHeight);
-    }
+    observer.observe(parentRef);
 
-    onCleanup(() => observer.disconnect());
+    // save scroll position while scrolling
+    const handleScroll = () => {
+      if (parentRef) {
+        saveScroll(parentRef);
+      }
+    };
+    parentRef.addEventListener("scroll", handleScroll, { passive: true });
+
+    onCleanup(() => {
+      observer.disconnect();
+      parentRef?.removeEventListener("scroll", handleScroll);
+    });
   });
 
-  // create virtualizer in memo - recreate when dependencies change (like VirtualItemList)
-  const rowVirtualizer = createMemo(() => {
-    // track these for reactivity - when they change, memo re-runs
-    const groups = artistGroups();
-    const height = scrollHeight();
-    const cols = gridColumns();
-
-    return createVirtualizer({
-      count: groups.length,
-      getScrollElement,
-      estimateSize: (index) => {
-        const artist = groups[index];
-        if (!artist) return 0;
-        const albumRows = Math.ceil(artist.albums.length / cols);
-        return 60 + albumRows * 280 + 32;
-      },
-      overscan: 2,
-    });
+  // remeasure virtualizer when columns or container width changes
+  createEffect(() => {
+    gridColumns(); // track
+    containerWidth(); // track
+    rowVirtualizer.measure();
   });
 
   // listen for window resize to update narrow state
@@ -191,10 +249,16 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
   });
 
   return (
-    <div ref={scrollElementRef!} class={props.class || ""}>
+    <div
+      ref={parentRef!}
+      class={`overflow-auto ${props.class || ""}`}
+      style={{ height: `${props.height}px` }}
+    >
+      {/* optional header that scrolls with content (e.g., stats on mobile) */}
+      {props.header}
       <div
         style={{
-          height: `${rowVirtualizer().getTotalSize()}px`,
+          height: `${rowVirtualizer.getTotalSize()}px`,
           width: "100%",
           position: "relative",
         }}
@@ -207,9 +271,9 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
             </div>
           }
         >
-          <Index each={rowVirtualizer().getVirtualItems()}>
+          <For each={rowVirtualizer.getVirtualItems()}>
             {(virtualRow) => {
-              const artist = () => artistGroups()[virtualRow().index];
+              const artist = () => artistGroups()[virtualRow.index];
 
               return (
                 <div
@@ -218,7 +282,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                     top: 0,
                     left: 0,
                     width: "100%",
-                    transform: `translateY(${virtualRow().start}px)`,
+                    transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
                   <div class="px-4 md:px-6 py-4">
@@ -242,44 +306,49 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                         "grid-template-columns": `repeat(${gridColumns()}, minmax(0, 1fr))`,
                       }}
                     >
-                      <For each={artist().albums}>
-                        {(album) => {
-                          const contextMenuActions = props.getAlbumContextMenuActions?.(
-                            album.albumId
-                          );
+                      <Index each={artist().albums}>
+                        {(albumAccessor) => {
+                          const album = () => albumAccessor();
+                          const contextMenuActions = () =>
+                            props.getAlbumContextMenuActions?.(album().albumId);
 
-                          const card = (
+                          const card = () => (
                             <CollectionCard
                               collection={{
-                                id: album.albumId,
-                                title: album.albumTitle,
-                                subtitle: `${album.songCount} songs`,
+                                id: album().albumId,
+                                title: album().albumTitle,
+                                subtitle: `${album().songCount} songs`,
                                 domainType: "album",
-                                year: album.year,
-                                trackCount: album.songCount,
-                                totalDuration: formatLongDuration(album.totalDuration),
-                                images: album.images,
+                                year: album().year,
+                                trackCount: album().songCount,
+                                totalDuration: formatLongDuration(album().totalDuration),
+                                images: album().images,
+                                isFavorite: album().isFavorite,
                               }}
                               showYear={true}
                               showDuration={true}
-                              onClick={() => props.onAlbumClick?.(album.albumId)}
-                              onPlay={() => props.onPlayAlbum?.(album.albumId)}
+                              onClick={() => props.onAlbumClick?.(album().albumId)}
+                              onPlay={() => props.onPlayAlbum?.(album().albumId)}
+                              onFavoriteToggle={(_, isFavorite) =>
+                                props.onAlbumFavoriteToggle?.(album().albumId, isFavorite)
+                              }
                             />
                           );
 
-                          return contextMenuActions && contextMenuActions.length > 0 ? (
-                            <ContextMenu actions={contextMenuActions}>{card}</ContextMenu>
+                          const actions = contextMenuActions();
+                          return actions && actions.length > 0 ? (
+                            <ContextMenu actions={actions}>{card()}</ContextMenu>
                           ) : (
-                            card
+                            card()
                           );
                         }}
-                      </For>
+                      </Index>
                     </div>
                   </div>
                 </div>
               );
             }}
-          </Index>
+          </For>
         </Show>
       </div>
     </div>

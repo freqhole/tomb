@@ -216,6 +216,7 @@ function getQueryKeysToInvalidate(
         queryKeys.favorites.all(), // favorites list
         ["artist", "songs"], // artist songs contain album_is_favorite
         ["album", "songs"], // album detail views show album favorite status
+        ["genre", "songs"], // genre songs contain album_is_favorite
       ];
     case "artist":
       return [

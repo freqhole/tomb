@@ -10,11 +10,10 @@ import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
-import { getCurrentRemote, getDataSource } from "../data";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu, useGenreContextMenu } from "../services/contextMenu";
-import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 
@@ -268,6 +267,16 @@ export function GenresView(props: GenresViewProps) {
     await setQueue([...currentQueue, ...sortedSongs]);
   };
 
+  // toggle album favorite
+  const favMutation = useToggleFavoriteMutation();
+  const handleAlbumFavoriteToggle = (albumId: string, isFavorite: boolean) => {
+    favMutation.mutate({
+      targetType: "album",
+      targetId: albumId,
+      isFavorite,
+    });
+  };
+
   // navigate to artist detail
   const handleArtistClick = (artistId: string) => {
     navigate(buildRoute(`/artists/${artistId}`));
@@ -421,6 +430,7 @@ export function GenresView(props: GenresViewProps) {
           onAddToQueue={handleAddToQueue}
           onAlbumClick={handleAlbumClick}
           onPlayAlbum={handlePlayAlbum}
+          onAlbumFavoriteToggle={handleAlbumFavoriteToggle}
           onAddAlbumToQueue={handleAddAlbumToQueue}
           onArtistClick={handleArtistClick}
           getAlbumContextMenuActions={(albumId) => {

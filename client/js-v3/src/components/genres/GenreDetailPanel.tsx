@@ -1,12 +1,11 @@
 // reusable genre detail panel component for displaying genre info with albums grouped by artist
-import { createMemo, createSignal, onMount, Show, type JSX } from "solid-js";
+import { createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Button } from "../buttons/Button";
 import { formatDuration, formatNumber, StatsCard, StatsGrid } from "../cards/StatsCard";
 import { HeadingSection } from "../layout/HeadingSection";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { VirtualGenreDetail } from "../virtualized/VirtualGenreDetail";
-import { useScrollRestore } from "../../utils/scrollRestore";
 
 export interface GenreDetailPanelGenre {
   genre_id: string;
@@ -24,6 +23,8 @@ export interface GenreDetailPanelSong {
   album_title: string;
   duration_seconds: number;
   year: number | null;
+  album_images?: import("../../music/services/storage/types").ImageMetadata[];
+  album_is_favorite?: boolean;
 }
 
 export interface GenreDetailPanelProps {
@@ -41,6 +42,8 @@ export interface GenreDetailPanelProps {
   onAlbumClick?: (albumId: string) => void;
   /** play specific album */
   onPlayAlbum?: (albumId: string) => void;
+  /** toggle album favorite */
+  onAlbumFavoriteToggle?: (albumId: string, isFavorite: boolean) => void;
   /** add album to queue */
   onAddAlbumToQueue?: (albumId: string) => void;
   /** navigate to artist detail */
@@ -56,27 +59,8 @@ export interface GenreDetailPanelProps {
 }
 
 export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
-  const [scrollContainerRef, setScrollContainerRef] = createSignal<HTMLDivElement | null>(null);
-
-  // scroll restoration using browser history state
-  const { restoreScroll, saveScroll } = useScrollRestore(`genre-detail-${props.genre.genre_id}`);
-
-  // restore scroll position on mount
-  onMount(() => {
-    const container = scrollContainerRef();
-    if (container) {
-      // use double RAF to ensure virtualizer has calculated sizes
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          restoreScroll(scrollContainerRef());
-        });
-      });
-    }
-  });
-
-  const handleScroll = () => {
-    saveScroll(scrollContainerRef());
-  };
+  let containerRef: HTMLDivElement | undefined;
+  const [listHeight, setListHeight] = createSignal(400); // default height
 
   const totalDuration = createMemo(() => {
     return props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
@@ -97,58 +81,77 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
     props.genre.album_count > 0 ? props.genre.album_count : actualAlbumCount()
   );
 
-  return (
-    <div class={`flex flex-col h-full ${props.class || ""}`}>
-      {/* scrollable content */}
-      <div ref={setScrollContainerRef} class="flex-1 overflow-y-auto" onScroll={handleScroll}>
-        {/* genre header - sticky on desktop, scrolls on narrow */}
-        <HeadingSection
-          title={props.genre.name}
-          titleElement={<MarqueeText text={props.genre.name} hoverOnly={true} />}
-          variant="detail"
-          sticky
-          border
-          showBackButton={props.showBackButton}
-          onBack={props.onBack}
-          class="px-4 md:px-6 py-3 md:py-4"
-        >
-          {/* stats hidden on narrow - they scroll below */}
-          <div class="hidden md:block">
-            <StatsGrid columns={3} gap="md" class="mb-2">
-              <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
-              <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
-              <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
-            </StatsGrid>
-          </div>
-        </HeadingSection>
+  // measure available height for the virtualized list
+  onMount(() => {
+    if (!containerRef) return;
 
-        {/* stats shown inline on narrow - scrolls with content */}
-        <div class="md:hidden px-4 py-3">
-          <StatsGrid columns={3} gap="sm">
+    const calculateHeight = () => {
+      if (!containerRef) return;
+      // header ~60px, buttons ~56px, some padding
+      const headerHeight = 60;
+      const buttonsHeight = 56;
+      const padding = 16;
+      const available = containerRef.clientHeight - headerHeight - buttonsHeight - padding;
+      setListHeight(Math.max(200, available));
+    };
+
+    calculateHeight();
+
+    const observer = new ResizeObserver(() => calculateHeight());
+    observer.observe(containerRef);
+
+    onCleanup(() => observer.disconnect());
+  });
+
+  return (
+    <div ref={containerRef} class={`flex flex-col h-full ${props.class || ""}`}>
+      {/* genre header - fixed at top */}
+      <HeadingSection
+        title={props.genre.name}
+        titleElement={<MarqueeText text={props.genre.name} hoverOnly={true} />}
+        variant="detail"
+        border
+        showBackButton={props.showBackButton}
+        onBack={props.onBack}
+        class="px-4 md:px-6 py-2 md:py-4"
+      >
+        {/* stats in header on desktop only - on mobile they scroll with content */}
+        <div class="hidden md:block">
+          <StatsGrid columns={3} gap="md" class="mb-2">
             <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
             <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
             <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
           </StatsGrid>
         </div>
+      </HeadingSection>
 
-        {/* virtualized artists with albums */}
-        <div class="flex-1 px-4 md:px-6 py-3 md:py-4">
-          <Show when={scrollContainerRef()}>
-            <VirtualGenreDetail
-              songs={props.songs}
-              onAlbumClick={props.onAlbumClick}
-              onPlayAlbum={props.onPlayAlbum}
-              onArtistClick={props.onArtistClick}
-              getAlbumContextMenuActions={props.getAlbumContextMenuActions}
-              gridColumns={5}
-              getScrollElement={() => scrollContainerRef()}
-            />
-          </Show>
-        </div>
+      {/* virtualized artists with albums - owns its own scroll container */}
+      <div class="flex-1 min-h-0">
+        <VirtualGenreDetail
+          songs={props.songs}
+          onAlbumClick={props.onAlbumClick}
+          onPlayAlbum={props.onPlayAlbum}
+          onAlbumFavoriteToggle={props.onAlbumFavoriteToggle}
+          onArtistClick={props.onArtistClick}
+          getAlbumContextMenuActions={props.getAlbumContextMenuActions}
+          gridColumns={5}
+          height={listHeight()}
+          scrollRestoreKey={`genre-detail-${props.genre.genre_id}`}
+          header={
+            // stats shown on mobile only - scrolls with content
+            <div class="md:hidden px-4 py-3">
+              <StatsGrid columns={3} gap="sm">
+                <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
+                <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
+                <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
+              </StatsGrid>
+            </div>
+          }
+        />
       </div>
 
       {/* sticky action buttons */}
-      <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+      <div class="bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
         <Button variant="primary" onClick={props.onPlayAll}>
           <span class="hidden md:inline">play all</span>
           <span class="md:hidden">play</span>

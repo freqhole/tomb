@@ -293,6 +293,28 @@ export function updateAlbumInCache(
       };
       queryClient.setQueryData(queryKey, updatedData);
     }
+
+    // also update genre songs queries (genre detail view shows album favorite hearts)
+    const genreSongsQueries = queryClient.getQueriesData<{
+      items: Song[];
+    }>({
+      queryKey: ["genre", "songs"],
+      exact: false,
+    });
+
+    for (const [queryKey, data] of genreSongsQueries) {
+      if (!data?.items) continue;
+
+      const updatedData = {
+        ...data,
+        items: data.items.map(song =>
+          song.album_id === albumId
+            ? { ...song, album_is_favorite: updates.is_favorite }
+            : song
+        ),
+      };
+      queryClient.setQueryData(queryKey, updatedData);
+    }
   }
 }
 
