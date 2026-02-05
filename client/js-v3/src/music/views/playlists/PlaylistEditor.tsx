@@ -4,10 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { Button } from "../../../components/buttons/Button";
 import { ConfirmDialog } from "../../../components/dialogs/ConfirmDialog";
 import { toast } from "../../../components/feedback/Toast";
-import {
-  useDeletePlaylistMutation,
-  useUpdatePlaylistMutation,
-} from "../../queries/playlists";
+import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../queries/playlists";
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
 import type { Playlist } from "../../services/storage/types";
@@ -22,12 +19,8 @@ export interface PlaylistEditorProps {
 
 export function PlaylistEditor(props: PlaylistEditorProps) {
   const [editTitle, setEditTitle] = createSignal(props.playlist.title);
-  const [editDescription, setEditDescription] = createSignal(
-    props.playlist.description || "",
-  );
-  const [playlistImages, setPlaylistImages] = createSignal(
-    props.playlist.images || [],
-  );
+  const [editDescription, setEditDescription] = createSignal(props.playlist.description || "");
+  const [playlistImages, setPlaylistImages] = createSignal(props.playlist.images || []);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
   const [uploadingImage, setUploadingImage] = createSignal(false);
@@ -88,7 +81,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const handleTogglePrimary = async (index: number) => {
     const imageToSet = playlistImages()[index];
     const blobId = imageToSet.remote_blob_id || imageToSet.local_blob_id;
-    
+
     if (!blobId) {
       toast.error("no blob ID found for this image");
       return;
@@ -122,7 +115,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const handleRemoveImage = async (index: number) => {
     const imageToRemove = playlistImages()[index];
     const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
-    
+
     if (!blobId) {
       toast.error("no blob ID found for this image");
       return;
@@ -169,10 +162,9 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       props.onSaved?.();
     } catch (error) {
       console.error("failed to update playlist:", error);
-      toast.error(
-        error instanceof Error ? error.message : "failed to save changes",
-        { title: "save failed" },
-      );
+      toast.error(error instanceof Error ? error.message : "failed to save changes", {
+        title: "save failed",
+      });
     }
   };
 
@@ -204,10 +196,9 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       props.onDeleted?.();
     } catch (error) {
       console.error("failed to delete playlist:", error);
-      toast.error(
-        error instanceof Error ? error.message : "failed to delete playlist",
-        { title: "delete failed" },
-      );
+      toast.error(error instanceof Error ? error.message : "failed to delete playlist", {
+        title: "delete failed",
+      });
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);

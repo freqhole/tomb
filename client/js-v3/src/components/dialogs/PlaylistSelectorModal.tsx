@@ -47,12 +47,9 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     }
 
     // gather all playlists from infinite query pages
-    const allPlaylists =
-      allPlaylistsQuery.data?.pages.flatMap((page) => page.items) || [];
+    const allPlaylists = allPlaylistsQuery.data?.pages.flatMap((page) => page.items) || [];
 
-    return allPlaylists.filter((playlist) =>
-      playlist.title.toLowerCase().includes(query),
-    );
+    return allPlaylists.filter((playlist) => playlist.title.toLowerCase().includes(query));
   });
 
   const handleSelectPlaylist = async (playlist: PlaylistSummary) => {
@@ -69,8 +66,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       props.onClose();
     } catch (error) {
       console.error("failed to add songs to playlist:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "unknown error";
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
       toast.error(`failed to add songs: ${errorMessage}`, {
         title: "error",
       });
@@ -79,10 +75,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
   const handleCreatePlaylist = async () => {
     // use search input value if present, otherwise use new playlist name input, or generate default
-    const name =
-      searchQuery().trim() ||
-      newPlaylistName().trim() ||
-      `new playlist ${Date.now()}`;
+    const name = searchQuery().trim() || newPlaylistName().trim() || `new playlist ${Date.now()}`;
 
     try {
       const newPlaylist = await createPlaylistMutation.mutateAsync({
@@ -107,8 +100,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       props.onClose();
     } catch (error) {
       console.error("failed to create playlist:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "unknown error";
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
       toast.error(`failed to create playlist: ${errorMessage}`, {
         title: "error",
       });
@@ -122,8 +114,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     props.onClose();
   };
 
-  const isLoading = () =>
-    addSongsMutation.isPending || createPlaylistMutation.isPending;
+  const isLoading = () => addSongsMutation.isPending || createPlaylistMutation.isPending;
 
   return (
     <Modal
@@ -157,14 +148,8 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
                 >
                   cancel
                 </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleCreatePlaylist}
-                  disabled={isLoading()}
-                >
-                  {createPlaylistMutation.isPending
-                    ? "creating..."
-                    : "create & add"}
+                <Button variant="primary" onClick={handleCreatePlaylist} disabled={isLoading()}>
+                  {createPlaylistMutation.isPending ? "creating..." : "create & add"}
                 </Button>
               </div>
             </div>
@@ -252,8 +237,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
                       </div>
                       <Show when={playlist.song_count > 0}>
                         <div class="body-xs text-[var(--color-text-tertiary)]">
-                          {playlist.song_count}{" "}
-                          {playlist.song_count === 1 ? "song" : "songs"}
+                          {playlist.song_count} {playlist.song_count === 1 ? "song" : "songs"}
                         </div>
                       </Show>
                     </div>
