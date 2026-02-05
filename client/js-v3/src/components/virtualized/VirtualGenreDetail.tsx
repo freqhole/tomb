@@ -3,9 +3,9 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   For,
+  Index,
   onCleanup,
   onMount,
   Show,
@@ -61,27 +61,17 @@ export interface VirtualGenreDetailProps {
   getAlbumContextMenuActions?: (albumId: string) => MenuAction[];
   /** number of columns in grid */
   gridColumns?: number;
-  /** scroll container element ref - if not provided, component manages its own scroll */
-  scrollContainerRef?: HTMLElement | null;
+  /** getter function for scroll container element */
+  getScrollElement?: () => HTMLElement | null;
   /** additional css classes */
   class?: string;
 }
 
 export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element {
   let scrollElementRef: HTMLDivElement | undefined;
-  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
   const [isNarrow, setIsNarrow] = createSignal(window.innerWidth < NARROW_BREAKPOINT);
 
   const gridColumns = () => (isNarrow() ? 2 : (props.gridColumns ?? 5));
-
-  // get the scroll element - prefer explicit prop, fall back to walking up DOM
-  const getScrollElement = () => {
-    if (props.scrollContainerRef) {
-      return props.scrollContainerRef;
-    }
-    // fallback to parent chain (fragile, but maintains backward compatibility)
-    return scrollElementRef?.parentElement?.parentElement || null;
-  };
 
   // group albums by artist
   const artistGroups = createMemo((): ArtistGroup[] => {
@@ -139,49 +129,50 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
     return sortedArtists;
   });
 
-  // recreate virtualizer when data or column count changes
-  // NOTE: do NOT track containerHeight here - the virtualizer handles container resizing internally
-  // tracking it caused an infinite loop: height change -> virtualizer recreate -> layout change -> height change
-  const virtualizer = createMemo((prev) => {
-    const scrollElement = getScrollElement();
+  // getter for scroll element - use prop getter or fall back to local ref
+  const getScrollElement = () =>
+    props.getScrollElement?.() ?? scrollElementRef?.parentElement?.parentElement ?? null;
 
-    // track dependencies - must read all reactive values here
-    const count = artistGroups().length;
-    const cols = gridColumns();
+  // track scroll element dimensions with ResizeObserver to trigger re-renders
+  const [scrollHeight, setScrollHeight] = createSignal(0);
 
-    // save scroll position before recreating
-    if (prev && scrollElement) {
-      setSavedScrollOffset(scrollElement.scrollTop);
+  createEffect(() => {
+    const scrollEl = getScrollElement();
+    if (!scrollEl) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height ?? 0;
+      if (height > 0) {
+        setScrollHeight(height);
+      }
+    });
+
+    observer.observe(scrollEl);
+    if (scrollEl.clientHeight > 0) {
+      setScrollHeight(scrollEl.clientHeight);
     }
 
-    const newVirtualizer = createVirtualizer({
-      count: count,
-      getScrollElement: () => getScrollElement(),
+    onCleanup(() => observer.disconnect());
+  });
+
+  // create virtualizer in memo - recreate when dependencies change (like VirtualItemList)
+  const rowVirtualizer = createMemo(() => {
+    // track these for reactivity - when they change, memo re-runs
+    const groups = artistGroups();
+    const height = scrollHeight();
+    const cols = gridColumns();
+
+    return createVirtualizer({
+      count: groups.length,
+      getScrollElement,
       estimateSize: (index) => {
-        const groups = artistGroups();
         const artist = groups[index];
         if (!artist) return 0;
-        // header: 60px, albums in grid: 280px per row
         const albumRows = Math.ceil(artist.albums.length / cols);
-        return 60 + albumRows * 280 + 32; // header + album rows + spacing
+        return 60 + albumRows * 280 + 32;
       },
       overscan: 2,
     });
-
-    // restore scroll after recreation
-    const savedOffset = savedScrollOffset();
-    if (savedOffset > 0) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const el = getScrollElement();
-          if (el) {
-            el.scrollTop = savedOffset;
-          }
-        });
-      });
-    }
-
-    return newVirtualizer;
   });
 
   // listen for window resize to update narrow state
@@ -203,7 +194,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
     <div ref={scrollElementRef!} class={props.class || ""}>
       <div
         style={{
-          height: `${virtualizer().getTotalSize()}px`,
+          height: `${rowVirtualizer().getTotalSize()}px`,
           width: "100%",
           position: "relative",
         }}
@@ -216,9 +207,9 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
             </div>
           }
         >
-          <For each={virtualizer().getVirtualItems()}>
+          <Index each={rowVirtualizer().getVirtualItems()}>
             {(virtualRow) => {
-              const artist = artistGroups()[virtualRow.index];
+              const artist = () => artistGroups()[virtualRow().index];
 
               return (
                 <div
@@ -227,20 +218,20 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                     top: 0,
                     left: 0,
                     width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
+                    transform: `translateY(${virtualRow().start}px)`,
                   }}
                 >
                   <div class="px-4 md:px-6 py-4">
                     {/* artist header */}
                     <div class="flex flex-col md:flex-row md:items-center gap-1 md:gap-3 mb-4">
                       <button
-                        onClick={() => props.onArtistClick?.(artist.artistId)}
+                        onClick={() => props.onArtistClick?.(artist().artistId)}
                         class="min-w-0 overflow-hidden text-lg md:text-xl font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-500)] transition-colors text-left"
                       >
-                        <MarqueeText text={artist.artistName} hoverOnly={true} />
+                        <MarqueeText text={artist().artistName} hoverOnly={true} />
                       </button>
                       <span class="text-xs md:text-sm text-[var(--color-text-tertiary)] shrink-0">
-                        {artist.albums.length} {artist.albums.length === 1 ? "album" : "albums"}
+                        {artist().albums.length} {artist().albums.length === 1 ? "album" : "albums"}
                       </span>
                     </div>
 
@@ -251,7 +242,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                         "grid-template-columns": `repeat(${gridColumns()}, minmax(0, 1fr))`,
                       }}
                     >
-                      <For each={artist.albums}>
+                      <For each={artist().albums}>
                         {(album) => {
                           const contextMenuActions = props.getAlbumContextMenuActions?.(
                             album.albumId
@@ -288,7 +279,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                 </div>
               );
             }}
-          </For>
+          </Index>
         </Show>
       </div>
     </div>

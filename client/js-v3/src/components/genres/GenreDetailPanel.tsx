@@ -1,11 +1,12 @@
 // reusable genre detail panel component for displaying genre info with albums grouped by artist
-import { createMemo, createSignal, type JSX } from "solid-js";
+import { createMemo, createSignal, onMount, Show, type JSX } from "solid-js";
 import { Button } from "../buttons/Button";
 import { formatDuration, formatNumber, StatsCard, StatsGrid } from "../cards/StatsCard";
 import { HeadingSection } from "../layout/HeadingSection";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { VirtualGenreDetail } from "../virtualized/VirtualGenreDetail";
+import { useScrollRestore } from "../../utils/scrollRestore";
 
 export interface GenreDetailPanelGenre {
   genre_id: string;
@@ -57,6 +58,26 @@ export interface GenreDetailPanelProps {
 export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
   const [scrollContainerRef, setScrollContainerRef] = createSignal<HTMLDivElement | null>(null);
 
+  // scroll restoration using browser history state
+  const { restoreScroll, saveScroll } = useScrollRestore(`genre-detail-${props.genre.genre_id}`);
+
+  // restore scroll position on mount
+  onMount(() => {
+    const container = scrollContainerRef();
+    if (container) {
+      // use double RAF to ensure virtualizer has calculated sizes
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          restoreScroll(scrollContainerRef());
+        });
+      });
+    }
+  });
+
+  const handleScroll = () => {
+    saveScroll(scrollContainerRef());
+  };
+
   const totalDuration = createMemo(() => {
     return props.songs.reduce((sum, song) => sum + song.duration_seconds, 0);
   });
@@ -79,7 +100,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>
       {/* scrollable content */}
-      <div ref={setScrollContainerRef} class="flex-1 overflow-y-auto">
+      <div ref={setScrollContainerRef} class="flex-1 overflow-y-auto" onScroll={handleScroll}>
         {/* genre header - sticky on desktop, scrolls on narrow */}
         <HeadingSection
           title={props.genre.name}
@@ -112,15 +133,17 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
 
         {/* virtualized artists with albums */}
         <div class="flex-1 px-4 md:px-6 py-3 md:py-4">
-          <VirtualGenreDetail
-            songs={props.songs}
-            onAlbumClick={props.onAlbumClick}
-            onPlayAlbum={props.onPlayAlbum}
-            onArtistClick={props.onArtistClick}
-            getAlbumContextMenuActions={props.getAlbumContextMenuActions}
-            gridColumns={5}
-            scrollContainerRef={scrollContainerRef()}
-          />
+          <Show when={scrollContainerRef()}>
+            <VirtualGenreDetail
+              songs={props.songs}
+              onAlbumClick={props.onAlbumClick}
+              onPlayAlbum={props.onPlayAlbum}
+              onArtistClick={props.onArtistClick}
+              getAlbumContextMenuActions={props.getAlbumContextMenuActions}
+              gridColumns={5}
+              getScrollElement={() => scrollContainerRef()}
+            />
+          </Show>
         </div>
       </div>
 
