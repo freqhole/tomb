@@ -16,6 +16,7 @@ use clap::{Parser, Subcommand};
 mod analytics;
 mod config;
 mod database;
+mod dir_tags;
 mod jobs;
 mod maintenance;
 mod music;
@@ -27,6 +28,7 @@ mod wordlist;
 pub use analytics::AnalyticsAction;
 pub use config::ConfigAction;
 pub use database::DatabaseAction;
+pub use dir_tags::DirTagsAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
@@ -114,6 +116,14 @@ pub enum Commands {
         #[arg(long, global = true)]
         json_output: bool,
     },
+    /// Directory tag rules (auto-tag albums based on file location)
+    DirTags {
+        #[command(subcommand)]
+        action: DirTagsAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
+    },
 }
 
 // Public handler functions for use in main.rs
@@ -167,6 +177,12 @@ pub async fn handle_maintenance(
 pub async fn handle_analytics(action: AnalyticsAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = analytics::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_dir_tags(action: DirTagsAction, json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = dir_tags::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
 

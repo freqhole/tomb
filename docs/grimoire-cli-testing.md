@@ -1623,6 +1623,155 @@ sqlite3 $DATABASE_URL "SELECT u.username, COUNT(*) as plays FROM music_play_even
 - Duration calculations convert milliseconds to hours/seconds
 - Deleted entities are excluded from all admin statistics
 
+## Music Scanning and Directory Tags
+
+### Scanning Music Directories
+
+```bash
+# basic scan of a directory
+cargo run -- music scan scan /path/to/music
+
+# scan with tags (sets up directory tag rules, then scans)
+cargo run -- music scan scan /path/to/jazz --tags jazz,instrumental
+
+# scan with multiple tags
+cargo run -- music scan scan /path/to/electronic --tags electronic,ambient,downtempo
+```
+
+### Rescan and Directory Management
+
+```bash
+# rescan all tracked directories (applies any new tag rules)
+cargo run -- music scan rescan
+
+# list tracked directories
+cargo run -- music scan directories
+
+# remove a directory from tracking
+cargo run -- music scan remove-directory /path/to/old/music
+
+# validate that all file references still exist on disk
+cargo run -- music scan validate-files
+```
+
+### Directory Tag Rules
+
+Directory tag rules automatically apply tags to albums based on where their music files are located. Tags are additive (subdirectories inherit parent tags) and persist across rescans.
+
+#### Add Directory Tag Rules
+
+```bash
+# add tags for a directory (creates tags if they don't exist)
+cargo run -- dir-tags add /Music/jazz --tags jazz
+
+# add multiple tags
+cargo run -- dir-tags add /Music/electronic/ambient --tags electronic,ambient,chill
+
+# nested directories accumulate tags
+# files in /Music/electronic/ambient get: electronic, ambient, chill
+# files in /Music/electronic get: electronic (if rule exists)
+```
+
+#### Remove Directory Tag Rules
+
+```bash
+# remove specific tags from a directory rule
+cargo run -- dir-tags remove /Music/jazz --tags jazz
+
+# remove multiple tags
+cargo run -- dir-tags remove /Music/electronic --tags ambient,chill
+```
+
+#### Clear All Rules for a Directory
+
+```bash
+# clear all tag rules for a directory
+cargo run -- dir-tags clear /Music/jazz
+```
+
+#### List Directory Tag Rules
+
+```bash
+# list all directory tag rules
+cargo run -- dir-tags list
+
+# list rules for a specific path
+cargo run -- dir-tags list --path /Music/jazz
+```
+
+#### Strip Tags from Albums (Remove Actual Tags)
+
+```bash
+# strip specific tags from all albums under a directory
+# this removes the actual album-tag associations, not just rules
+cargo run -- dir-tags strip /Music/jazz --tags old-tag,wrong-tag
+```
+
+#### Sync: Remove Rule-Defined Tags from Albums
+
+```bash
+# remove all tags that were defined by rules for this directory
+# useful when you want to undo directory tag assignments
+cargo run -- dir-tags sync /Music/jazz
+```
+
+### Common Workflows
+
+#### Workflow 1: Scan New Music with Tags
+
+```bash
+# scan a new directory and immediately apply tags
+cargo run -- music scan scan /Music/jazz --tags jazz,bebop
+```
+
+#### Workflow 2: Add Tags to Existing Music
+
+```bash
+# 1. music was already scanned without tags
+# 2. add directory tag rules
+cargo run -- dir-tags add /Music/jazz --tags jazz
+
+# 3. rescan to apply tags to existing albums
+cargo run -- music scan rescan
+```
+
+#### Workflow 3: Reorganize Tags
+
+```bash
+# remove old tags from albums
+cargo run -- dir-tags strip /Music/electronic --tags wrong-genre
+
+# add correct tags
+cargo run -- dir-tags add /Music/electronic --tags synthwave,retrowave
+
+# rescan to apply new tags
+cargo run -- music scan rescan
+```
+
+#### Workflow 4: Complete Tag Reset for a Directory
+
+```bash
+# remove all rule-defined tags from albums
+cargo run -- dir-tags sync /Music/jazz
+
+# clear all rules
+cargo run -- dir-tags clear /Music/jazz
+
+# set up fresh rules
+cargo run -- dir-tags add /Music/jazz --tags jazz,modern-jazz
+
+# rescan
+cargo run -- music scan rescan
+```
+
+### How Directory Tags Work
+
+1. **Rules are stored separately** - directory path → tag associations
+2. **Tags are additive** - nested directories accumulate parent tags
+3. **Applied on import** - when a song is imported, its album gets tagged based on file path
+4. **Applied on rescan** - even if a song is a duplicate, tags are still applied to its album
+5. **Manual removal available** - use `strip` to remove specific tags, `sync` to remove all rule-defined tags
+
 ## Complete Test Sequence
 
 ### 7. Search for Album WITH Cover Art (One-Step!)

@@ -13,7 +13,8 @@
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "lint:full": "ESLINT_FULL=true eslint src --ext .ts,.tsx",
-    "lint:full:fix": "ESLINT_FULL=true eslint src --ext .ts,.tsx --fix"
+    "lint:full:fix": "ESLINT_FULL=true eslint src --ext .ts,.tsx --fix",
+    "lint:circular": "npx madge --circular --extensions ts,tsx src/"
   },
   "dependencies": {
     "freqhole-api-client": "file:../../client-codegen/freqhole-api-client"

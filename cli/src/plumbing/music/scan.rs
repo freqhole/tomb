@@ -2,8 +2,9 @@
 
 use clap::Parser;
 use grimoire::jobs::{
-    create_job, create_job_session, list_scanned_directories, record_scanned_directory,
-    remove_scanned_directory, CreateJobRequest, CreateJobSessionRequest, JobType,
+    add_directory_tags, create_job, create_job_session, list_scanned_directories,
+    record_scanned_directory, remove_scanned_directory, CreateJobRequest,
+    CreateJobSessionRequest, JobType,
 };
 use grimoire::music::scanner::scan_directory;
 
@@ -16,6 +17,10 @@ pub enum ScanAction {
     Scan {
         /// directory path to scan
         path: String,
+
+        /// comma-separated list of tags to apply to all albums in this directory
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
     },
 
     /// rescan all tracked directories
@@ -36,8 +41,30 @@ pub enum ScanAction {
 
 pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Value> {
     match action {
-        ScanAction::Scan { path } => {
+        ScanAction::Scan { path, tags } => {
             eprintln!("scanning directory: {}", path);
+
+            // set up directory tag rules if tags were specified
+            if let Some(tag_names) = &tags {
+                if !tag_names.is_empty() {
+                    eprintln!("setting up directory tag rules for: {:?}", tag_names);
+                    let tag_response =
+                        add_directory_tags(&path, tag_names.clone(), Some("cli-scan".to_string()))
+                            .await;
+                    if tag_response.success {
+                        eprintln!(
+                            "directory tag rules configured: {} tags for {}",
+                            tag_names.len(),
+                            path
+                        );
+                    } else {
+                        eprintln!(
+                            "warning: failed to set up directory tags: {}",
+                            tag_response.message
+                        );
+                    }
+                }
+            }
 
             // create a job session for this scan
             let session_request = CreateJobSessionRequest {
@@ -75,6 +102,7 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
                 "path": path,
                 "session_id": session_id,
                 "files_found": file_count,
+                "tags_configured": tags.as_ref().map(|t| t.len()).unwrap_or(0),
             });
 
             CommandOutput::success(message, data)

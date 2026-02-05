@@ -34,3 +34,19 @@ CREATE TABLE scan_cache (
 
 CREATE INDEX idx_scan_cache_session ON scan_cache(session_id);
 CREATE INDEX idx_scan_cache_created_at ON scan_cache(created_at);
+
+-- directory tag rules (auto-tag albums based on file location)
+-- maps directory paths to tags - files under a directory get those tags on their albums
+-- rules are additive (nested directories accumulate tags)
+CREATE TABLE directory_tag_rules (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  directory_path TEXT NOT NULL,
+  tag_id TEXT NOT NULL REFERENCES tagz(id) ON DELETE CASCADE,
+  created_by TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(directory_path, tag_id),
+  CHECK (length(id) >= 7 AND length(id) <= 16)
+);
+
+CREATE INDEX idx_directory_tag_rules_path ON directory_tag_rules(directory_path);
+CREATE INDEX idx_directory_tag_rules_tag ON directory_tag_rules(tag_id);

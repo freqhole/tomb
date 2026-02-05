@@ -99,6 +99,15 @@ enum Commands {
         #[arg(long)]
         json_output: bool,
     },
+
+    /// Directory tag rules (auto-tag albums based on file location)
+    DirTags {
+        #[command(subcommand)]
+        action: plumbing::DirTagsAction,
+        /// Output as JSON
+        #[arg(long)]
+        json_output: bool,
+    },
 }
 
 #[tokio::main]
@@ -173,6 +182,12 @@ async fn main() -> Result<()> {
             json_output,
         } => {
             plumbing::handle_analytics(action, json_output).await?;
+        }
+        Commands::DirTags {
+            action,
+            json_output,
+        } => {
+            plumbing::handle_dir_tags(action, json_output).await?;
         }
     }
 

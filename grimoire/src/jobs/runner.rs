@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// process a single job by dispatching to the appropriate processor
 /// Note: job should already be marked as 'Running' by get_next_pending_job
@@ -119,7 +119,7 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
                     *current_job = Some(job.id.clone());
                 }
 
-                info!("processing job: {}", job.id);
+                debug!("processing job: {}", job.id);
                 let result = process_job(job.clone()).await;
 
                 // Clear current job ID
@@ -130,7 +130,7 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
 
                 // Log result
                 if result.success {
-                    info!("job completed successfully: {}", job.id);
+                    debug!("job completed successfully: {}", job.id);
                 } else {
                     warn!("job failed: {}", job.id);
                 }
@@ -168,7 +168,7 @@ pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
 
         match next_job {
             Some(job) => {
-                info!("processing job: {}", job.id);
+                debug!("processing job: {}", job.id);
                 let process_response = process_job(job).await;
                 if process_response.success {
                     if let Some(_result) = process_response.data {

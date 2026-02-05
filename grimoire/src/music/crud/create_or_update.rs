@@ -9,12 +9,14 @@ use super::models::{
 use crate::config;
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
+use crate::jobs::apply_directory_tags_for_file;
+use crate::media_blobz::get_media_blob;
 use crate::music::entities::{
-    albums, artists, genres, songs, Album, Artist, CreateAlbumRequest,
-    CreateArtistRequest, CreateGenreRequest, CreateSongRequest, Genre, Playlist,
+    albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
+    CreateGenreRequest, CreateSongRequest, Genre, Playlist,
 };
-use crate::JsonVec;
 use crate::GrimoireResponse;
+use crate::JsonVec;
 use std::sync::Mutex;
 
 // global duplicate report tracker (CSV rows accumulated during scan)
@@ -131,7 +133,8 @@ pub async fn import_song_with_metadata(
 
                 let existing_song = sqlx::query!(
                     r#"
-                SELECT s.id as "id!", s.title as "title!", s.duration, mb.local_path
+                SELECT s.id as "id!", s.title as "title!", s.duration, mb.local_path,
+                       alb.id as "album_id!", alb.title as "album_title!"
                 FROM songz s
                 JOIN artist_songz asz ON asz.song_id = s.id
                 JOIN artistz a ON a.id = asz.artist_id
@@ -191,8 +194,26 @@ pub async fn import_song_with_metadata(
                                     track_number: req.track_number,
                                     duration_ms: *duration,
                                     existing_song_id: existing.id.clone(),
-                                    existing_file_path: existing.local_path,
+                                    existing_file_path: existing.local_path.clone(),
                                 });
+                            }
+                        }
+                    }
+
+                    // apply directory tag rules to album even for duplicates
+                    // this ensures tags are applied during rescan after rules are added
+                    if let Some(local_path) = &existing.local_path {
+                        let tag_result =
+                            apply_directory_tags_for_file(&existing.album_id, local_path).await;
+                        if tag_result.success {
+                            if let Some(applied_tags) = &tag_result.data {
+                                if !applied_tags.is_empty() {
+                                    tracing::debug!(
+                                        "applied {} directory tags to album '{}' for duplicate song",
+                                        applied_tags.len(),
+                                        existing.album_title
+                                    );
+                                }
                             }
                         }
                     }
@@ -478,6 +499,28 @@ pub async fn import_song_with_metadata(
                 "Failed to create artist-album relationship",
                 vec![e.into()],
             );
+        }
+    }
+
+    // 6. Apply directory tag rules to album if applicable
+    if let Some(album) = &album {
+        // get file path from media blob to check directory tag rules
+        if let Ok(media_blob) = get_media_blob(&song.media_blob_id).await {
+            if let Some(local_path) = &media_blob.local_path {
+                let tag_result = apply_directory_tags_for_file(&album.id, local_path).await;
+                if tag_result.success {
+                    if let Some(applied_tags) = &tag_result.data {
+                        if !applied_tags.is_empty() {
+                            tracing::debug!(
+                                "applied {} directory tags to album '{}' from file '{}'",
+                                applied_tags.len(),
+                                album.title,
+                                local_path
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
