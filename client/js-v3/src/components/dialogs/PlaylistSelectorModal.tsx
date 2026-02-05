@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
 import {
   useAddSongsToPlaylistMutation,
@@ -6,6 +7,7 @@ import {
   usePlaylistsQuery,
   useRecentPlaylistsQuery,
 } from "../../music/queries/playlists";
+import { queryKeys } from "../../music/queries/queryKeys";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -27,6 +29,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [isCreatingNew, setIsCreatingNew] = createSignal(false);
   const [newPlaylistName, setNewPlaylistName] = createSignal("");
 
+  const queryClient = useQueryClient();
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
   const allPlaylistsQuery = usePlaylistsQuery({
     search: searchQuery,
@@ -96,6 +99,10 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       const songCount = props.songIds.length;
       const songText = songCount === 1 ? "song" : "songs";
       toast.success(`created "${name}" and added ${songCount} ${songText}`);
+
+      // ensure all playlist queries are invalidated and refetched
+      await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
 
       props.onClose();
     } catch (error) {

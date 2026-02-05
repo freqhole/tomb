@@ -8,6 +8,7 @@ import {
   useDeletePlaylistMutation,
   useUpdatePlaylistMutation,
 } from "../../queries/playlists";
+import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
 import type { Playlist } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
@@ -73,9 +74,9 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
       toast.success("image uploaded successfully");
 
-      await queryClient.invalidateQueries({
-        queryKey: ["playlists"],
-      });
+      // invalidate and refetch all playlist queries to show updated images
+      await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     } catch (error) {
       console.error("failed to upload image:", error);
       toast.error("failed to upload image");
@@ -109,7 +110,9 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
       toast.success("primary image updated");
 
-      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      // invalidate and refetch all playlist queries to show updated images
+      await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");
@@ -142,7 +145,9 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       setPlaylistImages(updated);
       toast.success("image removed");
 
-      await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      // invalidate and refetch all playlist queries to show updated images
+      await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     } catch (err) {
       console.error("failed to remove image:", err);
       toast.error("failed to remove image");
