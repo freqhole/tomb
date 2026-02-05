@@ -99,18 +99,15 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           return;
         }
 
-        console.log(`[MediaImage] source changed:`, {
-          blobId: source.blobId,
-          remoteUrl: source.remoteUrl,
-        });
-
-        setResolvedUrl(null);
-
+        // only clear the current image if we're switching to a different source
+        // this prevents flicker when the same image is being reloaded
         if (source.blobId) {
           setIsLoading(true);
           getBlobObjectURL(source.blobId).then((objectUrl) => {
             if (objectUrl) {
               setResolvedUrl(objectUrl);
+            } else {
+              setResolvedUrl(null);
             }
             setIsLoading(false);
           });
@@ -118,6 +115,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           setResolvedUrl(source.remoteUrl);
           setIsLoading(false);
         } else {
+          setResolvedUrl(null);
           setIsLoading(false);
         }
       },
