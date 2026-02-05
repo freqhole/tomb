@@ -7,6 +7,7 @@ use crate::database;
 use crate::music::crud::models::{
     PlaylistQueryResult, PlaylistSongResult, QueryParams, QueryResult, SongQueryResult,
 };
+use crate::music::entities::albums::GenreRef;
 use crate::music::entities::{Album, Artist, Song};
 use crate::music::Playlist;
 use crate::GrimoireResponse;
@@ -97,10 +98,12 @@ pub struct PlaylistViewRow {
 impl PlaylistViewRow {
     pub fn to_playlist_query_result(self, user_id: Option<&str>) -> PlaylistQueryResult {
         // parse images JSON array
-        let images = self.playlist_images.and_then(|json_str| {
-            serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
-        })
-        .map(crate::JsonVec); // wrap in JsonVec if present
+        let images = self
+            .playlist_images
+            .and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+            })
+            .map(crate::JsonVec); // wrap in JsonVec if present
 
         let playlist = Playlist {
             id: self.playlist_id,
@@ -191,10 +194,9 @@ pub struct PlaylistSongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
-    album_genres: Option<String>,    // JSON array from view
-    album_genre_ids: Option<String>, // JSON array from view
-    album_images: Option<String>,    // JSON array from view
-    album_tags: Option<String>,      // JSON array of tag names from view
+    album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_images: Option<String>, // JSON array from view
+    album_tags: Option<String>,   // JSON array of tag names from view
 
     // User favorites and ratings
     #[allow(dead_code)] // used by sqlx for deserialization
@@ -212,10 +214,12 @@ impl PlaylistSongViewRow {
         let added_at = self.added_at;
 
         // parse images JSON array
-        let images = self.song_images.and_then(|json_str| {
-            serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
-        })
-        .or(Some(vec![])); // default to empty vec
+        let images = self
+            .song_images
+            .and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+            })
+            .or(Some(vec![])); // default to empty vec
 
         // parse album tags JSON array
         let album_tags = self
@@ -223,28 +227,26 @@ impl PlaylistSongViewRow {
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
             .or(Some(vec![])); // default to empty vec
 
-        // parse album genres JSON array
+        // parse album genres JSON array (now array of {id, name} objects)
         let album_genres = self
             .album_genres
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
-            .map(crate::JsonVec);
-
-        // parse album genre_ids JSON array
-        let album_genre_ids = self
-            .album_genre_ids
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .and_then(|json_str| serde_json::from_str::<Vec<GenreRef>>(&json_str).ok())
             .map(crate::JsonVec);
 
         // parse artist images JSON array
         let artist_images = self
             .artist_images
-            .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok())
+            .and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+            })
             .map(crate::JsonVec);
 
         // parse album images JSON array
         let album_images = self
             .album_images
-            .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok())
+            .and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+            })
             .map(crate::JsonVec);
 
         let song = Song {
@@ -294,7 +296,6 @@ impl PlaylistSongViewRow {
                 release_date: self.album_release_date,
                 label: self.album_label,
                 genres: album_genres,
-                genre_ids: album_genre_ids,
                 images: album_images,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
@@ -594,7 +595,7 @@ pub async fn query_playlist_songs(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("query_playlist_songs fetch error: {}", e);
-            return GrimoireResponse::failure("Failed to query playlist songs", vec![e.into()])
+            return GrimoireResponse::failure("Failed to query playlist songs", vec![e.into()]);
         }
     };
 

@@ -317,7 +317,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                               collection={{
                                 id: album().albumId,
                                 title: album().albumTitle,
-                                subtitle: `${album().songCount} songs`,
+                                subtitle: album().artistName,
                                 domainType: "album",
                                 year: album().year,
                                 trackCount: album().songCount,

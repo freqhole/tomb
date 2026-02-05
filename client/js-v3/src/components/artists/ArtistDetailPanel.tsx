@@ -42,7 +42,7 @@ interface AlbumGroup {
   isFavorite: boolean;
   rating?: number;
   genre?: string | null;
-  genres?: string[];
+  genres?: import("../../music/services/storage/types").GenreRef[];
   tags?: string[];
 }
 
@@ -149,9 +149,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       if (name) {
         genreMap.set(name, { id, name });
       }
+      // album_genres now has {id, name} objects
       if (song.album_genres) {
         song.album_genres.forEach((g) => {
-          genreMap.set(g, { id: null, name: g });
+          genreMap.set(g.name, { id: g.id, name: g.name });
         });
       }
     });
@@ -202,19 +203,18 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           border
           showBackButton={props.showBackButton}
           onBack={props.onBack}
-          class="px-4 py-3"
+          class="px-4 py-3 md:hidden"
         />
       </Show>
 
-      {/* scrollable content */}
-      <div class="flex-1 overflow-y-auto">
-        {/* artist header with image, info, and actions */}
-        <div class="p-4 md:p-6 space-y-4 md:space-y-6">
-          <div class="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
+      {/* DESKTOP: fixed header with artist info, stats, and buttons */}
+      <div class="hidden md:block flex-shrink-0 border-b border-[var(--color-bg-tertiary)]">
+        <div class="p-6 space-y-4">
+          <div class="flex gap-6 items-start">
             {/* artist avatar */}
             <ContextMenu actions={artistContextMenuActions()}>
               <div
-                class="w-32 h-32 md:w-48 md:h-48 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
                 onClick={props.onImageClick}
               >
                 <MediaImage
@@ -227,23 +227,23 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             </ContextMenu>
 
             {/* artist info */}
-            <div class="flex flex-col justify-center gap-1 md:gap-2 min-w-0 text-center md:text-left w-full">
-              <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)]">
+            <div class="flex flex-col justify-center gap-2 min-w-0 flex-1">
+              <h1 class="text-3xl font-bold text-[var(--color-text-primary)]">
                 <MarqueeText text={props.artist.name} hoverOnly={true} />
               </h1>
 
               {/* bio */}
               <Show when={props.artist.bio}>
-                <p class="text-xs md:text-sm text-[var(--color-text-secondary)] line-clamp-3 max-w-2xl">
+                <p class="text-sm text-[var(--color-text-secondary)] line-clamp-2 max-w-2xl">
                   {props.artist.bio}
                 </p>
               </Show>
 
               {/* genres and tags */}
-              <div class="flex flex-wrap gap-2 items-center justify-center md:justify-start text-sm">
+              <div class="flex flex-wrap gap-2 items-center text-sm">
                 <Show when={artistGenres().length > 0}>
-                  <div class="flex flex-wrap gap-1.5 justify-center md:justify-start">
-                    <For each={artistGenres()}>
+                  <div class="flex flex-wrap gap-1.5">
+                    <For each={artistGenres().slice(0, 5)}>
                       {(genre) => (
                         <button
                           class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
@@ -257,11 +257,11 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   </div>
                 </Show>
                 <Show when={artistTags().length > 0}>
-                  <div class="flex flex-wrap gap-1.5 justify-center md:justify-start">
+                  <div class="flex flex-wrap gap-1.5">
                     <For each={artistTags()}>
                       {(tag) => (
                         <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
-                          {tag}
+                          #{tag}
                         </span>
                       )}
                     </For>
@@ -269,8 +269,8 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 </Show>
               </div>
 
-              {/* artist actions (edit, favorite, rating) */}
-              <div class="mt-2 md:mt-4 flex items-center justify-center md:justify-start gap-2 md:gap-3">
+              {/* artist actions: edit, play controls, favorite, rating */}
+              <div class="flex items-center gap-2">
                 <Show when={props.onEditArtist}>
                   <button
                     onClick={props.onEditArtist}
@@ -281,6 +281,15 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     <Icon name={IconNames.edit} size={20} />
                   </button>
                 </Show>
+                <Button variant="primary" size="sm" onClick={props.onPlayAll}>
+                  play all
+                </Button>
+                <Button variant="secondary" size="sm" onClick={props.onShuffle}>
+                  shuffle
+                </Button>
+                <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
+                  +queue
+                </Button>
                 <FavoriteHeart
                   isFavorite={props.artist.is_favorite ?? false}
                   onToggle={props.onFavoriteToggle}
@@ -295,31 +304,131 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           </div>
 
           {/* stats cards */}
-          <div class="px-4 md:px-6">
-            <StatsGrid columns={5} gap="sm">
-              <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
-              <StatsCard
-                label="albums"
-                value={formatNumber(props.artist.album_count)}
-                icon="album"
-              />
-              <StatsCard
-                label="duration"
-                value={formatDuration(props.artist.total_duration)}
-                icon="recent"
-              />
-              <Show when={artistGenres().length > 0}>
-                <StatsCard
-                  label="genres"
-                  value={formatNumber(artistGenres().length)}
-                  icon="music"
+          <StatsGrid columns={5} gap="sm">
+            <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
+            <StatsCard label="albums" value={formatNumber(props.artist.album_count)} icon="album" />
+            <StatsCard
+              label="duration"
+              value={formatDuration(props.artist.total_duration)}
+              icon="recent"
+            />
+            <Show when={artistGenres().length > 0}>
+              <StatsCard label="genres" value={formatNumber(artistGenres().length)} icon="music" />
+            </Show>
+            <Show when={artistTags().length > 0}>
+              <StatsCard label="tags" value={formatNumber(artistTags().length)} icon="music" />
+            </Show>
+          </StatsGrid>
+        </div>
+      </div>
+
+      {/* scrollable content */}
+      <div class="flex-1 overflow-y-auto">
+        {/* MOBILE: artist header with image, info, stats, and buttons - scrolls */}
+        <div class="md:hidden p-4 space-y-4">
+          <div class="flex flex-col gap-4 items-center">
+            {/* artist avatar */}
+            <ContextMenu actions={artistContextMenuActions()}>
+              <div
+                class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                onClick={props.onImageClick}
+              >
+                <MediaImage
+                  images={props.artist.images}
+                  alt={props.artist.name}
+                  class="w-full h-full object-cover"
+                  domainType="artist"
                 />
+              </div>
+            </ContextMenu>
+
+            {/* artist info */}
+            <div class="flex flex-col justify-center gap-1 min-w-0 text-center w-full">
+              <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                <MarqueeText text={props.artist.name} hoverOnly={true} />
+              </h1>
+
+              {/* bio */}
+              <Show when={props.artist.bio}>
+                <p class="text-xs text-[var(--color-text-secondary)] line-clamp-3 max-w-2xl">
+                  {props.artist.bio}
+                </p>
               </Show>
-              <Show when={artistTags().length > 0}>
-                <StatsCard label="tags" value={formatNumber(artistTags().length)} icon="music" />
-              </Show>
-            </StatsGrid>
+
+              {/* genres and tags */}
+              <div class="flex flex-wrap gap-2 items-center justify-center text-sm">
+                <Show when={artistGenres().length > 0}>
+                  <div class="flex flex-wrap gap-1.5 justify-center">
+                    <For each={artistGenres()}>
+                      {(genre) => (
+                        <button
+                          class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
+                          onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
+                          disabled={!genre.id}
+                        >
+                          {genre.name}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={artistTags().length > 0}>
+                  <div class="flex flex-wrap gap-1.5 justify-center">
+                    <For each={artistTags()}>
+                      {(tag) => (
+                        <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                          #{tag}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+
+              {/* artist actions: edit, play controls, favorite, rating */}
+              <div class="mt-2 flex items-center justify-center flex-wrap gap-2">
+                <Show when={props.onEditArtist}>
+                  <button
+                    onClick={props.onEditArtist}
+                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                    title="edit artist info"
+                    aria-label="edit artist info"
+                  >
+                    <Icon name={IconNames.edit} size={20} />
+                  </button>
+                </Show>
+                <Button variant="primary" size="sm" onClick={props.onPlayAll}>
+                  play
+                </Button>
+                <Button variant="secondary" size="sm" onClick={props.onShuffle}>
+                  shuffle
+                </Button>
+                <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
+                  +queue
+                </Button>
+                <FavoriteHeart
+                  isFavorite={props.artist.is_favorite ?? false}
+                  onToggle={props.onFavoriteToggle}
+                />
+                <Rating
+                  rating={props.artist.user_rating ?? 0}
+                  size="md"
+                  onRatingChange={props.onRatingChange}
+                />
+              </div>
+            </div>
           </div>
+
+          {/* stats cards */}
+          <StatsGrid columns={3} gap="sm">
+            <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
+            <StatsCard label="albums" value={formatNumber(props.artist.album_count)} icon="album" />
+            <StatsCard
+              label="duration"
+              value={formatDuration(props.artist.total_duration)}
+              icon="recent"
+            />
+          </StatsGrid>
         </div>
 
         {/* albums list with songs */}
@@ -396,21 +505,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             </div>
           </Show>
         </div>
-      </div>
-
-      {/* sticky action buttons */}
-      <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
-        <Button variant="primary" onClick={props.onPlayAll}>
-          <span class="hidden md:inline">play all</span>
-          <span class="md:hidden">play</span>
-        </Button>
-        <Button variant="secondary" onClick={props.onShuffle}>
-          shuffle
-        </Button>
-        <Button variant="ghost" onClick={props.onAddToQueue}>
-          <span class="hidden md:inline">add to queue</span>
-          <span class="md:hidden">+queue</span>
-        </Button>
       </div>
     </div>
   );

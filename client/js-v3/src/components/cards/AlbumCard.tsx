@@ -2,7 +2,7 @@ import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
-import type { AlbumSummary } from "../../music/data/types";
+import type { AlbumSummary, GenreRef } from "../../music/data/types";
 
 export interface AlbumCardProps {
   album: AlbumSummary;
@@ -11,7 +11,7 @@ export interface AlbumCardProps {
   onContextMenu?: (e: MouseEvent, album: AlbumSummary) => void;
   onFavoriteToggle?: (albumId: string, isFavorite: boolean) => void;
   onArtistClick?: (artistId: string) => void;
-  onGenreClick?: (genre: string) => void;
+  onGenreClick?: (genre: GenreRef) => void;
 }
 
 export function AlbumCard(props: AlbumCardProps) {
@@ -125,7 +125,7 @@ export function AlbumCard(props: AlbumCardProps) {
                     props.onGenreClick?.(genre);
                   }}
                 >
-                  {genre}
+                  {genre.name}
                 </a>
               )}
             </For>

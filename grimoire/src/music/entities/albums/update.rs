@@ -99,7 +99,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             release_date: row.release_date,
             label: row.label,
             genres: None,
-            genre_ids: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,

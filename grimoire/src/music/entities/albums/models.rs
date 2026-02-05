@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
+/// lightweight genre reference with id and name
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct GenreRef {
+    pub id: String,
+    pub name: String,
+}
+
 /// album model for music domain
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct Album {
@@ -14,8 +21,7 @@ pub struct Album {
     pub album_type: String,
     pub release_date: Option<String>,
     pub label: Option<String>,
-    pub genres: Option<JsonVec<String>>,
-    pub genre_ids: Option<JsonVec<String>>,
+    pub genres: Option<JsonVec<GenreRef>>,
     pub images: Option<JsonVec<ImageMetadata>>,
     pub song_count: i64,
     pub total_duration: i64,

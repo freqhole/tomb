@@ -10,7 +10,13 @@ import { ArtistCard } from "../cards/ArtistCard";
 import { PlaylistCard } from "../cards/PlaylistCard";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { formatDuration } from "../../utils/formatDuration";
-import type { Song, AlbumSummary, ArtistSummary, PlaylistSummary } from "../../music/data/types";
+import type {
+  Song,
+  AlbumSummary,
+  ArtistSummary,
+  PlaylistSummary,
+  GenreRef,
+} from "../../music/data/types";
 import { useScrollRestore } from "../../utils/scrollRestore";
 
 export type FavoriteType = "all" | "songs" | "albums" | "artists" | "playlists";
@@ -53,7 +59,7 @@ export interface FavoritesLayoutProps {
   /** navigation callbacks */
   onArtistNavigate?: (artistId: string) => void;
   onAlbumNavigate?: (albumId: string) => void;
-  onGenreClick?: (genre: string) => void;
+  onGenreClick?: (genre: GenreRef) => void;
 }
 
 export function FavoritesLayout(props: FavoritesLayoutProps) {

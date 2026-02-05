@@ -51,7 +51,7 @@ export interface ApiSongQueryItem {
     id: string;
     title: string;
     release_date?: string;
-    genres?: string[];
+    genres?: {id: string; name: string}[];
     images?: Array<{
       blob_id: string;
       is_primary: boolean | number;
@@ -113,7 +113,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_title: album?.title || "unknown album",
     album_added_at: song.created_at, // use song's created_at as proxy
     album_primary_genre_id: item.genre?.id || null,
-    album_primary_genre_name: album?.genres?.[0] || item.genre?.name || null,
+    album_primary_genre_name: album?.genres?.[0]?.name || item.genre?.name || null,
 
     // song-specific images with exact priority hierarchy:
     // 1. song primary → 2. any song thumbnail → 3. album primary → 4. album thumbnail → 5. waveform

@@ -9,7 +9,9 @@ use crate::music::crud::models::{
     AlbumQueryResult, ArtistQueryResult, GenreQueryResult, ImageMetadata, QueryParams, QueryResult,
     SongQueryResult,
 };
-use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
+use crate::music::entities::{
+    albums::Album, albums::GenreRef, artists::Artist, genres::Genre, songs::Song,
+};
 use crate::response::GrimoireResponse;
 
 // Table identifiers for type-safe queries
@@ -109,8 +111,6 @@ enum CommonColumns {
     AlbumId,
     #[iden = "album_genres"]
     AlbumGenres,
-    #[iden = "album_genre_ids"]
-    AlbumGenreIds,
     #[iden = "album_tags"]
     AlbumTags,
 }
@@ -162,10 +162,9 @@ pub struct SongViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
-    album_genres: Option<String>,    // JSON array from view
-    album_genre_ids: Option<String>, // JSON array from view
-    album_tags: Option<String>,      // JSON array of tag names from view
-    album_images: Option<String>,    // JSON array from album_imagez
+    album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_tags: Option<String>,   // JSON array of tag names from view
+    album_images: Option<String>, // JSON array from album_imagez
     // User context fields from view joins
     favorite_user_id: Option<String>,
     favorited_at: Option<i64>,
@@ -197,16 +196,10 @@ impl SongViewRow {
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
             .or(Some(vec![])); // default to empty vec
 
-        // parse album genres JSON array
+        // parse album genres JSON array (now array of {id, name} objects)
         let album_genres = self
             .album_genres
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
-            .map(crate::JsonVec);
-
-        // parse album genre_ids JSON array
-        let album_genre_ids = self
-            .album_genre_ids
-            .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .and_then(|json_str| serde_json::from_str::<Vec<GenreRef>>(&json_str).ok())
             .map(crate::JsonVec);
 
         // parse album images JSON array
@@ -268,7 +261,6 @@ impl SongViewRow {
                 release_date: self.album_release_date,
                 label: self.album_label,
                 genres: album_genres,
-                genre_ids: album_genre_ids,
                 images: album_images,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
@@ -436,10 +428,9 @@ pub struct AlbumViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
-    album_genres: Option<String>,    // JSON array from view
-    album_genre_ids: Option<String>, // JSON array from view
-    album_images: Option<String>,    // JSON array from view
-    album_tags: Option<String>,      // JSON array of tag names from view
+    album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_images: Option<String>, // JSON array from view
+    album_tags: Option<String>,   // JSON array of tag names from view
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_images: Option<String>, // JSON array from view
@@ -458,63 +449,52 @@ pub struct AlbumViewRow {
 impl AlbumViewRow {
     pub fn to_album_query_result(self, user_id: Option<&str>) -> AlbumQueryResult {
         // parse images JSON array
-        let images = self.album_images.and_then(|json_str| {
-            tracing::debug!("parsing album images JSON: {}", json_str);
-            match serde_json::from_str::<Vec<ImageMetadata>>(&json_str) {
-                Ok(imgs) => {
-                    tracing::debug!("successfully parsed {} images", imgs.len());
-                    Some(imgs)
+        let images = self
+            .album_images
+            .and_then(|json_str| {
+                tracing::debug!("parsing album images JSON: {}", json_str);
+                match serde_json::from_str::<Vec<ImageMetadata>>(&json_str) {
+                    Ok(imgs) => {
+                        tracing::debug!("successfully parsed {} images", imgs.len());
+                        Some(imgs)
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "failed to parse album images JSON: {} - error: {}",
+                            json_str,
+                            e
+                        );
+                        None
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        "failed to parse album images JSON: {} - error: {}",
-                        json_str,
-                        e
-                    );
-                    None
-                }
-            }
-        })
-        .or(Some(vec![])); // default to empty vec
+            })
+            .or(Some(vec![])); // default to empty vec
 
         // parse album_tags JSON array
-        let album_tags = self.album_tags.and_then(|json_str| {
-            match serde_json::from_str::<Vec<String>>(&json_str) {
-                Ok(tags) => Some(tags),
-                Err(e) => {
-                    tracing::warn!(
-                        "failed to parse album tags JSON: {} - error: {}",
-                        json_str,
-                        e
-                    );
-                    None
-                }
-            }
-        })
-        .or(Some(vec![])); // default to empty vec
+        let album_tags = self
+            .album_tags
+            .and_then(
+                |json_str| match serde_json::from_str::<Vec<String>>(&json_str) {
+                    Ok(tags) => Some(tags),
+                    Err(e) => {
+                        tracing::warn!(
+                            "failed to parse album tags JSON: {} - error: {}",
+                            json_str,
+                            e
+                        );
+                        None
+                    }
+                },
+            )
+            .or(Some(vec![])); // default to empty vec
 
-        // parse album genres JSON array
+        // parse album genres JSON array (now array of {id, name} objects)
         let album_genres = self.album_genres.and_then(|json_str| {
-            match serde_json::from_str::<Vec<String>>(&json_str) {
+            match serde_json::from_str::<Vec<GenreRef>>(&json_str) {
                 Ok(genres) => Some(crate::JsonVec(genres)),
                 Err(e) => {
                     tracing::warn!(
                         "failed to parse album genres JSON: {} - error: {}",
-                        json_str,
-                        e
-                    );
-                    None
-                }
-            }
-        });
-
-        // parse album genre_ids JSON array
-        let album_genre_ids = self.album_genre_ids.and_then(|json_str| {
-            match serde_json::from_str::<Vec<String>>(&json_str) {
-                Ok(ids) => Some(crate::JsonVec(ids)),
-                Err(e) => {
-                    tracing::warn!(
-                        "failed to parse album genre_ids JSON: {} - error: {}",
                         json_str,
                         e
                     );
@@ -536,7 +516,6 @@ impl AlbumViewRow {
             release_date: self.album_release_date,
             label: self.album_label,
             genres: album_genres,
-            genre_ids: album_genre_ids,
             images: images.clone().map(crate::JsonVec),
             song_count: self.album_song_count.unwrap_or(0),
             total_duration: self.album_total_duration.unwrap_or(0),
@@ -679,12 +658,13 @@ fn add_global_filters(
     }
 
     if let Some(genre_id) = params.filters.get("genre_id").and_then(|v| v.as_str()) {
-        // filter by genre ID in the JSON array
-        let json_pattern = format!("%\"{}\"%", genre_id);
+        // filter by genre ID in the album_genres JSON array of {id, name} objects
+        // search for "id":"<genre_id>" pattern within the JSON
+        let json_pattern = format!("%\"id\":\"{}\"%", genre_id);
         query.and_where(
-            Expr::col(CommonColumns::AlbumGenreIds)
+            Expr::col(CommonColumns::AlbumGenres)
                 .is_not_null()
-                .and(Expr::col(CommonColumns::AlbumGenreIds).like(json_pattern)),
+                .and(Expr::col(CommonColumns::AlbumGenres).like(json_pattern)),
         );
     }
 

@@ -37,6 +37,12 @@ export interface PaginatedResponse<T> {
   has_more: boolean;
 }
 
+// genre reference with id and name
+export interface GenreRef {
+  id: string;
+  name: string;
+}
+
 // album summary data for grids
 export interface AlbumSummary {
   album_id: string;
@@ -47,8 +53,7 @@ export interface AlbumSummary {
   year?: number;
   release_date?: string;
   label?: string;
-  genres?: string[];
-  genre_ids?: string[];
+  genres?: GenreRef[];
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];

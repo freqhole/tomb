@@ -87,11 +87,12 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
 
     const calculateHeight = () => {
       if (!containerRef) return;
-      // header ~60px, buttons ~56px, some padding
-      const headerHeight = 60;
-      const buttonsHeight = 56;
+      // on desktop: header with stats+buttons is fixed (~160px)
+      // on mobile: header is small (~60px), stats+buttons scroll with content
+      const isNarrow = window.innerWidth < 768;
+      const headerHeight = isNarrow ? 60 : 160;
       const padding = 16;
-      const available = containerRef.clientHeight - headerHeight - buttonsHeight - padding;
+      const available = containerRef.clientHeight - headerHeight - padding;
       setListHeight(Math.max(200, available));
     };
 
@@ -115,13 +116,24 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
         onBack={props.onBack}
         class="px-4 md:px-6 py-2 md:py-4"
       >
-        {/* stats in header on desktop only - on mobile they scroll with content */}
+        {/* stats + buttons in header on desktop only - on mobile they scroll with content */}
         <div class="hidden md:block">
-          <StatsGrid columns={3} gap="md" class="mb-2">
+          <StatsGrid columns={3} gap="md" class="mb-3">
             <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
             <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
             <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
           </StatsGrid>
+          <div class="flex gap-3">
+            <Button variant="primary" onClick={props.onPlayAll}>
+              play all
+            </Button>
+            <Button variant="secondary" onClick={props.onShuffle}>
+              shuffle
+            </Button>
+            <Button variant="ghost" onClick={props.onAddToQueue}>
+              add to queue
+            </Button>
+          </div>
         </div>
       </HeadingSection>
 
@@ -138,31 +150,27 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
           height={listHeight()}
           scrollRestoreKey={`genre-detail-${props.genre.genre_id}`}
           header={
-            // stats shown on mobile only - scrolls with content
-            <div class="md:hidden px-4 py-3">
+            // stats + buttons on mobile only - scrolls with content
+            <div class="md:hidden px-4 py-3 space-y-3">
               <StatsGrid columns={3} gap="sm">
                 <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
                 <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
                 <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
               </StatsGrid>
+              <div class="flex gap-2">
+                <Button variant="primary" onClick={props.onPlayAll}>
+                  play
+                </Button>
+                <Button variant="secondary" onClick={props.onShuffle}>
+                  shuffle
+                </Button>
+                <Button variant="ghost" onClick={props.onAddToQueue}>
+                  +queue
+                </Button>
+              </div>
             </div>
           }
         />
-      </div>
-
-      {/* sticky action buttons */}
-      <div class="bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
-        <Button variant="primary" onClick={props.onPlayAll}>
-          <span class="hidden md:inline">play all</span>
-          <span class="md:hidden">play</span>
-        </Button>
-        <Button variant="secondary" onClick={props.onShuffle}>
-          shuffle
-        </Button>
-        <Button variant="ghost" onClick={props.onAddToQueue}>
-          <span class="hidden md:inline">add to queue</span>
-          <span class="md:hidden">+queue</span>
-        </Button>
       </div>
     </div>
   );

@@ -129,7 +129,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
           release_date: item.album.release_date || undefined,
           label: item.album.label || undefined,
           genres: item.album.genres || undefined,
-          genre_ids: item.album.genre_ids || undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0

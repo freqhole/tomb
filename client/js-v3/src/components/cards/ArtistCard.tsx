@@ -2,28 +2,31 @@ import { For, Show, createSignal } from "solid-js";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
-import type { ArtistSummary } from "../../music/data/types";
+import type { ArtistSummary, GenreRef } from "../../music/data/types";
 export interface ArtistCardProps {
   artist: ArtistSummary;
   onClick?: (artist: ArtistSummary) => void;
   onPlay?: (artist: ArtistSummary) => void;
   onContextMenu?: (e: MouseEvent, artist: ArtistSummary) => void;
   onFavoriteToggle?: (artistId: string, isFavorite: boolean) => void;
-  onGenreClick?: (genre: string) => void;
+  onGenreClick?: (genre: GenreRef) => void;
 }
 
 export function ArtistCard(props: ArtistCardProps) {
   // helper to get artist abbreviation
   const getArtistAbbreviation = (name: string | undefined) => {
-    if (!name) return '?';
+    if (!name) return "?";
     const words = name.split(/\s+/);
-    return words.slice(0, 3).map(w => w[0]?.toUpperCase() || '').join('');
+    return words
+      .slice(0, 3)
+      .map((w) => w[0]?.toUpperCase() || "")
+      .join("");
   };
 
   const [isCardHovered, setIsCardHovered] = createSignal(false);
 
   return (
-    <div 
+    <div
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.artist)}
       onContextMenu={(e) => {
@@ -35,9 +38,7 @@ export function ArtistCard(props: ArtistCardProps) {
     >
       <div class="relative mb-3 rounded-lg transition-all duration-300 group-hover:rounded-none">
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-full relative">
-          <div
-            class="absolute inset-0 rounded-full overflow-hidden transition-all duration-300 group-hover:scale-105"
-          >
+          <div class="absolute inset-0 rounded-full overflow-hidden transition-all duration-300 group-hover:scale-105">
             <MediaImage
               images={props.artist.images}
               alt={props.artist.name}

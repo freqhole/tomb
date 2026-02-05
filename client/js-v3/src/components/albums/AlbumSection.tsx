@@ -1,6 +1,6 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
-import type { Song } from "../../music/data/types";
+import type { Song, GenreRef } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { formatDuration, formatHumanDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -35,7 +35,7 @@ export interface AlbumSectionProps {
   /** album primary genre */
   genre?: string | null;
   /** album genres */
-  genres?: string[];
+  genres?: GenreRef[];
   /** album tags */
   tags?: string[];
   /** rating change handler */
@@ -74,7 +74,7 @@ function AlbumHeader(props: {
   isFavorite?: boolean;
   rating?: number;
   genre?: string | null;
-  genres?: string[];
+  genres?: GenreRef[];
   tags?: string[];
   onAlbumClick?: () => void;
   onPlayAlbum?: () => void;
@@ -86,7 +86,7 @@ function AlbumHeader(props: {
   const badgeText = () => {
     const parts: string[] = [];
     if (props.genre) parts.push(props.genre);
-    if (props.genres) parts.push(...props.genres);
+    if (props.genres) parts.push(...props.genres.map((g) => g.name));
     if (props.tags) parts.push(...props.tags.map((t) => `#${t}`));
     return parts.join(" · ");
   };

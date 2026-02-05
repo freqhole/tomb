@@ -44,6 +44,12 @@ export interface Album {
   user_rating?: number;
 }
 
+// genre reference with id and name (from album's genres array)
+export interface GenreRef {
+  id: string;
+  name: string;
+}
+
 // ===== SONGS TABLE =====
 export interface Song {
   id: string; // local database primary key (auto-increment converted to string)
@@ -78,7 +84,7 @@ export interface Song {
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
   album_rating?: number; // user's rating for the album this song belongs to (1-5)
   album_tags?: string[]; // tags applied to the album this song belongs to
-  album_genres?: string[]; // genres for the album this song belongs to (array)
+  album_genres?: GenreRef[]; // genres for the album this song belongs to (array with id+name)
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to
 
   // source information
@@ -175,8 +181,7 @@ export interface AlbumQueryResult {
   artist_name: string;
   song_count: number;
   total_duration: number;
-  genres?: string[];
-  genre_ids?: string[];
+  genres?: GenreRef[];
 }
 
 // artist with aggregated stats

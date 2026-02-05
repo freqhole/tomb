@@ -221,6 +221,34 @@ export function AlbumDetailView() {
                     <span>{formatLongDuration(totalDuration())}</span>
                   </div>
 
+                  {/* genres and tags */}
+                  <Show
+                    when={
+                      (songs()[0]?.album_genres?.length ?? 0) > 0 ||
+                      (songs()[0]?.album_tags?.length ?? 0) > 0
+                    }
+                  >
+                    <div class="flex flex-wrap gap-1.5 justify-center md:justify-start mt-1">
+                      <For each={songs()[0]?.album_genres ?? []}>
+                        {(genre) => (
+                          <button
+                            class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
+                            onClick={() => navigate(buildRoute(`/genres/${genre.id}`))}
+                          >
+                            {genre.name}
+                          </button>
+                        )}
+                      </For>
+                      <For each={songs()[0]?.album_tags ?? []}>
+                        {(tag) => (
+                          <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                            #{tag}
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+
                   {/* play button, edit button, and favorite toggle */}
                   <div class="mt-3 md:mt-4 flex items-center justify-center md:justify-start gap-2 md:gap-3">
                     <Button variant="primary" onClick={handlePlayAlbum}>

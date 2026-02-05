@@ -120,7 +120,7 @@ pub mod type_registry {
     };
 
     // upload types
-    use crate::music::entities::albums::{Album, UpdateAlbumRequest};
+    use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
     use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
     use crate::music::entities::genres::Genre;
     use crate::music::entities::playlists::{
@@ -392,6 +392,9 @@ pub mod type_registry {
 
         gen.add_schema::<Album>("Album");
         registered.insert("Album".to_string());
+
+        gen.add_schema::<GenreRef>("GenreRef");
+        registered.insert("GenreRef".to_string());
 
         gen.add_schema::<Genre>("Genre");
         registered.insert("Genre".to_string());

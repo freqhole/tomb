@@ -184,7 +184,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     album_type: current_album.album_type.clone().into(),
                     release_date: current_album.release_date.clone(),
                     label: current_album.label.clone(),
-                    genre_ids: current_album.genres.as_ref().map(|g| g.0.clone()),
+                    genre_ids: current_album.genres.as_ref().map(|g| g.0.iter().map(|r| r.id.clone()).collect()),
                     created_by: req.updated_by.clone(),
                 };
                 match find_or_create_album_for_artist(import_req, &new_artist.id).await {

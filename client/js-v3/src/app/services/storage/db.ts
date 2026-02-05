@@ -98,7 +98,7 @@ async function setQueue(songs: Song[]): Promise<void> {
   const plainSongs = songs.map((song) => {
     const plain: Song = { ...song };
     if (song.album_tags) plain.album_tags = [...song.album_tags];
-    if (song.album_genres) plain.album_genres = [...song.album_genres];
+    if (song.album_genres) plain.album_genres = song.album_genres.map(g => ({ ...g }));
     if (song.album_images) plain.album_images = song.album_images.map(img => ({ ...img }));
     if (song.images) plain.images = song.images.map(img => ({ ...img }));
 

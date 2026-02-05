@@ -14,6 +14,7 @@ import type {
   AlbumSummary,
   ArtistSummary,
   PlaylistSummary,
+  GenreRef,
 } from "../data/types";
 import { useFavoritesInfiniteQuery, useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
@@ -275,8 +276,8 @@ export function FavoritesView(props: FavoritesViewProps) {
     navigate(routes.album(albumId));
   };
 
-  const handleGenreClick = (genre: string) => {
-    navigate(routes.genres() + `?genre=${encodeURIComponent(genre)}`);
+  const handleGenreClick = (genre: GenreRef) => {
+    navigate(routes.genre(genre.id));
   };
 
   return (

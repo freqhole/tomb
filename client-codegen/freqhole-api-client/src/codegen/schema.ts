@@ -20,8 +20,10 @@ export const AlbumSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -45,8 +47,10 @@ export const AlbumQueryResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -117,8 +121,10 @@ export const AlbumsQueryResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -408,8 +414,10 @@ export const FavoriteAlbumResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -576,8 +584,10 @@ export const FavoriteSongResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -728,6 +738,12 @@ export const GenreQueryResultSchema = z.object({
   favorited_at: z.number().nullable()
 });
 export type GenreQueryResult = z.infer<typeof GenreQueryResultSchema>;
+
+export const GenreRefSchema = z.object({
+  id: z.string(),
+  name: z.string()
+});
+export type GenreRef = z.infer<typeof GenreRefSchema>;
 
 export const GenreSearchResultSchema = z.object({
   genre: z.string(),
@@ -1109,8 +1125,10 @@ export const PlaylistSongResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1220,8 +1238,10 @@ export const PlaylistSongsQueryResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1706,8 +1726,10 @@ export const SongQueryResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1835,8 +1857,10 @@ export const SongsQueryResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2133,8 +2157,10 @@ export const UpdateSongsResultSchema = z.object({
   album_type: z.string(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
-  genres: z.array(z.string()).nullable(),
-  genre_ids: z.array(z.string()).nullable(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),

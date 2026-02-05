@@ -10,6 +10,7 @@ import type {
   ArtistWithStats,
   Favorite,
   Genre,
+  GenreRef,
   GenreWithStats,
   NewSong,
   Playlist,
@@ -1014,14 +1015,18 @@ export async function queryAlbums(options?: {
       }
     }
 
-    // gather unique genres from songs in this album
-    const genresSet = new Set<string>();
+    // gather unique genres from songs in this album (album_genres is GenreRef[])
+    const genresMap = new Map<string, GenreRef>();
     for (const song of songs) {
       if (song.album_genres) {
-        song.album_genres.forEach(g => genresSet.add(g));
+        song.album_genres.forEach(g => {
+          if (!genresMap.has(g.id)) {
+            genresMap.set(g.id, { id: g.id, name: g.name });
+          }
+        });
       }
     }
-    const genres = genresSet.size > 0 ? Array.from(genresSet) : undefined;
+    const genres = genresMap.size > 0 ? Array.from(genresMap.values()) : undefined;
 
     // calculate total duration
     const totalDuration = songs.reduce(
