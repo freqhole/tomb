@@ -56,10 +56,7 @@ interface CollectionCardProps {
   /** callback when context menu is triggered */
   onContextMenu?: (e: MouseEvent, collection: CollectionCardData) => void;
   /** callback when favorite is toggled */
-  onFavoriteToggle?: (
-    collection: CollectionCardData,
-    isFavorite: boolean,
-  ) => void;
+  onFavoriteToggle?: (collection: CollectionCardData, isFavorite: boolean) => void;
   /** additional css classes */
   class?: string;
 }
@@ -148,10 +145,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
         {/* favorite toggle - top right corner */}
         <Show
-          when={
-            props.collection.isFavorite !== undefined &&
-            props.collection.isFavorite !== null
-          }
+          when={props.collection.isFavorite !== undefined && props.collection.isFavorite !== null}
         >
           <div class="absolute top-2 right-2 z-10">
             <FavoriteHeart
@@ -170,11 +164,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             onClick={handlePlay}
             title={`play ${props.collection.domainType}`}
           >
-            <svg
-              class={`${sizeClasses().playIcon} ml-1`}
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
+            <svg class={`${sizeClasses().playIcon} ml-1`} fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
             </svg>
           </button>
@@ -225,11 +215,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             </Show>
 
             {/* track count */}
-            <Show
-              when={
-                props.collection.trackCount && props.collection.trackCount > 0
-              }
-            >
+            <Show when={props.collection.trackCount && props.collection.trackCount > 0}>
               <span>
                 {props.collection.trackCount} track
                 {props.collection.trackCount !== 1 ? "s" : ""}

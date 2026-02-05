@@ -209,8 +209,10 @@ function getQueryKeysToInvalidate(
         ["genre", "songs"], // genre songs
       ];
     case "album":
+      // note: we don't invalidate queryKeys.albums.all() here because the optimistic
+      // update (updateAlbumInCache) already modifies the cache directly. invalidating
+      // would cause unnecessary refetch and UI flickering.
       return [
-        queryKeys.albums.all(), // album lists and detail views (all nested queries)
         queryKeys.favorites.all(), // favorites list
         ["artist", "songs"], // artist songs contain album_is_favorite
         ["album", "songs"], // album detail views show album favorite status

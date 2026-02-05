@@ -1,8 +1,10 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import {
+  createEffect,
   createMemo,
   createSignal,
   For,
+  Index,
   JSX,
   onCleanup,
   onMount,
@@ -42,24 +44,21 @@ export interface VirtualAlbumGridProps {
 export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
   let parentRef: HTMLDivElement | undefined;
   const [containerWidth, setContainerWidth] = createSignal(0);
-  const [savedScrollOffset, setSavedScrollOffset] = createSignal(0);
   const gap = 16;
 
   // scroll restoration using browser history state
-  const { restoreScroll, saveScroll } = useScrollRestore(
-    props.scrollRestoreKey || "album-grid",
-  );
+  const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "album-grid");
 
   // calculate responsive columns from width
   const getColumnsForWidth = (width: number): number => {
     if (props.columns) return props.columns;
     // responsive column counts
-    if (width < 480) return 2;   // very narrow phones
-    if (width < 640) return 2;   // phones
-    if (width < 768) return 3;   // large phones / small tablets
-    if (width < 1024) return 3;  // tablets
-    if (width < 1280) return 4;  // small desktops
-    return 5;                    // large desktops
+    if (width < 480) return 2; // very narrow phones
+    if (width < 640) return 2; // phones
+    if (width < 768) return 3; // large phones / small tablets
+    if (width < 1024) return 3; // tablets
+    if (width < 1280) return 4; // small desktops
+    return 5; // large desktops
   };
 
   const columns = () => getColumnsForWidth(containerWidth());
@@ -110,12 +109,12 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     });
 
     observer.observe(parentRef);
-    
+
     // save scroll position periodically while scrolling and check for near end
     const handleScroll = (e: Event) => {
       if (parentRef) {
         saveScroll(parentRef);
-        
+
         // check for infinite scroll trigger
         if (props.onNearEnd) {
           const target = e.target as HTMLDivElement;
@@ -141,44 +140,24 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     });
   });
 
-  // calculate number of rows needed
-  const getRowCount = () => {
-    return Math.ceil(props.albums.length / columns());
-  };
+  // calculate number of rows needed - reactive accessor
+  const rowCount = createMemo(() => Math.ceil(props.albums.length / columns()));
 
-  // recreate virtualizer when columns change for clean layout updates
-  const rowVirtualizer = createMemo((prev) => {
-    // save scroll position before recreating virtualizer
-    if (prev && parentRef) {
-      setSavedScrollOffset(parentRef.scrollTop);
-    }
-    
-    columns(); // track columns for reactivity
-    const virtualizer = createVirtualizer({
-      count: getRowCount(),
-      getScrollElement: () => parentRef,
-      estimateSize: () => getCardHeight() + gap,
-      overscan: 2,
-    });
-    
-    // restore scroll position after virtualizer is created
-    if (savedScrollOffset() > 0 && parentRef) {
-      queueMicrotask(() => {
-        if (parentRef) {
-          parentRef.scrollTop = savedScrollOffset();
-        }
-      });
-    }
-    
-    return virtualizer;
+  // single stable virtualizer instance - uses reactive getters for count/size
+  const rowVirtualizer = createVirtualizer({
+    get count() {
+      return rowCount();
+    },
+    getScrollElement: () => parentRef,
+    estimateSize: () => getCardHeight() + gap,
+    overscan: 2,
   });
 
-  // get albums for a specific row
-  const getAlbumsForRow = (rowIndex: number): CollectionCardData[] => {
-    const startIndex = rowIndex * columns();
-    const endIndex = startIndex + columns();
-    return props.albums.slice(startIndex, endIndex);
-  };
+  // remeasure virtualizer when columns change
+  createEffect(() => {
+    columns(); // track
+    rowVirtualizer.measure();
+  });
 
   return (
     <div
@@ -189,15 +168,19 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
       {/* virtual grid container */}
       <div
         style={{
-          height: `${rowVirtualizer().getTotalSize()}px`,
+          height: `${rowVirtualizer.getTotalSize()}px`,
           width: "100%",
           position: "relative",
           padding: `${gap}px`,
         }}
       >
-        <For each={rowVirtualizer().getVirtualItems()}>
+        <For each={rowVirtualizer.getVirtualItems()}>
           {(virtualRow) => {
-            const rowAlbums = getAlbumsForRow(virtualRow.index);
+            // use memo for column indices so they don't recreate on every render
+            const columnIndices = createMemo(() => {
+              const startIndex = virtualRow.index * columns();
+              return Array.from({ length: columns() }, (_, i) => startIndex + i);
+            });
 
             return (
               <div
@@ -218,31 +201,43 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
                     "grid-template-columns": `repeat(${columns()}, minmax(0, 1fr))`,
                   }}
                 >
-                  <For each={rowAlbums}>
-                    {(album) => {
-                      const card = (
-                        <CollectionCard
-                          collection={album}
-                          size={props.cardSize}
-                          showYear={props.showYear}
-                          showGenres={props.showGenres}
-                          onClick={props.onAlbumClick}
-                          onPlay={props.onAlbumPlay}
-                          onFavoriteToggle={props.onFavoriteToggle}
-                        />
-                      );
+                  <Index each={columnIndices()}>
+                    {(albumIndexAccessor) => {
+                      // use accessor function to get album reactively
+                      const album = () => props.albums[albumIndexAccessor()];
 
-                      return props.getContextMenuActions ? (
-                        <ContextMenu
-                          actions={props.getContextMenuActions(album)}
-                        >
-                          {card}
-                        </ContextMenu>
-                      ) : (
-                        card
+                      // early return for empty slots (end of grid)
+                      // need to handle this reactively with Show or conditional
+                      const hasAlbum = () => albumIndexAccessor() < props.albums.length;
+
+                      return (
+                        <div class={hasAlbum() ? "" : "invisible"}>
+                          {hasAlbum() &&
+                            (() => {
+                              const card = (
+                                <CollectionCard
+                                  collection={album()!}
+                                  size={props.cardSize}
+                                  showYear={props.showYear}
+                                  showGenres={props.showGenres}
+                                  onClick={props.onAlbumClick}
+                                  onPlay={props.onAlbumPlay}
+                                  onFavoriteToggle={props.onFavoriteToggle}
+                                />
+                              );
+
+                              return props.getContextMenuActions ? (
+                                <ContextMenu actions={props.getContextMenuActions(album()!)}>
+                                  {card}
+                                </ContextMenu>
+                              ) : (
+                                card
+                              );
+                            })()}
+                        </div>
                       );
                     }}
-                  </For>
+                  </Index>
                 </div>
               </div>
             );

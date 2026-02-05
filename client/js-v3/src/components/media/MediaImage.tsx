@@ -1,4 +1,4 @@
-import { createEffect, createSignal, JSX, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, JSX, on, Show } from "solid-js";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { Icon } from "../icons/registry";
@@ -77,29 +77,53 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
 
-  createEffect(() => {
+  // compute the image source (blobId or url) - this is what we actually track
+  const imageSource = createMemo(() => {
     const bestImage = pickBestImage(props.images as ImageData[]);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-
-    setResolvedUrl(null);
-
-    if (blobId) {
-      setIsLoading(true);
-      getBlobObjectURL(blobId).then((objectUrl) => {
-        if (objectUrl) {
-          // getBlobObjectURL already returns an object URL string, no need to create again
-          setResolvedUrl(objectUrl);
-        }
-        setIsLoading(false);
-      });
-    } else if (remoteUrl) {
-      setResolvedUrl(remoteUrl);
-      setIsLoading(false);
-    } else {
-      setIsLoading(false);
-    }
+    return { blobId, remoteUrl };
   });
+
+  // only re-run when blobId or remoteUrl actually changes (not when array reference changes)
+  createEffect(
+    on(
+      () => ({ blobId: imageSource().blobId, remoteUrl: imageSource().remoteUrl }),
+      (source, prevSource) => {
+        // skip if nothing actually changed
+        if (
+          prevSource &&
+          source.blobId === prevSource.blobId &&
+          source.remoteUrl === prevSource.remoteUrl
+        ) {
+          return;
+        }
+
+        console.log(`[MediaImage] source changed:`, {
+          blobId: source.blobId,
+          remoteUrl: source.remoteUrl,
+        });
+
+        setResolvedUrl(null);
+
+        if (source.blobId) {
+          setIsLoading(true);
+          getBlobObjectURL(source.blobId).then((objectUrl) => {
+            if (objectUrl) {
+              setResolvedUrl(objectUrl);
+            }
+            setIsLoading(false);
+          });
+        } else if (source.remoteUrl) {
+          setResolvedUrl(source.remoteUrl);
+          setIsLoading(false);
+        } else {
+          setIsLoading(false);
+        }
+      },
+      { defer: false }
+    )
+  );
 
   createEffect((prev) => {
     const url = resolvedUrl();
