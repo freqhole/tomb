@@ -1,9 +1,7 @@
 // song editor modal - edit single song metadata
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import type { Song } from "../../music/data/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
-import { updateSong } from "../../music/services/storage/db";
 import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/modals";
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
@@ -17,8 +15,8 @@ import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
-import MediaImage from "../media/MediaImage";
 import { EntityImages } from "../layout/EntityImages";
+import { error as errorLog } from "../../utils/logger";
 
 interface SongEditorModalProps {
   songId: string;
@@ -163,7 +161,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       props.onSave?.();
       props.onClose();
     } catch (error) {
-      console.error("failed to save song:", error);
+      errorLog("failed to save song:", error);
     }
   };
 
@@ -217,7 +215,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
           toast.error("delete not supported for this data source");
         }
       } catch (error) {
-        console.error("failed to delete song:", error);
+        errorLog("failed to delete song:", error);
         toast.error("failed to delete song");
       }
     }
@@ -299,7 +297,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       songQuery.refetch();
       queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
     } catch (err) {
-      console.error("failed to upload image:", err);
+      errorLog("failed to upload image:", err);
       toast.error("failed to upload image");
       setProcessingJob(null);
       setImagePreview(null);
@@ -332,7 +330,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       toast.success("primary image updated");
       songQuery.refetch();
     } catch (err) {
-      console.error("failed to update primary image:", err);
+      errorLog("failed to update primary image:", err);
       toast.error("failed to update primary image");
     }
   };
@@ -345,7 +343,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
       const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
       if (!blobId) {
-        console.error("image missing blob ID:", imageToRemove);
+        errorLog("image missing blob ID:", imageToRemove);
         toast.error("cannot delete image: missing blob ID");
         return;
       }
@@ -369,7 +367,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       toast.success("image removed");
       songQuery.refetch();
     } catch (err) {
-      console.error("failed to remove image:", err);
+      errorLog("failed to remove image:", err);
       toast.error("failed to remove image");
     }
   };

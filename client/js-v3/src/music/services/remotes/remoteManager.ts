@@ -4,6 +4,7 @@
 import { app } from "freqhole-api-client";
 import { initAppDB } from "../../../app/services/storage/db";
 import { STORE_REMOTES, type Remote } from "../../../app/services/storage/types";
+import { debug, error as errorLog } from "../../../utils/logger";
 
 // get all remotes
 export async function getAllRemotes(): Promise<Remote[]> {
@@ -66,7 +67,7 @@ export async function createRemote(data: {
       serverInfo = result.data;
     }
   } catch (error) {
-    console.warn(`failed to fetch server info from ${baseUrl}:`, error);
+    errorLog(`failed to fetch server info from ${baseUrl}:`, error);
     throw new Error(
       "failed to connect to server - could not fetch server info",
     );
@@ -105,7 +106,7 @@ export async function createRemote(data: {
   };
 
   await db.put(STORE_REMOTES, remote);
-  console.log(`created remote: ${remote.name} (${remote.base_url})`);
+  debug(`created remote: ${remote.name} (${remote.base_url})`);
 
   return remote;
 }
@@ -134,7 +135,7 @@ export async function updateRemote(
   }
 
   await db.put(STORE_REMOTES, updated);
-  console.log(`updated remote: ${updated.name}`);
+  debug(`updated remote: ${updated.name}`);
 
   return updated;
 }
@@ -149,7 +150,7 @@ export async function deleteRemote(remoteId: string): Promise<void> {
   }
 
   await db.delete(STORE_REMOTES, remoteId);
-  console.log(`deleted remote: ${existing.name}`);
+  debug(`deleted remote: ${existing.name}`);
 }
 
 // set a remote as active (deactivates all others)
@@ -181,7 +182,7 @@ export async function setActiveRemote(remoteId: string): Promise<void> {
     updated_at: Date.now(),
   });
 
-  console.log(`activated remote: ${remote.name}`);
+  debug(`activated remote: ${remote.name}`);
 }
 
 // deactivate all remotes (switch to local)
@@ -199,7 +200,7 @@ export async function deactivateAllRemotes(): Promise<void> {
     }
   }
 
-  console.log("deactivated all remotes (using local source)");
+  debug("deactivated all remotes (using local source)");
 }
 
 // update last_connected_at timestamp for a remote
@@ -240,10 +241,10 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
         last_info_check: Date.now(),
         updated_at: Date.now(),
       });
-      console.log(`refreshed server info for: ${remote.name}`);
+      debug(`refreshed server info for: ${remote.name}`);
     }
   } catch (error) {
-    console.warn(`failed to refresh server info for ${remote.name}:`, error);
+    errorLog(`failed to refresh server info for ${remote.name}:`, error);
     throw error;
   }
 }

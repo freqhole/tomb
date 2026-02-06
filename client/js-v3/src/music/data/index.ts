@@ -2,7 +2,7 @@
 // integrates with remote management to auto-switch between local and remote sources
 
 import * as apiClient from "freqhole-api-client";
-import { createEffect, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { appState, setActiveRemoteId } from "../../app/services/storage/db";
 import {
   deactivateAllRemotes,
@@ -12,6 +12,7 @@ import {
 import { LocalMusicDataSource, localDataSource } from "./local/localSource";
 import { RemoteMusicDataSource } from "./remote/remoteSource";
 import type { MusicDataSource } from "./types";
+import { debug, warn, error as errorLog } from "../../utils/logger";
 
 // active data source (default to local)
 const [activeSource, setActiveSource] =
@@ -36,7 +37,7 @@ export function getCurrentRemote() {
 
 // switch to local data source
 export async function useLocalSource(): Promise<void> {
-  console.log("switching to local data source");
+  debug("switching to local data source");
   setActiveSource(localDataSource);
   setCurrentRemote(null);
 
@@ -51,7 +52,7 @@ export async function useRemoteSource(
   name: string,
   baseUrl: string,
 ): Promise<void> {
-  console.log(`switching to remote data source: ${name} (${baseUrl})`);
+  debug(`switching to remote data source: ${name} (${baseUrl})`);
   const remoteSource = new RemoteMusicDataSource(baseUrl, remoteId);
   setActiveSource(remoteSource);
   setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
@@ -74,7 +75,7 @@ async function checkRemoteAccessible(baseUrl: string): Promise<boolean> {
     const healthResult = await apiClient.app.healthCheck(baseUrl);
     return healthResult.success;
   } catch (error) {
-    console.warn(`remote health check failed for ${baseUrl}:`, error);
+    warn(`remote health check failed for ${baseUrl}:`, error);
     return false;
   }
 }
@@ -87,36 +88,36 @@ export async function initializeDataSource(): Promise<void> {
     const activeRemoteId = state?.active_remote_id;
 
     if (activeRemoteId) {
-      console.log(`checking stored active remote: ${activeRemoteId}`);
+      debug(`checking stored active remote: ${activeRemoteId}`);
 
       // get remote from db
       const remote = await getRemoteById(activeRemoteId);
 
       if (!remote) {
-        console.warn(`stored remote not found: ${activeRemoteId}, using local`);
+        warn(`stored remote not found: ${activeRemoteId}, using local`);
         await useLocalSource();
         return;
       }
 
       // check if remote is accessible
-      console.log(
+      debug(
         `verifying remote accessibility: ${remote.name} (${remote.base_url})`,
       );
       const isAccessible = await checkRemoteAccessible(remote.base_url);
 
       if (isAccessible) {
-        console.log(`remote accessible, activating: ${remote.name}`);
+        debug(`remote accessible, activating: ${remote.name}`);
         await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       } else {
-        console.warn(`remote not accessible: ${remote.name}, using local`);
+        warn(`remote not accessible: ${remote.name}, using local`);
         await useLocalSource();
       }
     } else {
-      console.log("no active remote, using local source");
+      debug("no active remote, using local source");
       await useLocalSource();
     }
   } catch (error) {
-    console.error("failed to initialize data source, using local:", error);
+    errorLog("failed to initialize data source, using local:", error);
     await useLocalSource();
   }
 }

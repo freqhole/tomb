@@ -1,6 +1,8 @@
 // blob cache manager for remote audio/image caching
 // uses hybrid time-based + LRU eviction strategy
 
+import { debug, warn, error as errorLog } from "../../../utils/logger";
+
 const CACHE_NAME = "freqhole-blobs-v1";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -126,7 +128,7 @@ async function getCacheSize(): Promise<number> {
     const allMetadata = await getAllMetadata();
     return allMetadata.reduce((sum, m) => sum + m.size, 0);
   } catch (error) {
-    console.error("failed to get cache size:", error);
+    errorLog("failed to get cache size:", error);
     return 0;
   }
 }
@@ -192,7 +194,7 @@ export async function cacheBlob(
 
     // don't cache if total storage is critical
     if (storageInfo.totalPercentUsed >= TOTAL_QUOTA_CRITICAL) {
-      console.warn(
+      warn(
         `total storage critical (${(storageInfo.totalPercentUsed * 100).toFixed(1)}%), skipping cache`,
       );
       return;
@@ -218,12 +220,12 @@ export async function cacheBlob(
     };
     await saveMetadata(metadata);
 
-    console.log(`cached blob: ${url} (${(size / 1024).toFixed(1)} kb)`);
+    debug(`cached blob: ${url} (${(size / 1024).toFixed(1)} kb)`);
 
     // check if we need to evict old entries
     await evictIfNeeded();
   } catch (error) {
-    console.error("failed to cache blob:", error);
+    errorLog("failed to cache blob:", error);
   }
 }
 
@@ -241,14 +243,14 @@ export async function getCachedBlob(url: string): Promise<Response | null> {
         await saveMetadata(metadata);
       }
 
-      console.log(`cache hit: ${url}`);
+      debug(`cache hit: ${url}`);
       return response;
     }
 
-    console.log(`cache miss: ${url}`);
+    debug(`cache miss: ${url}`);
     return null;
   } catch (error) {
-    console.error("failed to get cached blob:", error);
+    errorLog("failed to get cached blob:", error);
     return null;
   }
 }
@@ -260,7 +262,7 @@ export async function isCached(url: string): Promise<boolean> {
     const response = await cache.match(url);
     return !!response;
   } catch (error) {
-    console.error("failed to check cache:", error);
+    errorLog("failed to check cache:", error);
     return false;
   }
 }
@@ -276,7 +278,7 @@ async function evictIfNeeded(): Promise<void> {
     const cacheSizeMB = storageInfo.cacheSize / (1024 * 1024);
     const maxCacheSizeMB = storageInfo.maxCacheSize / (1024 * 1024);
 
-    console.log(
+    debug(
       `cache status: ${allMetadata.length} items, ${cacheSizeMB.toFixed(1)} / ${maxCacheSizeMB.toFixed(1)} MB (${(storageInfo.totalPercentUsed * 100).toFixed(1)}% total storage)`,
     );
 
@@ -287,7 +289,7 @@ async function evictIfNeeded(): Promise<void> {
       storageInfo.totalPercentUsed >= TOTAL_QUOTA_CRITICAL ||
       storageInfo.cachePercentOfMax >= 1.0
     ) {
-      console.warn("storage critical, aggressive cleanup");
+      warn("storage critical, aggressive cleanup");
       const sorted = [...allMetadata].sort(
         (a, b) => a.lastAccessedAt - b.lastAccessedAt,
       );
@@ -298,7 +300,7 @@ async function evictIfNeeded(): Promise<void> {
       storageInfo.cachePercentOfMax >= 0.8
     ) {
       // warning: total storage >85% or cache >80% of max
-      console.warn("storage warning, LRU cleanup");
+      warn("storage warning, LRU cleanup");
       const sorted = [...allMetadata].sort(
         (a, b) => a.lastAccessedAt - b.lastAccessedAt,
       );
@@ -316,14 +318,14 @@ async function evictIfNeeded(): Promise<void> {
     }
 
     if (itemsToDelete.length > 0) {
-      console.log(`evicting ${itemsToDelete.length} cached items`);
+      debug(`evicting ${itemsToDelete.length} cached items`);
       for (const metadata of itemsToDelete) {
         await cache.delete(metadata.url);
         await deleteMetadata(metadata.url);
       }
     }
   } catch (error) {
-    console.error("failed to evict cache entries:", error);
+    errorLog("failed to evict cache entries:", error);
   }
 }
 
@@ -335,24 +337,24 @@ export async function preCacheBlob(
 ): Promise<void> {
   // check if already cached
   if (await isCached(url)) {
-    console.log(`already cached: ${url}`);
+    debug(`already cached: ${url}`);
     return;
   }
 
   // check if already in progress
   if (inProgressFetches.has(url)) {
-    console.log(`already in progress: ${url}`);
+    debug(`already in progress: ${url}`);
     return;
   }
 
   // if offline, add to pending queue and return
   if (!isOnline) {
-    console.log(`offline - adding to pending queue: ${url}`);
+    debug(`offline - adding to pending queue: ${url}`);
     addToPendingQueue(url, type);
     return;
   }
 
-  console.log(`pre-caching blob: ${url}`);
+  debug(`pre-caching blob: ${url}`);
 
   // mark as in progress
   inProgressFetches.add(url);
@@ -369,14 +371,14 @@ export async function preCacheBlob(
         }
 
         await cacheBlob(url, response, type);
-        console.log(`pre-cache successful after ${attempt + 1} attempt(s)`);
+        debug(`pre-cache successful after ${attempt + 1} attempt(s)`);
         return; // success!
       } catch (error) {
         lastError = error as Error;
 
         // if we lost connection, add to pending queue
         if (!isOnline) {
-          console.log(
+          debug(
             `lost connection during pre-cache - adding to pending queue: ${url}`,
           );
           addToPendingQueue(url, type);
@@ -386,7 +388,7 @@ export async function preCacheBlob(
         if (attempt < maxRetries - 1) {
           // exponential backoff: 1s, 2s, 4s
           const delayMs = Math.pow(2, attempt) * 1000;
-          console.warn(
+          warn(
             `pre-cache attempt ${attempt + 1} failed, retrying in ${delayMs}ms...`,
             error,
           );
@@ -396,13 +398,13 @@ export async function preCacheBlob(
     }
 
     // all retries failed - add to pending queue for later
-    console.error(
+    errorLog(
       `failed to pre-cache blob after ${maxRetries} attempts, adding to pending queue:`,
       lastError,
     );
     addToPendingQueue(url, type);
   } catch (error) {
-    console.error("failed to pre-cache blob:", error);
+    errorLog("failed to pre-cache blob:", error);
     addToPendingQueue(url, type);
   } finally {
     // always remove from in-progress
@@ -418,9 +420,9 @@ export async function clearBlobCache(): Promise<void> {
     const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
     const store = tx.objectStore(METADATA_STORE_NAME);
     await store.clear();
-    console.log("blob cache cleared");
+    debug("blob cache cleared");
   } catch (error) {
-    console.error("failed to clear cache:", error);
+    errorLog("failed to clear cache:", error);
   }
 }
 
@@ -461,7 +463,7 @@ export async function getCacheStats(): Promise<{
       totalPercentUsed: storageInfo.totalPercentUsed,
     };
   } catch (error) {
-    console.error("failed to get cache stats:", error);
+    errorLog("failed to get cache stats:", error);
     return {
       itemCount: 0,
       totalSize: 0,
@@ -490,7 +492,7 @@ function addToPendingQueue(url: string, type: "audio" | "image"): void {
     addedAt: Date.now(),
   });
 
-  console.log(`added to pending cache queue: ${url}`);
+  debug(`added to pending cache queue: ${url}`);
 }
 
 // process pending cache queue (attempt to cache failed items)
@@ -500,7 +502,7 @@ async function processPendingQueue(): Promise<void> {
   }
 
   processingPending = true;
-  console.log(
+  debug(
     `processing pending cache queue (${pendingCacheQueue.length} items)`,
   );
 
@@ -519,7 +521,7 @@ async function processPendingQueue(): Promise<void> {
 
       // check if already cached (might have been cached by another process)
       if (await isCached(item.url)) {
-        console.log(`pending item already cached: ${item.url}`);
+        debug(`pending item already cached: ${item.url}`);
         continue;
       }
 
@@ -531,9 +533,9 @@ async function processPendingQueue(): Promise<void> {
       }
 
       await cacheBlob(item.url, response, item.type);
-      console.log(`successfully cached pending item: ${item.url}`);
+      debug(`successfully cached pending item: ${item.url}`);
     } catch (error) {
-      console.warn(
+      warn(
         `failed to cache pending item (attempt ${item.retries + 1}):`,
         error,
       );
@@ -545,7 +547,7 @@ async function processPendingQueue(): Promise<void> {
           retries: item.retries + 1,
         });
       } else {
-        console.error(
+        errorLog(
           `giving up on pending item after ${maxRetries} attempts: ${item.url}`,
         );
       }
@@ -562,14 +564,14 @@ async function processPendingQueue(): Promise<void> {
 
 // handle online event - resume pending cache jobs
 function handleOnline(): void {
-  console.log("network connection restored, resuming cache operations");
+  debug("network connection restored, resuming cache operations");
   isOnline = true;
   void processPendingQueue();
 }
 
 // handle offline event - pause cache operations
 function handleOffline(): void {
-  console.log("network connection lost, pausing cache operations");
+  debug("network connection lost, pausing cache operations");
   isOnline = false;
 }
 
@@ -584,7 +586,7 @@ export function initCacheNetworkHandlers(): void {
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
 
-  console.log("cache network handlers initialized");
+  debug("cache network handlers initialized");
 }
 
 // cleanup online/offline handlers (call at app teardown)
@@ -594,7 +596,7 @@ export function cleanupCacheNetworkHandlers(): void {
   window.removeEventListener("online", handleOnline);
   window.removeEventListener("offline", handleOffline);
 
-  console.log("cache network handlers cleaned up");
+  debug("cache network handlers cleaned up");
 }
 
 // get pending queue status (for debugging/monitoring)
@@ -682,11 +684,11 @@ export async function preCacheNextSongs(
     );
 
     if (songsToCache.length === 0) {
-      console.log("no songs to pre-cache");
+      debug("no songs to pre-cache");
       return;
     }
 
-    console.log(
+    debug(
       `pre-caching next ${songsToCache.length} songs (~${targetMinutes} min)`,
     );
 
@@ -719,16 +721,16 @@ export async function preCacheNextSongs(
       (r) => r.status === "fulfilled" && r.value.status === "in_progress",
     ).length;
 
-    console.log(
+    debug(
       `pre-cache summary: ${started} started, ${alreadyCached} already cached, ${inProgress} in progress`,
     );
   } catch (error) {
-    console.error("failed to pre-cache next songs:", error);
+    errorLog("failed to pre-cache next songs:", error);
   }
 }
 
 // clear in-progress tracking (useful when queue changes)
 export function clearInProgressTracking(): void {
   inProgressFetches.clear();
-  console.log("cleared in-progress cache tracking");
+  debug("cleared in-progress cache tracking");
 }

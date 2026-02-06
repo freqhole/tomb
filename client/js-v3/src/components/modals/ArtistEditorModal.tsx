@@ -2,22 +2,20 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { updateArtist } from "../../music/services/storage/db";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../utils/jobs";
-import { queryClient } from "../../queryClient";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
-import MediaImage from "../media/MediaImage";
 import { EntityImages } from "../layout/EntityImages";
 import { pushModal, popModal } from "../../music/modals";
+import { error as errorLog } from "../../utils/logger";
 
 interface ArtistEditorModalProps {
   artistId: string;
@@ -113,7 +111,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       props.onSave?.();
       props.onClose();
     } catch (error) {
-      console.error("failed to save artist:", error);
+      errorLog("failed to save artist:", error);
       // toast is already shown by mutation onError handler
     }
   };
@@ -151,7 +149,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
           toast.error("delete not supported for this data source");
         }
       } catch (error) {
-        console.error("failed to delete artist:", error);
+        errorLog("failed to delete artist:", error);
         toast.error("failed to delete artist");
       }
     }
@@ -223,7 +221,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
       input.value = "";
     } catch (err) {
-      console.error("failed to upload image:", err);
+      errorLog("failed to upload image:", err);
       toast.error("failed to upload image");
       setProcessingJob(null);
     }
@@ -256,7 +254,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       artistQuery.refetch();
       queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
     } catch (err) {
-      console.error("failed to update primary image:", err);
+      errorLog("failed to update primary image:", err);
       toast.error("failed to update primary image");
     }
   };
@@ -269,7 +267,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
       const blobId = imageToRemove.remote_blob_id || imageToRemove.local_blob_id;
       if (!blobId) {
-        console.error("image missing blob ID:", imageToRemove);
+        errorLog("image missing blob ID:", imageToRemove);
         toast.error("cannot delete image: missing blob ID");
         return;
       }
@@ -292,7 +290,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       toast.success("image removed");
       artistQuery.refetch();
     } catch (err) {
-      console.error("failed to remove image:", err);
+      errorLog("failed to remove image:", err);
       toast.error("failed to remove image");
     }
   };

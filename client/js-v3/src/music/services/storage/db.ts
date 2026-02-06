@@ -4,9 +4,7 @@ import type {
   Album,
   AlbumQueryResult,
   AlbumTag,
-  AlbumWithStats,
   Artist,
-  ArtistQueryResult,
   ArtistWithStats,
   Favorite,
   Genre,
@@ -14,10 +12,8 @@ import type {
   GenreWithStats,
   NewSong,
   Playlist,
-  PlaylistSong,
   Rating,
   Song,
-  SongQueryResult,
   Tag,
 } from "./types";
 import {
@@ -37,6 +33,7 @@ import {
 import { generateUUID } from "../../../utils/uuid";
 import { deleteBlob } from "./blobs";
 import { deleteAudioFromOPFS, deleteThumbnailFromOPFS } from "../opfs/helpers";
+import { debug, warn } from "../../../utils/logger";
 
 let dbInstance: IDBPDatabase | null = null;
 
@@ -49,17 +46,17 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
 
   dbInstance = await openDB(MUSIC_DB_NAME, MUSIC_DB_VERSION, {
     upgrade(db, oldVersion, newVersion, transaction) {
-      console.log(`upgrading music db from v${oldVersion} to v${newVersion}`);
+      debug(`upgrading music db from v${oldVersion} to v${newVersion}`);
 
       // version 8: recreate songs store with UUID string primary key
       if (oldVersion < 8 && db.objectStoreNames.contains(STORE_SONGS)) {
-        console.log('deleting old songs store to recreate with UUID primary key');
+        debug('deleting old songs store to recreate with UUID primary key');
         db.deleteObjectStore(STORE_SONGS);
       }
 
       // version 7: recreate songs store with auto-increment id
       if (oldVersion < 7 && db.objectStoreNames.contains(STORE_SONGS)) {
-        console.log('deleting old songs store to recreate with auto-increment id');
+        debug('deleting old songs store to recreate with auto-increment id');
         db.deleteObjectStore(STORE_SONGS);
       }
 
@@ -192,7 +189,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
 
         // backfill denormalized album fields for existing songs
         // we'll do this after the upgrade transaction completes
-        console.log("compound indexes added, will backfill album fields");
+        debug("compound indexes added, will backfill album fields");
       }
 
       // create genres table
@@ -279,7 +276,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
     },
   });
 
-  console.log("music database initialized");
+  debug("music database initialized");
 
   // backfill denormalized album fields if needed (v3 upgrade)
   await backfillAlbumFields();
@@ -301,7 +298,7 @@ async function backfillAlbumFields(): Promise<void> {
 
   if (!needsBackfill) return;
 
-  console.log(
+  debug(
     "backfilling album denormalized fields for",
     allSongs.length,
     "songs",
@@ -350,7 +347,7 @@ async function backfillAlbumFields(): Promise<void> {
   }
 
   await tx.done;
-  console.log("backfill complete");
+  debug("backfill complete");
 }
 
 // sync album_added_at and album_primary_genre_id for all songs in an album
@@ -694,7 +691,7 @@ export async function getSongBySha256(sha256: string): Promise<Song | undefined>
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_sha256");
   const song = await index.get(sha256);
-  console.log(`getSongBySha256(${sha256.slice(0, 8)}...):`, song ? `found song id ${song.id}` : 'not found');
+  debug(`getSongBySha256(${sha256.slice(0, 8)}...):`, song ? `found song id ${song.id}` : 'not found');
   return song;
 }
 
@@ -750,9 +747,9 @@ export async function deleteSongCascade(songId: string, checkOrphans = true): Pr
     try {
       await deleteAudioFromOPFS(song.opfs_path);
       deletedBlobs++;
-      console.log(`deleted audio from opfs: ${song.opfs_path}`);
+      debug(`deleted audio from opfs: ${song.opfs_path}`);
     } catch (error) {
-      console.warn(`failed to delete audio from opfs: ${song.opfs_path}`, error);
+      warn(`failed to delete audio from opfs: ${song.opfs_path}`, error);
     }
   }
   
@@ -1521,7 +1518,7 @@ export async function clearAllMusicData(): Promise<void> {
   await db.clear(STORE_RATINGS);
   await db.clear(STORE_TAGS);
   await db.clear(STORE_ALBUM_TAGS);
-  console.log("cleared all music data");
+  debug("cleared all music data");
 }
 
 export async function getPlaylistById(

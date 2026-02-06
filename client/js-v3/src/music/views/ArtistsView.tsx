@@ -20,6 +20,7 @@ import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
+import { warn } from "../../utils/logger";
 
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
@@ -464,7 +465,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     const imageUrls = Array.from(imageMap.values());
 
     if (imageUrls.length === 0) {
-      console.warn("no images found for artist");
+      warn("no images found for artist");
       return;
     }
 

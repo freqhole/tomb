@@ -1,7 +1,6 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, JSX, onMount, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, JSX, onMount, onCleanup, Show } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
-import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
@@ -134,7 +133,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       resizeObserver.disconnect();
     });
 
-    // restore scroll position (use double RAF to ensure virtualizer has calculated sizes)
+    // restore scroll position (use double RAF to ensure virtualizer has calculated sizes HACK THE PLANET)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (parentRef) {

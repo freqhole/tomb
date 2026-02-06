@@ -242,9 +242,7 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   return createInfiniteQuery(() => ({
     queryKey: queryKeys.artists.list(query?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
-      console.log(`[useArtistsQuery] queryFn called with pageParam=${pageParam}`);
       const dataSource = getDataSource();
-      console.log(`[useArtistsQuery] dataSource:`, dataSource);
       if (!dataSource.getArtists) {
         console.warn(`[useArtistsQuery] dataSource has no getArtists method!`);
         return {
@@ -260,7 +258,6 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
         limit: pageSize,
         search: query?.(),
       });
-      console.log(`[useArtistsQuery] dataSource.getArtists returned:`, result);
       return result;
     },
     getNextPageParam: (lastPage) => {
