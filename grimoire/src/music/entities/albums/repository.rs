@@ -6,6 +6,7 @@ use super::models::{Album, CreateAlbumRequest, GenreRef};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::ImageMetadata;
+use crate::music::EntityUrl;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
 use time::OffsetDateTime;
@@ -61,6 +62,7 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         label: req.label,
         genres: None,
         images: None,
+        urls: None,
         song_count: 0,
         total_duration: 0,
         created_at: now,
@@ -105,7 +107,8 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_deleted_by as "deleted_by?",
             album_created_by as "created_by?",
             album_updated_by as "updated_by?",
-            album_images as "images: JsonVec<ImageMetadata>"
+            album_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
            FROM album_query_view
            ORDER BY album_title ASC
            LIMIT ? OFFSET ?"#,
@@ -154,7 +157,8 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_deleted_by as "deleted_by?",
             album_created_by as "created_by?",
             album_updated_by as "updated_by?",
-            album_images as "images: JsonVec<ImageMetadata>"
+            album_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
            FROM album_query_view
            WHERE album_id = ?"#,
         id

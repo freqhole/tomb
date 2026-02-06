@@ -1,6 +1,6 @@
 //! album domain models
 
-use crate::music::crud::ImageMetadata;
+use crate::music::crud::{EntityUrl, ImageMetadata};
 use crate::JsonVec;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -23,6 +23,7 @@ pub struct Album {
     pub label: Option<String>,
     pub genres: Option<JsonVec<GenreRef>>,
     pub images: Option<JsonVec<ImageMetadata>>,
+    pub urls: Option<JsonVec<EntityUrl>>,
     pub song_count: i64,
     pub total_duration: i64,
     pub created_at: i64,         // unix timestamp UTC

@@ -20,6 +20,7 @@ import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import MediaImage from "../media/MediaImage";
 import { EntityImages } from "../layout/EntityImages";
 import { pushModal, popModal } from "../../music/modals";
+import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
 
 interface AlbumEditorModalProps {
   albumId: string;
@@ -65,8 +66,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedAlbumId, setLoadedAlbumId] = createSignal<string | null>(null);
-  const [activeTab, setActiveTab] = createSignal<"metadata" | "images">("metadata");
+  const [activeTab, setActiveTab] = createSignal<"info" | "images">("info");
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
+
+  // entity URLs management
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
   const [imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
     status: string;
@@ -362,9 +367,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       class="fixed inset-0 bg-black/50 flex items-center justify-center"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
     >
-      <div class="bg-[var(--color-bg-elevated)] rounded-lg shadow-xl w-full max-w-3xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
+      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
-        <div class="flex items-center justify-between p-6 border-b border-[var(--color-border)]">
+        <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)]">
           <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit album</h2>
           <button
             onClick={props.onClose}
@@ -389,11 +394,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             class="flex-1 flex flex-col min-h-0"
           >
             <TabList class="px-6">
-              <Tab id="metadata" label="metadata" />
+              <Tab id="info" label="info" />
               <Tab id="images" label="images" badge={images().length || undefined} />
             </TabList>
 
-            <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-6">
+            <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
               {/* album title */}
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
@@ -628,6 +633,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   </Show>
                 </div>
               </div>
+
+              {/* entity URLs */}
+              <div class="pt-6 border-t border-[var(--color-border-default)]">
+                <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
+                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+              </div>
             </TabPanel>
 
             <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
@@ -652,8 +663,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         </Show>
 
         {/* footer */}
-        <Show when={initialData() && activeTab() === "metadata"}>
-          <div class="flex items-center justify-between p-6 border-t border-[var(--color-border)]">
+        <Show when={initialData() && activeTab() === "info"}>
+          <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)]">
             <Button onClick={handleDelete} variant="danger">
               delete
             </Button>

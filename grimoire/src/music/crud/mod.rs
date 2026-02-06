@@ -14,12 +14,12 @@ mod update;
 pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, AlbumsQueryResult,
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
-    BulkImportResult, CreateSongWithMetadataRequest, FavoriteAlbumResult, FavoriteArtistResult,
-    FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, GenreQueryResult,
-    GenresQueryResult, ImageMetadata, ImportSongRequest, ImportSongResult, PlaylistQueryResult,
-    PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
-    QueryPlaylistSongsRequest, QueryResult, SongImportError, SongQueryResult, SongUpdateError,
-    SongsQueryResult,
+    BulkImportResult, CreateSongWithMetadataRequest, EntityUrl, FavoriteAlbumResult,
+    FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
+    GenreQueryResult, GenresQueryResult, ImageMetadata, ImportSongRequest, ImportSongResult,
+    PlaylistQueryResult, PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult,
+    QueryParams, QueryPlaylistSongsRequest, QueryResult, SongImportError, SongQueryResult,
+    SongUpdateError, SongsQueryResult,
 };
 
 // re-export update types from models

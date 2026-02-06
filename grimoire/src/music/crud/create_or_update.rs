@@ -15,6 +15,7 @@ use crate::music::entities::{
     albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
     CreateGenreRequest, CreateSongRequest, Genre, Playlist,
 };
+use crate::music::EntityUrl;
 use crate::GrimoireResponse;
 use crate::JsonVec;
 use std::sync::Mutex;
@@ -560,7 +561,8 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
             deleted_by,
             created_by,
             updated_by,
-            NULL as "images?: JsonVec<ImageMetadata>"
+            NULL as "images?: JsonVec<ImageMetadata>",
+            NULL as "urls?: JsonVec<EntityUrl>"
            FROM artistz
            WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL
            LIMIT 1"#,
@@ -618,7 +620,8 @@ pub async fn get_current_artist_for_song(song_id: &str) -> GrimoireResult<Option
                 deleted_by,
                 created_by,
                 updated_by,
-                NULL as "images?: JsonVec<ImageMetadata>"
+                NULL as "images?: JsonVec<ImageMetadata>",
+                NULL as "urls?: JsonVec<EntityUrl>"
             FROM artistz WHERE id = ? AND deleted_at IS NULL"#,
             artist_id
         )
@@ -672,6 +675,7 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             label: row.label,
             genres: None,
             images: None,
+            urls: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,
@@ -818,6 +822,7 @@ pub async fn find_or_create_album_for_artist(
                 label: row.label,
                 genres: None,
                 images: None,
+                urls: None,
                 song_count: row.song_count,
                 total_duration: row.total_duration,
                 created_at: row.created_at,
@@ -1014,6 +1019,7 @@ pub async fn get_or_create_playlist_by_name(
             p.description,
             p.is_public as "is_public!",
             NULL as "images?: JsonVec<ImageMetadata>",
+            NULL as "urls?: JsonVec<EntityUrl>",
             p.created_by_id,
             p.created_at as "created_at!",
             p.updated_at as "updated_at!",

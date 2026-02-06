@@ -15,6 +15,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { pushModal, popModal } from "../../music/modals";
+import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
 import { error as errorLog } from "../../utils/logger";
 
 interface ArtistEditorModalProps {
@@ -44,8 +45,12 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedArtistId, setLoadedArtistId] = createSignal<string | null>(null);
-  const [activeTab, setActiveTab] = createSignal<"metadata" | "images">("metadata");
+  const [activeTab, setActiveTab] = createSignal<"info" | "images">("info");
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
+
+  // entity URLs management
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
   const [imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
     status: string;
@@ -300,9 +305,9 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       class="fixed inset-0 bg-black/50 flex items-center justify-center"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
     >
-      <div class="bg-[var(--color-bg-elevated)] rounded-lg shadow-xl w-full max-w-2xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
+      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-2xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
-        <div class="flex items-center justify-between p-6 border-b border-[var(--color-border)]">
+        <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)]">
           <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit artist</h2>
           <button
             onClick={props.onClose}
@@ -327,11 +332,11 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
             class="flex-1 flex flex-col min-h-0"
           >
             <TabList class="px-6">
-              <Tab id="metadata" label="metadata" />
+              <Tab id="info" label="info" />
               <Tab id="images" label="images" badge={images().length || undefined} />
             </TabList>
 
-            <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-6">
+            <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
               {/* artist name */}
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
@@ -384,9 +389,15 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
                     }))
                   }
                   placeholder="artist biography..."
-                  class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
+                  class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
                   rows={5}
                 />
+              </div>
+
+              {/* entity URLs */}
+              <div class="pt-6 border-t border-[var(--color-border-default)]">
+                <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
+                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
               </div>
             </TabPanel>
 
@@ -414,8 +425,8 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
         </Show>
 
         {/* footer */}
-        <Show when={initialData() && activeTab() === "metadata"}>
-          <div class="flex items-center justify-between p-6 border-t border-[var(--color-border)]">
+        <Show when={initialData() && activeTab() === "info"}>
+          <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)]">
             <Button onClick={handleDelete} variant="danger">
               delete
             </Button>

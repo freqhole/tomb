@@ -26,6 +26,14 @@ SELECT
         '[]'
     ) as artist_images,
 
+    -- entity URLs as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+         FROM entity_urlz eu
+         WHERE eu.entity_type = 'artist' AND eu.entity_id = ar.id),
+        '[]'
+    ) as artist_urls,
+
     -- aggregated stats (only non-deleted songs)
     COUNT(DISTINCT ars.song_id) as song_count,
     (SELECT COUNT(DISTINCT aa2.album_id)
@@ -103,6 +111,14 @@ SELECT
          ORDER BY t.name ASC),
         '[]'
     ) as album_tags,
+
+    -- entity URLs as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+         FROM entity_urlz eu
+         WHERE eu.entity_type = 'album' AND eu.entity_id = al.id),
+        '[]'
+    ) as album_urls,
 
     -- primary artist
     ar.id as artist_id,
@@ -223,6 +239,14 @@ SELECT
          WHERE si.song_id = s.id),
         '[]'
     ) as song_images,
+
+    -- entity URLs as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+         FROM entity_urlz eu
+         WHERE eu.entity_type = 'song' AND eu.entity_id = s.id),
+        '[]'
+    ) as song_urls,
 
     -- artist fields
     ar.id as artist_id,
@@ -348,6 +372,14 @@ SELECT
         '[]'
     ) as playlist_images,
 
+    -- entity URLs as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+         FROM entity_urlz eu
+         WHERE eu.entity_type = 'playlist' AND eu.entity_id = pl.id),
+        '[]'
+    ) as playlist_urls,
+
     -- aggregated stats
     COUNT(ps.song_id) as playlist_song_count,
     COALESCE(SUM(s.duration), 0) as playlist_total_duration,
@@ -406,6 +438,14 @@ SELECT
          WHERE si.song_id = s.id),
         '[]'
     ) as song_images,
+
+    -- entity URLs as JSON array
+    COALESCE(
+        (SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+         FROM entity_urlz eu
+         WHERE eu.entity_type = 'song' AND eu.entity_id = s.id),
+        '[]'
+    ) as song_urls,
 
     -- artist fields
     ar.id as artist_id,

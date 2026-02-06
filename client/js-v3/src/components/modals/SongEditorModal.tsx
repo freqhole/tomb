@@ -12,10 +12,12 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
+import { EntityUrlz, EntityUrl } from "../forms/EntityUrlz";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
+import { MetadataDisplay } from "../layout/MetadataDisplay";
 import { error as errorLog } from "../../utils/logger";
 
 interface SongEditorModalProps {
@@ -40,7 +42,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const songQuery = useSongQuery(() => props.songId);
   const updateMutation = useUpdateSongsMutation();
 
-  const [activeTab, setActiveTab] = createSignal("metadata");
+  const [activeTab, setActiveTab] = createSignal("info");
   const [formData, setFormData] = createSignal<FormData>({
     title: "",
     track_number: 1,
@@ -55,6 +57,10 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const [lyricsExpanded, setLyricsExpanded] = createSignal(false);
   const [artistId, setArtistId] = createSignal<string | undefined>(undefined);
   const [albumId, setAlbumId] = createSignal<string | undefined>(undefined);
+
+  // entity URLs management
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
 
   // image management
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
@@ -409,12 +415,13 @@ export function SongEditorModal(props: SongEditorModalProps) {
           class="flex-1 flex flex-col min-h-0"
         >
           <TabList class="px-4">
-            <Tab id="metadata" label="metadata" />
+            <Tab id="info" label="info" />
             <Tab id="images" label="images" badge={images().length || undefined} />
+            <Tab id="metadata" label="metadata" />
           </TabList>
 
-          {/* metadata tab */}
-          <TabPanel id="metadata" class="flex-1 overflow-y-auto">
+          {/* info tab */}
+          <TabPanel id="info" class="flex-1 overflow-y-auto">
             <div class="p-4">
               <Show
                 when={initialData()}
@@ -653,6 +660,12 @@ export function SongEditorModal(props: SongEditorModalProps) {
                   </div>
                 </div>
               </Show>
+
+              {/* entity URLs */}
+              <div class="mt-6 pt-6 border-t border-[var(--color-border-default)]">
+                <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
+                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+              </div>
             </div>
           </TabPanel>
 
@@ -675,10 +688,22 @@ export function SongEditorModal(props: SongEditorModalProps) {
               uploading={!!processingJob()}
             />
           </TabPanel>
+
+          {/* metadata tab - raw JSON display */}
+          <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6">
+            <Show
+              when={songQuery.data?.metadata}
+              fallback={
+                <div class="text-sm text-[var(--color-text-tertiary)]">no metadata available</div>
+              }
+            >
+              <MetadataDisplay data={songQuery.data!.metadata} />
+            </Show>
+          </TabPanel>
         </Tabs>
 
-        {/* footer - only show on metadata tab */}
-        <Show when={activeTab() === "metadata"}>
+        {/* footer - only show on info tab */}
+        <Show when={activeTab() === "info"}>
           <div class="flex items-center justify-between gap-2 p-4 border-t border-[var(--color-border-default)]">
             <Button onClick={handleDelete} variant="danger">
               delete

@@ -19,6 +19,14 @@ pub struct ImageMetadata {
     pub blob_type: BlobType, // from media_blobz.blob_type
 }
 
+/// entity URL - a named link associated with an entity
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct EntityUrl {
+    pub id: String,
+    pub name: Option<String>,
+    pub url: String,
+}
+
 /// request for importing a song with all metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportSongRequest {

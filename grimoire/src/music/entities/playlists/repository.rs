@@ -1,10 +1,11 @@
 //! playlist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use crate::music::crud::ImageMetadata;
 use super::models::{CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
+use crate::music::crud::ImageMetadata;
+use crate::music::EntityUrl;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
 
@@ -57,7 +58,8 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Pla
             playlist_created_by as "created_by?",
             playlist_updated_by as "updated_by?",
             playlist_song_count as "song_count!: i64",
-            playlist_images as "images: JsonVec<ImageMetadata>"
+            playlist_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
         FROM playlist_query_view
         WHERE playlist_id = ?"#,
         playlist_id
@@ -105,7 +107,8 @@ pub async fn list_playlists() -> GrimoireResponse<Vec<Playlist>> {
             playlist_created_by as "created_by?",
             playlist_updated_by as "updated_by?",
             playlist_song_count as "song_count!: i64",
-            playlist_images as "images: JsonVec<ImageMetadata>"
+            playlist_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
         FROM playlist_query_view
         ORDER BY playlist_created_at DESC"#
     )
@@ -151,7 +154,8 @@ pub async fn get_playlist(id: &str) -> GrimoireResponse<Playlist> {
             playlist_created_by as "created_by?",
             playlist_updated_by as "updated_by?",
             playlist_song_count as "song_count!: i64",
-            playlist_images as "images: JsonVec<ImageMetadata>"
+            playlist_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
           FROM playlist_query_view
           WHERE playlist_id = ?"#,
         id
@@ -208,14 +212,17 @@ pub async fn remove_playlist_thumbnail(
     };
 
     // Remove all thumbnails from playlist
-    match sqlx::query!(
-        "DELETE FROM playlist_imagez WHERE playlist_id = ?",
-        id
-    )
-    .execute(&pool)
-    .await {
-        Ok(_) => {},
-        Err(e) => return GrimoireResponse::failure("Failed to remove thumbnails", vec![ErrorDetail::from(e)]),
+    match sqlx::query!("DELETE FROM playlist_imagez WHERE playlist_id = ?", id)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to remove thumbnails",
+                vec![ErrorDetail::from(e)],
+            )
+        }
     };
 
     // Optionally clean up unused media blobs
@@ -367,7 +374,10 @@ pub async fn add_playlist_image(
     .await
     {
         Ok(_) => GrimoireResponse::success("Image added to playlist", ()),
-        Err(e) => GrimoireResponse::failure("Failed to add image to playlist", vec![ErrorDetail::from(e)]),
+        Err(e) => GrimoireResponse::failure(
+            "Failed to add image to playlist",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }
 
@@ -398,14 +408,18 @@ pub async fn remove_playlist_image(playlist_id: &str, media_blob_id: &str) -> Gr
                 GrimoireResponse::success("Image removed from playlist", ())
             }
         }
-        Err(e) => {
-            GrimoireResponse::failure("Failed to remove image from playlist", vec![ErrorDetail::from(e)])
-        }
+        Err(e) => GrimoireResponse::failure(
+            "Failed to remove image from playlist",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }
 
 /// set an image as the primary image for a playlist
-pub async fn set_primary_playlist_image(playlist_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+pub async fn set_primary_playlist_image(
+    playlist_id: &str,
+    media_blob_id: &str,
+) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -464,14 +478,18 @@ pub async fn clear_playlist_images(playlist_id: &str) -> GrimoireResponse<()> {
         }
     };
 
-    match sqlx::query!("DELETE FROM playlist_imagez WHERE playlist_id = ?", playlist_id)
-        .execute(&pool)
-        .await
+    match sqlx::query!(
+        "DELETE FROM playlist_imagez WHERE playlist_id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await
     {
         Ok(_) => GrimoireResponse::success("All images removed from playlist", ()),
-        Err(e) => {
-            GrimoireResponse::failure("Failed to clear playlist images", vec![ErrorDetail::from(e)])
-        }
+        Err(e) => GrimoireResponse::failure(
+            "Failed to clear playlist images",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }
 

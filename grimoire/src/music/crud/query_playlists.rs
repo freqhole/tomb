@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::database;
 use crate::music::crud::models::{
-    PlaylistQueryResult, PlaylistSongResult, QueryParams, QueryResult, SongQueryResult,
+    EntityUrl, PlaylistQueryResult, PlaylistSongResult, QueryParams, QueryResult, SongQueryResult,
 };
 use crate::music::entities::albums::GenreRef;
 use crate::music::entities::{Album, Artist, Song};
@@ -35,6 +35,8 @@ enum PlaylistView {
     PlaylistDeletedAt,
     #[iden = "playlist_images"]
     PlaylistImages,
+    #[iden = "playlist_urls"]
+    PlaylistUrls,
     #[iden = "playlist_song_count"]
     PlaylistSongCount,
     #[iden = "playlist_total_duration"]
@@ -81,6 +83,7 @@ pub struct PlaylistViewRow {
     playlist_description: Option<String>,
     playlist_is_public: i64,
     playlist_images: Option<String>, // JSON array from view
+    playlist_urls: Option<String>,   // JSON array of entity URLs from view
     playlist_created_by_id: Option<String>,
     playlist_created_at: i64,
     playlist_updated_at: i64,
@@ -105,12 +108,19 @@ impl PlaylistViewRow {
             })
             .map(crate::JsonVec); // wrap in JsonVec if present
 
+        // parse URLs JSON array
+        let urls = self
+            .playlist_urls
+            .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
+            .map(crate::JsonVec);
+
         let playlist = Playlist {
             id: self.playlist_id,
             title: self.playlist_title,
             description: self.playlist_description,
             is_public: self.playlist_is_public,
             images,
+            urls,
             created_by_id: self.playlist_created_by_id,
             created_at: self.playlist_created_at,
             updated_at: self.playlist_updated_at,
@@ -148,6 +158,7 @@ pub struct PlaylistSongViewRow {
     song_id: String,
     song_media_blob_id: String,
     song_images: Option<String>, // JSON array from view
+    song_urls: Option<String>,   // JSON array of entity URLs from view
     song_title: String,
     song_track_number: i64,
     song_disc_number: i64,
@@ -247,10 +258,17 @@ impl PlaylistSongViewRow {
             })
             .map(crate::JsonVec);
 
+        // parse song URLs JSON array
+        let song_urls = self
+            .song_urls
+            .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
+            .map(crate::JsonVec);
+
         let song = Song {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
             images: images.clone().map(crate::JsonVec),
+            urls: song_urls,
             title: self.song_title,
             track_number: self.song_track_number,
             disc_number: self.song_disc_number,
@@ -279,6 +297,7 @@ impl PlaylistSongViewRow {
                 created_by: self.artist_created_by,
                 updated_by: self.artist_updated_by,
                 images: artist_images,
+                urls: None,
             })
         } else {
             None
@@ -293,6 +312,7 @@ impl PlaylistSongViewRow {
                 label: self.album_label,
                 genres: album_genres,
                 images: album_images,
+                urls: None,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -417,6 +437,7 @@ pub async fn query_playlists(
         .column(PlaylistView::PlaylistDescription)
         .column(PlaylistView::PlaylistIsPublic)
         .column(PlaylistView::PlaylistImages)
+        .column(PlaylistView::PlaylistUrls)
         .column(PlaylistView::PlaylistCreatedById)
         .column(PlaylistView::PlaylistCreatedAt)
         .column(PlaylistView::PlaylistUpdatedAt)

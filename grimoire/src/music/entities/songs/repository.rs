@@ -6,6 +6,7 @@ use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::remove_song_from_all_playlists;
 use crate::music::crud::ImageMetadata;
+use crate::music::EntityUrl;
 use crate::response::GrimoireResponse;
 use crate::GrimoireResult;
 use crate::JsonVec;
@@ -45,7 +46,8 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
             deleted_by,
             created_by,
             updated_by,
-            NULL as \"images?: JsonVec<ImageMetadata>\"",
+            NULL as \"images?: JsonVec<ImageMetadata>\",
+            NULL as \"urls?: JsonVec<EntityUrl>\"",
         req.media_blob_id,
         req.title,
         req.track_number,
@@ -107,7 +109,8 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
             song_deleted_by as deleted_by,
             song_created_by as created_by,
             song_updated_by as updated_by,
-            song_images as "images?: JsonVec<ImageMetadata>"
+            song_images as "images?: JsonVec<ImageMetadata>",
+            NULL as "urls?: JsonVec<EntityUrl>"
          FROM song_query_view
          WHERE song_deleted_at IS NULL
          ORDER BY song_created_at DESC
@@ -158,7 +161,8 @@ pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
             song_deleted_by as "deleted_by?",
             song_created_by as "created_by?",
             song_updated_by as "updated_by?",
-            song_images as "images?: JsonVec<ImageMetadata>"
+            song_images as "images?: JsonVec<ImageMetadata>",
+            NULL as "urls?: JsonVec<EntityUrl>"
          FROM song_query_view
          WHERE song_id = ? AND song_deleted_at IS NULL"#,
         id

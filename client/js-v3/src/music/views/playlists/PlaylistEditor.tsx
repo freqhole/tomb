@@ -10,6 +10,7 @@ import { getDataSource, getCurrentRemote } from "../../data";
 import { pollJobUntilComplete } from "../../../utils/jobs";
 import type { Playlist } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
+import { EntityUrlz, type EntityUrl } from "../../../components/forms/EntityUrlz";
 
 export interface PlaylistEditorProps {
   playlist: Playlist;
@@ -25,6 +26,10 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
   const [uploadingImage, setUploadingImage] = createSignal(false);
+
+  // entity URLs management
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
 
   const updatePlaylistMutation = useUpdatePlaylistMutation();
   const deletePlaylistMutation = useDeletePlaylistMutation();
@@ -260,6 +265,12 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
           uploading={uploadingImage()}
           compact={true}
         />
+      </div>
+
+      {/* entity URLs */}
+      <div class="mt-4 pt-4 border-t border-[var(--color-border-default)]">
+        <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
+        <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
       </div>
 
       {/* delete confirmation dialog */}

@@ -1,6 +1,6 @@
 //! playlist domain models
 
-use crate::music::crud::ImageMetadata;
+use crate::music::crud::{EntityUrl, ImageMetadata};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use crate::JsonVec;
@@ -14,8 +14,8 @@ pub struct Playlist {
     pub title: String,
     pub description: Option<String>,
     pub is_public: i64, // sqlite boolean (0/1)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<JsonVec<ImageMetadata>>,
+    pub urls: Option<JsonVec<EntityUrl>>,
     pub created_by_id: Option<String>,
     pub created_at: i64, // unix timestamp UTC
     pub updated_at: i64, // unix timestamp UTC

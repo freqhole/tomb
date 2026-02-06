@@ -6,8 +6,8 @@ use std::time::Instant;
 use crate::database;
 
 use crate::music::crud::models::{
-    AlbumQueryResult, ArtistQueryResult, GenreQueryResult, ImageMetadata, QueryParams, QueryResult,
-    SongQueryResult,
+    AlbumQueryResult, ArtistQueryResult, EntityUrl, GenreQueryResult, ImageMetadata, QueryParams,
+    QueryResult, SongQueryResult,
 };
 use crate::music::entities::{
     albums::Album, albums::GenreRef, artists::Artist, genres::Genre, songs::Song,
@@ -121,6 +121,7 @@ pub struct SongViewRow {
     song_id: String,
     song_media_blob_id: String,
     song_images: Option<String>, // JSON array from view
+    song_urls: Option<String>,   // JSON array of entity URLs from view
     song_title: String,
     song_track_number: i64,
     song_disc_number: i64,
@@ -188,6 +189,12 @@ impl SongViewRow {
             .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
             .or(Some(vec![])); // default to empty vec if None or parse fails
 
+        // parse song URLs JSON array
+        let song_urls = self
+            .song_urls
+            .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
+            .map(crate::JsonVec);
+
         // parse album tags JSON array
         let album_tags = self
             .album_tags
@@ -216,6 +223,7 @@ impl SongViewRow {
             id: self.song_id,
             media_blob_id: self.song_media_blob_id,
             images: images.clone().map(crate::JsonVec),
+            urls: song_urls,
             title: self.song_title,
             track_number: self.song_track_number,
             disc_number: self.song_disc_number,
@@ -244,6 +252,7 @@ impl SongViewRow {
                 created_by: self.artist_created_by,
                 updated_by: self.artist_updated_by,
                 images: artist_images,
+                urls: None,
             })
         } else {
             None
@@ -258,6 +267,7 @@ impl SongViewRow {
                 label: self.album_label,
                 genres: album_genres,
                 images: album_images,
+                urls: None,
                 song_count: self.album_song_count.unwrap_or(0),
                 total_duration: self.album_total_duration.unwrap_or(0),
                 created_at: self.album_created_at.unwrap_or(0),
@@ -344,6 +354,7 @@ pub struct ArtistViewRow {
     artist_created_by: Option<String>,
     artist_updated_by: Option<String>,
     artist_images: Option<String>, // JSON array from view
+    artist_urls: Option<String>,   // JSON array of entity URLs from view
     song_count: i64,
     album_count: i64,
     total_duration: i64,
@@ -363,6 +374,12 @@ impl ArtistViewRow {
             .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
             .or(Some(vec![])); // default to empty vec
 
+        // parse URLs JSON array
+        let urls = self
+            .artist_urls
+            .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
+            .map(crate::JsonVec);
+
         let artist = Artist {
             id: self.artist_id,
             name: self.artist_name,
@@ -374,6 +391,7 @@ impl ArtistViewRow {
             created_by: self.artist_created_by,
             updated_by: self.artist_updated_by,
             images: images.clone().map(crate::JsonVec),
+            urls,
         };
 
         // Determine user context fields based on user_id match
@@ -427,6 +445,7 @@ pub struct AlbumViewRow {
     album_genres: Option<String>, // JSON array of {id, name} objects from view
     album_images: Option<String>, // JSON array from view
     album_tags: Option<String>,   // JSON array of tag names from view
+    album_urls: Option<String>,   // JSON array of entity URLs from view
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_images: Option<String>, // JSON array from view
@@ -505,6 +524,12 @@ impl AlbumViewRow {
             .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
             .map(crate::JsonVec);
 
+        // parse album URLs JSON array
+        let album_urls = self
+            .album_urls
+            .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
+            .map(crate::JsonVec);
+
         let album = Album {
             id: self.album_id,
             title: self.album_title,
@@ -513,6 +538,7 @@ impl AlbumViewRow {
             label: self.album_label,
             genres: album_genres,
             images: images.clone().map(crate::JsonVec),
+            urls: album_urls,
             song_count: self.album_song_count.unwrap_or(0),
             total_duration: self.album_total_duration.unwrap_or(0),
             created_at: self.album_created_at,
@@ -535,6 +561,7 @@ impl AlbumViewRow {
                 created_by: None,
                 updated_by: None,
                 images: artist_images,
+                urls: None,
             })
         } else {
             None

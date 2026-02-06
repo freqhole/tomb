@@ -1,6 +1,6 @@
 //! song domain models
 
-use crate::music::crud::ImageMetadata;
+use crate::music::crud::{EntityUrl, ImageMetadata};
 use crate::JsonVec;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -11,8 +11,8 @@ use zod_gen_derive::ZodSchema;
 pub struct Song {
     pub id: String,
     pub media_blob_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<JsonVec<ImageMetadata>>,
+    pub urls: Option<JsonVec<EntityUrl>>,
     pub title: String,
     pub track_number: i64,
     pub disc_number: i64,

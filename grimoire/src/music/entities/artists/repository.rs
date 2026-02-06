@@ -1,10 +1,11 @@
 //! artist service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use crate::music::crud::ImageMetadata;
 use super::models::{Artist, CreateArtistRequest, UpdateArtistRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
+use crate::music::crud::ImageMetadata;
+use crate::music::EntityUrl;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
 use time::OffsetDateTime;
@@ -28,7 +29,8 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResponse<Artist>
          RETURNING id as "id!", name as "name!", bio,
                    created_at as "created_at!", updated_at as "updated_at!",
                    deleted_at, deleted_by, created_by, updated_by,
-                   NULL as "images?: JsonVec<ImageMetadata>""#,
+                   NULL as "images?: JsonVec<ImageMetadata>",
+                   NULL as "urls?: JsonVec<EntityUrl>""#,
         req.name,
         req.created_by,
         req.created_by
@@ -74,7 +76,8 @@ pub async fn list_artists(
             artist_deleted_by as "deleted_by?",
             artist_created_by as "created_by?",
             artist_updated_by as "updated_by?",
-            artist_images as "images: JsonVec<ImageMetadata>"
+            artist_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
            FROM artist_query_view
            ORDER BY artist_name ASC
            LIMIT ? OFFSET ?"#,
@@ -117,7 +120,8 @@ pub async fn get_artist(id: &str) -> GrimoireResponse<Artist> {
             artist_deleted_by as "deleted_by?",
             artist_created_by as "created_by?",
             artist_updated_by as "updated_by?",
-            artist_images as "images: JsonVec<ImageMetadata>"
+            artist_images as "images: JsonVec<ImageMetadata>",
+            NULL as "urls: JsonVec<EntityUrl>"
            FROM artist_query_view
            WHERE artist_id = ?"#,
         id
@@ -334,7 +338,8 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
                 deleted_by,
                 created_by,
                 updated_by,
-                NULL as "images?: JsonVec<ImageMetadata>"
+                NULL as "images?: JsonVec<ImageMetadata>",
+                NULL as "urls?: JsonVec<EntityUrl>"
             FROM artistz
             WHERE id = ?"#,
         req.artist_id
@@ -393,7 +398,8 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
                 deleted_by,
                 created_by,
                 updated_by,
-                NULL as "images?: JsonVec<ImageMetadata>""#,
+                NULL as "images?: JsonVec<ImageMetadata>",
+                NULL as "urls?: JsonVec<EntityUrl>""#,
         req.name,
         req.bio,
         req.updated_by,
@@ -513,7 +519,9 @@ pub async fn add_artist_image(
     .await
     {
         Ok(_) => GrimoireResponse::success("Image added to artist", ()),
-        Err(e) => GrimoireResponse::failure("Failed to add image to artist", vec![ErrorDetail::from(e)]),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to add image to artist", vec![ErrorDetail::from(e)])
+        }
     }
 }
 
@@ -544,14 +552,18 @@ pub async fn remove_artist_image(artist_id: &str, media_blob_id: &str) -> Grimoi
                 GrimoireResponse::success("Image removed from artist", ())
             }
         }
-        Err(e) => {
-            GrimoireResponse::failure("Failed to remove image from artist", vec![ErrorDetail::from(e)])
-        }
+        Err(e) => GrimoireResponse::failure(
+            "Failed to remove image from artist",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }
 
 /// set an image as the primary image for an artist
-pub async fn set_primary_artist_image(artist_id: &str, media_blob_id: &str) -> GrimoireResponse<()> {
+pub async fn set_primary_artist_image(
+    artist_id: &str,
+    media_blob_id: &str,
+) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {

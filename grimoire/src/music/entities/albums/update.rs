@@ -11,6 +11,7 @@ use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused
 use crate::music::crud::ArtistImportRequest;
 use crate::music::crud::ImageMetadata;
 use crate::music::entities::genres;
+use crate::music::EntityUrl;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
 
@@ -108,6 +109,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             created_by: row.created_by,
             updated_by: row.updated_by,
             images: None,
+            urls: None,
         },
         Ok(None) => {
             return GrimoireResponse::failure(
@@ -296,7 +298,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     deleted_by,
                     created_by,
                     updated_by,
-                    NULL as "images?: JsonVec<ImageMetadata>"
+                    NULL as "images?: JsonVec<ImageMetadata>",
+                    NULL as "urls?: JsonVec<EntityUrl>"
                 FROM artistz WHERE id = ?"#,
                 artist_id
             )
@@ -353,7 +356,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     deleted_by,
                     created_by,
                     updated_by,
-                    NULL as "images?: JsonVec<ImageMetadata>"
+                    NULL as "images?: JsonVec<ImageMetadata>",
+                    NULL as "urls?: JsonVec<EntityUrl>"
                 FROM artistz
                 WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NOT NULL
                 LIMIT 1"#,
@@ -388,6 +392,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     created_by: deleted.created_by,
                     updated_by: req.updated_by.clone(),
                     images: None,
+                    urls: None,
                 }
             } else {
                 // find or create new artist
