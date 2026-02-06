@@ -13,6 +13,10 @@ export interface ListItem {
   metadata?: string;
   images?: import("../../music/services/storage/types").ImageMetadata[];
   thumbnailUrl?: string | null;
+  /** domain type for appropriate fallback icon */
+  domainType?: "song" | "album" | "artist" | "genre" | "playlist";
+  /** custom fallback text when no image (e.g., artist abbreviation) */
+  fallbackText?: string;
 }
 
 export interface VirtualItemListProps {
@@ -208,13 +212,24 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                 onClick={() => handleItemClick(item())}
               >
                 <Show when={!props.hideImage}>
-                  <MediaImage
-                    images={item().images}
-                    imageUrl={item().thumbnailUrl || null}
-                    alt={item().title}
-                    class="w-12 h-12 object-cover rounded flex-shrink-0"
-                    domainType="playlist"
-                  />
+                  <Show
+                    when={item().images?.length || item().thumbnailUrl || !item().fallbackText}
+                    fallback={
+                      <div class="w-12 h-12 rounded-full flex-shrink-0 bg-[var(--color-bg-elevated)] flex items-center justify-center">
+                        <span class="text-sm font-bold text-[var(--color-text-tertiary)]">
+                          {item().fallbackText}
+                        </span>
+                      </div>
+                    }
+                  >
+                    <MediaImage
+                      images={item().images}
+                      imageUrl={item().thumbnailUrl || null}
+                      alt={item().title}
+                      class={`w-12 h-12 object-cover flex-shrink-0 ${item().domainType === "artist" ? "rounded-full" : "rounded"}`}
+                      domainType={item().domainType || "playlist"}
+                    />
+                  </Show>
                 </Show>
                 <div class="flex-1 min-w-0">
                   <div class="font-medium text-base">

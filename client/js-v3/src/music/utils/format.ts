@@ -38,8 +38,24 @@ export function formatRelativeTime(timestamp: number): string {
 }
 
 // create artist abbreviation (up to 3 letters from first words)
+// - only uses alphanumeric characters
+// - if name is a single all-caps word (like "AFI"), use first 3 chars
 export function getArtistAbbreviation(name: string): string {
-  const words = name.split(" ").filter(w => w.length > 0);
-  const letters = words.slice(0, 3).map(w => w[0].toUpperCase());
+  const trimmed = name.trim();
+  
+  // check if it's a single all-caps word (like "AFI", "REM", "KMFDM")
+  if (/^[A-Z0-9]+$/.test(trimmed) && !trimmed.includes(" ")) {
+    return trimmed.slice(0, 3);
+  }
+  
+  const words = trimmed.split(" ").filter(w => w.length > 0);
+  const letters = words
+    .slice(0, 3)
+    .map(w => {
+      // find first alphanumeric character
+      const match = w.match(/[A-Za-z0-9]/);
+      return match ? match[0].toUpperCase() : "";
+    })
+    .filter(l => l.length > 0);
   return letters.join("");
 }

@@ -19,6 +19,7 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { buildRoute } from "../utils/routing";
+import { getArtistAbbreviation } from "../utils/format";
 
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
@@ -216,6 +217,8 @@ export function ArtistsView(props: ArtistsViewProps) {
       title: artist.name,
       subtitle: `${formatNumber(artist.song_count)} songs · ${artist.album_count} albums`,
       images: artist.images,
+      domainType: "artist" as const,
+      fallbackText: getArtistAbbreviation(artist.name),
     }));
   });
 

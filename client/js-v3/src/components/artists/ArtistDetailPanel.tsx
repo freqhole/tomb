@@ -173,6 +173,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   // create artist abbreviation (up to 3 letters from first words)
   const artistAbbreviation = createMemo(() => getArtistAbbreviation(props.artist.name));
 
+  // check if artist has images for fallback display
+  const hasArtistImages = createMemo(() => props.artist.images && props.artist.images.length > 0);
+
   // context menu for artist
   const artistContextMenuActions = createMemo(() => {
     return useArtistContextMenu(
@@ -217,12 +220,21 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
                 onClick={props.onImageClick}
               >
-                <MediaImage
-                  images={props.artist.images}
-                  alt={props.artist.name}
-                  class="w-full h-full object-cover"
-                  domainType="artist"
-                />
+                <Show
+                  when={hasArtistImages()}
+                  fallback={
+                    <span class="text-4xl font-bold text-[var(--color-text-tertiary)]">
+                      {artistAbbreviation()}
+                    </span>
+                  }
+                >
+                  <MediaImage
+                    images={props.artist.images}
+                    alt={props.artist.name}
+                    class="w-full h-full object-cover"
+                    domainType="artist"
+                  />
+                </Show>
               </div>
             </ContextMenu>
 
@@ -333,12 +345,21 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
                 onClick={props.onImageClick}
               >
-                <MediaImage
-                  images={props.artist.images}
-                  alt={props.artist.name}
-                  class="w-full h-full object-cover"
-                  domainType="artist"
-                />
+                <Show
+                  when={hasArtistImages()}
+                  fallback={
+                    <span class="text-4xl font-bold text-[var(--color-text-tertiary)]">
+                      {artistAbbreviation()}
+                    </span>
+                  }
+                >
+                  <MediaImage
+                    images={props.artist.images}
+                    alt={props.artist.name}
+                    class="w-full h-full object-cover"
+                    domainType="artist"
+                  />
+                </Show>
               </div>
             </ContextMenu>
 
