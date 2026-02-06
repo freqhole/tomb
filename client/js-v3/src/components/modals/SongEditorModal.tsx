@@ -32,7 +32,6 @@ interface FormData {
   title: string;
   track_number: number;
   disc_number: number;
-  year: number | null;
   bpm: number | null;
   key_signature: string;
   lyrics: string;
@@ -49,7 +48,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
     title: "",
     track_number: 1,
     disc_number: 1,
-    year: null,
     bpm: null,
     key_signature: "",
     lyrics: "",
@@ -80,7 +78,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
         title: song.title,
         track_number: song.track_number,
         disc_number: song.disc_number,
-        year: song.year,
         bpm: song.bpm,
         key_signature: song.key_signature || "",
         lyrics: song.lyrics || "",
@@ -126,7 +123,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
       current.title !== initial.title ||
       current.track_number !== initial.track_number ||
       current.disc_number !== initial.disc_number ||
-      current.year !== initial.year ||
       current.bpm !== initial.bpm ||
       current.key_signature !== initial.key_signature ||
       current.lyrics !== initial.lyrics ||
@@ -148,7 +144,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (current.title !== initial.title) updates.title = current.title;
     if (current.track_number !== initial.track_number) updates.track_number = current.track_number;
     if (current.disc_number !== initial.disc_number) updates.disc_number = current.disc_number;
-    if (current.year !== initial.year) updates.year = current.year;
     if (current.bpm !== initial.bpm) updates.bpm = current.bpm;
     if (current.key_signature !== initial.key_signature)
       updates.key_signature = current.key_signature;
@@ -384,7 +379,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       class="fixed inset-0 flex items-center justify-center bg-black/50"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
     >
-      <div class="bg-[var(--color-bg-primary)] w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-2xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
         <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
           <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">edit song</h2>
@@ -410,7 +405,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
               editing: {formData().title} - {formData().artist_name}
             </div>
             <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-              {formData().album_title} • {formData().year || "no year"}
+              {formData().album_title}
             </div>
           </div>
         </Show>
@@ -592,37 +587,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
                       >
                         <button
                           onClick={() => handleReset("track_number")}
-                          class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        >
-                          ×
-                        </button>
-                      </Show>
-                    </div>
-
-                    {/* year */}
-                    <div class="flex items-center gap-2 w-24">
-                      <div class="flex-1">
-                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                          year
-                        </label>
-                        <input
-                          type="number"
-                          value={formData().year || ""}
-                          oninput={(e) =>
-                            handleFieldChange(
-                              "year",
-                              e.currentTarget.value ? parseInt(e.currentTarget.value) : null
-                            )
-                          }
-                          min="1000"
-                          max="9999"
-                          placeholder="yyyy"
-                          class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                        />
-                      </div>
-                      <Show when={initialData() && formData().year !== initialData()!.year}>
-                        <button
-                          onClick={() => handleReset("year")}
                           class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
                         >
                           ×
