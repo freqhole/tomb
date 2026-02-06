@@ -132,25 +132,37 @@ export function updateSongInCache(
     });
   }
 
-  // 6. update playlist songs queries
+  // 6. update playlist songs queries (infinite query structure)
+  // query key format: ["playlists", playlistId, "songs", "infinite", search]
   const playlistSongsQueries = queryClient.getQueriesData<{
-    items: Song[];
-    total: number;
-    offset: number;
-    limit: number;
-    has_more: boolean;
+    pages: Array<{
+      items: Song[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>;
+    pageParams: unknown[];
   }>({
-    queryKey: ["playlist", "songs"], // queryKeys.playlists.songs() needs playlistId
+    queryKey: ["playlists"],
     exact: false,
   });
 
   for (const [queryKey, data] of playlistSongsQueries) {
-    if (!data?.items) continue;
+    // only process queries that have "songs" and "infinite" in the key
+    if (!Array.isArray(queryKey) || !queryKey.includes("songs") || !queryKey.includes("infinite")) continue;
+    if (!data?.pages) continue;
 
-    queryClient.setQueryData(queryKey, {
+    debug("cacheUpdates", "updating playlist songs infinite query:", queryKey);
+    const updatedData = {
       ...data,
-      items: updateSongInArray(data.items),
-    });
+      pages: data.pages.map((page) => ({
+        ...page,
+        items: updateSongInArray(page.items),
+      })),
+    };
+    queryClient.setQueryData(queryKey, updatedData);
+    debug("cacheUpdates", "updated playlist songs infinite query");
   }
 
   // 7. update search results if they contain songs

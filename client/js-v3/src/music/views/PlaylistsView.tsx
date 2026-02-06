@@ -42,6 +42,7 @@ import {
   useReorderPlaylistSongsMutation,
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
+import { useToggleFavoriteMutation } from "../queries/favorites";
 import { playSong } from "../services/audio/player";
 import { usePlaylistContextMenu, useSongContextMenu } from "../services/contextMenu";
 import { storeBlob, getBlobObjectURL } from "../services/storage/blobs";
@@ -175,6 +176,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   // mutations for updating playlist
   const updatePlaylistMutation = useUpdatePlaylistMutation();
   const reorderSongsMutation = useReorderPlaylistSongsMutation();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // query client for invalidation
   const queryClient = useQueryClient();
@@ -1204,6 +1206,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                             isFavorite={song.is_favorite}
                                             songId={song.id}
                                             sha256={song.sha256}
+                                            onFavoriteToggle={(songId, isFavorite) => {
+                                              toggleFavoriteMutation.mutate({
+                                                targetType: "song",
+                                                targetId: songId,
+                                                sha256: song.sha256,
+                                                isFavorite,
+                                              });
+                                            }}
                                             actions={
                                               <IconButton
                                                 icon="queue"
