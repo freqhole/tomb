@@ -896,7 +896,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     year?: number | null;
     duration?: number | null;
     bpm?: number | null;
-    key_signature?: string | null;
     lyrics?: string | null;
     user_id?: string | null;
     updated_by?: string | null;
@@ -997,7 +996,6 @@ export class LocalMusicDataSource implements MusicDataSource {
       disc_number: params.disc_number,
       year: params.year,
       bpm: params.bpm,
-      key_signature: params.key_signature,
       lyrics: params.lyrics,
     };
     

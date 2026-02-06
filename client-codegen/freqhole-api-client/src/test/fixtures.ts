@@ -81,7 +81,6 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
   duration: null,
   year: null,
   bpm: null,
-  key_signature: null,
   lyrics: null,
   metadata: null,
   artist: null,

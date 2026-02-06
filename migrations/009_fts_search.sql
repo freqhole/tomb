@@ -55,16 +55,6 @@ CREATE VIRTUAL TABLE playlistz_fts USING fts5(
     tokenize = 'porter unicode61'
 );
 
--- simple songs FTS (for basic content search)
-CREATE VIRTUAL TABLE songs_fts USING fts5(
-    id UNINDEXED,
-    title,
-    lyrics,
-    metadata,
-    content=songz,
-    content_rowid=rowid
-);
-
 -- FTS sync triggers for artists
 CREATE TRIGGER artistz_fts_insert AFTER INSERT ON artistz
 BEGIN

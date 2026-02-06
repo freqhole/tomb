@@ -9,7 +9,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'id' | 'sha256' | 'title' | 'artist_id' | 'album_id'
   // track metadata
   | 'track_number' | 'disc_number' | 'duration_seconds' | 'year'
-  | 'bpm' | 'key_signature' | 'lyrics' | 'metadata'
+  | 'bpm' | 'track_artist' | 'lyrics' | 'metadata'
   | 'created_at' | 'updated_at'
   // denormalized display fields
   | 'artist_name' | 'album_title'
@@ -37,7 +37,7 @@ export interface ApiSongQueryItem {
     duration?: number;  // milliseconds
     year?: number | null;
     bpm?: number | null;
-    key_signature?: string | null;
+    track_artist?: string | null;
     lyrics?: string | null;
     metadata?: string | null;
     created_at: number;
@@ -102,7 +102,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
         ? parseInt(album.release_date.substring(0, 4))
         : null),
     bpm: song.bpm || null,
-    key_signature: song.key_signature || null,
+    track_artist: song.track_artist || null,
     lyrics: song.lyrics || null,
     metadata: song.metadata || null,
     created_at: song.created_at,

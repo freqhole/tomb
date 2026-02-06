@@ -5,17 +5,17 @@ use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
+use crate::media_blobz::BlobType;
 use crate::media_blobz::MediaBlob;
 use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
-use crate::music::users::models::RatingTarget;
-use crate::media_blobz::BlobType;
 use crate::music::users::models::FavoriteTarget;
+use crate::music::users::models::RatingTarget;
 
 /// image metadata with primary indicator
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
 pub struct ImageMetadata {
     pub blob_id: String,
-    pub is_primary: i32, // 0 or 1 from SQLite JSON
+    pub is_primary: i32,     // 0 or 1 from SQLite JSON
     pub blob_type: BlobType, // from media_blobz.blob_type
 }
 
@@ -32,7 +32,7 @@ pub struct ImportSongRequest {
     pub duration: Option<i64>,
     pub year: Option<i64>,
     pub bpm: Option<i64>,
-    pub key_signature: Option<String>,
+    pub track_artist: Option<String>,
     pub metadata: Option<String>,
     pub lyrics: Option<String>,
     pub created_by: Option<String>,
@@ -415,9 +415,6 @@ pub struct UpdateSongsRequest {
 
     #[arg(long)]
     pub bpm: Option<i64>,
-
-    #[arg(long)]
-    pub key_signature: Option<String>,
 
     #[arg(long)]
     pub lyrics: Option<String>,

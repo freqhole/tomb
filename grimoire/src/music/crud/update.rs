@@ -236,7 +236,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         || req.duration.is_some()
         || req.year.is_some()
         || req.bpm.is_some()
-        || req.key_signature.is_some()
         || req.lyrics.is_some()
         || req.metadata.is_some();
 
@@ -256,7 +255,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     disc_number = COALESCE(?, disc_number),
                     duration = COALESCE(?, duration),
                     bpm = COALESCE(?, bpm),
-                    key_signature = COALESCE(?, key_signature),
                     lyrics = COALESCE(?, lyrics),
                     metadata = CASE
                         WHEN ? IS NOT NULL THEN json_patch(COALESCE(metadata, '{}'), ?)
@@ -270,7 +268,6 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 req.disc_number,
                 req.duration,
                 req.bpm,
-                req.key_signature,
                 req.lyrics,
                 metadata_str,
                 metadata_str,

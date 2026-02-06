@@ -363,7 +363,6 @@ export interface MusicDataSource {
     year?: number | null;
     duration?: number | null;
     bpm?: number | null;
-    key_signature?: string | null;
     lyrics?: string | null;
     user_id?: string | null;
     updated_by?: string | null;

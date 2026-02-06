@@ -62,7 +62,7 @@ export interface Song {
   duration_seconds: number;
   year: number | null;
   bpm: number | null;
-  key_signature: string | null;
+  track_artist: string | null; // per-track artist for compilation albums
   lyrics: string | null;
   metadata: string | null; // json string for extra metadata
   created_at: number;

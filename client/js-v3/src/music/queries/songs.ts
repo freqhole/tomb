@@ -408,7 +408,6 @@ interface UpdateSongsMutationParams {
   disc_number?: number;
   duration?: number;
   bpm?: number;
-  key_signature?: string;
   lyrics?: string;
   user_id?: string;
   updated_by?: string;

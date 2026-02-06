@@ -11,7 +11,7 @@
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
 use crate::jobs::JobError;
 use crate::music::crud::{add_song, ImportSongRequest};
-use lofty::{AudioFile, ItemValue, Probe, TaggedFileExt};
+use lofty::{AudioFile, FileType, ItemValue, Probe, TaggedFileExt};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -55,8 +55,6 @@ struct ExtractedMetadata {
     lyrics: Option<String>,
     /// BPM
     bpm: Option<i64>,
-    /// Key signature
-    key_signature: Option<String>,
     /// Whether this is a compilation album
     is_compilation: bool,
 }
@@ -85,14 +83,27 @@ pub async fn extract_and_import(
     // Extract metadata from tags and filename
     let metadata = extract_metadata(&tagged_file, file_path);
 
-    // Prepare additional metadata for the song record
+    // Extract file properties for the metadata JSON
+    let file_props = extract_file_properties(&tagged_file);
+
+    // Extract all tags for the metadata JSON
+    let all_tags = extract_all_tags(&tagged_file);
+
+    // Build comprehensive metadata JSON
     let mut song_metadata = serde_json::Map::new();
 
-    // Store track artist separately for compilation albums
+    // Add file properties
+    if !file_props.is_empty() {
+        song_metadata.insert("file".to_string(), serde_json::json!(file_props));
+    }
+
+    // Add all tags (non-empty only)
+    if !all_tags.is_empty() {
+        song_metadata.insert("tags".to_string(), serde_json::json!(all_tags));
+    }
+
+    // Store compilation flag in metadata
     if metadata.is_compilation {
-        if let Some(track_artist) = &metadata.track_artist {
-            song_metadata.insert("track_artist".to_string(), serde_json::json!(track_artist));
-        }
         song_metadata.insert("is_compilation".to_string(), serde_json::json!(true));
     }
 
@@ -103,7 +114,7 @@ pub async fn extract_and_import(
         Some(serde_json::to_string(&song_metadata).unwrap_or_default())
     };
 
-    // Build import request
+    // Build import request - track_artist now goes directly on song row for compilations
     let import_request = ImportSongRequest {
         media_blob_id: media_blob_id.to_string(),
         title: metadata.title,
@@ -115,7 +126,11 @@ pub async fn extract_and_import(
         duration: metadata.duration_ms,
         year: metadata.year,
         bpm: metadata.bpm,
-        key_signature: metadata.key_signature,
+        track_artist: if metadata.is_compilation {
+            metadata.track_artist
+        } else {
+            None
+        },
         metadata: metadata_json,
         lyrics: metadata.lyrics,
         created_by: Some("job_processor".to_string()),
@@ -289,8 +304,6 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
         .and_then(|s| s.parse::<i64>().ok())
         .filter(|&b| b > 0 && b < 1000);
 
-    let key_signature = get_tag("InitialKey", &["KEY", "TKEY", "key"]);
-
     ExtractedMetadata {
         title,
         artist_name,
@@ -303,7 +316,6 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
         genre,
         lyrics,
         bpm,
-        key_signature,
         is_compilation,
     }
 }
@@ -340,7 +352,7 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
         duration: None,
         year: None,
         bpm: None,
-        key_signature: None,
+        track_artist: None,
         metadata: None,
         lyrics: None,
         created_by: Some("job_processor".to_string()),
@@ -400,6 +412,95 @@ fn extract_folder_name_from_path(file_path: &Path) -> Option<String> {
     }
 
     Some(folder_name.to_string())
+}
+
+/// extract file properties like bitrate, sample rate, channels, format
+fn extract_file_properties(tagged_file: &lofty::TaggedFile) -> HashMap<String, serde_json::Value> {
+    let mut props = HashMap::new();
+    let properties = tagged_file.properties();
+
+    // bitrate (kbps)
+    if let Some(bitrate) = properties.overall_bitrate() {
+        props.insert("bitrate_kbps".to_string(), serde_json::json!(bitrate));
+    }
+    if let Some(audio_bitrate) = properties.audio_bitrate() {
+        props.insert(
+            "audio_bitrate_kbps".to_string(),
+            serde_json::json!(audio_bitrate),
+        );
+    }
+
+    // sample rate (Hz)
+    if let Some(sample_rate) = properties.sample_rate() {
+        props.insert("sample_rate_hz".to_string(), serde_json::json!(sample_rate));
+    }
+
+    // channels
+    if let Some(channels) = properties.channels() {
+        props.insert("channels".to_string(), serde_json::json!(channels));
+    }
+
+    // bit depth
+    if let Some(bit_depth) = properties.bit_depth() {
+        props.insert("bit_depth".to_string(), serde_json::json!(bit_depth));
+    }
+
+    // duration in milliseconds
+    let duration_ms = properties.duration().as_millis();
+    if duration_ms > 0 {
+        props.insert("duration_ms".to_string(), serde_json::json!(duration_ms));
+    }
+
+    // file format/type
+    let file_type = tagged_file.file_type();
+    props.insert(
+        "format".to_string(),
+        serde_json::json!(format_file_type(file_type)),
+    );
+
+    props
+}
+
+/// format lofty FileType to a human-readable string
+fn format_file_type(file_type: FileType) -> String {
+    match file_type {
+        FileType::Aac => "AAC".to_string(),
+        FileType::Aiff => "AIFF".to_string(),
+        FileType::Ape => "APE".to_string(),
+        FileType::Flac => "FLAC".to_string(),
+        FileType::Mpeg => "MPEG".to_string(),
+        FileType::Mp4 => "MP4".to_string(),
+        FileType::Mpc => "Musepack".to_string(),
+        FileType::Opus => "Opus".to_string(),
+        FileType::Vorbis => "Vorbis".to_string(),
+        FileType::Speex => "Speex".to_string(),
+        FileType::Wav => "WAV".to_string(),
+        FileType::WavPack => "WavPack".to_string(),
+        _ => format!("{:?}", file_type),
+    }
+}
+
+/// extract all non-empty tags from the tagged file
+fn extract_all_tags(tagged_file: &lofty::TaggedFile) -> HashMap<String, String> {
+    let mut tags = HashMap::new();
+
+    if let Some(tag) = tagged_file.primary_tag() {
+        for item in tag.items() {
+            let key = format!("{:?}", item.key());
+            let value_str = match item.value() {
+                ItemValue::Text(s) | ItemValue::Locator(s) => s.clone(),
+                ItemValue::Binary(_) => continue, // skip binary data like embedded images
+            };
+
+            // only include non-empty values
+            let trimmed = value_str.trim();
+            if !trimmed.is_empty() {
+                tags.insert(key, trimmed.to_string());
+            }
+        }
+    }
+
+    tags
 }
 
 #[cfg(test)]

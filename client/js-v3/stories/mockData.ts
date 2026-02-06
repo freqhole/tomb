@@ -230,7 +230,7 @@ export function generateBulkSongs(count: number): DomainSong[] {
       album_sub_genres: [],
       // additional required Song fields
       bpm: null,
-      key_signature: null,
+      track_artist: null,
       lyrics: null,
       metadata: null,
       created_at: now,

@@ -441,7 +441,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                 />
                 {/* genres */}
                 <MarqueeText
-                  text={song.album_genres?.join(", ") || ""}
+                  text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
                   class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
                   padClass={CELL_PAD}
                   isHovering={isHovered()}

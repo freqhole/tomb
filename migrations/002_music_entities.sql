@@ -79,11 +79,9 @@ CREATE TABLE songz (
   disc_number INTEGER NOT NULL DEFAULT 1,
   duration INTEGER,
   bpm INTEGER,
-  key_signature TEXT,
+  track_artist TEXT,
   metadata TEXT,
   lyrics TEXT,
-  processing_status TEXT DEFAULT 'unprocessed',
-  processing_notes TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   deleted_at INTEGER,
@@ -98,7 +96,6 @@ CREATE TABLE songz (
 
 CREATE INDEX idx_songz_title ON songz(title);
 CREATE INDEX idx_songz_media_blob_id ON songz(media_blob_id);
-CREATE INDEX idx_songz_processing_status ON songz(processing_status);
 CREATE INDEX idx_songz_created_at ON songz(created_at DESC);
 CREATE INDEX idx_songz_deleted_at ON songz(deleted_at) WHERE deleted_at IS NOT NULL;
 

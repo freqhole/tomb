@@ -31,7 +31,6 @@ interface FormData {
   track_number: number;
   disc_number: number;
   bpm: number | null;
-  key_signature: string;
   lyrics: string;
   artist_name: string;
   album_title: string;
@@ -47,7 +46,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
     track_number: 1,
     disc_number: 1,
     bpm: null,
-    key_signature: "",
     lyrics: "",
     artist_name: "",
     album_title: "",
@@ -77,7 +75,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
         track_number: song.track_number,
         disc_number: song.disc_number,
         bpm: song.bpm,
-        key_signature: song.key_signature || "",
         lyrics: song.lyrics || "",
         artist_name: song.artist_name,
         album_title: song.album_title,
@@ -122,7 +119,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
       current.track_number !== initial.track_number ||
       current.disc_number !== initial.disc_number ||
       current.bpm !== initial.bpm ||
-      current.key_signature !== initial.key_signature ||
       current.lyrics !== initial.lyrics ||
       current.artist_name !== initial.artist_name ||
       current.album_title !== initial.album_title
@@ -143,8 +139,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (current.track_number !== initial.track_number) updates.track_number = current.track_number;
     if (current.disc_number !== initial.disc_number) updates.disc_number = current.disc_number;
     if (current.bpm !== initial.bpm) updates.bpm = current.bpm;
-    if (current.key_signature !== initial.key_signature)
-      updates.key_signature = current.key_signature;
     if (current.lyrics !== initial.lyrics) updates.lyrics = current.lyrics;
     if (current.artist_name !== initial.artist_name) updates.artist = current.artist_name;
     if (current.album_title !== initial.album_title) updates.album = current.album_title;
@@ -615,34 +609,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
                       <Show when={initialData() && formData().bpm !== initialData()!.bpm}>
                         <button
                           onClick={() => handleReset("bpm")}
-                          class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        >
-                          ×
-                        </button>
-                      </Show>
-                    </div>
-
-                    {/* key signature */}
-                    <div class="flex items-center gap-2 flex-1">
-                      <div class="flex-1">
-                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                          key
-                        </label>
-                        <input
-                          type="text"
-                          value={formData().key_signature}
-                          oninput={(e) => handleFieldChange("key_signature", e.currentTarget.value)}
-                          placeholder="C, Am, F#"
-                          class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                        />
-                      </div>
-                      <Show
-                        when={
-                          initialData() && formData().key_signature !== initialData()!.key_signature
-                        }
-                      >
-                        <button
-                          onClick={() => handleReset("key_signature")}
                           class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
                         >
                           ×

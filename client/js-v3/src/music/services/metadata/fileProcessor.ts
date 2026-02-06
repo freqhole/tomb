@@ -24,7 +24,6 @@ export interface AudioMetadata {
   duration_seconds: number;
   mime_type: string;
   bpm?: number;
-  key_signature?: string;
 }
 
 // extract metadata from audio file
@@ -45,7 +44,6 @@ export async function extractMetadata(file: File): Promise<AudioMetadata> {
     duration_seconds: duration,
     mime_type: file.type || "audio/mpeg",
     bpm: tags.bpm,
-    key_signature: tags.key_signature,
   };
 }
 
@@ -59,7 +57,6 @@ async function readID3Tags(file: File): Promise<{
   track_number?: number;
   disc_number?: number;
   bpm?: number;
-  key_signature?: string;
 }> {
   try {
     const metadata = await parseBlob(file);
@@ -72,7 +69,6 @@ async function readID3Tags(file: File): Promise<{
       track_number: metadata.common.track?.no ?? undefined,
       disc_number: metadata.common.disk?.no ?? undefined,
       bpm: metadata.common.bpm,
-      key_signature: metadata.common.key,
     };
   } catch (error) {
     // if tag reading fails, return empty object
@@ -159,7 +155,7 @@ export async function processMusicFile(
     duration_seconds: metadata.duration_seconds,
     year: metadata.year ?? null,
     bpm: metadata.bpm ?? null,
-    key_signature: metadata.key_signature ?? null,
+    track_artist: null,
     lyrics: null,
     metadata: null, // could store full metadata as json string if needed
     created_at: now,

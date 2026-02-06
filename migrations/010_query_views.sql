@@ -75,25 +75,15 @@ SELECT
     al.created_by as album_created_by,
     al.updated_by as album_updated_by,
 
-    -- genres as JSON array
+    -- genres as JSON array of objects with id and name
     COALESCE(
-        (SELECT json_group_array(g.name)
+        (SELECT json_group_array(json_object('id', g.id, 'name', g.name))
          FROM album_genrez ag
          INNER JOIN genrez g ON ag.genre_id = g.id
          WHERE ag.album_id = al.id
          ORDER BY g.name ASC),
         '[]'
     ) as album_genres,
-
-    -- genre IDs as JSON array
-    COALESCE(
-        (SELECT json_group_array(g.id)
-         FROM album_genrez ag
-         INNER JOIN genrez g ON ag.genre_id = g.id
-         WHERE ag.album_id = al.id
-         ORDER BY g.name ASC),
-        '[]'
-    ) as album_genre_ids,
 
     -- images as JSON array
     COALESCE(
@@ -215,11 +205,9 @@ SELECT
     s.disc_number as song_disc_number,
     s.duration as song_duration,
     s.bpm as song_bpm,
-    s.key_signature as song_key_signature,
+    s.track_artist as song_track_artist,
     s.metadata as song_metadata,
     s.lyrics as song_lyrics,
-    s.processing_status as song_processing_status,
-    s.processing_notes as song_processing_notes,
     s.created_at as song_created_at,
     s.updated_at as song_updated_at,
     s.deleted_at as song_deleted_at,
@@ -270,25 +258,15 @@ SELECT
     al.created_by as album_created_by,
     al.updated_by as album_updated_by,
 
-    -- album genres as JSON array
+    -- album genres as JSON array of objects with id and name
     COALESCE(
-        (SELECT json_group_array(g.name)
+        (SELECT json_group_array(json_object('id', g.id, 'name', g.name))
          FROM album_genrez ag
          INNER JOIN genrez g ON ag.genre_id = g.id
          WHERE ag.album_id = al.id
          ORDER BY g.name ASC),
         '[]'
     ) as album_genres,
-
-    -- album genre IDs as JSON array
-    COALESCE(
-        (SELECT json_group_array(g.id)
-         FROM album_genrez ag
-         INNER JOIN genrez g ON ag.genre_id = g.id
-         WHERE ag.album_id = al.id
-         ORDER BY g.name ASC),
-        '[]'
-    ) as album_genre_ids,
 
     -- album tags as JSON array
     COALESCE(
@@ -410,11 +388,9 @@ SELECT
     s.disc_number as song_disc_number,
     s.duration as song_duration,
     s.bpm as song_bpm,
-    s.key_signature as song_key_signature,
+    s.track_artist as song_track_artist,
     s.metadata as song_metadata,
     s.lyrics as song_lyrics,
-    s.processing_status as song_processing_status,
-    s.processing_notes as song_processing_notes,
     s.created_at as song_created_at,
     s.updated_at as song_updated_at,
     s.deleted_at as song_deleted_at,
@@ -471,25 +447,15 @@ SELECT
     al.created_by as album_created_by,
     al.updated_by as album_updated_by,
 
-    -- album genres as JSON array
+    -- album genres as JSON array of objects with id and name
     COALESCE(
-        (SELECT json_group_array(g.name)
+        (SELECT json_group_array(json_object('id', g.id, 'name', g.name))
          FROM album_genrez ag
          INNER JOIN genrez g ON ag.genre_id = g.id
          WHERE ag.album_id = al.id
          ORDER BY g.name ASC),
         '[]'
     ) as album_genres,
-
-    -- album genre IDs as JSON array
-    COALESCE(
-        (SELECT json_group_array(g.id)
-         FROM album_genrez ag
-         INNER JOIN genrez g ON ag.genre_id = g.id
-         WHERE ag.album_id = al.id
-         ORDER BY g.name ASC),
-        '[]'
-    ) as album_genre_ids,
 
     -- album tags as JSON array
     COALESCE(

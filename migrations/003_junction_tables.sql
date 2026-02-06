@@ -105,6 +105,12 @@ BEGIN
         FROM album_songz
         WHERE album_songz.album_id = NEW.album_id
     ),
+    total_duration = (
+        SELECT COALESCE(SUM(s.duration), 0)
+        FROM album_songz acs
+        JOIN songz s ON s.id = acs.song_id
+        WHERE acs.album_id = NEW.album_id
+    ),
     updated_at = unixepoch()
     WHERE id = NEW.album_id;
 END;
@@ -117,6 +123,12 @@ BEGIN
         SELECT COUNT(*)
         FROM album_songz
         WHERE album_songz.album_id = OLD.album_id
+    ),
+    total_duration = (
+        SELECT COALESCE(SUM(s.duration), 0)
+        FROM album_songz acs
+        JOIN songz s ON s.id = acs.song_id
+        WHERE acs.album_id = OLD.album_id
     ),
     updated_at = unixepoch()
     WHERE id = OLD.album_id;
@@ -139,3 +151,18 @@ BEGIN
     SELECT album_id FROM album_songz WHERE song_id = NEW.id
   );
 END;
+
+-- entity URLs (links to external resources for artists, albums, songs, playlists)
+CREATE TABLE entity_urlz (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  name TEXT,
+  url TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  created_by TEXT,
+  CHECK (entity_type IN ('artist', 'album', 'song', 'playlist'))
+);
+
+CREATE INDEX idx_entity_urlz_entity ON entity_urlz(entity_type, entity_id);
+CREATE INDEX idx_entity_urlz_url ON entity_urlz(url);
