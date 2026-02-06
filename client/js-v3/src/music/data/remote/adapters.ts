@@ -135,6 +135,8 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
         imgs.find(img => img.blob_type === 'thumbnail' && img.is_primary);
       const findSongThumbnail = (imgs: ReturnType<typeof mapImage>[]) => 
         imgs.find(img => img.blob_type === 'thumbnail');
+      const findSongOriginal = (imgs: ReturnType<typeof mapImage>[]) => 
+        imgs.find(img => img.blob_type === 'original');
       const findAlbumPrimary = (imgs: ReturnType<typeof mapImage>[]) => 
         imgs.find(img => img.blob_type === 'original' && img.is_primary);
       const findAlbumOriginal = (imgs: ReturnType<typeof mapImage>[]) => 
@@ -146,9 +148,10 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
       const candidates = [
         findSongPrimary(songImages),    // 1. song primary thumbnail
         findSongThumbnail(songImages),  // 2. any song thumbnail
-        findAlbumPrimary(albumImages),  // 3. album primary original
-        findAlbumOriginal(albumImages), // 4. any album original
-        findWaveform(songImages),       // 5. song waveform (last resort)
+        findSongOriginal(songImages),   // 3. any song original (user-uploaded)
+        findAlbumPrimary(albumImages),  // 4. album primary original
+        findAlbumOriginal(albumImages), // 5. any album original
+        findWaveform(songImages),       // 6. song waveform (last resort)
       ].filter(Boolean) as ReturnType<typeof mapImage>[];
       
       // deduplicate by blob_id (same image could match multiple priority slots)

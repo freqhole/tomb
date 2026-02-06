@@ -286,15 +286,65 @@ pub async fn add_song_image(
     media_blob_id: &str,
     is_primary: bool,
 ) -> GrimoireResponse<()> {
+    tracing::info!(
+        "add_song_image called: song_id={}, media_blob_id={}, is_primary={}",
+        song_id,
+        media_blob_id,
+        is_primary
+    );
+
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
+            tracing::error!("add_song_image: failed to connect to database: {:?}", e);
             return GrimoireResponse::failure(
                 "Failed to connect to database",
                 vec![ErrorDetail::from(e)],
-            )
+            );
         }
     };
+
+    // check if this image already exists for this song
+    let existing = sqlx::query_scalar!(
+        "SELECT COUNT(*) as count FROM song_imagez WHERE song_id = ? AND media_blob_id = ?",
+        song_id,
+        media_blob_id
+    )
+    .fetch_one(&pool)
+    .await;
+
+    tracing::info!(
+        "add_song_image: existing check result for song_id={}, media_blob_id={}: {:?}",
+        song_id,
+        media_blob_id,
+        existing
+    );
+
+    // check if the media_blob_id exists in media_blobz
+    let blob_exists = sqlx::query_scalar!(
+        "SELECT COUNT(*) as count FROM media_blobz WHERE id = ?",
+        media_blob_id
+    )
+    .fetch_one(&pool)
+    .await;
+
+    tracing::info!(
+        "add_song_image: media_blob exists check for media_blob_id={}: {:?}",
+        media_blob_id,
+        blob_exists
+    );
+
+    // check if the song exists
+    let song_exists =
+        sqlx::query_scalar!("SELECT COUNT(*) as count FROM songz WHERE id = ?", song_id)
+            .fetch_one(&pool)
+            .await;
+
+    tracing::info!(
+        "add_song_image: song exists check for song_id={}: {:?}",
+        song_id,
+        song_exists
+    );
 
     // if setting as primary, unset other primary images first
     if is_primary {
@@ -305,6 +355,7 @@ pub async fn add_song_image(
         .execute(&pool)
         .await
         {
+            tracing::error!("add_song_image: failed to unset primary: {:?}", e);
             return GrimoireResponse::failure(
                 "Failed to unset existing primary images",
                 vec![ErrorDetail::from(e)],
@@ -322,8 +373,12 @@ pub async fn add_song_image(
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("Image added to song", ()),
+        Ok(_) => {
+            tracing::info!("add_song_image: successfully added image");
+            GrimoireResponse::success("Image added to song", ())
+        }
         Err(e) => {
+            tracing::error!("add_song_image: INSERT failed: {:?}", e);
             GrimoireResponse::failure("Failed to add image to song", vec![ErrorDetail::from(e)])
         }
     }

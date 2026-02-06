@@ -7,6 +7,7 @@ import { toast } from "../../../components/feedback/Toast";
 import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../queries/playlists";
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
+import { pollJobUntilComplete } from "../../../utils/jobs";
 import type { Playlist } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
 
@@ -44,20 +45,32 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
     try {
       const datasource = getDataSource();
-      const blobId = await datasource.uploadImage?.({
+      const result = await datasource.uploadImage?.({
         file,
         entityType: "playlist",
         entityId: props.playlist.playlist_id,
       });
 
-      if (!blobId) {
+      if (!result) {
         toast.error("failed to upload image");
         return;
       }
 
+      const { blob_id, job_id } = result;
+
+      // poll for job completion
+      const remote = getCurrentRemote();
+      if (remote?.base_url) {
+        const success = await pollJobUntilComplete(remote.base_url, job_id);
+        if (!success) {
+          toast.error("image processing failed");
+          return;
+        }
+      }
+
       const currentImages = playlistImages();
       const newImage: import("../../services/storage/types").ImageMetadata = {
-        local_blob_id: blobId,
+        local_blob_id: blob_id,
         remote_url: null,
         is_primary: currentImages.length === 0,
         blob_type: "thumbnail",

@@ -385,7 +385,7 @@ export interface MusicDataSource {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     isPrimary?: boolean;
-  }): Promise<string>;
+  }): Promise<{ blob_id: string; job_id: string }>;
 
   getEntityImages?(params: {
     entityType: 'song' | 'artist' | 'album' | 'playlist';

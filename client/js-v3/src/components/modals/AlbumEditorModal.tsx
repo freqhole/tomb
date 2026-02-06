@@ -3,7 +3,7 @@ import { createEffect, createMemo, createSignal, For, onMount, Show } from "soli
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { updateAlbum } from "../../music/services/storage/db";
-import { getDataSource } from "../../music/data";
+import { getDataSource, getCurrentRemote } from "../../music/data";
 import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
@@ -97,11 +97,14 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setFormData(data);
       setInitialData(data);
       setLoadedAlbumId(props.albumId);
+    }
+  });
 
-      // load album images
-      if (album.images) {
-        setImages(album.images);
-      }
+  // sync images when album data updates (separate from form init to allow refresh)
+  createEffect(() => {
+    const album = albumQuery.data;
+    if (album?.images) {
+      setImages(album.images);
     }
   });
 
@@ -237,15 +240,27 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       setProcessingJob({ status: "uploading", message: "uploading image..." });
 
-      const blobId = await dataSource.uploadImage({
+      const { blob_id, job_id } = await dataSource.uploadImage({
         file,
         entityType: "album",
         entityId: props.albumId,
         isPrimary: images().length === 0, // first image is primary
       });
 
+      // poll for job completion
+      const remote = getCurrentRemote();
+      if (remote?.base_url) {
+        setProcessingJob({ status: "processing", message: "processing image..." });
+        const success = await pollJobUntilComplete(remote.base_url, job_id);
+        if (!success) {
+          toast.error("image processing failed");
+          setProcessingJob(null);
+          return;
+        }
+      }
+
       const newImage: ImageMetadata = {
-        local_blob_id: blobId,
+        local_blob_id: blob_id,
         is_primary: images().length === 0,
         blob_type: "thumbnail",
       };
@@ -256,8 +271,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setProcessingJob(null);
       toast.success("image uploaded");
       albumQuery.refetch();
-      // invalidate album queries to update all views
+      // invalidate album and song queries to update all views
+      // songs have album_images embedded, so they need refresh too
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+      // also invalidate artist song queries (used by artist detail view)
+      queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
       input.value = "";
     } catch (err) {
       console.error("failed to upload image:", err);

@@ -878,7 +878,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     isPrimary?: boolean;
-  }): Promise<string> {
+  }): Promise<{ blob_id: string; job_id: string }> {
     const result = await apiClient.utils.uploadImage(this.baseUrl, params.file, {
       associate: {
         entity_type: params.entityType,
@@ -891,7 +891,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("failed to upload image");
     }
     
-    return result.data.blob_id;
+    return { blob_id: result.data.blob_id, job_id: result.data.job_id };
   }
 
   async getEntityImages(params: {

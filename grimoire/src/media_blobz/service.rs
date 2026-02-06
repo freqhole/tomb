@@ -13,8 +13,9 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
     let blob_type_str = blob_type.as_str();
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
 
-    // check if a blob with this SHA256, blob_type, and parent_blob_id already exists
-    // deduplication must match all three fields to prevent returning wrong blob type
+    // check if a blob with this SHA256 already exists (simple dedup check)
+    // since sha256 has a UNIQUE constraint, we can't have two blobs with the same sha256
+    // if the same content is uploaded again, just return the existing blob
     if let Ok(existing_blob) = sqlx::query_as!(
         MediaBlob,
         "SELECT
@@ -35,23 +36,20 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             created_by,
             updated_by
          FROM media_blobz
-         WHERE sha256 = ? 
-           AND blob_type = ? 
-           AND (
-             (parent_blob_id IS NULL AND ? IS NULL) OR
-             (parent_blob_id = ?)
-           )
+         WHERE sha256 = ?
          LIMIT 1",
-        req.sha256,
-        blob_type_str,
-        req.parent_blob_id,
-        req.parent_blob_id
+        req.sha256
     )
     .fetch_one(&pool)
     .await
     {
         // if blob was deleted, undelete it
         if existing_blob.deleted_at.is_some() {
+            tracing::info!(
+                "create_blob: found deleted blob with same sha256, undeleting: existing_id={}, sha256={}",
+                existing_blob.id,
+                existing_blob.sha256
+            );
             let undeleted_blob = sqlx::query_as!(
                 MediaBlob,
                 "UPDATE media_blobz
@@ -91,6 +89,12 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         }
 
         // blob already exists and is not deleted, return it with parsed metadata
+        tracing::info!(
+            "create_blob: found existing blob with same sha256, returning: existing_id={}, sha256={}, blob_type={}",
+            existing_blob.id,
+            existing_blob.sha256,
+            existing_blob.blob_type
+        );
         let mut existing_with_metadata = existing_blob;
         existing_with_metadata.metadata =
             serde_json::from_str(&existing_with_metadata.metadata.as_str().unwrap_or("{}"))

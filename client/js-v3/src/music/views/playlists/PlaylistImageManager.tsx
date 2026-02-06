@@ -3,7 +3,8 @@ import { createSignal, For, Show } from "solid-js";
 import { Icon, IconNames } from "../../../components/icons/registry";
 import MediaImage from "../../../components/media/MediaImage";
 import { toast } from "../../../components/feedback/Toast";
-import { getDataSource } from "../../data";
+import { getDataSource, getCurrentRemote } from "../../data";
+import { pollJobUntilComplete } from "../../../utils/jobs";
 import type { ImageMetadata } from "../../services/storage/types";
 import { useQueryClient } from "@tanstack/solid-query";
 
@@ -38,19 +39,31 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
 
     try {
       const datasource = getDataSource();
-      const blobId = await datasource.uploadImage?.({
+      const result = await datasource.uploadImage?.({
         file,
         entityType: "playlist",
         entityId: props.playlistId,
       });
 
-      if (!blobId) {
+      if (!result) {
         toast.error("failed to upload image");
         return;
       }
 
+      const { blob_id, job_id } = result;
+
+      // poll for job completion if remote
+      const remote = getCurrentRemote();
+      if (remote?.base_url && job_id) {
+        const success = await pollJobUntilComplete(remote.base_url, job_id);
+        if (!success) {
+          toast.error("image processing failed");
+          return;
+        }
+      }
+
       const newImage: ImageMetadata = {
-        local_blob_id: blobId,
+        local_blob_id: blob_id,
         is_primary: props.images.length === 0,
         blob_type: "thumbnail",
       };
@@ -167,9 +180,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
 
       {/* upload section */}
       <div class="space-y-2">
-        <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
-          add new image
-        </h3>
+        <h3 class="text-sm font-medium text-[var(--color-text-primary)]">add new image</h3>
         <Show
           when={!uploadingImage()}
           fallback={
@@ -181,24 +192,15 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
           }
         >
           <label class="block">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              class="hidden"
-            />
+            <input type="file" accept="image/*" onChange={handleImageUpload} class="hidden" />
             <div class="p-4 border-2 border-dashed border-[var(--color-border-default)] rounded hover:border-[var(--color-primary)] transition-colors cursor-pointer text-center">
               <Icon
                 name={IconNames.upload}
                 size={20}
                 className="mx-auto mb-1 text-[var(--color-text-tertiary)]"
               />
-              <div class="text-xs text-[var(--color-text-primary)]">
-                click to upload
-              </div>
-              <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-                max 10mb
-              </div>
+              <div class="text-xs text-[var(--color-text-primary)]">click to upload</div>
+              <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">max 10mb</div>
             </div>
           </label>
         </Show>

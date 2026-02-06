@@ -2,12 +2,13 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { Song } from "../../music/data/types";
-import { getDataSource } from "../../music/data";
+import { getDataSource, getCurrentRemote } from "../../music/data";
 import { updateSong } from "../../music/services/storage/db";
 import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/modals";
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
 import { queryKeys } from "../../music/queries/queryKeys";
+import { pollJobUntilComplete } from "../../utils/jobs";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -92,17 +93,20 @@ export function SongEditorModal(props: SongEditorModalProps) {
       setAlbumId(song.album_id);
       setLoadedSongId(props.songId);
 
-      // load song images with album fallback
-      if (song.images && song.images.length > 0) {
-        setImages(song.images);
-      } else if (song.album_images && song.album_images.length > 0) {
-        setImages(song.album_images);
-      }
-
       // auto-expand lyrics if song has lyrics
       if (song.lyrics && song.lyrics.trim().length > 0) {
         setLyricsExpanded(true);
       }
+    }
+  });
+
+  // sync images when song data updates (separate from form init to allow refresh)
+  createEffect(() => {
+    const song = songQuery.data;
+    if (song?.images && song.images.length > 0) {
+      setImages(song.images);
+    } else if (song?.album_images && song.album_images.length > 0) {
+      setImages(song.album_images);
     }
   });
 
@@ -251,22 +255,37 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
     try {
       const datasource = await getDataSource();
-      const blobId = await datasource.uploadImage?.({
+      const result = await datasource.uploadImage?.({
         file,
         entityType: "song",
         entityId: props.songId,
       });
 
-      if (!blobId) {
+      if (!result) {
         setProcessingJob(null);
         setImagePreview(null);
         toast.error("failed to upload image");
         return;
       }
 
+      const { blob_id, job_id } = result;
+
+      // poll for job completion
+      const remote = getCurrentRemote();
+      if (remote?.base_url) {
+        setProcessingJob({ status: "processing", message: "processing image..." });
+        const success = await pollJobUntilComplete(remote.base_url, job_id);
+        if (!success) {
+          toast.error("image processing failed");
+          setProcessingJob(null);
+          setImagePreview(null);
+          return;
+        }
+      }
+
       // add new image to list (marked as primary if it's the first one)
       const newImage: ImageMetadata = {
-        local_blob_id: blobId,
+        local_blob_id: blob_id,
         is_primary: images().length === 0,
         blob_type: "thumbnail",
       };
@@ -283,6 +302,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
       // invalidate queries to refresh UI
       songQuery.refetch();
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
     } catch (err) {
       console.error("failed to upload image:", err);
       toast.error("failed to upload image");

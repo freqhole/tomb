@@ -1076,7 +1076,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     isPrimary?: boolean;
-  }): Promise<string> {
+  }): Promise<{ blob_id: string; job_id: string }> {
     // store blob in OPFS/Cache
     const blobId = await storeBlob(params.file, params.file.type);
 
@@ -1127,7 +1127,8 @@ export class LocalMusicDataSource implements MusicDataSource {
       }
     }
 
-    return blobId;
+    // local source doesn't have async jobs, return empty job_id
+    return { blob_id: blobId, job_id: '' };
   }
 
   async getEntityImages(params: {
