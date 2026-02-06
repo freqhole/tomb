@@ -5,7 +5,6 @@ import { useLocalSource, useRemoteSource } from "../../music/data";
 import { getActiveRemote, getRemoteById } from "../../music/services/remotes/remoteManager";
 import { AlbumDetailView } from "../../music/views/AlbumDetailView";
 import { AlbumsView } from "../../music/views/AlbumsView";
-import { ArtistDetailView } from "../../music/views/ArtistDetailView";
 import { ArtistsView } from "../../music/views/ArtistsView";
 import { FavoritesView } from "../../music/views/FavoritesView";
 import { GenresView } from "../../music/views/GenresView";
