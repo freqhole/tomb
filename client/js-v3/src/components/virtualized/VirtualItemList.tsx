@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, Index, JSX, onMount, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, JSX, onMount, onCleanup, Show } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { Icon } from "../icons/registry";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -59,38 +59,26 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   // scroll restoration using browser history state
   const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "item-list");
 
-  // create virtualizer instance - wrap in memo to recreate when items change
-  const rowVirtualizer = createMemo((prev) => {
-    // save scroll position before recreating virtualizer
-    if (prev && parentRef) {
-      setSavedScrollOffset(parentRef.scrollTop);
-    }
+  // stable count accessor - only updates when length actually changes
+  const count = createMemo(() => props.items.length);
 
-    props.items.length; // track items for reactivity
-    const virtualizer = createVirtualizer({
-      count: props.items.length,
-      getScrollElement: () => parentRef,
-      estimateSize: () => 80,
-      overscan: 5,
-    });
+  // single stable virtualizer instance - uses reactive getter for count
+  const rowVirtualizer = createVirtualizer({
+    get count() {
+      return count();
+    },
+    getScrollElement: () => parentRef,
+    estimateSize: () => 80,
+    overscan: 5,
+  });
 
-    // restore scroll position after virtualizer is created
-    if (savedScrollOffset() > 0 && parentRef) {
-      queueMicrotask(() => {
-        if (parentRef) {
-          parentRef.scrollTop = savedScrollOffset();
-        }
-      });
-    }
-
-    // expose scrollToIndex via callback
+  // expose scrollToIndex via callback when virtualizer is ready
+  onMount(() => {
     if (props.onVirtualizerReady) {
       props.onVirtualizerReady((index: number) => {
-        virtualizer.scrollToIndex(index, { align: "start" });
+        rowVirtualizer.scrollToIndex(index, { align: "start" });
       });
     }
-
-    return virtualizer;
   });
 
   // detect when container becomes visible again (for mobile back navigation)
@@ -125,7 +113,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
             parentRef.scrollTop = savedScrollOffset();
           }
           // then remeasure
-          rowVirtualizer().measure();
+          rowVirtualizer.measure();
           // dispatch scroll event to trigger virtualizer recalculation
           if (parentRef) {
             parentRef.dispatchEvent(new Event("scroll"));
@@ -133,7 +121,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
         });
       } else if (newWidth > 0 && newHeight > 0) {
         // for any other size change while visible, also remeasure
-        rowVirtualizer().measure();
+        rowVirtualizer.measure();
       }
 
       lastWidth = newWidth;
@@ -190,88 +178,82 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       {/* virtual list container */}
       <div
         style={{
-          height: `${rowVirtualizer().getTotalSize()}px`,
+          height: `${rowVirtualizer.getTotalSize()}px`,
           width: "100%",
           position: "relative",
         }}
       >
-        <Index each={rowVirtualizer().getVirtualItems()}>
-          {(virtualRow) => {
-            const item = () => props.items[virtualRow().index];
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const item = props.items[virtualRow.index];
+          if (!item) return null;
 
-            const itemButton = (
-              <button
-                class={`
-                  w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
-                  ${
-                    props.selectedId === item().id
-                      ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                      : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
-                  }
-                `}
-                onClick={() => handleItemClick(item())}
-              >
-                <Show when={!props.hideImage}>
-                  <Show
-                    when={item().images?.length || item().thumbnailUrl || !item().fallbackText}
-                    fallback={
-                      <div class="w-12 h-12 rounded-full flex-shrink-0 bg-[var(--color-bg-elevated)] flex items-center justify-center">
-                        <span class="text-sm font-bold text-[var(--color-text-tertiary)]">
-                          {item().fallbackText}
-                        </span>
-                      </div>
-                    }
-                  >
-                    <MediaImage
-                      images={item().images}
-                      imageUrl={item().thumbnailUrl || null}
-                      alt={item().title}
-                      class={`w-12 h-12 object-cover flex-shrink-0 ${item().domainType === "artist" ? "rounded-full" : "rounded"}`}
-                      domainType={item().domainType || "playlist"}
-                    />
-                  </Show>
-                </Show>
-                <div class="flex-1 min-w-0">
-                  <div class="font-medium text-base">
-                    <MarqueeText text={item().title} hoverOnly={true} />
-                  </div>
-                  {item().subtitle && (
-                    <div class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                      {item().subtitle}
-                    </div>
-                  )}
-                  {item().metadata && (
-                    <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
-                      {item().metadata}
-                    </div>
-                  )}
-                </div>
-              </button>
-            );
+          const hasImage = item.images?.length || item.thumbnailUrl || !item.fallbackText;
 
-            return (
-              <div
-                data-index={virtualRow().index}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: `${virtualRow().size}px`,
-                  transform: `translateY(${virtualRow().start}px)`,
-                }}
-              >
-                {props.getContextMenuActions ? (
-                  <ContextMenu actions={props.getContextMenuActions(item(), virtualRow().index)}>
-                    {itemButton}
-                  </ContextMenu>
+          const itemButton = (
+            <button
+              class={`
+                w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
+                ${
+                  props.selectedId === item.id
+                    ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                    : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                }
+              `}
+              onClick={() => handleItemClick(item)}
+            >
+              <Show when={!props.hideImage}>
+                {hasImage ? (
+                  <MediaImage
+                    images={item.images}
+                    imageUrl={item.thumbnailUrl || null}
+                    alt={item.title}
+                    class={`w-12 h-12 object-cover flex-shrink-0 ${item.domainType === "artist" ? "rounded-full" : "rounded"}`}
+                    domainType={item.domainType || "playlist"}
+                  />
                 ) : (
-                  itemButton
+                  <div class="w-12 h-12 rounded-full flex-shrink-0 bg-[var(--color-bg-elevated)] flex items-center justify-center">
+                    <span class="text-sm font-bold text-[var(--color-text-tertiary)]">
+                      {item.fallbackText}
+                    </span>
+                  </div>
+                )}
+              </Show>
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-base">
+                  <MarqueeText text={item.title} hoverOnly={true} />
+                </div>
+                {item.subtitle && (
+                  <div class="text-xs text-[var(--color-text-tertiary)] mt-1">{item.subtitle}</div>
+                )}
+                {item.metadata && (
+                  <div class="text-xs text-[var(--color-text-muted)] mt-0.5">{item.metadata}</div>
                 )}
               </div>
-            );
-          }}
-        </Index>
+            </button>
+          );
+
+          return (
+            <div
+              data-index={virtualRow.index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {props.getContextMenuActions ? (
+                <ContextMenu actions={props.getContextMenuActions(item, virtualRow.index)}>
+                  {itemButton}
+                </ContextMenu>
+              ) : (
+                itemButton
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

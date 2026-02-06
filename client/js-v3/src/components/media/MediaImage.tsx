@@ -72,10 +72,23 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     injectPanStyles();
   }
 
+  // compute initial image source synchronously to avoid first-render flicker
+  const getInitialSource = () => {
+    const bestImage = pickBestImage(props.images as ImageData[]);
+    const blobId = bestImage?.local_blob_id || props.blobId;
+    const remoteUrl = bestImage?.remote_url || props.imageUrl;
+    return { blobId, remoteUrl };
+  };
+  const initialSource = getInitialSource();
+
+  // initialize resolvedUrl with remoteUrl if no blobId needs async lookup
+  const initialUrl =
+    !initialSource.blobId && initialSource.remoteUrl ? initialSource.remoteUrl : null;
+
   const [imageError, setImageError] = createSignal(false);
   const [imageLoaded, setImageLoaded] = createSignal(false);
-  const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(null);
-  const [isLoading, setIsLoading] = createSignal(false);
+  const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(initialUrl);
+  const [isLoading, setIsLoading] = createSignal(initialSource.blobId ? true : false);
 
   // compute the image source (blobId or url) - this is what we actually track
   const imageSource = createMemo(() => {
@@ -195,9 +208,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         <img
           src={resolvedUrl()!}
           alt={props.alt}
-          class={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 z-30 ${
-            imageLoaded() && !imageError() ? "opacity-100" : "opacity-0"
-          }`}
+          class="absolute inset-0 w-full h-full object-cover z-30"
           onLoad={() => {
             setImageLoaded(true);
             setImageError(false);
