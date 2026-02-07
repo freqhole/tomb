@@ -25,5 +25,6 @@ logz.txt
 data/dev.db
 /data
 /grimoire/data
+/grimoire/.sqlx/
 /cli/coverage/
 *.profraw

@@ -50,7 +50,7 @@ build:
 	cargo build --package server --target $(CURRENT_TARGET) $(RELEASE_MODE)
 	cargo build --package cli --target $(CURRENT_TARGET) $(RELEASE_MODE)
 	cp target/$(CURRENT_TARGET)/release/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
-	cp target/$(CURRENT_TARGET)/release/cli $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
+	cp target/$(CURRENT_TARGET)/release/freqhole $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
 	@echo "Binaries: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
 # debug build
@@ -72,7 +72,7 @@ build-pi:
 	@mkdir -p $(BUILD_DIR)/$(PI_64_TARGET)
 	docker build -f Dockerfile.build -t freqhole-pi-builder .
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_64_TARGET):/output freqhole-pi-builder \
-		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/cli /output/freqhole-cli"
+		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/freqhole /output/freqhole-cli"
 	@echo "Pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
 
 # docker-based x86_64 linux build
@@ -84,7 +84,7 @@ build-linux:
 		--platform linux/amd64 \
 		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
-		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/cli /output/freqhole-cli"
+		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/freqhole /output/freqhole-cli"
 	@echo "Linux x86_64 binaries built: $(BUILD_DIR)/$(X86_64_TARGET)/"
 
 # all targetz including current platform if different
