@@ -18,6 +18,7 @@ export interface Artist {
   name: string;
   bio?: string | null;
   images?: ImageMetadata[]; // artist images
+  urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;
   updated_at: number;
   // user-specific fields (from query views)
@@ -37,6 +38,7 @@ export interface Album {
   genre_id: string | null; // FK to genres
   year: number | null;
   images?: ImageMetadata[]; // album images (artwork, etc)
+  urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;
   updated_at: number;
   // user-specific fields (from query views)
@@ -72,6 +74,7 @@ export interface Song {
   artist_name: string;
   album_title: string;
   images?: ImageMetadata[]; // song images (constructed by data source)
+  urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
 
   // denormalized for album-grouped sorting (songs always grouped by album then disc/track)
   album_added_at: number; // earliest added_at of any song in this album
@@ -126,6 +129,7 @@ export interface Playlist {
   description: string | null;
   is_public: boolean;
   images?: ImageMetadata[]; // playlist images
+  urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;
   updated_at: number;
   // sync fields for remote playlists

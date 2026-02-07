@@ -35,5 +35,7 @@ pub struct UpdateArtistRequest {
     pub artist_id: String,
     pub name: Option<String>,
     pub bio: Option<String>,
+    /// entity URLs (replaces all existing URLs)
+    pub entity_urls: Option<Vec<EntityUrl>>,
     pub updated_by: Option<String>,
 }

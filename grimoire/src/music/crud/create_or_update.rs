@@ -1069,3 +1069,136 @@ pub async fn get_or_create_playlist_by_name(
         GrimoireResponse::success("Playlist created successfully", (playlist, true))
     }
 }
+
+/// add a URL to an entity (artist, album, song, playlist)
+/// will not duplicate if the same URL already exists for this entity
+pub async fn add_entity_url(
+    entity_type: &str,
+    entity_id: &str,
+    name: Option<String>,
+    url: &str,
+) -> GrimoireResult<Option<String>> {
+    let pool = database::connect().await?;
+
+    // check if this URL already exists for this entity
+    let existing = sqlx::query!(
+        r#"SELECT id FROM entity_urlz
+           WHERE entity_type = ? AND entity_id = ? AND url = ?"#,
+        entity_type,
+        entity_id,
+        url
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    if existing.is_some() {
+        // URL already exists, skip
+        return Ok(None);
+    }
+
+    // insert the new URL
+    let result = sqlx::query!(
+        r#"INSERT INTO entity_urlz (entity_type, entity_id, name, url)
+           VALUES (?, ?, ?, ?)
+           RETURNING id as "id!""#,
+        entity_type,
+        entity_id,
+        name,
+        url
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(Some(result.id))
+}
+
+/// extract URLs from a text string (like ID3 comment tag)
+/// looks for http:// or https:// prefixes and extracts the full URL
+pub fn extract_urls_from_text(text: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    // simple regex-like extraction: find http:// or https:// and grab until whitespace or end
+    for word in text.split_whitespace() {
+        if word.starts_with("http://") || word.starts_with("https://") {
+            // clean up trailing punctuation that might be attached
+            let url = word.trim_end_matches(|c: char| {
+                c == ',' || c == '.' || c == ')' || c == ']' || c == '>'
+            });
+            if !url.is_empty() {
+                urls.push(url.to_string());
+            }
+        }
+    }
+
+    urls
+}
+
+/// extract the domain name from a URL for use as a label
+/// e.g. "https://some-artist.bandcamp.com/album/test" -> "bandcamp"
+pub fn extract_url_domain_label(url: &str) -> Option<String> {
+    // parse the URL and extract the host
+    let url_lower = url.to_lowercase();
+
+    // strip protocol
+    let without_protocol = url_lower
+        .strip_prefix("https://")
+        .or_else(|| url_lower.strip_prefix("http://"))?;
+
+    // get the host part (before the first /)
+    let host = without_protocol.split('/').next()?;
+
+    // remove www. prefix if present
+    let host = host.strip_prefix("www.").unwrap_or(host);
+
+    // extract meaningful domain label
+    // for subdomains like "artist.bandcamp.com", we want "bandcamp"
+    // for regular domains like "discogs.com", we want "discogs"
+    let parts: Vec<&str> = host.split('.').collect();
+
+    if parts.len() >= 2 {
+        // check for known services with subdomains
+        let known_services = [
+            "bandcamp",
+            "soundcloud",
+            "spotify",
+            "youtube",
+            "youtu",
+            "discogs",
+            "musicbrainz",
+            "lastfm",
+            "beatport",
+            "apple",
+            "amazon",
+            "deezer",
+            "tidal",
+            "facebook",
+            "instagram",
+            "twitter",
+            "wikipedia",
+        ];
+
+        // look if any of the parts match a known service
+        for part in &parts {
+            if known_services.contains(part) {
+                return Some(part.to_string());
+            }
+        }
+
+        // fallback: use the second-to-last part (main domain name)
+        // e.g., "example.com" -> "example", "sub.example.co.uk" -> "example"
+        let idx = if parts.len() >= 3
+            && (parts[parts.len() - 1] == "uk"
+                || parts[parts.len() - 1] == "au"
+                || parts[parts.len() - 1] == "jp")
+        {
+            parts.len().saturating_sub(3)
+        } else {
+            parts.len().saturating_sub(2)
+        };
+
+        Some(parts[idx].to_string())
+    } else {
+        // just one part? return it
+        Some(host.to_string())
+    }
+}

@@ -617,6 +617,42 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         }
     }
 
+    // update entity URLs if provided (replace all existing)
+    if let Some(ref entity_urls) = req.entity_urls {
+        // delete existing URLs for this album
+        if let Err(err) = sqlx::query!(
+            "DELETE FROM entity_urlz WHERE entity_type = 'album' AND entity_id = ?",
+            new_album_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "failed to delete existing entity URLs",
+                vec![err.into()],
+            );
+        }
+
+        // insert new URLs
+        for url in entity_urls {
+            if url.url.trim().is_empty() {
+                continue;
+            }
+            if let Err(err) = sqlx::query!(
+                r#"INSERT INTO entity_urlz (entity_type, entity_id, name, url)
+                VALUES ('album', ?, ?, ?)"#,
+                new_album_id,
+                url.name,
+                url.url
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure("failed to create entity URL", vec![err.into()]);
+            }
+        }
+    }
+
     // re-fetch the album with all related data
     super::get_album(&new_album_id).await
 }

@@ -139,6 +139,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
                 blob_type: 'thumbnail' as const,
               }))
             : undefined,
+          urls: item.album.urls || undefined,
           is_favorite: item.is_favorite,
           user_rating: item.rating,
           tags: item.album_tags || undefined,
@@ -206,6 +207,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
                 blob_type: 'thumbnail' as const,
               }))
             : undefined,
+          urls: item.artist.urls || undefined,
           is_favorite: item.is_favorite,
           user_rating: item.rating,
         };
@@ -321,6 +323,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           is_primary: img.is_primary === 1,
           blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original',
         })),
+        urls: item.playlist.urls || undefined,
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
@@ -397,6 +400,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     },
   ): Promise<PlaylistSummary> {
     const result = await apiClient.music.updatePlaylist(this.baseUrl, {
@@ -404,6 +408,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: params.title || null,
       description: params.description || null,
       is_public: params.is_public ?? null,
+      entity_urls: params.entity_urls ?? null,
       updated_by: null, // server will use authenticated user
     });
 
@@ -718,11 +723,13 @@ export class RemoteMusicDataSource implements MusicDataSource {
     artist_id: string;
     name?: string;
     bio?: string;
+    entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
   }): Promise<void> {
     const result = await apiClient.music.updateArtist(this.baseUrl, {
       artist_id: params.artist_id,
       name: params.name ?? null,
       bio: params.bio ?? null,
+      entity_urls: params.entity_urls ?? null,
       updated_by: null,
     });
 
@@ -741,6 +748,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     genre_ids?: string[];
     genres?: string[]; // new genre names to create
     year?: number;
+    entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
   }): Promise<void> {
     const result = await apiClient.music.updateAlbum(this.baseUrl, {
       album_id: params.album_id,
@@ -752,6 +760,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       label: params.label ?? null,
       genre_ids: params.genre_ids ?? null,
       genres: params.genres ?? null,
+      entity_urls: params.entity_urls ?? null,
       updated_by: null,
     });
 
@@ -775,6 +784,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     duration?: number | null;
     bpm?: number | null;
     lyrics?: string | null;
+    entity_urls?: Array<{ id?: string; name?: string | null; url: string }>;
     user_id?: string | null;
     updated_by?: string | null;
   }): Promise<void> {
@@ -792,6 +802,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       bpm: params.bpm,
       lyrics: params.lyrics,
       genre: params.genre,
+      entity_urls: params.entity_urls,
       user_id: params.user_id,
       updated_by: params.updated_by,
     };
@@ -799,7 +810,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.updateSongs(this.baseUrl, apiParams);
 
     if (!result.success) {
-      throw new Error("failed to update song");
+      console.error("updateSongs failed:", result.error);
+      throw new Error(`failed to update song: ${result.error?.message || JSON.stringify(result.error)}`);
     }
   }
 

@@ -1,9 +1,9 @@
 //! playlist domain models
 
 use crate::music::crud::{EntityUrl, ImageMetadata};
+use crate::JsonVec;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use crate::JsonVec;
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
@@ -91,6 +91,10 @@ pub struct UpdatePlaylistRequest {
     /// Make playlist public or private
     #[arg(long)]
     pub is_public: Option<bool>,
+
+    /// Entity URLs (replaces all existing URLs)
+    #[arg(skip)]
+    pub entity_urls: Option<Vec<crate::music::crud::EntityUrl>>,
 
     /// User ID performing the update
     #[arg(long)]

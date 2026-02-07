@@ -91,6 +91,15 @@ export function SongEditorModal(props: SongEditorModalProps) {
       setAlbumId(song.album_id);
       setLoadedSongId(props.songId);
 
+      // initialize entity URLs from song data
+      const urls = (song.urls || []).map((u) => ({
+        id: u.id,
+        name: u.name || "",
+        url: u.url,
+      }));
+      setEntityUrls(urls);
+      setInitialEntityUrls(urls.map((u) => ({ ...u }))); // deep copy for comparison
+
       // auto-expand lyrics if song has lyrics
       if (song.lyrics && song.lyrics.trim().length > 0) {
         setLyricsExpanded(true);
@@ -115,6 +124,27 @@ export function SongEditorModal(props: SongEditorModalProps) {
     return () => popModal(modalId);
   });
 
+  // helper to check if entity URLs have changed
+  const urlsChanged = () => {
+    const current = entityUrls();
+    const initial = initialEntityUrls();
+
+    // check for new or deleted URLs
+    const hasNewUrls = current.some((u) => u.isNew);
+    const hasDeletedUrls = current.some((u) => u.isDeleted);
+    if (hasNewUrls || hasDeletedUrls) return true;
+
+    // check for modified existing URLs
+    for (let i = 0; i < current.length; i++) {
+      const curr = current[i];
+      const init = initial[i];
+      if (!init) return true;
+      if (curr.name !== init.name || curr.url !== init.url) return true;
+    }
+
+    return current.length !== initial.length;
+  };
+
   const hasChanges = createMemo(() => {
     const current = formData();
     const initial = initialData();
@@ -127,7 +157,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
       current.bpm !== initial.bpm ||
       current.lyrics !== initial.lyrics ||
       current.artist_name !== initial.artist_name ||
-      current.album_title !== initial.album_title
+      current.album_title !== initial.album_title ||
+      urlsChanged()
     );
   });
 
@@ -148,6 +179,14 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (current.lyrics !== initial.lyrics) updates.lyrics = current.lyrics;
     if (current.artist_name !== initial.artist_name) updates.artist = current.artist_name;
     if (current.album_title !== initial.album_title) updates.album = current.album_title;
+
+    // include entity URLs if changed (filter out deleted URLs)
+    if (urlsChanged()) {
+      const activeUrls = entityUrls()
+        .filter((u) => !u.isDeleted)
+        .map((u) => ({ id: u.id || null, name: u.name || null, url: u.url }));
+      updates.entity_urls = activeUrls;
+    }
 
     if (Object.keys(updates).length === 1) {
       // only song_ids, no actual changes
@@ -624,6 +663,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
                     </div>
                   </div>
 
+                  {/* entity URLs */}
+                  <div class="mt-4">
+                    <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+                  </div>
+
                   {/* lyrics accordion */}
                   <div>
                     <button
@@ -660,12 +704,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
                   </div>
                 </div>
               </Show>
-
-              {/* entity URLs */}
-              <div class="mt-6 pt-6 border-t border-[var(--color-border-default)]">
-                <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
-                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
-              </div>
             </div>
           </TabPanel>
 

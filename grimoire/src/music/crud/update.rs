@@ -613,6 +613,50 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         }
     }
 
+    // handle entity_urls if provided
+    if let Some(ref entity_urls) = req.entity_urls {
+        for song_id in &req.song_ids {
+            // delete existing URLs for this song
+            if let Err(err) = sqlx::query!(
+                "DELETE FROM entity_urlz WHERE entity_type = 'song' AND entity_id = ?",
+                song_id
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "Failed to delete existing entity URLs",
+                    vec![err.into()],
+                );
+            }
+
+            // insert new URLs
+            for url in entity_urls {
+                // skip empty URLs
+                if url.url.trim().is_empty() {
+                    continue;
+                }
+
+                // id has DEFAULT (lower(hex(randomblob(8)))) so we omit it
+                if let Err(err) = sqlx::query!(
+                    r#"INSERT INTO entity_urlz (entity_type, entity_id, name, url)
+                    VALUES ('song', ?, ?, ?)"#,
+                    song_id,
+                    url.name,
+                    url.url
+                )
+                .execute(&pool)
+                .await
+                {
+                    return GrimoireResponse::failure(
+                        "Failed to create entity URL",
+                        vec![err.into()],
+                    );
+                }
+            }
+        }
+    }
+
     GrimoireResponse::success(
         format!("Updated {} song(s)", req.song_ids.len()),
         UpdateSongsResult {

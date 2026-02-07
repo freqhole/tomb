@@ -49,8 +49,11 @@ pub use crate::music::entities::playlists::{
 
 // re-export main workflow functions with cleaner names
 pub use create_or_update::{
+    add_entity_url,
     bulk_import_songs,
     create_song_with_artist_and_album,
+    extract_url_domain_label,
+    extract_urls_from_text,
     find_or_create_artist,
     find_or_create_genre,
     get_or_create_playlist_by_name,

@@ -9,6 +9,7 @@ interface UpdateArtistData {
   artist_id: string;
   name?: string;
   bio?: string;
+  entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
 }
 
 interface UpdateAlbumData {
@@ -21,6 +22,7 @@ interface UpdateAlbumData {
   label?: string;
   genre_ids?: string[];
   genres?: string[]; // new genre names to create
+  entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
 }
 
 export function useUpdateArtistMutation() {

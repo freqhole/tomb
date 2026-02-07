@@ -191,6 +191,7 @@ export async function runStatefulTests() {
         title: "Updated Test Playlist",
         description: "Updated by integration tests",
         is_public: null,
+        entity_urls: null,
         updated_by: null,
       },
       apiKey,

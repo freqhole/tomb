@@ -109,9 +109,7 @@ export function MetadataDisplay(props: MetadataDisplayProps) {
           </div>
         }
       >
-        <div class="bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border-default)] p-4">
-          {renderValue(parsedData())}
-        </div>
+        <div>{renderValue(parsedData())}</div>
       </Show>
     </div>
   );

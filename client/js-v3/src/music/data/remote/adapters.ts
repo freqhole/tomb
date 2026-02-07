@@ -14,8 +14,8 @@ export type RemoteSong = Required<Pick<Song,
   // denormalized display fields
   | 'artist_name' | 'album_title'
   | 'album_added_at' | 'album_primary_genre_id' | 'album_primary_genre_name'
-  // images
-  | 'images'
+  // images and urls
+  | 'images' | 'urls'
   // user-specific metadata (optional fields)
   | 'is_favorite' | 'user_rating' | 'album_is_favorite' | 'album_rating'
   | 'album_tags' | 'album_genres' | 'album_images'
@@ -42,6 +42,11 @@ export interface ApiSongQueryItem {
     metadata?: string | null;
     created_at: number;
     updated_at: number;
+    urls?: Array<{
+      id?: string;
+      name?: string;
+      url: string;
+    }>;
   };
   artist?: {
     id: string;
@@ -75,6 +80,11 @@ export interface ApiSongQueryItem {
     blob_id: string;
     is_primary: boolean | number;
     blob_type?: string;
+  }>;
+  urls?: Array<{
+    id?: string;
+    name?: string;
+    url: string;
   }>;
 }
 
@@ -177,6 +187,9 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
       is_primary: !!img.is_primary,
       blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original' | 'preview',
     })) || undefined,
+
+    // entity URLs
+    urls: item.song.urls || item.urls || undefined,
 
     // remote source type
     source_type: "remote" as const,

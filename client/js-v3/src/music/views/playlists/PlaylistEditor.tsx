@@ -28,8 +28,20 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const [uploadingImage, setUploadingImage] = createSignal(false);
 
   // entity URLs management
-  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
-  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>(
+    (props.playlist.urls || []).map((u) => ({
+      id: u.id || undefined,
+      name: u.name || undefined,
+      url: u.url,
+    }))
+  );
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>(
+    (props.playlist.urls || []).map((u) => ({
+      id: u.id || undefined,
+      name: u.name || undefined,
+      url: u.url,
+    }))
+  );
 
   const updatePlaylistMutation = useUpdatePlaylistMutation();
   const deletePlaylistMutation = useDeletePlaylistMutation();
@@ -166,12 +178,32 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   };
 
   const handleSave = async () => {
+    // helper to check if entity URLs have changed
+    const urlsChanged = () => {
+      const current = entityUrls();
+      const initial = initialEntityUrls();
+      const hasNewUrls = current.some((u) => u.isNew);
+      const hasDeletedUrls = current.some((u) => u.isDeleted);
+      if (hasNewUrls || hasDeletedUrls) return true;
+      if (current.length !== initial.length) return true;
+      return current.some((u, i) => {
+        const prevUrl = initial[i];
+        return !prevUrl || u.name !== prevUrl.name || u.url !== prevUrl.url;
+      });
+    };
+
     try {
       await updatePlaylistMutation.mutateAsync({
         playlistId: props.playlist.playlist_id,
         title: editTitle() || null,
         description: editDescription() || null,
         images: playlistImages(),
+        // send entity URLs if changed (filter out deleted, map with null id for new)
+        entity_urls: urlsChanged()
+          ? entityUrls()
+              .filter((u) => !u.isDeleted)
+              .map((u) => ({ id: u.id || null, name: u.name || null, url: u.url }))
+          : undefined,
       });
 
       toast.success("playlist updated", {
@@ -268,8 +300,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       </div>
 
       {/* entity URLs */}
-      <div class="mt-4 pt-4 border-t border-[var(--color-border-default)]">
-        <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
+      <div class="mt-4">
         <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
       </div>
 

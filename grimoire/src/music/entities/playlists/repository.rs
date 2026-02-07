@@ -295,6 +295,45 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
         return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
+    // update entity URLs if provided (replace all existing)
+    if let Some(ref entity_urls) = req.entity_urls {
+        // delete existing URLs for this playlist
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM entity_urlz WHERE entity_type = 'playlist' AND entity_id = ?",
+            id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to delete existing entity URLs",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+
+        // insert new URLs
+        for url in entity_urls {
+            if url.url.trim().is_empty() {
+                continue;
+            }
+            if let Err(e) = sqlx::query!(
+                r#"INSERT INTO entity_urlz (entity_type, entity_id, name, url)
+                VALUES ('playlist', ?, ?, ?)"#,
+                id,
+                url.name,
+                url.url
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "Failed to create entity URL",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        }
+    }
+
     // Fetch and return the updated playlist
     get_playlist(id).await
 }

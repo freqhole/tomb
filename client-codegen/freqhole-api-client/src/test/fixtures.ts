@@ -103,6 +103,7 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
   rate_song: null,
   rate_artist: null,
   rate_album: null,
+  entity_urls: null,
 };
 
 export const deleteSongRequest: s.DeleteSongRequest = {
@@ -123,6 +124,7 @@ export const updatePlaylistRequest: s.UpdatePlaylistRequest = {
   title: "Updated Playlist",
   description: "Updated description",
   is_public: null,
+  entity_urls: null,
   updated_by: null,
 };
 

@@ -30,7 +30,7 @@ export const AlbumSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -62,7 +62,7 @@ export const AlbumQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -85,7 +85,7 @@ export const AlbumQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -146,7 +146,7 @@ export const AlbumsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -169,7 +169,7 @@ export const AlbumsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -226,7 +226,7 @@ export const ArtistSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -250,7 +250,7 @@ export const ArtistQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -301,7 +301,7 @@ export const ArtistsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -464,7 +464,7 @@ export const FavoriteAlbumResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -487,7 +487,7 @@ export const FavoriteAlbumResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -530,7 +530,7 @@ export const FavoriteArtistResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -574,7 +574,7 @@ export const FavoritePlaylistResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -606,7 +606,7 @@ export const FavoriteSongResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -635,7 +635,7 @@ export const FavoriteSongResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -662,7 +662,7 @@ export const FavoriteSongResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1100,7 +1100,7 @@ export const PlaylistSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1127,7 +1127,7 @@ export const PlaylistQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1170,7 +1170,7 @@ export const PlaylistSongResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1199,7 +1199,7 @@ export const PlaylistSongResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1226,7 +1226,7 @@ export const PlaylistSongResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1296,7 +1296,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1325,7 +1325,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1352,7 +1352,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1429,7 +1429,7 @@ export const PlaylistsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1769,7 +1769,7 @@ export const SongSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1805,7 +1805,7 @@ export const SongQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1834,7 +1834,7 @@ export const SongQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1861,7 +1861,7 @@ export const SongQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1949,7 +1949,7 @@ export const SongsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -1978,7 +1978,7 @@ export const SongsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -2005,7 +2005,7 @@ export const SongsQueryResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -2202,6 +2202,11 @@ export const UpdateAlbumRequestSchema = z.object({
   label: z.string().nullable(),
   genre_ids: z.array(z.string()).nullable(),
   genres: z.array(z.string()).nullable(),
+  entity_urls: z.array(z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  url: z.string()
+})).nullable(),
   updated_by: z.string().nullable()
 });
 export type UpdateAlbumRequest = z.infer<typeof UpdateAlbumRequestSchema>;
@@ -2210,6 +2215,11 @@ export const UpdateArtistRequestSchema = z.object({
   artist_id: z.string(),
   name: z.string().nullable(),
   bio: z.string().nullable(),
+  entity_urls: z.array(z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  url: z.string()
+})).nullable(),
   updated_by: z.string().nullable()
 });
 export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
@@ -2219,6 +2229,11 @@ export const UpdatePlaylistRequestSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
   is_public: z.boolean().nullable(),
+  entity_urls: z.array(z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  url: z.string()
+})).nullable(),
   updated_by: z.string().nullable()
 });
 export type UpdatePlaylistRequest = z.infer<typeof UpdatePlaylistRequestSchema>;
@@ -2267,7 +2282,12 @@ export const UpdateSongsRequestSchema = z.object({
 }).nullable(),
   rate_song: z.number().nullable(),
   rate_artist: z.number().nullable(),
-  rate_album: z.number().nullable()
+  rate_album: z.number().nullable(),
+  entity_urls: z.array(z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  url: z.string()
+})).nullable()
 });
 export type UpdateSongsRequest = z.infer<typeof UpdateSongsRequestSchema>;
 
@@ -2287,7 +2307,7 @@ export const UpdateSongsResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
@@ -2314,7 +2334,7 @@ export const UpdateSongsResultSchema = z.object({
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
 })).nullable(),
   urls: z.array(z.object({
-  id: z.string(),
+  id: z.string().nullable(),
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),

@@ -7,10 +7,13 @@
 //! - Compilation album detection and handling
 //! - Analytics event recording
 //! - Fallback handling when metadata extraction fails
+//! - URL extraction from comment tags
 
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
 use crate::jobs::JobError;
-use crate::music::crud::{add_song, ImportSongRequest};
+use crate::music::crud::{
+    add_entity_url, add_song, extract_url_domain_label, extract_urls_from_text, ImportSongRequest,
+};
 use lofty::{AudioFile, FileType, ItemValue, Probe, TaggedFileExt};
 use std::collections::HashMap;
 use std::path::Path;
@@ -57,6 +60,8 @@ struct ExtractedMetadata {
     bpm: Option<i64>,
     /// Whether this is a compilation album
     is_compilation: bool,
+    /// URLs extracted from comment tag
+    comment_urls: Vec<String>,
 }
 
 /// Extract metadata from an audio file and import it as a song
@@ -167,6 +172,21 @@ pub async fn extract_and_import(
             "Warning: Failed to record analytics event for song import: {}",
             e
         );
+    }
+
+    // add URLs from comment tag to the album (best-effort, don't fail import)
+    if let Some(album) = &result.album {
+        for url in &metadata.comment_urls {
+            let label = extract_url_domain_label(url);
+            if let Err(e) = add_entity_url("album", &album.id, label, url).await {
+                tracing::warn!(
+                    "failed to add URL '{}' to album '{}': {}",
+                    url,
+                    album.title,
+                    e
+                );
+            }
+        }
     }
 
     Ok(ImportResult {
@@ -304,6 +324,12 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
         .and_then(|s| s.parse::<i64>().ok())
         .filter(|&b| b > 0 && b < 1000);
 
+    // extract URLs from comment tag
+    let comment = get_tag("Comment", &["COMM", "COMMENT", "comment"]);
+    let comment_urls = comment
+        .map(|c| extract_urls_from_text(&c))
+        .unwrap_or_default();
+
     ExtractedMetadata {
         title,
         artist_name,
@@ -317,6 +343,7 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
         lyrics,
         bpm,
         is_compilation,
+        comment_urls,
     }
 }
 

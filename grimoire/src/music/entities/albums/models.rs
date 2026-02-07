@@ -58,5 +58,7 @@ pub struct UpdateAlbumRequest {
     /// genre ids (preferred) or names (will find or create)
     pub genre_ids: Option<Vec<String>>,
     pub genres: Option<Vec<String>>,
+    /// entity URLs (replaces all existing URLs)
+    pub entity_urls: Option<Vec<EntityUrl>>,
     pub updated_by: Option<String>,
 }

@@ -380,7 +380,7 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
     }
 
     // update artist (only name can be updated, id stays the same)
-    let updated = match sqlx::query_as!(
+    let _updated = match sqlx::query_as!(
         Artist,
         r#"UPDATE artistz
             SET name = COALESCE(?, name),
@@ -414,7 +414,47 @@ pub async fn update_artist(req: UpdateArtistRequest) -> GrimoireResponse<Artist>
         }
     };
 
-    GrimoireResponse::success("Artist updated successfully", updated)
+    // update entity URLs if provided (replace all existing)
+    if let Some(ref entity_urls) = req.entity_urls {
+        // delete existing URLs for this artist
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM entity_urlz WHERE entity_type = 'artist' AND entity_id = ?",
+            req.artist_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to delete existing entity URLs",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+
+        // insert new URLs
+        for url in entity_urls {
+            if url.url.trim().is_empty() {
+                continue;
+            }
+            if let Err(e) = sqlx::query!(
+                r#"INSERT INTO entity_urlz (entity_type, entity_id, name, url)
+                VALUES ('artist', ?, ?, ?)"#,
+                req.artist_id,
+                url.name,
+                url.url
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "Failed to create entity URL",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        }
+    }
+
+    // re-fetch artist with images and urls
+    get_artist(&req.artist_id).await
 }
 
 /// get all image blob IDs for an artist and its related entities

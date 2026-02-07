@@ -22,7 +22,7 @@ pub struct ImageMetadata {
 /// entity URL - a named link associated with an entity
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
 pub struct EntityUrl {
-    pub id: String,
+    pub id: Option<String>, // optional when creating new URLs
     pub name: Option<String>,
     pub url: String,
 }
@@ -503,6 +503,10 @@ pub struct UpdateSongsRequest {
     /// Rate the album (1-5)
     #[arg(long)]
     pub rate_album: Option<i32>,
+
+    /// Entity URLs to set (replaces existing URLs)
+    #[arg(skip)]
+    pub entity_urls: Option<Vec<EntityUrl>>,
 }
 
 impl UpdateSongsRequest {

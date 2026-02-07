@@ -57,6 +57,7 @@ export interface AlbumSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
   is_favorite?: boolean;
   user_rating?: number;
   tags?: string[];
@@ -71,6 +72,7 @@ export interface ArtistSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -90,6 +92,7 @@ export interface PlaylistSummary {
   description: string | null;
   is_public: boolean;
   images?: ImageMetadata[];
+  urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
   song_count: number;
   created_at: number;
   updated_at: number;
@@ -280,6 +283,7 @@ export interface MusicDataSource {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
+      entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     },
   ): Promise<PlaylistSummary>;
   deletePlaylist?(playlistId: string): Promise<void>;
@@ -334,6 +338,7 @@ export interface MusicDataSource {
     artist_id: string;
     name?: string;
     bio?: string;
+    entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
   }): Promise<void>;
 
   updateAlbum?(params: {
@@ -345,6 +350,7 @@ export interface MusicDataSource {
     label?: string;
     genre_id?: string;
     year?: number;
+    entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
   }): Promise<void>;
 
   updateSong?(params: {

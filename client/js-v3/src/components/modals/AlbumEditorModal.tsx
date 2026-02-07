@@ -113,12 +113,47 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     }
   });
 
+  // sync entity URLs when album data updates
+  createEffect(() => {
+    const album = albumQuery.data;
+    if (album?.urls) {
+      const mapped = album.urls.map((u) => ({
+        id: u.id || undefined,
+        name: u.name || undefined,
+        url: u.url,
+      }));
+      setEntityUrls(mapped);
+      setInitialEntityUrls(mapped);
+    }
+  });
+
   // register modal in stack for esc key handling
   onMount(() => {
     const modalId = `album-${props.albumId}`;
     pushModal(modalId, props.onClose);
     return () => popModal(modalId);
   });
+
+  // helper to check if entity URLs have changed
+  const urlsChanged = () => {
+    const current = entityUrls();
+    const initial = initialEntityUrls();
+
+    // check for new or deleted URLs
+    const hasNewUrls = current.some((u) => u.isNew);
+    const hasDeletedUrls = current.some((u) => u.isDeleted);
+    if (hasNewUrls || hasDeletedUrls) return true;
+
+    // check for modified existing URLs
+    for (let i = 0; i < current.length; i++) {
+      const curr = current[i];
+      const init = initial[i];
+      if (!init) return true;
+      if (curr.name !== init.name || curr.url !== init.url) return true;
+    }
+
+    return current.length !== initial.length;
+  };
 
   const hasChanges = createMemo(() => {
     const current = formData();
@@ -135,7 +170,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.new_genres.length > 0 ||
       current.release_date !== initial.release_date ||
       current.label !== initial.label ||
-      current.uploaded_blob_id !== null
+      current.uploaded_blob_id !== null ||
+      urlsChanged()
     );
   });
 
@@ -167,6 +203,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             ? data.release_date
             : undefined,
         label: data.label !== initial?.label ? data.label : undefined,
+        // send entity URLs if changed (filter out deleted, map with null id for new)
+        entity_urls: urlsChanged()
+          ? entityUrls()
+              .filter((u) => !u.isDeleted)
+              .map((u) => ({ id: u.id || null, name: u.name || null, url: u.url }))
+          : undefined,
       });
 
       props.onSave?.();
@@ -591,6 +633,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 </p>
               </div>
 
+              {/* entity URLs */}
+              <div class="space-y-2">
+                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+              </div>
+
               {/* songs list */}
               <div class="space-y-2">
                 <label class="block text-sm font-medium text-[var(--color-text-primary)]">
@@ -632,12 +679,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                     </For>
                   </Show>
                 </div>
-              </div>
-
-              {/* entity URLs */}
-              <div class="pt-6 border-t border-[var(--color-border-default)]">
-                <h3 class="text-sm font-medium text-[var(--color-text-secondary)] mb-3">links</h3>
-                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
               </div>
             </TabPanel>
 
