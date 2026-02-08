@@ -126,10 +126,36 @@ pub async fn start_server(
         Expiry::OnInactivity(tower_sessions::cookie::time::Duration::hours(24))
     };
 
+    // determine secure/samesite settings based on whether any origin uses https
+    // for cross-origin requests (e.g., localhost:5173 -> tailscale), we need SameSite=None + Secure
+    let (use_secure, same_site) = if let Some(server_config) = &state.config.server {
+        let has_https_origin = server_config
+            .auth
+            .webauthn_origins
+            .iter()
+            .any(|o| o.rp_origin.starts_with("https://"));
+        if has_https_origin {
+            // cross-origin with https: must use SameSite=None + Secure=true
+            (true, SameSite::None)
+        } else {
+            // local http only: use Lax for safari compatibility
+            (false, SameSite::Lax)
+        }
+    } else {
+        (false, SameSite::Lax)
+    };
+
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false) // allow http for local development
-        .with_same_site(SameSite::Lax) // safari compatible
+        .with_secure(use_secure)
+        .with_same_site(same_site)
         .with_expiry(session_expiry);
+
+    tracing::info!(
+        "[session] configured session layer: secure={}, same_site={:?}, expiry={:?}",
+        use_secure,
+        same_site,
+        session_expiry
+    );
 
     // build router with state
     let app = routes::build_router()
