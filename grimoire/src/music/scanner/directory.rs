@@ -44,6 +44,15 @@ pub async fn scan_directory_and_create_jobs(
             continue;
         }
 
+        // skip hidden files (e.g., macOS ._ resource fork files)
+        if entry
+            .file_name()
+            .to_str()
+            .map_or(false, |n| n.starts_with('.'))
+        {
+            continue;
+        }
+
         let path = entry.path();
         if let Some(ext) = path.extension() {
             if let Some(ext_str) = ext.to_str() {
