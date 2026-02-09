@@ -144,12 +144,7 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
             <Icon name="music" size={size() > 40 ? 32 : 24} color="var(--color-text-disabled)" />
           }
         >
-          <img
-            src={imageUrl()!}
-            alt=""
-            class="w-full h-full object-cover"
-            decoding="async"
-          />
+          <img src={imageUrl()!} alt="" class="w-full h-full object-cover" decoding="async" />
         </Show>
       </div>
 
