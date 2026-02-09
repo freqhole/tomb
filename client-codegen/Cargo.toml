@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 # domain types and api registry
-grimoire = { path = "../grimoire" }
+grimoire = { path = "../grimoire", default-features = false }
 
 # server (needed to collect inventory routes)
 server = { path = "../server" }

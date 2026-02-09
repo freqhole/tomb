@@ -1,9 +1,11 @@
 FROM debian:bookworm
 
-# Build argument to specify target architecture
+# build argument to specify target architecture
 ARG TARGET_ARCH=aarch64-unknown-linux-gnu
+# extra cargo flags (e.g. --no-default-features) passed to the build command
+ARG CARGO_EXTRA_FLAGS=""
 
-# Install build dependencies
+# install build dependencies
 RUN apt-get update && \
     apt-get install -y \
     curl \
@@ -11,7 +13,7 @@ RUN apt-get update && \
     pkg-config \
     libssl-dev
 
-# Install cross-compilation tools only if targeting ARM64 from non-ARM64 platform
+# install cross-compilation tools for ARM64 (aarch64)
 RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     dpkg --add-architecture arm64 && \
     apt-get update && \
@@ -20,21 +22,31 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     gcc-aarch64-linux-gnu; \
     fi
 
-# Clean up apt cache
+# install cross-compilation tools for ARMv7 (32-bit Pi)
+RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
+    dpkg --add-architecture armhf && \
+    apt-get update && \
+    apt-get install -y \
+    libssl-dev:armhf \
+    gcc-arm-linux-gnueabihf; \
+    fi
+
+# clean up apt cache
 RUN rm -rf /var/lib/apt/lists/*
 
-# Install Rust
+# install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Add the target architecture
+# add the target architecture
 RUN rustup target add $TARGET_ARCH
 
-# Set cross-compilation linker for ARM64 if needed
+# set cross-compilation linkers
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
 
 WORKDIR /app
 COPY . .
 
-# Build for the specified target architecture
-RUN SQLX_OFFLINE="true" cargo build --release --target $TARGET_ARCH
+# build server and cli for the specified target architecture
+RUN SQLX_OFFLINE="true" cargo build --release --target $TARGET_ARCH -p server -p cli $CARGO_EXTRA_FLAGS

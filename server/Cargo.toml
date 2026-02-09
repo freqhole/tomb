@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["webauthn"]
-webauthn = ["dep:webauthn-rs"]
+webauthn = ["dep:webauthn-rs", "grimoire/webauthn"]
 
 [dependencies]
 # Workspace dependencies
@@ -28,7 +28,7 @@ clap = { workspace = true }
 webauthn-rs = { workspace = true, optional = true }
 
 # Internal dependencies
-grimoire = { path = "../grimoire" }
+grimoire = { path = "../grimoire", default-features = false }
 
 # api codegen support
 inventory = "0.3"

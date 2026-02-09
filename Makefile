@@ -76,6 +76,19 @@ build-pi:
 		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/freqhole /output/freqhole-cli"
 	@echo "Pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
 
+.PHONY: build-pi32
+build-pi32:
+	@echo "Building for Raspberry Pi 32-bit using Docker (webauthn disabled)"
+	@mkdir -p $(BUILD_DIR)/$(PI_32_TARGET)
+	$(MAKE) db-prepare
+	docker build -f Dockerfile.build -t freqhole-pi32-builder . \
+		--build-arg TARGET_ARCH=armv7-unknown-linux-gnueabihf \
+		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_32_TARGET):/output freqhole-pi32-builder \
+		sh -c "cp /app/target/armv7-unknown-linux-gnueabihf/release/server /output/freqhole-server && cp /app/target/armv7-unknown-linux-gnueabihf/release/freqhole /output/freqhole-cli"
+	@echo "Pi 32-bit binaries built: $(BUILD_DIR)/$(PI_32_TARGET)/"
+
+
 # docker-based x86_64 linux build
 .PHONY: build-linux
 build-linux:
