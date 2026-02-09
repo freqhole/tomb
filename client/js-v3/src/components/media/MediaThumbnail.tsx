@@ -1,6 +1,6 @@
 // reusable media thumbnail with index overlay and play icon hover
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { getBlobObjectURL } from "../../music/services/storage/blobs";
+import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
@@ -80,12 +80,24 @@ export interface MediaThumbnailProps {
 }
 
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
-  const [imageUrl, setImageUrl] = createSignal<string | null>(null);
+  // compute initial image URL synchronously to avoid first-render flicker
+  const getInitialUrl = (): string | null => {
+    const image = pickBestImage(props.images as ImageData[]);
+    if (image?.remote_url) return image.remote_url;
+    if (props.thumbnailUrl) return props.thumbnailUrl;
+    const blobId = image?.local_blob_id || props.thumbnailBlobId;
+    if (blobId) return getCachedBlobObjectURL(blobId);
+    return null;
+  };
 
-  // resolve image URL when props change
+  const [imageUrl, setImageUrl] = createSignal<string | null>(getInitialUrl());
+
+  // resolve image URL when props change (handles async blob lookups)
   createEffect(() => {
     const image = pickBestImage(props.images as ImageData[]);
-    resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl).then(setImageUrl);
+    resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl).then((url) => {
+      if (url !== imageUrl()) setImageUrl(url);
+    });
   });
 
   const size = () => props.size ?? 48;
@@ -136,7 +148,6 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
             src={imageUrl()!}
             alt=""
             class="w-full h-full object-cover"
-            loading="lazy"
             decoding="async"
           />
         </Show>

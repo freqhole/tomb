@@ -198,6 +198,15 @@ export async function getBlobObjectURL(blobId: string): Promise<string | null> {
 
 
 /**
+ * synchronous blob URL cache lookup (no OPFS read)
+ * returns cached object URL if available, null otherwise
+ */
+export function getCachedBlobObjectURL(blobId: string): string | null {
+  if (!blobId) return null;
+  return BLOB_URL_CACHE.get(blobId) ?? null;
+}
+
+/**
  * clear all cached blob URLs (for testing/cleanup)
  */
 export function clearBlobUrlCache(): void {
