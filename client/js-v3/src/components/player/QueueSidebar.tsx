@@ -130,7 +130,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                ${
                  props.isOpen
                    ? "translate-y-0 md:translate-y-0 md:translate-x-0"
-                   : "translate-y-full md:translate-y-0 md:translate-x-full"
+                   : "invisible translate-y-full md:visible md:translate-y-0 md:translate-x-full"
                }`
             : props.isOpen
               ? "w-96 flex-shrink-0 border-l border-[var(--color-accent-500)]/30"
