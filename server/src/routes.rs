@@ -281,7 +281,6 @@ pub fn build_router() -> Router<AppState> {
         )
         // allow uploads up to 10MB (default is 2MB)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
-        .layer(axum_middleware::from_fn(auth::middleware::validate_origin))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // blob streaming routes (auth required only - no origin validation for img/video/audio tags)
