@@ -112,15 +112,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
     <>
       {/* backdrop for overlay mode */}
       <Show when={isOverlay() && props.isOpen}>
-        <div class="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => props.onClose()} />
+        <div
+          class="fixed inset-0 bg-black/50 z-1130 md:hidden"
+          style={{ "touch-action": "none" }}
+          onClick={() => props.onClose()}
+        />
       </Show>
 
       <div
         class={`bg-[var(--color-bg-primary)]/95 backdrop-blur-xl flex flex-col ${
           isOverlay()
-            ? `fixed z-40 transition-transform duration-300 ease-out
-               /* narrow: bottom sheet */
-               inset-x-0 bottom-0 h-[70vh] rounded-t-2xl border-t border-[var(--color-accent-500)]/30
+            ? `fixed z-1140 transition-transform duration-300 ease-out
+               /* narrow: bottom sheet above player bar */
+               inset-x-0 bottom-[var(--player-height)] top-0 rounded-none border-t border-[var(--color-accent-500)]/30
                md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:h-auto md:rounded-t-none md:rounded-none
                md:w-96 md:border-l md:border-t-0
                ${
@@ -133,12 +137,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
               : "hidden"
         } ${props.class || ""}`}
       >
-        {/* drag handle for bottom sheet (narrow only) */}
-        <Show when={isOverlay()}>
+        {/* drag handle for bottom sheet (narrow only) #TODO: enable swipe gesture for this or yank. */}
+        {/* <Show when={isOverlay()}>
           <div class="md:hidden flex justify-center py-2">
             <div class="w-12 h-1 bg-[var(--color-border-strong)] rounded-full" />
           </div>
-        </Show>
+        </Show> */}
 
         {/* header */}
         <div class="flex items-center justify-between p-4 border-b border-[var(--color-accent-500)]/30">
@@ -176,7 +180,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
         <div
           ref={scrollElementRef}
           class="flex-1 overflow-y-auto"
-          style={{ "overflow-anchor": "none" }}
+          style={{ "overflow-anchor": "none", "overscroll-behavior": "contain" }}
         >
           <Show
             when={props.songs.length > 0}
