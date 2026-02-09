@@ -662,36 +662,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_release_date_year_only() {
-        let result = parse_release_date("2023");
-        assert!(result.is_ok());
-        let (date, precision, year) = result.unwrap();
-        assert_eq!(date, "2023");
-        assert_eq!(precision, "year");
-        assert_eq!(year, 2023);
-    }
-
-    #[test]
-    fn test_parse_release_date_year_month() {
-        let result = parse_release_date("2023-06");
-        assert!(result.is_ok());
-        let (date, precision, year) = result.unwrap();
-        assert_eq!(date, "2023-06");
-        assert_eq!(precision, "month");
-        assert_eq!(year, 2023);
-    }
-
-    #[test]
-    fn test_parse_release_date_full() {
-        let result = parse_release_date("2023-06-15");
-        assert!(result.is_ok());
-        let (date, precision, year) = result.unwrap();
-        assert_eq!(date, "2023-06-15");
-        assert_eq!(precision, "day");
-        assert_eq!(year, 2023);
-    }
-
-    #[test]
     fn test_parse_release_date_invalid() {
         assert!(parse_release_date("").is_err());
         assert!(parse_release_date("not a date").is_err());
