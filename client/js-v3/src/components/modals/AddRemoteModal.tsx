@@ -2,10 +2,7 @@
 // steps: 1) enter url, 2) test connection, 3) authenticate, 4) complete
 import * as apiClient from "freqhole-api-client";
 import { createSignal, Match, Show, Switch } from "solid-js";
-import {
-  createRemote,
-  getAllRemotes,
-} from "../../music/services/remotes/remoteManager";
+import { createRemote, getAllRemotes } from "../../music/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
@@ -13,11 +10,7 @@ import { MediaImage } from "../media/MediaImage";
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: (remote: {
-    remote_id: string;
-    name: string;
-    base_url: string;
-  }) => void;
+  onSuccess?: (remote: { remote_id: string; name: string; base_url: string }) => void;
 }
 
 type Step = "url" | "testing" | "auth" | "complete";
@@ -51,8 +44,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     if (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://")) {
       const scheme = window.location.protocol; // http: or https:
       remoteUrl = `${scheme}//${remoteUrl}`;
-      setUrl(remoteUrl); // update the input field
     }
+
+    // trim trailing slash
+    remoteUrl = remoteUrl.replace(/\/+$/, "");
+    setUrl(remoteUrl);
 
     // validate url format
     try {
@@ -68,7 +64,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     const duplicate = existingRemotes.find((r) => r.base_url === normalizedUrl);
     if (duplicate) {
       setError(
-        `this server is already added as "${duplicate.name}". each server can only be added once.`,
+        `this server is already added as "${duplicate.name}". each server can only be added once.`
       );
       return;
     }
@@ -120,7 +116,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       setError(
         err instanceof Error
           ? `connection failed: ${err.message}`
-          : "failed to connect to remote server",
+          : "failed to connect to remote server"
       );
       setStep("url");
     } finally {
@@ -163,11 +159,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
         // step 2: create webauthn credential
         console.log("requesting credential creation from browser...");
-        const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(
-          startResult.data,
-        );
+        const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(startResult.data);
         const credential = (await navigator.credentials.create(
-          credentialOptions,
+          credentialOptions
         )) as PublicKeyCredential;
 
         if (!credential) {
@@ -177,20 +171,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         console.log("credential.response:", credential.response);
         console.log(
           "attestationObject:",
-          (credential.response as AuthenticatorAttestationResponse)
-            .attestationObject,
+          (credential.response as AuthenticatorAttestationResponse).attestationObject
         );
         console.log("clientDataJSON:", credential.response.clientDataJSON);
 
         // step 3: finish registration
         console.log("finishing registration...");
-        const serializedCredential =
-          apiClient.webauthn.serializeRegistrationCredential(credential);
+        const serializedCredential = apiClient.webauthn.serializeRegistrationCredential(credential);
         console.log("serialized credential:", serializedCredential);
-        const finishResult = await apiClient.auth.registerFinish(
-          baseUrl,
-          serializedCredential,
-        );
+        const finishResult = await apiClient.auth.registerFinish(baseUrl, serializedCredential);
 
         if (!finishResult.success) {
           console.error("register finish failed:", finishResult);
@@ -215,10 +204,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
         // step 2: get webauthn credential
         console.log("requesting credential from browser...");
-        const credentialOptions =
-          apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
+        const credentialOptions = apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
         const credential = (await navigator.credentials.get(
-          credentialOptions,
+          credentialOptions
         )) as PublicKeyCredential;
 
         if (!credential) {
@@ -228,13 +216,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         console.log("credential.response:", credential.response);
         console.log(
           "authenticatorData:",
-          (credential.response as AuthenticatorAssertionResponse)
-            .authenticatorData,
+          (credential.response as AuthenticatorAssertionResponse).authenticatorData
         );
         console.log("clientDataJSON:", credential.response.clientDataJSON);
         console.log(
           "signature:",
-          (credential.response as AuthenticatorAssertionResponse).signature,
+          (credential.response as AuthenticatorAssertionResponse).signature
         );
 
         // step 3: finish login
@@ -242,10 +229,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         const serializedCredential =
           apiClient.webauthn.serializeAuthenticationCredential(credential);
         console.log("serialized credential:", serializedCredential);
-        const finishResult = await apiClient.auth.loginFinish(
-          baseUrl,
-          serializedCredential,
-        );
+        const finishResult = await apiClient.auth.loginFinish(baseUrl, serializedCredential);
 
         if (!finishResult.success) {
           console.error("login finish failed:", finishResult);
@@ -328,12 +312,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
                   onClick={handleBack}
                 >
-                  <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
@@ -343,9 +322,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   </svg>
                 </button>
               </Show>
-              <h2 class="text-xl font-bold text-[var(--color-text-primary)]">
-                add remote server
-              </h2>
+              <h2 class="text-xl font-bold text-[var(--color-text-primary)]">add remote server</h2>
             </div>
             <button
               type="button"
@@ -353,12 +330,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               onClick={handleClose}
               disabled={isLoading()}
             >
-              <svg
-                class="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -404,18 +376,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
                   <Show when={error()}>
                     <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
-                      <p class="text-sm text-[var(--color-status-error)]">
-                        {error()}
-                      </p>
+                      <p class="text-sm text-[var(--color-status-error)]">{error()}</p>
                     </div>
                   </Show>
 
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    disabled={isLoading()}
-                    class="w-full"
-                  >
+                  <Button type="submit" variant="primary" disabled={isLoading()} class="w-full">
                     test connection
                   </Button>
                 </form>
@@ -425,9 +390,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               <Match when={step() === "testing"}>
                 <div class="flex flex-col items-center justify-center py-8 space-y-4">
                   <div class="w-12 h-12 border-4 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
-                  <p class="text-sm text-[var(--color-text-secondary)]">
-                    connecting to {url()}...
-                  </p>
+                  <p class="text-sm text-[var(--color-text-secondary)]">connecting to {url()}...</p>
                 </div>
               </Match>
 
@@ -438,7 +401,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
                     <div class="flex items-start gap-3">
                       <MediaImage
-                        imageUrl={serverInfo()?.image_url ? `${url()}${serverInfo()?.image_url}` : null}
+                        imageUrl={
+                          serverInfo()?.image_url ? `${url()}${serverInfo()?.image_url}` : null
+                        }
                         alt={serverInfo()?.name}
                         class="w-12 h-12 rounded object-cover"
                       />
@@ -452,8 +417,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           </p>
                         </Show>
                         <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                          version {serverInfo()?.version} •{" "}
-                          {serverInfo()?.server_id}
+                          version {serverInfo()?.version} • {serverInfo()?.server_id}
                         </p>
                       </div>
                     </div>
