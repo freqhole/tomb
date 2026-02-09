@@ -11,6 +11,8 @@ pub struct ScanDirectoryParams {
     pub recursive: bool,
     pub max_depth: Option<u32>,
     pub file_extensions: Option<Vec<String>>, // if None, use default audio extensions
+    #[serde(default)]
+    pub skip_tracked_subdirs: bool,
 }
 
 /// parameters for file processing jobs

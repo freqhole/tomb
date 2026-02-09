@@ -417,6 +417,24 @@ pub async fn cancel_job(job_id: &str) -> GrimoireResponse<Job> {
     GrimoireResponse::success("Job cancelled successfully", job)
 }
 
+/// delete a job row from the database
+pub async fn delete_job(job_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    match sqlx::query!("DELETE FROM jobz WHERE id = ?", job_id)
+        .execute(&pool)
+        .await
+    {
+        Ok(_) => GrimoireResponse::success("job deleted", ()),
+        Err(e) => GrimoireResponse::failure("failed to delete job", vec![e.into()]),
+    }
+}
+
 /// Update job session progress
 pub async fn update_session_progress(
     session_id: &str,

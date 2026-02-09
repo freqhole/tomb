@@ -149,6 +149,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 recursive: recursive.unwrap_or(true),
                 max_depth: max_depth.map(|d| d as u32),
                 file_extensions: None, // Use default audio extensions
+                skip_tracked_subdirs: false,
             };
 
             let job_request = CreateJobRequest {

@@ -45,7 +45,7 @@ pub use music::{
 
 pub use runner::{process_job, run_job_processor, run_job_processor_once};
 pub use service::{
-    cancel_job, complete_session, create_job, create_job_session, fail_session, get_job,
+    cancel_job, complete_session, create_job, create_job_session, delete_job, fail_session, get_job,
     get_job_session, get_next_pending_job, get_queue_stats, list_jobs, mark_job_completed,
     mark_job_failed, mark_job_started, update_session_progress,
 };

@@ -4,9 +4,8 @@ use clap::Parser;
 use grimoire::jobs::{
     add_directory_tags, create_job, create_job_session, list_scanned_directories,
     record_scanned_directory, remove_scanned_directory, CreateJobRequest, CreateJobSessionRequest,
-    JobType,
+    JobType, ScanDirectoryParams,
 };
-use grimoire::music::scanner::scan_directory;
 
 use crate::plumbing::utils::CommandOutput;
 
@@ -86,23 +85,44 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
             let session_id = &session.id;
             eprintln!("created job session: {}", session_id);
 
-            // skip_tracked_subdirs=true to avoid re-scanning already tracked subdirectories
-            let response = scan_directory(&path, session_id, true, None, None, true).await;
+            // record the scanned directory for future rescans (before queueing job
+            // so that other scans can skip this subdir)
+            let _ = record_scanned_directory(&path, 0, None).await;
+
+            // create a ScanDirectory job instead of scanning synchronously
+            let scan_params = ScanDirectoryParams {
+                directory_path: path.clone(),
+                recursive: true,
+                max_depth: None,
+                file_extensions: None,
+                skip_tracked_subdirs: true,
+            };
+
+            let job_request = CreateJobRequest {
+                job_type: JobType::ScanDirectory,
+                session_id: Some(session_id.to_string()),
+                parameters: serde_json::to_value(&scan_params).unwrap_or_default(),
+                max_retries: Some(0),
+                scheduled_at: None,
+                created_by: Some("cli-scan".to_string()),
+            };
+
+            let response = create_job(job_request).await;
 
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
 
-            let file_count = response.data.unwrap_or(0);
+            let job = response.data.unwrap();
 
-            // record the scanned directory for future rescans
-            let _ = record_scanned_directory(&path, file_count as i64, None).await;
+            let message = format!("scan job created: {}", job.id);
+            eprintln!("use 'freqhole jobs status {}' to check progress", job.id);
 
-            let message = format!("scan complete: found {} audio files", file_count);
             let data = serde_json::json!({
                 "path": path,
+                "job_id": job.id,
                 "session_id": session_id,
-                "files_found": file_count,
+                "status": job.status,
                 "tags_configured": tags.as_ref().map(|t| t.len()).unwrap_or(0),
             });
 

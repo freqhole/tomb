@@ -7,7 +7,7 @@ use super::music::{
     process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
     process_rescan_directories_job, process_scan_directory_job,
 };
-use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed};
+use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed, delete_job};
 use crate::response::GrimoireResponse;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -50,6 +50,11 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                     )
                 }
             };
+
+            // clean up completed ProcessFile jobs to avoid bloating the jobz table
+            if job_type == JobType::ProcessFile {
+                let _ = delete_job(&job.id).await;
+            }
 
             let job_result = JobResult {
                 job: completed_job,
