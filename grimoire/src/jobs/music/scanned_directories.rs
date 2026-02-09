@@ -4,6 +4,8 @@
 //! used by rescan jobs to know what to check
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::PathBuf;
 use time::OffsetDateTime;
 
 use crate::database;
@@ -175,4 +177,25 @@ pub async fn remove_scanned_directory(path: &str) -> GrimoireResponse<()> {
         }
         Err(e) => GrimoireResponse::failure(format!("failed to remove directory: {}", e), vec![]),
     }
+}
+
+/// get all scanned directory paths as a HashSet for efficient lookup
+/// paths are canonicalized (resolved, no trailing slashes)
+pub async fn get_scanned_directory_paths() -> HashSet<PathBuf> {
+    let response = list_scanned_directories().await;
+
+    if !response.success {
+        return HashSet::new();
+    }
+
+    response
+        .data
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|dir| {
+            // normalize: trim trailing slashes and canonicalize
+            let path_str = dir.path.trim_end_matches('/');
+            std::fs::canonicalize(path_str).ok()
+        })
+        .collect()
 }

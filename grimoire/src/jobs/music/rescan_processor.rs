@@ -78,7 +78,8 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         let session_id = format!("rescan-{}", job.id);
 
         // scan directory recursively - creates ProcessFile jobs
-        let scan_result = scan_directory(&dir.path, &session_id, true, None, None).await;
+        // skip_tracked_subdirs=false so rescan finds all new files everywhere
+        let scan_result = scan_directory(&dir.path, &session_id, true, None, None, false).await;
 
         let found_count = if scan_result.success {
             scan_result.data.unwrap_or(0)

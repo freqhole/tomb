@@ -3,8 +3,8 @@
 use clap::Parser;
 use grimoire::jobs::{
     add_directory_tags, create_job, create_job_session, list_scanned_directories,
-    record_scanned_directory, remove_scanned_directory, CreateJobRequest,
-    CreateJobSessionRequest, JobType,
+    record_scanned_directory, remove_scanned_directory, CreateJobRequest, CreateJobSessionRequest,
+    JobType,
 };
 use grimoire::music::scanner::scan_directory;
 
@@ -86,7 +86,8 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
             let session_id = &session.id;
             eprintln!("created job session: {}", session_id);
 
-            let response = scan_directory(&path, session_id, true, None, None).await;
+            // skip_tracked_subdirs=true to avoid re-scanning already tracked subdirectories
+            let response = scan_directory(&path, session_id, true, None, None, true).await;
 
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());

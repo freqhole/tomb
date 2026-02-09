@@ -34,12 +34,14 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
     };
 
     // use music scanner to handle directory scanning and job creation
+    // skip_tracked_subdirs=false for job-based scanning to ensure thorough scan
     let files_discovered = match scanner::scan_directory_and_create_jobs(
         &params.directory_path,
         session_id,
         params.recursive,
         params.max_depth,
         params.file_extensions,
+        false,
     )
     .await
     {

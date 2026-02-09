@@ -6,25 +6,51 @@
 use crate::config::get_config;
 use crate::database;
 use crate::error::GrimoireResult;
-use crate::jobs::{create_job, CreateJobRequest, JobType, ProcessFileParams};
-use std::path::Path;
+use crate::jobs::{create_job, get_scanned_directory_paths, CreateJobRequest, JobType, ProcessFileParams};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 use walkdir::WalkDir;
 
 /// Scan a directory for audio files and create processing jobs
 ///
 /// Returns the number of audio files discovered and jobs created.
+///
+/// # Arguments
+/// * `skip_tracked_subdirs` - if true, skip subdirectories that are already tracked
+///   in scanned_directories table (useful for avoiding duplicate work when scanning
+///   a parent directory after its children have already been scanned)
 pub async fn scan_directory_and_create_jobs(
     path: &str,
     session_id: &str,
     recursive: bool,
     max_depth: Option<u32>,
     file_extensions: Option<Vec<String>>,
+    skip_tracked_subdirs: bool,
 ) -> GrimoireResult<usize> {
     // Get audio extensions from config if not provided
     let audio_extensions = match file_extensions {
         Some(exts) => exts,
         None => get_config().media.supported_audio_formats.clone(),
+    };
+
+    // load tracked directories if we need to skip them
+    let tracked_dirs: HashSet<PathBuf> = if skip_tracked_subdirs {
+        get_scanned_directory_paths().await
+    } else {
+        HashSet::new()
+    };
+
+    // canonicalize the root path we're scanning (for comparison)
+    let root_path = std::fs::canonicalize(path.trim_end_matches('/'))
+        .unwrap_or_else(|_| PathBuf::from(path));
+
+    let dirs_to_skip = if skip_tracked_subdirs && !tracked_dirs.is_empty() {
+        let count = tracked_dirs.len();
+        debug!("will skip {} already-tracked subdirectories", count);
+        Some(tracked_dirs)
+    } else {
+        None
     };
 
     // Build directory walker
@@ -39,7 +65,32 @@ pub async fn scan_directory_and_create_jobs(
     // Collect audio files
     let mut audio_files = Vec::new();
 
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+    for entry in walker
+        .into_iter()
+        .filter_entry(|entry| {
+            // always allow files through
+            if entry.file_type().is_file() {
+                return true;
+            }
+
+            // for directories, check if we should skip
+            if let Some(ref tracked) = dirs_to_skip {
+                if let Ok(canonical) = std::fs::canonicalize(entry.path()) {
+                    // don't skip the root directory we're scanning
+                    if canonical == root_path {
+                        return true;
+                    }
+                    // skip if this directory is tracked
+                    if tracked.contains(&canonical) {
+                        debug!("skipping tracked subdirectory: {:?}", canonical);
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }

@@ -24,6 +24,7 @@ pub use super::import::{extract_and_import, ImportResult};
 /// * `recursive` - Whether to scan subdirectories
 /// * `max_depth` - Maximum depth for recursive scanning (None = unlimited)
 /// * `file_extensions` - Custom audio extensions (None = use defaults)
+/// * `skip_tracked_subdirs` - Skip subdirectories already in scanned_directories table
 ///
 /// # Returns
 ///
@@ -34,8 +35,9 @@ pub async fn scan_directory(
     recursive: bool,
     max_depth: Option<u32>,
     file_extensions: Option<Vec<String>>,
+    skip_tracked_subdirs: bool,
 ) -> GrimoireResponse<usize> {
-    match scan_directory_and_create_jobs(path, session_id, recursive, max_depth, file_extensions)
+    match scan_directory_and_create_jobs(path, session_id, recursive, max_depth, file_extensions, skip_tracked_subdirs)
         .await
     {
         Ok(count) => GrimoireResponse::success(

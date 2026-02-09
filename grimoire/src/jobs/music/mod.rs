@@ -32,8 +32,8 @@ pub use models::{
 
 // re-export scanned directories
 pub use scanned_directories::{
-    get_deduplicated_directories, list_scanned_directories, record_scanned_directory,
-    remove_scanned_directory, ScannedDirectory,
+    get_deduplicated_directories, get_scanned_directory_paths, list_scanned_directories,
+    record_scanned_directory, remove_scanned_directory, ScannedDirectory,
 };
 
 // re-export directory tag rules

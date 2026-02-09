@@ -31,16 +31,16 @@ pub use music::{
 
 // re-export scanned directories functions
 pub use music::{
-    get_deduplicated_directories, list_scanned_directories, record_scanned_directory,
-    remove_scanned_directory, ScannedDirectory,
+    get_deduplicated_directories, get_scanned_directory_paths, list_scanned_directories,
+    record_scanned_directory, remove_scanned_directory, ScannedDirectory,
 };
 
 // re-export directory tag rules
 pub use music::{
     add_directory_tags, apply_directory_tags_for_file, apply_directory_tags_to_album,
     clear_directory_tags, clear_tags_from_directory, get_tags_for_file_path,
-    list_directory_tag_rules, list_directory_tags, remove_directory_tags, strip_tags_from_directory,
-    DirectoryTagRule,
+    list_directory_tag_rules, list_directory_tags, remove_directory_tags,
+    strip_tags_from_directory, DirectoryTagRule,
 };
 
 pub use runner::{process_job, run_job_processor, run_job_processor_once};
