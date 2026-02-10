@@ -4,7 +4,7 @@
 # some stuff u might need for raspi build:
 #
 # add Rust targets:
-#   rustup target add arm-unknown-linux-gnueabihf      # ARMv6 32-bit Pi (Pi 1, Zero)
+#   rustup target add armv7-unknown-linux-gnueabihf    # 32-bit Pi (Pi 2+)
 #   rustup target add aarch64-unknown-linux-gnu        # 64-bit Pi
 #
 # system dependencies:
@@ -30,7 +30,7 @@ VERSION := $(shell grep '^version = ' server/Cargo.toml | head -1 | cut -d '"' -
 BUILD_DIR := target/freqhole/$(VERSION)
 CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
 
-PI_32_TARGET := arm-unknown-linux-gnueabihf
+PI_32_TARGET := armv7-unknown-linux-gnueabihf
 PI_64_TARGET := aarch64-unknown-linux-gnu
 X86_64_TARGET := x86_64-unknown-linux-gnu
 
@@ -82,10 +82,10 @@ build-pi32:
 	$(MAKE) db-prepare
 	docker build -f Dockerfile.build -t freqhole-pi32-builder . \
 		--build-arg BASE_IMAGE=debian:bullseye \
-		--build-arg TARGET_ARCH=arm-unknown-linux-gnueabihf \
+		--build-arg TARGET_ARCH=armv7-unknown-linux-gnueabihf \
 		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_32_TARGET):/output freqhole-pi32-builder \
-		sh -c "cp /app/target/arm-unknown-linux-gnueabihf/release/server /output/freqhole-server && cp /app/target/arm-unknown-linux-gnueabihf/release/freqhole /output/freqhole-cli"
+		sh -c "cp /app/target/armv7-unknown-linux-gnueabihf/release/server /output/freqhole-server && cp /app/target/armv7-unknown-linux-gnueabihf/release/freqhole /output/freqhole-cli"
 	@echo "pi 32-bit binz built: $(BUILD_DIR)/$(PI_32_TARGET)/"
 
 
