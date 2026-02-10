@@ -1,4 +1,5 @@
-FROM debian:bookworm
+ARG BASE_IMAGE=debian:bookworm
+FROM ${BASE_IMAGE}
 
 # build argument to specify target architecture
 ARG TARGET_ARCH=aarch64-unknown-linux-gnu
@@ -22,8 +23,8 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     gcc-aarch64-linux-gnu; \
     fi
 
-# install cross-compilation tools for ARMv7 (32-bit Pi)
-RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
+# install cross-compilation tools for ARM (ARMv6 32-bit Pi)
+RUN if [ "$TARGET_ARCH" = "arm-unknown-linux-gnueabihf" ]; then \
     dpkg --add-architecture armhf && \
     apt-get update && \
     apt-get install -y \
@@ -43,7 +44,7 @@ RUN rustup target add $TARGET_ARCH
 
 # set cross-compilation linkers
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
+ENV CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
 
 WORKDIR /app
 COPY . .
