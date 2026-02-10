@@ -20,7 +20,7 @@ stuff that's here:
 
 3. `/grimoire/` shared (between server & cli) rust code; all the sqlx db logic is here
 
-4. `/client/js/` a bunch of js that:
+4. `/client/spume/` a bunch of js that:
 
 - does gui stuff. so `solid-js`, `tailwindcss`, indexed db, @tanstack/solid-virtual for infinite scroll virtualization, @tanstack/solid-query for handy-dandy query stuff, @kobalte/core for some ui stuff like context menus + combobox; oh and there's a storybook!
 - `npm run dev` or `npm run storybook` to get started
