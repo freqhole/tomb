@@ -212,7 +212,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const songRow = (
                     <div
                       draggable={true}
-                      class={`absolute top-0 left-0 w-full flex items-center px-1 my-3 group transition-all duration-200 cursor-move ${
+                      class={`absolute top-0 left-0 w-full flex items-center my-3 group transition-all duration-200 cursor-move ${
                         isDropTarget()
                           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
                           : isDragging()
