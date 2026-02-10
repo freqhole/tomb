@@ -20,8 +20,8 @@ stuff that's here:
 
 4. `/client/js/` a bunch of js that:
 
-- does gui stuff. so `solid-js`, `tailwindcss`, indexed db, and a lot of web-components.
-- `npm run dev:freqhole` to get started
+- does gui stuff. so `solid-js`, `tailwindcss`, indexed db, @tanstack/solid-virtual for infinite scroll virtualization, @tanstack/solid-query for handy-dandy query stuff, @kobalte/core for some ui stuff like context menus + combobox. oh and there's a storybook!
+- `npm run dev:freqhole` or `npm run storybook` to get started
 
 6. `/docs/` mostly ai vomit 🤮
 
