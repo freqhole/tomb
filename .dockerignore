@@ -1,12 +1,15 @@
 /assets/
 logs/
-*.log
+_.log
 target/
-*.rlib
+_.rlib
 node_modules/
 /generated/
+/docs/
+
 # Docker-specific ignores
-Dockerfile*
+
+Dockerfile\*
 .dockerignore
 .git/
 .gitignore
