@@ -1,41 +1,41 @@
 # grimoire CLI integration tests
 
-integration tests for Grimoire CLI commands.
+integration testz
 
 ## QUICK START
 
 ```bash
 # From the grimoire/ directory:
 
-# Run all CLI integration tests
+# run all CLI integration tests
 make test-cli
 
-# Run a specific test by name
+# run a specific test by name
 make test-cli TEST=config_validate
 
-# Run tests matching a pattern
+# run tests matching a pattern
 make test-cli TEST=playlist
 make test-cli TEST=analytics
 
-# List all available tests
+# list all available tests
 make test-cli-list
 
-# Generate coverage report (CLI integration tests only)
+# generate coverage report (CLI integration tests only)
 make test-cli-coverage
-open coverage/index.html  # View the HTML report
+open coverage/index.html  # view the HTML report
 ```
 
 ## TEST INFRASTRUCTURE
 
 ### TestContext
 
-All tests use `TestContext::from_snapshot()` which:
+all tests use `TestContext::from_snapshot()` which:
 
-1. Copies `fixtures/test.db` to a temporary location
-2. Provides `run_cli()` and `run_json()` methods
-3. Automatically cleans up temp files on drop
+1. copies `fixtures/test.db` to a temporary location
+2. provides `run_cli()` and `run_json()` methods
+3. automatically cleans up temp files on drop
 
-Example:
+example:
 
 ```rust
 #[test]
@@ -50,12 +50,12 @@ fn test_example() {
 
 ### JSON Output
 
-All tests use `--json-output` flag for structured assertions:
+all tests use `--json-output` flag for structured assertions:
 
 ```rust
 let result = ctx.run_json(&["database", "info"]);
 
-// Standard response shape:
+// standard response shape:
 // {
 //   "success": true/false,
 //   "message": "...",
@@ -153,17 +153,17 @@ cargo build --bin grimoire
 
 ## COVERAGE
 
-Generate coverage report for CLI integration tests:
+generate coverage report for CLI integration tests:
 
 ```bash
-# Install cargo-llvm-cov (one-time)
+# install cargo-llvm-cov (one-time)
 cargo install cargo-llvm-cov
 
-# Generate coverage (CLI integration tests only, not unit tests)
+# generate coverage (CLI integration tests only, not unit tests)
 make test-cli-coverage
 
-# View HTML report
+# view HTML report
 open coverage/index.html
 ```
 
-**note:** Coverage reports show CLI integration test coverage only. Unit tests are not included.
+**note:** coverage reports show CLI integration test coverage only (unit tests are not included).

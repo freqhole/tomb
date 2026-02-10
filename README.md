@@ -11,8 +11,9 @@ stuff that's here:
 - `sqlx` crate to connect to a sqlite db (see also: [/migrations/](migrations/))
 - `webauthn-rs` optional feature crate for passkey auth
 - `axum` crate for json api, and static file server
+- see [assets/config/assets/config/config.example.jsonc](assets/config/config.example.jsonc) to get started (setup cli wizard coming soon! 🧙)
 
-2. `/cli/` a rust cli `cargo run --bin cli` that:
+2. `/cli/` a rust cli `cargo run --bin freqhole` (or just `cargo run`, see [docs/docs/grimoire-cli-testing.md](docs/docs/grimoire-cli-testing.md) for a whild all the cli possabilities) that:
 
 - does mostly everything the server does but via terminal ui
 
@@ -21,11 +22,13 @@ stuff that's here:
 4. `/client/js/` a bunch of js that:
 
 - does gui stuff. so `solid-js`, `tailwindcss`, indexed db, @tanstack/solid-virtual for infinite scroll virtualization, @tanstack/solid-query for handy-dandy query stuff, @kobalte/core for some ui stuff like context menus + combobox. oh and there's a storybook!
-- `npm run dev:freqhole` or `npm run storybook` to get started
+- `npm run dev` or `npm run storybook` to get started
 
-6. `/docs/` mostly ai vomit 🤮
+5. `client-codegen` zod schema generator (derived from rust structs) and a lil' js client that's mainly `fetch()` + zod schema wrapperz for all the api routez
 
-7. `Makefile` for building rust packages + sqlx migration stuff `make help` to get started.
+6. `/docs/` probably stale and out-of-date info :feelsgood:
+
+7. `Makefile` for building binaryz + sqlx migration stuff `make help` to get started.
 
 ---
 
