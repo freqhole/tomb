@@ -111,7 +111,6 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
         title={props.genre.name}
         titleElement={<MarqueeText text={props.genre.name} hoverOnly={true} />}
         variant="detail"
-        border
         showBackButton={props.showBackButton}
         onBack={props.onBack}
         class="px-4 md:px-6 py-2 md:py-4"

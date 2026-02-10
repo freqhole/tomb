@@ -418,7 +418,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
     >
       <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-2xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
-        <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
+        <div class="flex items-center justify-between p-4">
           <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">edit song</h2>
           <div class="flex items-center gap-2">
             <Show when={hasChanges()}>
@@ -437,7 +437,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
         {/* song info banner */}
         <Show when={initialData()}>
-          <div class="bg-[var(--color-bg-elevated)] p-3 border-b border-[var(--color-border-default)]">
+          <div class="bg-[var(--color-bg-elevated)] p-3 mb-2">
             <div class="text-sm text-[var(--color-text-secondary)]">
               editing: {formData().title} - {formData().artist_name}
             </div>
@@ -742,7 +742,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
         {/* footer - only show on info tab */}
         <Show when={activeTab() === "info"}>
-          <div class="flex items-center justify-between gap-2 p-4 border-t border-[var(--color-border-default)]">
+          <div class="flex items-center justify-between gap-2 p-4">
             <Button onClick={handleDelete} variant="danger">
               delete
             </Button>

@@ -257,7 +257,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
             const compactRow = (
               <div
                 data-row-index={virtualRow.index}
-                class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer border-b border-[var(--color-border-subtle)] ${
+                class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer ${
                   isPlaying
                     ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
                     : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
@@ -325,7 +325,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
       <Show when={!isNarrow()}>
         {/* header row */}
         <div
-          class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
+          class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
           style={{ height: `${TABLE_ROW_HEIGHT}px` }}
         >
           <div class="w-12 shrink-0"></div>
@@ -399,7 +399,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
             const rowContent = (
               <div
                 data-row-index={virtualRow.index}
-                class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer border-b border-[var(--color-border-subtle)] ${
+                class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
                   isPlaying
                     ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
                     : "hover:bg-[var(--color-bg-tertiary)]"

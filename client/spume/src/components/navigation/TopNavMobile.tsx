@@ -101,13 +101,13 @@ export function TopNavMobile(props: TopNavMobileProps) {
         <div class="absolute inset-0 bg-black/80" onClick={() => props.onClose()} />
         {/* menu panel - slides from top, full width */}
         <div
-          class="absolute top-[var(--nav-height,56px)] left-0 right-0 bg-black/95 backdrop-blur-sm border-b border-white/10 overflow-y-auto animate-in slide-in-from-top duration-200"
+          class="absolute top-[var(--nav-height,56px)] left-0 right-0 bg-black/95 backdrop-blur-sm overflow-y-auto animate-in slide-in-from-top duration-200"
           style={{ "max-height": "calc(100vh - var(--player-height) - var(--nav-height, 56px))" }}
         >
           {/* mobile menu content */}
           <div class="flex flex-col gap-0">
             {/* section 1: brand info + source management */}
-            <div class="flex flex-col p-3 border-b border-white/10">
+            <div class="flex flex-col p-3">
               <div class="space-y-2 mb-4">
                 <div>
                   <h3 class="text-lg font-bold m-0">
@@ -139,7 +139,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
                 <div class="space-y-1">
                   {/* local library option */}
                   <button
-                    class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                    class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors bg-transparent"
                     classList={{
                       "text-white bg-white/10 cursor-default":
                         props.currentSourceName === "local library" || !props.currentSourceName,
@@ -164,11 +164,11 @@ export function TopNavMobile(props: TopNavMobileProps) {
 
                   {/* remote sources */}
                   <Show when={props.remotes && props.remotes.length > 0}>
-                    <div class="pt-1 border-t border-white/10 mt-2">
+                    <div class="pt-1 mt-2">
                       <For each={props.remotes}>
                         {(remote) => (
                           <button
-                            class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                            class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors bg-transparent"
                             classList={{
                               "text-white bg-white/10 cursor-default":
                                 props.currentSourceName === remote.name,
@@ -202,7 +202,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
 
                   {/* add remote button */}
                   <button
-                    class="w-full px-3 py-2 text-left text-sm text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors border-none bg-transparent cursor-pointer flex items-center gap-2 mt-2"
+                    class="w-full px-3 py-2 text-left text-sm text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer flex items-center gap-2 mt-2"
                     onClick={() => handleMenuItemClick(() => props.onAddRemote?.())}
                   >
                     <span>+</span>
@@ -213,12 +213,12 @@ export function TopNavMobile(props: TopNavMobileProps) {
             </div>
 
             {/* section 2: main navigation */}
-            <div class="border-b border-white/10 p-3">
+            <div class="p-3">
               <div class="space-y-1">
                 <For each={props.mainNavSections[0]?.items}>
                   {(item) => (
                     <button
-                      class="w-full px-3 py-2 flex items-center text-sm text-white hover:bg-white/10 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-none bg-transparent"
+                      class="w-full px-3 py-2 flex items-center text-sm text-white hover:bg-white/10 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent"
                       disabled={item.disabled}
                       onClick={() => handleMenuItemClick(item.onClick)}
                     >
@@ -230,13 +230,13 @@ export function TopNavMobile(props: TopNavMobileProps) {
 
               {/* secondary nav items */}
               <Show when={props.mainNavSections.length > 1}>
-                <div class="space-y-1 pt-3 mt-3 border-t border-white/10">
+                <div class="space-y-1 pt-3 mt-3">
                   <For each={props.mainNavSections.slice(1)}>
                     {(section) => (
                       <For each={section.items}>
                         {(item) => (
                           <button
-                            class="w-full px-3 py-2 text-left text-sm text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50"
+                            class="w-full px-3 py-2 text-left text-sm text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer disabled:opacity-50"
                             disabled={item.disabled}
                             onClick={() => handleMenuItemClick(item.onClick)}
                           >
@@ -260,7 +260,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
                   <For each={props.recentPlaylists}>
                     {(playlist) => (
                       <button
-                        class="w-full px-3 py-2 hover:bg-white/10 rounded transition-colors cursor-pointer border-none bg-transparent text-left"
+                        class="w-full px-3 py-2 hover:bg-white/10 rounded transition-colors cursor-pointer bg-transparent text-left"
                         onClick={() => handleMenuItemClick(playlist.onClick)}
                       >
                         <div class="flex items-center gap-2">
@@ -288,15 +288,15 @@ export function TopNavMobile(props: TopNavMobileProps) {
                 </Show>
               </div>
 
-              <div class="flex gap-2 pt-3 mt-3 border-t border-white/10">
+              <div class="flex gap-2 pt-3 mt-3">
                 <button
-                  class="flex-1 px-3 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors border-none bg-transparent cursor-pointer"
+                  class="flex-1 px-3 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer"
                   onClick={() => handleMenuItemClick(() => props.onViewAllPlaylists?.())}
                 >
                   view all
                 </button>
                 <button
-                  class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors border-none bg-transparent cursor-pointer font-medium"
+                  class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer font-medium"
                   onClick={() => handleMenuItemClick(() => props.onCreatePlaylist?.())}
                 >
                   + create
@@ -306,9 +306,9 @@ export function TopNavMobile(props: TopNavMobileProps) {
 
             {/* storage stats - at bottom, clickable to settings */}
             <Show when={props.storageUsage !== undefined && props.storageQuota !== undefined}>
-              <div class="p-3 border-t border-white/10">
+              <div class="p-3">
                 <button
-                  class="w-full flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs text-left transition-colors border-none cursor-pointer"
+                  class="w-full flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs text-left transition-colors cursor-pointer"
                   onClick={() => handleMenuItemClick(() => props.onNavigate?.("/settings/storage"))}
                 >
                   <Icon name="database" size={14} color="white" />

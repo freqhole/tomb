@@ -1,11 +1,5 @@
 import type { JSX, ParentComponent } from "solid-js";
-import {
-  createContext,
-  For,
-  mergeProps,
-  splitProps,
-  useContext,
-} from "solid-js";
+import { createContext, For, mergeProps, splitProps, useContext } from "solid-js";
 import { Badge } from "../badges/Badge";
 
 export interface Tab {
@@ -49,12 +43,7 @@ interface TabPanelProps {
 
 // tabs container component - provides context
 export const Tabs: ParentComponent<TabsProps> = (props) => {
-  const [local, rest] = splitProps(props, [
-    "activeTab",
-    "onTabChange",
-    "class",
-    "children",
-  ]);
+  const [local, rest] = splitProps(props, ["activeTab", "onTabChange", "class", "children"]);
 
   const contextValue: TabsContextValue = {
     activeTab: () => local.activeTab,
@@ -75,11 +64,7 @@ export const TabList: ParentComponent<TabListProps> = (props) => {
   const [local, rest] = splitProps(props, ["class", "children"]);
 
   return (
-    <div
-      role="tablist"
-      class={`flex border-b border-[var(--color-border-default)] ${local.class || ""}`}
-      {...rest}
-    >
+    <div role="tablist" class={`flex ${local.class || ""}`} {...rest}>
       {local.children}
     </div>
   );
@@ -92,13 +77,7 @@ export function Tab(props: TabProps) {
     throw new Error("Tab must be used within a Tabs component");
   }
 
-  const [local, rest] = splitProps(props, [
-    "id",
-    "label",
-    "badge",
-    "disabled",
-    "class",
-  ]);
+  const [local, rest] = splitProps(props, ["id", "label", "badge", "disabled", "class"]);
 
   const isActive = () => context.activeTab() === local.id;
 
@@ -131,8 +110,7 @@ export function Tab(props: TabProps) {
         "px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-2": true,
         "text-[var(--color-accent-500)] border-b-2 border-[var(--color-accent-500)] -mb-[2px]":
           isActive(),
-        "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]":
-          !isActive(),
+        "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]": !isActive(),
         "opacity-50 cursor-not-allowed": local.disabled,
         "cursor-pointer": !local.disabled,
         [local.class || ""]: true,

@@ -349,7 +349,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     >
       <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-2xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
-        <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)]">
+        <div class="flex items-center justify-between p-6">
           <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit artist</h2>
           <button
             onClick={props.onClose}
@@ -467,7 +467,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
         {/* footer */}
         <Show when={initialData() && activeTab() === "info"}>
-          <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)]">
+          <div class="flex items-center justify-between p-6">
             <Button onClick={handleDelete} variant="danger">
               delete
             </Button>

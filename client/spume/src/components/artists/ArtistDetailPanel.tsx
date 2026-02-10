@@ -203,7 +203,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           titleElement={<MarqueeText text={props.artist.name} hoverOnly={true} />}
           variant="detail"
           sticky
-          border
           showBackButton={props.showBackButton}
           onBack={props.onBack}
           class="px-4 py-3 md:hidden"

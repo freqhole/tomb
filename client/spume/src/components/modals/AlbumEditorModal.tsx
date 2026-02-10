@@ -21,6 +21,7 @@ import MediaImage from "../media/MediaImage";
 import { EntityImages } from "../layout/EntityImages";
 import { pushModal, popModal } from "../../music/modals";
 import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
+import { formatDuration } from "../../utils/formatDuration";
 
 interface AlbumEditorModalProps {
   albumId: string;
@@ -411,7 +412,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     >
       <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
-        <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)]">
+        <div class="flex items-center justify-between p-6">
           <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit album</h2>
           <button
             onClick={props.onClose}
@@ -660,8 +661,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                               <span class="text-xs text-[var(--color-text-tertiary)] w-8 flex-shrink-0">
                                 {song.track_number}
                               </span>
-                              <span class="text-sm text-[var(--color-text-primary)] truncate">
+                              <span class="text-sm text-[var(--color-text-primary)] truncate flex-1">
                                 {song.title}
+                              </span>
+                              <span class="text-sm text-[var(--color-text-tertiary)] truncate">
+                                {formatDuration(song.duration_seconds)}
                               </span>
                             </div>
                           </div>
@@ -705,7 +709,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
         {/* footer */}
         <Show when={initialData() && activeTab() === "info"}>
-          <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)]">
+          <div class="flex items-center justify-between p-6">
             <Button onClick={handleDelete} variant="danger">
               delete
             </Button>

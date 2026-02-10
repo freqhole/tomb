@@ -124,16 +124,15 @@ export function QueueSidebar(props: QueueSidebarProps) {
           isOverlay()
             ? /* narrow: bottom sheet above player bar */
               `fixed z-1140 transition-transform duration-300 ease-out
-               inset-x-0 bottom-[var(--player-height)] top-0 rounded-none border-t border-[var(--color-accent-500)]/30
-               md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:h-auto md:rounded-t-none md:rounded-none
-               md:w-96 md:border-l md:border-t-0
+               inset-x-0 bottom-[var(--player-height)] top-0
+               md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:h-auto md:w-96
                ${
                  props.isOpen
                    ? "translate-y-0 md:translate-y-0 md:translate-x-0"
                    : "invisible translate-y-full md:visible md:translate-y-0 md:translate-x-full"
                }`
             : props.isOpen
-              ? "w-96 flex-shrink-0 border-l border-[var(--color-accent-500)]/30"
+              ? "w-96 flex-shrink-0"
               : "hidden"
         } ${props.class || ""}`}
       >
@@ -145,7 +144,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
         </Show> */}
 
         {/* header */}
-        <div class="flex items-center justify-between p-4 border-b border-[var(--color-accent-500)]/30">
+        <div class="flex items-center justify-between p-4">
           <div class="flex items-center gap-3">
             <Icon name="queue" size={20} color="var(--color-accent-500)" />
             <h2 class="text-lg font-medium text-[var(--color-text-primary)] m-0">queue</h2>
@@ -166,7 +165,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
             </Show>
 
             <button
-              class="p-2 rounded-full hover:bg-[var(--color-accent-500)]/20 transition-colors"
+              class="p-2 hover:bg-[var(--color-accent-500)]/20 transition-colors"
               onClick={() => props.onClose()}
               title="close queue"
               aria-label="close queue"
@@ -186,7 +185,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
             when={props.songs.length > 0}
             fallback={
               <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 rounded-full flex items-center justify-center">
+                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
                   <Icon name="queue" size={32} color="var(--color-accent-500)" />
                 </div>
                 <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
@@ -213,14 +212,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const songRow = (
                     <div
                       draggable={true}
-                      class={`absolute top-0 left-0 w-full px-2 flex items-center p-3 group transition-all duration-200 cursor-move ${
+                      class={`absolute top-0 left-0 w-full flex items-center px-1 my-3 group transition-all duration-200 cursor-move ${
                         isDropTarget()
-                          ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02] rounded-lg"
+                          ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
                           : isDragging()
-                            ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95 rounded-lg"
+                            ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
                             : isCurrentlyPlaying()
                               ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
-                              : "hover:bg-[var(--color-accent-500)]/10 rounded-lg"
+                              : "hover:bg-[var(--color-accent-500)]/10"
                       }`}
                       style={{
                         transform: `translateY(${virtualItem.start}px)`,
@@ -306,7 +305,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                       {/* remove button */}
                       <button
-                        class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded-lg transition-all duration-200 flex-shrink-0`}
+                        class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
                         onClick={(e) => handleRemove(e, itemIndex)}
                         title="remove from queue"
                         aria-label="remove from queue"
