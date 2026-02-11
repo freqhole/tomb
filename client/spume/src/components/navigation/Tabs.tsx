@@ -147,7 +147,7 @@ export const TabPanel: ParentComponent<TabPanelProps> = (props) => {
       class={local.class || ""}
       {...rest}
     >
-      {isActive() && local.children}
+      {local.children}
     </div>
   );
 };

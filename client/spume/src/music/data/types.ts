@@ -351,6 +351,7 @@ export interface MusicDataSource {
     genre_id?: string;
     year?: number;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
+    merge_into_album_id?: string;
   }): Promise<void>;
 
   updateSong?(params: {

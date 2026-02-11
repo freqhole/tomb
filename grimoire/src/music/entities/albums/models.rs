@@ -61,4 +61,6 @@ pub struct UpdateAlbumRequest {
     /// entity URLs (replaces all existing URLs)
     pub entity_urls: Option<Vec<EntityUrl>>,
     pub updated_by: Option<String>,
+    /// if set, merge all songs from album_id into this target album and delete the source
+    pub merge_into_album_id: Option<String>,
 }

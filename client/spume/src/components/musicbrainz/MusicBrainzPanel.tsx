@@ -1,0 +1,1456 @@
+// musicbrainz integration panel for album editor
+// search musicbrainz releases, browse results, import cover art + metadata
+import { createMemo, createSignal, For, Show } from "solid-js";
+import * as apiClient from "freqhole-api-client";
+import type { Song } from "../../music/services/storage/types";
+import { getDataSource, getCurrentRemote } from "../../music/data";
+import { pollJobUntilComplete } from "../../utils/jobs";
+import { TextInput } from "../forms/TextInput";
+import { Button } from "../buttons/Button";
+import { Icon, IconNames } from "../icons/registry";
+import { toast } from "../feedback/Toast";
+import { formatLongDuration } from "../../utils/formatDuration";
+import { formatDuration } from "../../utils/formatDuration";
+import { error as errorLog } from "../../utils/logger";
+import { MusicBrainzAlbumImages, type AlbumArtImage } from "./MusicBrainzAlbumImages";
+import { computeFuzzyMatches, detectMismatch } from "./fuzzyTrackMatch";
+import { MarqueeText } from "../text/MarqueeText";
+
+// page size for search results
+const PAGE_SIZE = 100;
+
+export interface MusicBrainzPanelProps {
+  /** freqhole album id */
+  albumId: string;
+  /** current album title for pre-filling search */
+  albumTitle: string;
+  /** current artist id */
+  artistId: string;
+  /** current artist name for pre-filling search */
+  artistName: string;
+  /** current album type */
+  albumType: string;
+  /** current release date */
+  releaseDate?: string;
+  /** current label */
+  label?: string;
+  /** current genre names */
+  genres?: string[];
+  /** songs in this album */
+  songs: Song[];
+  /** called after any metadata or image import so parent can refetch */
+  onAlbumUpdated: () => void;
+}
+
+// infer types from the API client return values — no explicit type imports needed
+type ApiSuccess<T extends (...args: any[]) => Promise<any>> = Extract<
+  Awaited<ReturnType<T>>,
+  { success: true }
+>["data"];
+
+type SearchResponse = ApiSuccess<typeof apiClient.music.searchMusicbrainzReleases>;
+type ReleaseListItem = SearchResponse["results"][number];
+type ReleaseDetail = ApiSuccess<typeof apiClient.music.getMusicbrainzRelease>;
+type ArtistCreditEntry = ReleaseListItem["artist_credit"][number];
+type MbTrack = ReleaseDetail["media"][number]["tracks"][number];
+
+// a matched pair for the side-by-side comparison view
+interface TrackMatch {
+  discNumber: number;
+  trackNumber: number;
+  mbTrack: MbTrack | null;
+  fhSong: Song | null;
+}
+
+export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
+  const [searchRelease, setSearchRelease] = createSignal(props.albumTitle || "");
+  const [searchArtist, setSearchArtist] = createSignal(props.artistName || "");
+  const [searching, setSearching] = createSignal(false);
+  const [hasSearched, setHasSearched] = createSignal(false);
+  const [results, setResults] = createSignal<ReleaseListItem[]>([]);
+  const [searchCount, setSearchCount] = createSignal(0);
+  const [currentOffset, setCurrentOffset] = createSignal(0);
+  const [countryFilter, setCountryFilter] = createSignal<string>("");
+  const [selectedRelease, setSelectedRelease] = createSignal<ReleaseDetail | null>(null);
+  const [selectedListItem, setSelectedListItem] = createSignal<ReleaseListItem | null>(null);
+  const [loadingRelease, setLoadingRelease] = createSignal(false);
+
+  // image import state — track per-image progress
+  const [importingImages, setImportingImages] = createSignal<Set<string>>(new Set());
+  const [importedImages, setImportedImages] = createSignal<Set<string>>(new Set());
+
+  // metadata import state
+  const [importingAlbum, setImportingAlbum] = createSignal(false);
+  const [updatingSongId, setUpdatingSongId] = createSignal<string | null>(null);
+  const [updatingAllSongs, setUpdatingAllSongs] = createSignal(false);
+
+  // track matching mode: "position" = join by disc:track key, "fuzzy" = title/duration similarity
+  const [matchMode, setMatchMode] = createSignal<"position" | "fuzzy">("position");
+  // manual overrides in fuzzy mode: songId -> disc:position key of MB track
+  const [manualOverrides, setManualOverrides] = createSignal<Map<string, string>>(new Map());
+
+  // ── helpers ──
+
+  /** check if an API error result is a rate limit error (uses error code from server) */
+  const isRateLimitResult = (result: unknown): boolean => {
+    const issues = (result as any)?.error?.issues ?? [];
+    return issues.some((i: any) => i.path?.[0] === "rate_limited");
+  };
+
+  const formatArtistCredit = (credits?: ArtistCreditEntry[]): string => {
+    if (!credits || credits.length === 0) return "unknown artist";
+    return credits.map((c) => c.name + (c.joinphrase || "")).join("");
+  };
+
+  const getTotalDurationMs = (detail: ReleaseDetail): number => {
+    let total = 0;
+    for (const medium of detail.media) {
+      for (const track of medium.tracks) {
+        total += track.length_ms || 0;
+      }
+    }
+    return total;
+  };
+
+  type CoverArtImage = ReleaseDetail["cover_art_images"][number];
+
+  const getCoverArtThumbUrl = (image: CoverArtImage): string => {
+    return (
+      image.thumbnails?.thumb_500 ||
+      image.thumbnails?.thumb_250 ||
+      image.thumbnails?.small ||
+      image.image_url
+    );
+  };
+
+  const getCoverArtFullUrl = (image: CoverArtImage): string => {
+    return image.thumbnails?.thumb_1200 || image.thumbnails?.large || image.image_url;
+  };
+
+  const uniqueCountries = () => {
+    const countries = new Set<string>();
+    for (const r of results()) {
+      if (r.country) countries.add(r.country);
+    }
+    return [...countries].sort();
+  };
+
+  const filteredResults = createMemo(() => {
+    const filter = countryFilter();
+    let list: ReleaseListItem[];
+    if (!filter) list = results();
+    else if (filter === "__none__") list = results().filter((r) => !r.country);
+    else list = results().filter((r) => r.country === filter);
+
+    // re-sort: boost releases with 100% score AND matching track count to the top
+    const localTrackCount = props.songs.length;
+    return [...list].sort((a, b) => {
+      const aMatch = a.score === 100 && a.track_count === localTrackCount ? 1 : 0;
+      const bMatch = b.score === 100 && b.track_count === localTrackCount ? 1 : 0;
+      if (aMatch !== bMatch) return bMatch - aMatch;
+      return (b.score ?? 0) - (a.score ?? 0);
+    });
+  });
+
+  const currentPage = () => Math.floor(currentOffset() / PAGE_SIZE) + 1;
+  const totalPages = () => Math.ceil(searchCount() / PAGE_SIZE);
+  const hasPrev = () => currentOffset() > 0;
+  const hasNext = () => currentOffset() + PAGE_SIZE < searchCount();
+
+  // ── track matching ──
+  // build side-by-side comparison between MB tracks and freqhole songs
+
+  // flat list of all MB tracks with disc info attached
+  const allMbTracks = createMemo((): (MbTrack & { _disc: number })[] => {
+    const detail = selectedRelease();
+    if (!detail) return [];
+    const tracks: (MbTrack & { _disc: number })[] = [];
+    for (const medium of detail.media) {
+      const disc = medium.position || 1;
+      for (const track of medium.tracks) {
+        tracks.push({ ...track, _disc: disc });
+      }
+    }
+    return tracks;
+  });
+
+  // MB track keyed by disc:position for lookups
+  const mbTrackByKey = createMemo(() => {
+    const map = new Map<string, MbTrack & { _disc: number }>();
+    for (const t of allMbTracks()) {
+      map.set(`${t._disc}:${t.position}`, t);
+    }
+    return map;
+  });
+
+  // position-based matching (current behavior)
+  const positionMatches = createMemo((): TrackMatch[] => {
+    const detail = selectedRelease();
+    if (!detail) return [];
+
+    const songs = props.songs;
+    // multi-map: key → Song[] to handle duplicate disc:track values
+    const songsByKey = new Map<string, Song[]>();
+    for (const s of songs) {
+      const key = `${s.disc_number || 1}:${s.track_number || 0}`;
+      const arr = songsByKey.get(key) || [];
+      arr.push(s);
+      songsByKey.set(key, arr);
+    }
+
+    const mbMap = mbTrackByKey();
+    const allKeys = new Set([...songsByKey.keys(), ...mbMap.keys()]);
+    const matches: TrackMatch[] = [];
+    for (const key of allKeys) {
+      const [d, t] = key.split(":").map(Number);
+      const songsForKey = songsByKey.get(key) || [];
+      const mbTrack = mbMap.get(key) || null;
+
+      if (songsForKey.length === 0) {
+        // MB track with no matching local song
+        matches.push({ discNumber: d, trackNumber: t, mbTrack, fhSong: null });
+      } else {
+        // first song gets the MB track match; extras are unmatched
+        matches.push({ discNumber: d, trackNumber: t, mbTrack, fhSong: songsForKey[0] });
+        for (let i = 1; i < songsForKey.length; i++) {
+          matches.push({ discNumber: d, trackNumber: t, mbTrack: null, fhSong: songsForKey[i] });
+        }
+      }
+    }
+    matches.sort((a, b) => a.discNumber - b.discNumber || a.trackNumber - b.trackNumber);
+    return matches;
+  });
+
+  // fuzzy-based matching: title similarity + duration comparison
+  const fuzzyMatches = createMemo((): TrackMatch[] => {
+    const mbTracks = allMbTracks();
+    const songs = props.songs;
+    if (songs.length === 0 || mbTracks.length === 0) {
+      return songs.map((s) => ({
+        discNumber: s.disc_number || 1,
+        trackNumber: s.track_number || 0,
+        mbTrack: null,
+        fhSong: s,
+      }));
+    }
+
+    const localCandidates = songs.map((s) => ({
+      id: s.id,
+      title: s.title || "",
+      durationMs: (s.duration_seconds || 0) * 1000,
+    }));
+
+    const mbCandidates = mbTracks.map((t) => ({
+      id: `${t._disc}:${t.position}`,
+      title: t.title || "",
+      durationMs: t.length_ms || 0,
+    }));
+
+    const results = computeFuzzyMatches(localCandidates, mbCandidates);
+
+    return results.map((r) => {
+      const song = songs[r.localIndex];
+      const mbTrack = r.mbIndex !== null ? mbTracks[r.mbIndex] : null;
+      return {
+        discNumber: song.disc_number || 1,
+        trackNumber: song.track_number || 0,
+        mbTrack,
+        fhSong: song,
+      };
+    });
+  });
+
+  // detect if fuzzy matching would produce different pairings
+  const shouldShowFuzzyButton = createMemo(() => {
+    const posPairs = positionMatches()
+      .filter((m) => m.fhSong)
+      .map((m) => ({
+        localId: m.fhSong!.id,
+        mbId: m.mbTrack
+          ? `${(m.mbTrack as any)._disc || m.discNumber}:${m.mbTrack.position}`
+          : null,
+      }));
+    const fuzzyPairs = fuzzyMatches().map((m) => ({
+      localId: m.fhSong!.id,
+      mbId: m.mbTrack ? `${(m.mbTrack as any)._disc}:${m.mbTrack.position}` : null,
+    }));
+    return detectMismatch(posPairs, fuzzyPairs);
+  });
+
+  // apply manual overrides on top of a match set
+  const applyOverrides = (base: TrackMatch[]): TrackMatch[] => {
+    const overrides = manualOverrides();
+    if (overrides.size === 0) return base;
+
+    return base.map((m) => {
+      if (!m.fhSong) return m;
+      const overrideKey = overrides.get(m.fhSong.id);
+      if (overrideKey === undefined) return m;
+      if (overrideKey === "") {
+        // explicitly unmatched
+        return { ...m, mbTrack: null };
+      }
+      const overriddenTrack = mbTrackByKey().get(overrideKey) || null;
+      return { ...m, mbTrack: overriddenTrack };
+    });
+  };
+
+  // final track matches: branch on mode, apply overrides
+  const trackMatches = createMemo((): TrackMatch[] => {
+    const mode = matchMode();
+    const base = mode === "fuzzy" ? fuzzyMatches() : positionMatches();
+    return applyOverrides(base);
+  });
+
+  const matchedCount = createMemo(() => trackMatches().filter((m) => m.mbTrack && m.fhSong).length);
+
+  // ── search ──
+
+  const doSearch = async (offset: number) => {
+    const release = searchRelease().trim();
+    const artist = searchArtist().trim();
+
+    if (!release && !artist) {
+      toast.info("enter a release title or artist name");
+      return;
+    }
+
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) {
+      toast.error("no remote server connected");
+      return;
+    }
+
+    setSearching(true);
+    setHasSearched(true);
+    if (offset === 0) {
+      setSelectedRelease(null);
+      setSelectedListItem(null);
+      setCountryFilter("");
+      setImportedImages(new Set<string>());
+    }
+
+    const params = {
+      artist: artist || null,
+      release: release || null,
+      limit: PAGE_SIZE,
+      offset: offset || null,
+    };
+
+    try {
+      const result = await apiClient.music.searchMusicbrainzReleases(remote.base_url, params);
+
+      if (result.success && result.data) {
+        setResults(result.data.results || []);
+        setSearchCount(result.data.count || 0);
+        setCurrentOffset(offset);
+      } else {
+        const issues = (result as any).error?.issues ?? [];
+        const details = issues.map((i: any) => i.message).join("; ");
+        errorLog("musicbrainz search failed:", details);
+        if (isRateLimitResult(result)) {
+          toast.warning("musicbrainz is rate limiting — try again in a moment");
+        } else {
+          toast.error("musicbrainz search failed");
+        }
+        setResults([]);
+      }
+    } catch (err) {
+      errorLog("musicbrainz search error:", err);
+      toast.error("failed to search musicbrainz");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSearch = () => doSearch(0);
+  const handlePrevPage = () => doSearch(Math.max(0, currentOffset() - PAGE_SIZE));
+  const handleNextPage = () => doSearch(currentOffset() + PAGE_SIZE);
+
+  const handleSelectRelease = async (release: ReleaseListItem) => {
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+
+    setSelectedListItem(release);
+    setSelectedRelease(null);
+    setLoadingRelease(true);
+    setImportedImages(new Set<string>());
+    setMatchMode("position");
+    setManualOverrides(new Map());
+
+    try {
+      const result = await apiClient.music.getMusicbrainzRelease(remote.base_url, {
+        mbid: release.id,
+      });
+
+      if (result.success && result.data) {
+        setSelectedRelease(result.data);
+      } else {
+        errorLog("failed to fetch release details:", result);
+        if (isRateLimitResult(result)) {
+          toast.warning("musicbrainz is rate limiting — try again in a moment");
+        } else {
+          toast.error("failed to fetch release details");
+        }
+      }
+    } catch (err) {
+      errorLog("failed to fetch release details:", err);
+      toast.error("failed to fetch release details");
+    } finally {
+      setLoadingRelease(false);
+    }
+  };
+
+  // ── image import (self-contained) ──
+
+  const handleImportImage = async (imageUrl: string) => {
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+    const fullUrl = imageUrl;
+    setImportingImages((prev) => {
+      const next = new Set(prev);
+      next.add(fullUrl);
+      return next;
+    });
+
+    try {
+      // fetch image from cover art archive URL
+      const resp = await fetch(fullUrl);
+      if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const file = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
+
+      const dataSource = getDataSource();
+      if (!dataSource.uploadImage) {
+        toast.error("image upload not supported");
+        return;
+      }
+
+      const { job_id } = await dataSource.uploadImage({
+        file,
+        entityType: "album",
+        entityId: props.albumId,
+        isPrimary: false,
+      });
+
+      const success = await pollJobUntilComplete(remote.base_url, job_id);
+      if (!success) {
+        toast.error("image processing failed");
+        return;
+      }
+
+      // mark as imported
+      setImportedImages((prev) => {
+        const next = new Set(prev);
+        next.add(fullUrl);
+        return next;
+      });
+      toast.success("image imported");
+      props.onAlbumUpdated();
+    } catch (err) {
+      errorLog("failed to import image:", err);
+      toast.error("failed to import image");
+    } finally {
+      setImportingImages((prev) => {
+        const next = new Set(prev);
+        next.delete(fullUrl);
+        return next;
+      });
+    }
+  };
+
+  // ── album metadata comparison ──
+
+  /** map MB primary_type + secondary_types to our album_type enum */
+  const mapMbAlbumType = (detail: ReleaseDetail): string | null => {
+    const mbType = detail.primary_type?.toLowerCase() || "";
+    if (
+      mbType.includes("compilation") ||
+      detail.secondary_types?.map((t) => t.toLowerCase()).includes("compilation")
+    ) {
+      return "compilation";
+    }
+    if (mbType === "single") return "single";
+    if (mbType === "album" || mbType === "ep") return "album";
+    return null;
+  };
+
+  interface MetadataField {
+    key: string;
+    label: string;
+    currentValue: string;
+    mbValue: string;
+    differs: boolean;
+    /** special handling flag for artist name (updates artist entity not album) */
+    isArtistName?: boolean;
+  }
+
+  const albumMetadataFields = createMemo((): MetadataField[] => {
+    const detail = selectedRelease();
+    if (!detail) return [];
+
+    const fields: MetadataField[] = [];
+
+    // title
+    const mbTitle = detail.title || "";
+    const curTitle = props.albumTitle || "";
+    fields.push({
+      key: "title",
+      label: "title",
+      currentValue: curTitle,
+      mbValue: mbTitle,
+      differs: mbTitle.toLowerCase() !== curTitle.toLowerCase(),
+    });
+
+    // artist
+    const mbArtist = formatArtistCredit(detail.artist_credit);
+    const curArtist = props.artistName || "";
+    if (mbArtist !== "unknown artist") {
+      fields.push({
+        key: "artist_name",
+        label: "artist",
+        currentValue: curArtist,
+        mbValue: mbArtist,
+        differs: mbArtist.toLowerCase() !== curArtist.toLowerCase(),
+        isArtistName: true,
+      });
+    }
+
+    // album type
+    const mbAlbumType = mapMbAlbumType(detail);
+    const curAlbumType = props.albumType || "";
+    if (mbAlbumType) {
+      fields.push({
+        key: "album_type",
+        label: "type",
+        currentValue: curAlbumType,
+        mbValue: mbAlbumType,
+        differs: mbAlbumType !== curAlbumType,
+      });
+    }
+
+    // release date
+    const mbDate = detail.date || "";
+    const curDate = props.releaseDate || "";
+    fields.push({
+      key: "release_date",
+      label: "date",
+      currentValue: curDate,
+      mbValue: mbDate,
+      differs: mbDate !== curDate,
+    });
+
+    // label
+    const mbLabel = detail.label || "";
+    const curLabel = props.label || "";
+    if (mbLabel) {
+      fields.push({
+        key: "label",
+        label: "label",
+        currentValue: curLabel,
+        mbValue: mbLabel,
+        differs: mbLabel.toLowerCase() !== curLabel.toLowerCase(),
+      });
+    }
+
+    // genres (compare sorted arrays so order doesn't affect diff)
+    const mbGenreArr = (detail.genres || []).map((g) => g.toLowerCase()).sort();
+    const curGenreArr = (props.genres || []).map((g) => g.toLowerCase()).sort();
+    const mbGenres = (detail.genres || []).join(", ");
+    const curGenres = (props.genres || []).join(", ");
+    if (mbGenres) {
+      const genresDiffer =
+        mbGenreArr.length !== curGenreArr.length || mbGenreArr.some((g, i) => g !== curGenreArr[i]);
+      fields.push({
+        key: "genres",
+        label: "genres",
+        currentValue: curGenres,
+        mbValue: mbGenres,
+        differs: genresDiffer,
+      });
+    }
+
+    return fields;
+  });
+
+  const changedFieldCount = createMemo(() => albumMetadataFields().filter((f) => f.differs).length);
+
+  // ── album metadata import ──
+
+  const [updatingField, setUpdatingField] = createSignal<string | null>(null);
+
+  const handleUpdateAlbumField = async (field: MetadataField) => {
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+
+    setUpdatingField(field.key);
+    try {
+      if (field.isArtistName) {
+        // update the artist entity name directly — no album re-scope
+        const result = await apiClient.music.updateArtist(remote.base_url, {
+          artist_id: props.artistId,
+          name: field.mbValue,
+        });
+        if (result.success) {
+          toast.success("artist name updated");
+          props.onAlbumUpdated();
+        } else {
+          toast.error("failed to update artist name");
+        }
+      } else {
+        // update album field
+        const detail = selectedRelease();
+        const result = await apiClient.music.updateAlbum(remote.base_url, {
+          album_id: props.albumId,
+          title: field.key === "title" ? field.mbValue : null,
+          artist_id: null,
+          artist_name: null,
+          album_type: field.key === "album_type" ? field.mbValue : null,
+          release_date: field.key === "release_date" ? field.mbValue : null,
+          label: field.key === "label" ? field.mbValue : null,
+          genre_ids: null,
+          genres: field.key === "genres" && detail ? detail.genres : null,
+          entity_urls: null,
+          updated_by: null,
+        });
+        if (result.success) {
+          toast.success(`${field.label} updated`);
+          props.onAlbumUpdated();
+        } else {
+          toast.error(`failed to update ${field.label}`);
+        }
+      }
+    } catch (err) {
+      errorLog(`failed to update ${field.label}:`, err);
+      toast.error(`failed to update ${field.label}`);
+    } finally {
+      setUpdatingField(null);
+    }
+  };
+
+  const handleImportAlbumMetadata = async () => {
+    const detail = selectedRelease();
+    if (!detail) return;
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+
+    const fields = albumMetadataFields().filter((f) => f.differs);
+    if (fields.length === 0) {
+      toast.info("no metadata changes to apply");
+      return;
+    }
+
+    setImportingAlbum(true);
+    try {
+      // update artist name separately if it changed
+      const artistField = fields.find((f) => f.isArtistName);
+      if (artistField) {
+        const artistResult = await apiClient.music.updateArtist(remote.base_url, {
+          artist_id: props.artistId,
+          name: artistField.mbValue,
+        });
+        if (!artistResult.success) {
+          toast.error("failed to update artist name");
+          return;
+        }
+      }
+
+      // collect album-level changes
+      const albumFields = fields.filter((f) => !f.isArtistName);
+      if (albumFields.length > 0) {
+        const albumType = mapMbAlbumType(detail);
+        const result = await apiClient.music.updateAlbum(remote.base_url, {
+          album_id: props.albumId,
+          title: albumFields.some((f) => f.key === "title") ? detail.title || null : null,
+          artist_id: null,
+          artist_name: null,
+          album_type: albumFields.some((f) => f.key === "album_type") ? albumType : null,
+          release_date: albumFields.some((f) => f.key === "release_date")
+            ? detail.date || null
+            : null,
+          label: albumFields.some((f) => f.key === "label") ? detail.label || null : null,
+          genre_ids: null,
+          genres: albumFields.some((f) => f.key === "genres") ? detail.genres : null,
+          entity_urls: null,
+          updated_by: null,
+        });
+
+        if (!result.success) {
+          toast.error("failed to update album metadata");
+          return;
+        }
+      }
+
+      toast.success("album metadata updated from musicbrainz");
+      props.onAlbumUpdated();
+    } catch (err) {
+      errorLog("failed to import album metadata:", err);
+      toast.error("failed to import album metadata");
+    } finally {
+      setImportingAlbum(false);
+    }
+  };
+
+  // ── song metadata import ──
+
+  const handleUpdateSong = async (match: TrackMatch) => {
+    if (!match.mbTrack || !match.fhSong) return;
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+
+    setUpdatingSongId(match.fhSong.id);
+    try {
+      const mbTrack = match.mbTrack;
+      const trackArtist = formatArtistCredit(mbTrack.artist_credit);
+      const releaseArtist = formatArtistCredit(selectedRelease()?.artist_credit);
+      // only set track_artist if it genuinely differs from the album artist (case-insensitive)
+      const trackArtistValue =
+        trackArtist !== "unknown artist" &&
+        trackArtist.toLowerCase() !== releaseArtist.toLowerCase()
+          ? trackArtist
+          : null;
+
+      const result = await apiClient.music.updateSongs(remote.base_url, {
+        song_ids: [match.fhSong.id],
+        title: mbTrack.title || null,
+        track_number: mbTrack.position ?? null,
+        disc_number: (mbTrack as any)._disc ?? match.discNumber ?? null,
+        track_artist: trackArtistValue,
+        artist_name: null,
+        // leave other fields unchanged
+        album_title: null,
+        year: null,
+        duration: null,
+        bpm: null,
+        lyrics: null,
+        genre: null,
+        entity_urls: null,
+        user_id: null,
+        updated_by: null,
+      } as any);
+
+      if (result.success) {
+        toast.success(`updated "${mbTrack.title}"`);
+        props.onAlbumUpdated();
+      } else {
+        toast.error("failed to update song");
+      }
+    } catch (err) {
+      errorLog("failed to update song:", err);
+      toast.error("failed to update song");
+    } finally {
+      setUpdatingSongId(null);
+    }
+  };
+
+  const handleUpdateAllSongs = async () => {
+    const matches = trackMatches().filter((m) => m.mbTrack && m.fhSong);
+    if (matches.length === 0) {
+      toast.info("no matched tracks to update");
+      return;
+    }
+
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+
+    setUpdatingAllSongs(true);
+    let updated = 0;
+    let failed = 0;
+
+    for (const match of matches) {
+      if (!match.mbTrack || !match.fhSong) continue;
+      try {
+        const mbTrack = match.mbTrack;
+        const trackArtist = formatArtistCredit(mbTrack.artist_credit);
+        const releaseArtist = formatArtistCredit(selectedRelease()?.artist_credit);
+        const trackArtistValue =
+          trackArtist !== "unknown artist" &&
+          trackArtist.toLowerCase() !== releaseArtist.toLowerCase()
+            ? trackArtist
+            : null;
+
+        const result = await apiClient.music.updateSongs(remote.base_url, {
+          song_ids: [match.fhSong.id],
+          title: mbTrack.title || null,
+          track_number: mbTrack.position ?? null,
+          disc_number: (mbTrack as any)._disc ?? match.discNumber ?? null,
+          track_artist: trackArtistValue,
+          artist_name: null,
+          album_title: null,
+          year: null,
+          duration: null,
+          bpm: null,
+          lyrics: null,
+          genre: null,
+          entity_urls: null,
+          user_id: null,
+          updated_by: null,
+        } as any);
+
+        if (result.success) updated++;
+        else failed++;
+      } catch {
+        failed++;
+      }
+    }
+
+    if (failed === 0) {
+      toast.success(`updated ${updated} ${updated === 1 ? "song" : "songs"} from musicbrainz`);
+    } else {
+      toast.warning(`updated ${updated} ${updated === 1 ? "song" : "songs"}, ${failed} failed`);
+    }
+    props.onAlbumUpdated();
+    setUpdatingAllSongs(false);
+  };
+
+  // ── render ──
+
+  return (
+    <div class="space-y-4">
+      {/* album info banner */}
+      <div class="bg-[var(--color-bg-elevated)] p-3 rounded">
+        <div class="text-sm text-[var(--color-text-secondary)]">
+          {props.artistName} - {props.albumTitle}
+        </div>
+        <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5 flex gap-3">
+          <Show when={props.releaseDate}>
+            <span>{props.releaseDate}</span>
+          </Show>
+          <span>{props.songs.length} tracks</span>
+          <span>
+            {formatLongDuration(props.songs.reduce((sum, s) => sum + (s.duration_seconds || 0), 0))}
+          </span>
+        </div>
+      </div>
+
+      {/* search form */}
+      <div class="flex gap-2">
+        <div class="flex-1">
+          <label class="block text-xs text-[var(--color-text-tertiary)] mb-1">release</label>
+          <TextInput
+            value={searchRelease()}
+            onInput={(e) => setSearchRelease(e.currentTarget.value)}
+            placeholder="album or release title"
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          />
+        </div>
+        <div class="flex-1">
+          <label class="block text-xs text-[var(--color-text-tertiary)] mb-1">artist</label>
+          <TextInput
+            value={searchArtist()}
+            onInput={(e) => setSearchArtist(e.currentTarget.value)}
+            placeholder="artist name"
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          />
+        </div>
+        <div class="flex items-end">
+          <Button onClick={handleSearch} variant="secondary" disabled={searching()}>
+            {searching() ? "..." : "search"}
+          </Button>
+        </div>
+      </div>
+
+      {/* selected release detail */}
+      <Show when={selectedRelease() || selectedListItem()}>
+        <div class="rounded-lg overflow-hidden">
+          {/* release header */}
+          <div class="bg-[var(--color-bg-elevated)] p-3">
+            <div class="flex items-start justify-between">
+              <div class="flex-1 min-w-0">
+                <button
+                  onClick={() => {
+                    setSelectedRelease(null);
+                    setSelectedListItem(null);
+                    setImportedImages(new Set<string>());
+                  }}
+                  class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] mb-1 flex items-center gap-1"
+                >
+                  <Icon name={IconNames.chevronLeft} size={12} /> back to results
+                </button>
+                {(() => {
+                  const detail = selectedRelease();
+                  const listItem = selectedListItem();
+                  const title = detail?.title || listItem?.title || "";
+                  const artistCredits = detail?.artist_credit || listItem?.artist_credit;
+                  const date = detail?.date || listItem?.date;
+                  const country = detail?.country || listItem?.country;
+                  const status = detail?.status || listItem?.status;
+                  const primaryType = detail?.primary_type || listItem?.primary_type;
+                  const secondaryTypes = detail?.secondary_types || listItem?.secondary_types || [];
+                  const trackCount = detail
+                    ? detail.media.reduce((sum, m) => sum + m.track_count, 0)
+                    : listItem?.track_count || 0;
+                  const durationMs = detail ? getTotalDurationMs(detail) : 0;
+
+                  return (
+                    <>
+                      <div class="text-sm font-medium text-[var(--color-text-primary)]">
+                        {title}
+                      </div>
+                      <div class="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                        {formatArtistCredit(artistCredits)}
+                      </div>
+                      <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5 flex gap-3 flex-wrap">
+                        <Show when={date}>
+                          <span>{date}</span>
+                        </Show>
+                        <Show when={country}>
+                          <span>{country}</span>
+                        </Show>
+                        <span>{trackCount} tracks</span>
+                        <Show when={durationMs > 0}>
+                          <span>{formatLongDuration(Math.round(durationMs / 1000))}</span>
+                        </Show>
+                        <Show when={status}>
+                          <span>{status}</span>
+                        </Show>
+                      </div>
+                      <Show when={primaryType}>
+                        <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                          type: {primaryType}
+                          <Show when={secondaryTypes.length > 0}>
+                            {" "}
+                            ({secondaryTypes.join(", ")})
+                          </Show>
+                        </div>
+                      </Show>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* album metadata comparison */}
+            <Show when={selectedRelease()}>
+              <div class="mt-3 border-t border-[var(--color-border)] pt-3">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-xs font-medium text-[var(--color-text-secondary)]">
+                    metadata comparison
+                    <Show when={changedFieldCount() > 0}>
+                      <span class="text-yellow-500 ml-1">
+                        ({changedFieldCount()} {changedFieldCount() === 1 ? "change" : "changes"})
+                      </span>
+                    </Show>
+                  </div>
+                  <Show when={changedFieldCount() > 0}>
+                    <Button
+                      onClick={handleImportAlbumMetadata}
+                      variant="secondary"
+                      disabled={importingAlbum()}
+                    >
+                      {importingAlbum()
+                        ? "updating..."
+                        : `update all ${changedFieldCount()} changes`}
+                    </Button>
+                  </Show>
+                </div>
+
+                {/* column headers */}
+                <div class="grid grid-cols-[5rem_1fr_1fr_auto] gap-x-2 text-[10px] text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1 px-1">
+                  <span>field</span>
+                  <span>current</span>
+                  <span>musicbrainz</span>
+                  <span class="w-16"></span>
+                </div>
+
+                {/* field rows */}
+                <div class="space-y-0.5">
+                  <For each={albumMetadataFields()}>
+                    {(field) => {
+                      const isUpdating = () => updatingField() === field.key;
+                      return (
+                        <div
+                          class="grid grid-cols-[5rem_1fr_1fr_auto] gap-x-2 px-1 py-1 text-xs rounded"
+                          classList={{
+                            "bg-[var(--color-bg-elevated)]": !field.differs,
+                            "bg-yellow-500/10": field.differs,
+                          }}
+                        >
+                          {/* field label */}
+                          <span class="text-[var(--color-text-tertiary)] flex-shrink-0 truncate">
+                            {field.label}
+                            <Show when={field.isArtistName}>
+                              <span
+                                class="text-[10px] opacity-50 block"
+                                title="updates the artist record name, does not move to a different artist"
+                              >
+                                (rename)
+                              </span>
+                            </Show>
+                          </span>
+
+                          {/* current value */}
+                          <div class="min-w-0 overflow-hidden">
+                            <Show
+                              when={field.currentValue}
+                              fallback={
+                                <span class="text-[var(--color-text-tertiary)] italic">—</span>
+                              }
+                            >
+                              <Show
+                                when={field.key === "genres"}
+                                fallback={
+                                  <span
+                                    class="text-[var(--color-text-primary)] truncate block"
+                                    classList={{
+                                      "line-through opacity-50": field.differs,
+                                    }}
+                                  >
+                                    {field.currentValue}
+                                  </span>
+                                }
+                              >
+                                <span
+                                  classList={{
+                                    "line-through opacity-50": field.differs,
+                                  }}
+                                >
+                                  <MarqueeText
+                                    text={field.currentValue}
+                                    hoverOnly={true}
+                                    class="text-[var(--color-text-primary)]"
+                                  />
+                                </span>
+                              </Show>
+                            </Show>
+                          </div>
+
+                          {/* MB value */}
+                          <div class="min-w-0 overflow-hidden">
+                            <Show
+                              when={field.mbValue}
+                              fallback={
+                                <span class="text-[var(--color-text-tertiary)] italic">—</span>
+                              }
+                            >
+                              <Show
+                                when={field.key === "genres"}
+                                fallback={
+                                  <span
+                                    class="text-[var(--color-text-primary)] truncate block"
+                                    classList={{
+                                      "text-[var(--color-accent-500)] font-medium": field.differs,
+                                    }}
+                                  >
+                                    {field.mbValue}
+                                  </span>
+                                }
+                              >
+                                <MarqueeText
+                                  text={field.mbValue}
+                                  hoverOnly={true}
+                                  class={
+                                    field.differs
+                                      ? "text-[var(--color-accent-500)] font-medium"
+                                      : "text-[var(--color-text-primary)]"
+                                  }
+                                />
+                              </Show>
+                            </Show>
+                          </div>
+
+                          {/* action button */}
+                          <div class="w-16 flex items-center justify-end">
+                            <Show when={field.differs}>
+                              <button
+                                onClick={() => handleUpdateAlbumField(field)}
+                                disabled={isUpdating() || importingAlbum()}
+                                class="text-[10px] text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] disabled:opacity-30 disabled:cursor-default"
+                              >
+                                {isUpdating() ? "..." : "update"}
+                              </button>
+                            </Show>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  </For>
+                </div>
+
+                <Show when={changedFieldCount() === 0 && albumMetadataFields().length > 0}>
+                  <div class="text-xs text-[var(--color-text-tertiary)] mt-2">
+                    all metadata matches — nothing to update
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </div>
+
+          {/* album art images */}
+          <Show when={!loadingRelease() && selectedRelease()?.cover_art_images?.length}>
+            <MusicBrainzAlbumImages
+              images={(selectedRelease()?.cover_art_images || []).map(
+                (img) =>
+                  ({
+                    thumbUrl: getCoverArtThumbUrl(img),
+                    fullUrl: getCoverArtFullUrl(img),
+                    types: img.types,
+                  }) as AlbumArtImage
+              )}
+              importingUrls={importingImages()}
+              importedUrls={importedImages()}
+              onImport={handleImportImage}
+            />
+          </Show>
+          <Show
+            when={
+              !loadingRelease() &&
+              (!selectedRelease()?.cover_art_images ||
+                selectedRelease()?.cover_art_images?.length === 0) &&
+              (selectedRelease() || selectedListItem())
+            }
+          >
+            <div class="p-3 text-xs text-[var(--color-text-tertiary)]">no album art available</div>
+          </Show>
+
+          {/* side-by-side track comparison */}
+          <Show when={!loadingRelease() && selectedRelease()}>
+            <div class="p-3">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <div class="text-xs font-medium text-[var(--color-text-secondary)]">
+                    track comparison ({matchedCount()} of {trackMatches().length} matched)
+                  </div>
+                  <Show when={shouldShowFuzzyButton() || matchMode() === "fuzzy"}>
+                    <button
+                      onClick={() => {
+                        const next = matchMode() === "fuzzy" ? "position" : "fuzzy";
+                        setMatchMode(next);
+                        setManualOverrides(new Map());
+                      }}
+                      title="match tracks by title and duration similarity instead of track number position — useful when local track numbers are incorrect"
+                      class="text-[10px] px-2 py-0.5 rounded-full transition-colors"
+                      classList={{
+                        "bg-[var(--color-accent-500)] text-white": matchMode() === "fuzzy",
+                        "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]":
+                          matchMode() !== "fuzzy",
+                      }}
+                    >
+                      smart match
+                    </button>
+                  </Show>
+                </div>
+                <Show when={matchedCount() > 0}>
+                  <Button
+                    onClick={handleUpdateAllSongs}
+                    variant="secondary"
+                    disabled={updatingAllSongs()}
+                  >
+                    {updatingAllSongs()
+                      ? "updating..."
+                      : matchedCount() === 1
+                        ? "update 1 song"
+                        : `update all ${matchedCount()} songs`}
+                  </Button>
+                </Show>
+              </div>
+
+              {/* column headers */}
+              <div class="grid grid-cols-[auto_1fr_1fr_auto] gap-x-2 text-[10px] text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1 px-1">
+                <span class="w-8 text-right">#</span>
+                <span>freqhole</span>
+                <span>musicbrainz</span>
+                <span class="w-16"></span>
+              </div>
+
+              {/* track rows */}
+              <div class="space-y-0.5">
+                <For each={trackMatches()}>
+                  {(match) => {
+                    const hasBoth = () => !!match.mbTrack && !!match.fhSong;
+                    const titleDiffers = () =>
+                      hasBoth() &&
+                      match.mbTrack!.title.toLowerCase() !== match.fhSong!.title.toLowerCase();
+                    const isUpdating = () => updatingSongId() === match.fhSong?.id;
+                    const isFuzzy = () => matchMode() === "fuzzy";
+
+                    // build the disc:position key for the currently matched MB track
+                    const currentMbKey = () => {
+                      if (!match.mbTrack) return "";
+                      return `${(match.mbTrack as any)._disc || match.discNumber}:${match.mbTrack.position}`;
+                    };
+
+                    return (
+                      <div
+                        class="grid grid-cols-[auto_1fr_1fr_auto] gap-x-2 px-1 py-1 text-xs rounded"
+                        classList={{
+                          "bg-[var(--color-bg-elevated)]": hasBoth() && !titleDiffers(),
+                          "bg-yellow-500/10": titleDiffers(),
+                          "bg-red-500/10": !hasBoth(),
+                        }}
+                      >
+                        {/* track number */}
+                        <span class="text-[var(--color-text-tertiary)] w-8 text-right flex-shrink-0">
+                          <Show when={(selectedRelease()?.media?.length || 0) > 1}>
+                            <span class="text-[var(--color-text-tertiary)] opacity-50">
+                              {match.discNumber}.
+                            </span>
+                          </Show>
+                          {match.trackNumber}
+                        </span>
+
+                        {/* freqhole song */}
+                        <div class="min-w-0">
+                          <Show
+                            when={match.fhSong}
+                            fallback={
+                              <span class="text-[var(--color-text-tertiary)] italic">
+                                no local song
+                              </span>
+                            }
+                          >
+                            <div class="flex items-baseline gap-1">
+                              <span
+                                class="text-[var(--color-text-primary)] truncate min-w-0"
+                                classList={{ "line-through opacity-50": titleDiffers() }}
+                              >
+                                {match.fhSong!.title}
+                              </span>
+                              <span class="text-[var(--color-text-tertiary)] flex-shrink-0">
+                                {formatDuration(match.fhSong!.duration_seconds)}
+                              </span>
+                            </div>
+                            <Show when={match.fhSong!.track_artist}>
+                              <div class="text-[10px] text-[var(--color-text-tertiary)] truncate">
+                                {match.fhSong!.track_artist}
+                              </div>
+                            </Show>
+                          </Show>
+                        </div>
+
+                        {/* MB track — dropdown in fuzzy mode, plain text in position mode */}
+                        <div class="min-w-0">
+                          <Show
+                            when={isFuzzy()}
+                            fallback={
+                              <div>
+                                <Show
+                                  when={match.mbTrack}
+                                  fallback={
+                                    <span class="text-[var(--color-text-tertiary)] italic">
+                                      no MB track
+                                    </span>
+                                  }
+                                >
+                                  <div class="flex items-baseline gap-1">
+                                    <span class="text-[var(--color-text-primary)] truncate min-w-0">
+                                      {match.mbTrack!.title}
+                                    </span>
+                                    <Show when={match.mbTrack!.length_ms}>
+                                      <span class="text-[var(--color-text-tertiary)] flex-shrink-0">
+                                        {formatDuration(
+                                          Math.round(match.mbTrack!.length_ms! / 1000)
+                                        )}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <Show when={match.mbTrack!.artist_credit?.length}>
+                                    <div class="text-[10px] text-[var(--color-text-tertiary)] truncate">
+                                      {formatArtistCredit(match.mbTrack!.artist_credit)}
+                                    </div>
+                                  </Show>
+                                </Show>
+                              </div>
+                            }
+                          >
+                            {/* fuzzy mode: dropdown to pick/override MB track */}
+                            <select
+                              value={currentMbKey()}
+                              onChange={(e) => {
+                                if (!match.fhSong) return;
+                                const val = e.currentTarget.value;
+                                setManualOverrides((prev) => {
+                                  const next = new Map(prev);
+                                  next.set(match.fhSong!.id, val);
+                                  return next;
+                                });
+                              }}
+                              class="w-full text-xs bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded px-1 py-0.5 text-[var(--color-text-primary)] outline-none truncate"
+                            >
+                              <option value="">— unmatched —</option>
+                              <For each={allMbTracks()}>
+                                {(t) => {
+                                  const key = `${t._disc}:${t.position}`;
+                                  const durStr = t.length_ms
+                                    ? ` (${formatDuration(Math.round(t.length_ms / 1000))})`
+                                    : "";
+                                  const discPrefix =
+                                    (selectedRelease()?.media?.length || 0) > 1
+                                      ? `${t._disc}.`
+                                      : "";
+                                  return (
+                                    <option value={key}>
+                                      {discPrefix}
+                                      {t.position}. {t.title}
+                                      {durStr}
+                                    </option>
+                                  );
+                                }}
+                              </For>
+                            </select>
+                          </Show>
+                        </div>
+
+                        {/* action button */}
+                        <div class="w-16 flex items-center justify-end">
+                          <Show when={hasBoth()}>
+                            <button
+                              onClick={() => handleUpdateSong(match)}
+                              disabled={isUpdating() || updatingAllSongs()}
+                              class="text-[10px] text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] disabled:opacity-30 disabled:cursor-default"
+                            >
+                              {isUpdating() ? "..." : "update"}
+                            </button>
+                          </Show>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={loadingRelease()}>
+            <div class="p-3 text-xs text-[var(--color-text-tertiary)]">
+              loading track listing...
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* search results list */}
+      <Show when={!selectedRelease() && !selectedListItem() && results().length > 0}>
+        <div class="flex items-center justify-between text-xs text-[var(--color-text-tertiary)] mb-1">
+          <div class="flex items-center gap-2">
+            <span>
+              {filteredResults().length} of {searchCount()} results
+              {countryFilter() ? " (filtered)" : ""}
+            </span>
+            <Show when={uniqueCountries().length > 1}>
+              <select
+                value={countryFilter()}
+                onChange={(e) => setCountryFilter(e.currentTarget.value)}
+                class="bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs rounded px-1 py-0.5 outline-none"
+              >
+                <option value="">all countries</option>
+                <option value="__none__">no country</option>
+                <For each={uniqueCountries()}>
+                  {(country) => <option value={country}>{country}</option>}
+                </For>
+              </select>
+            </Show>
+          </div>
+        </div>
+        <div class="rounded-lg">
+          <For each={filteredResults()}>
+            {(release) => (
+              <button
+                onClick={() => handleSelectRelease(release)}
+                class="w-full text-left px-3 py-2 hover:bg-[var(--color-bg-hover)] transition-colors flex items-start gap-3"
+              >
+                <div class="w-10 h-10 flex-shrink-0 rounded bg-[var(--color-bg-base)] overflow-hidden relative">
+                  <div class="absolute inset-0 flex items-center justify-center text-[var(--color-text-tertiary)]">
+                    <Icon name={IconNames.music} size={16} />
+                  </div>
+                  <Show when={release.cover_art_url}>
+                    <img
+                      src={release.cover_art_url!}
+                      alt=""
+                      class="relative w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  </Show>
+                </div>
+
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-[var(--color-text-primary)] truncate">
+                    {release.title}
+                  </div>
+                  <div class="text-xs text-[var(--color-text-secondary)] truncate">
+                    {formatArtistCredit(release.artist_credit)}
+                  </div>
+                  <div class="text-xs text-[var(--color-text-tertiary)] flex gap-2 mt-0.5">
+                    <Show when={release.date}>
+                      <span>{release.date}</span>
+                    </Show>
+                    <Show when={release.country}>
+                      <span>{release.country}</span>
+                    </Show>
+                    <span
+                      classList={{
+                        "text-[var(--color-accent-500)]":
+                          release.track_count === props.songs.length,
+                      }}
+                    >
+                      {release.track_count} tracks
+                    </span>
+                    <Show when={release.primary_type}>
+                      <span>{release.primary_type}</span>
+                    </Show>
+                    <Show when={release.label}>
+                      <span class="truncate max-w-[120px]" title={release.label!}>
+                        {release.label}
+                      </span>
+                    </Show>
+                    <Show when={release.format}>
+                      <span>{release.format}</span>
+                    </Show>
+                    <Show when={release.packaging}>
+                      <span>{release.packaging}</span>
+                    </Show>
+                  </div>
+                </div>
+
+                <Show when={release.score != null}>
+                  <div class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                    {release.score}%
+                  </div>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+        <Show when={totalPages() > 1}>
+          <div class="flex items-center justify-between text-xs text-[var(--color-text-tertiary)] mt-2">
+            <button
+              onClick={handlePrevPage}
+              disabled={!hasPrev() || searching()}
+              class="px-2 py-1 rounded hover:bg-[var(--color-bg-hover)] disabled:opacity-30 disabled:cursor-default"
+            >
+              prev
+            </button>
+            <span>
+              page {currentPage()} of {totalPages()}
+            </span>
+            <button
+              onClick={handleNextPage}
+              disabled={!hasNext() || searching()}
+              class="px-2 py-1 rounded hover:bg-[var(--color-bg-hover)] disabled:opacity-30 disabled:cursor-default"
+            >
+              next
+            </button>
+          </div>
+        </Show>
+      </Show>
+
+      {/* empty state */}
+      <Show
+        when={
+          !searching() &&
+          hasSearched() &&
+          !selectedRelease() &&
+          !selectedListItem() &&
+          results().length === 0
+        }
+      >
+        <div class="text-sm text-[var(--color-text-tertiary)] text-center py-8">
+          no results. try a different search.
+        </div>
+      </Show>
+    </div>
+  );
+}

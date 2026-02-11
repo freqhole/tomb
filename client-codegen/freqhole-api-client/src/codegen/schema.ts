@@ -1021,6 +1021,163 @@ export const ListeningHistoryResponseSchema = z.object({
 });
 export type ListeningHistoryResponse = z.infer<typeof ListeningHistoryResponseSchema>;
 
+export const MbArtistCreditEntrySchema = z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+});
+export type MbArtistCreditEntry = z.infer<typeof MbArtistCreditEntrySchema>;
+
+export const MbCoverArtImageSchema = z.object({
+  id: z.string(),
+  image_url: z.string(),
+  thumbnails: z.object({
+  small: z.string().nullable(),
+  large: z.string().nullable(),
+  thumb_250: z.string().nullable(),
+  thumb_500: z.string().nullable(),
+  thumb_1200: z.string().nullable()
+}).nullable(),
+  types: z.array(z.string()),
+  front: z.boolean(),
+  back: z.boolean(),
+  comment: z.string().nullable()
+});
+export type MbCoverArtImage = z.infer<typeof MbCoverArtImageSchema>;
+
+export const MbCoverArtThumbnailsSchema = z.object({
+  small: z.string().nullable(),
+  large: z.string().nullable(),
+  thumb_250: z.string().nullable(),
+  thumb_500: z.string().nullable(),
+  thumb_1200: z.string().nullable()
+});
+export type MbCoverArtThumbnails = z.infer<typeof MbCoverArtThumbnailsSchema>;
+
+export const MbMediumDetailSchema = z.object({
+  position: z.number().nullable(),
+  title: z.string().nullable(),
+  format: z.string().nullable(),
+  tracks: z.array(z.object({
+  position: z.number().nullable(),
+  title: z.string(),
+  length_ms: z.number().nullable(),
+  artist_credit: z.array(z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+}))
+})),
+  track_count: z.number()
+});
+export type MbMediumDetail = z.infer<typeof MbMediumDetailSchema>;
+
+export const MbReleaseDetailSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  date: z.string().nullable(),
+  country: z.string().nullable(),
+  status: z.string().nullable(),
+  artist_credit: z.array(z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+})),
+  media: z.array(z.object({
+  position: z.number().nullable(),
+  title: z.string().nullable(),
+  format: z.string().nullable(),
+  tracks: z.array(z.object({
+  position: z.number().nullable(),
+  title: z.string(),
+  length_ms: z.number().nullable(),
+  artist_credit: z.array(z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+}))
+})),
+  track_count: z.number()
+})),
+  primary_type: z.string().nullable(),
+  secondary_types: z.array(z.string()),
+  has_cover_art: z.boolean(),
+  cover_art_url: z.string().nullable(),
+  cover_art_images: z.array(z.object({
+  id: z.string(),
+  image_url: z.string(),
+  thumbnails: z.object({
+  small: z.string().nullable(),
+  large: z.string().nullable(),
+  thumb_250: z.string().nullable(),
+  thumb_500: z.string().nullable(),
+  thumb_1200: z.string().nullable()
+}).nullable(),
+  types: z.array(z.string()),
+  front: z.boolean(),
+  back: z.boolean(),
+  comment: z.string().nullable()
+})),
+  genres: z.array(z.string()),
+  label: z.string().nullable()
+});
+export type MbReleaseDetail = z.infer<typeof MbReleaseDetailSchema>;
+
+export const MbReleaseListItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  date: z.string().nullable(),
+  country: z.string().nullable(),
+  status: z.string().nullable(),
+  score: z.number().nullable(),
+  artist_credit: z.array(z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+})),
+  track_count: z.number(),
+  has_cover_art: z.boolean(),
+  cover_art_url: z.string().nullable(),
+  primary_type: z.string().nullable(),
+  secondary_types: z.array(z.string()),
+  label: z.string().nullable(),
+  format: z.string().nullable(),
+  packaging: z.string().nullable()
+});
+export type MbReleaseListItem = z.infer<typeof MbReleaseListItemSchema>;
+
+export const MbSearchReleasesResponseSchema = z.object({
+  results: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  date: z.string().nullable(),
+  country: z.string().nullable(),
+  status: z.string().nullable(),
+  score: z.number().nullable(),
+  artist_credit: z.array(z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+})),
+  track_count: z.number(),
+  has_cover_art: z.boolean(),
+  cover_art_url: z.string().nullable(),
+  primary_type: z.string().nullable(),
+  secondary_types: z.array(z.string()),
+  label: z.string().nullable(),
+  format: z.string().nullable(),
+  packaging: z.string().nullable()
+})),
+  count: z.number(),
+  offset: z.number()
+});
+export type MbSearchReleasesResponse = z.infer<typeof MbSearchReleasesResponseSchema>;
+
+export const MbTrackDetailSchema = z.object({
+  position: z.number().nullable(),
+  title: z.string(),
+  length_ms: z.number().nullable(),
+  artist_credit: z.array(z.object({
+  name: z.string(),
+  joinphrase: z.string().nullable()
+}))
+});
+export type MbTrackDetail = z.infer<typeof MbTrackDetailSchema>;
+
 export const MediaBlobSchema = z.object({
   id: z.string(),
   sha256: z.string(),
@@ -1583,7 +1740,6 @@ export const SearchRecordingsRequestSchema = z.object({
 export type SearchRecordingsRequest = z.infer<typeof SearchRecordingsRequestSchema>;
 
 export const SearchReleasesRequestSchema = z.object({
-  query: z.string(),
   artist: z.string().nullable(),
   release: z.string().nullable(),
   limit: z.number().nullable(),
@@ -2207,7 +2363,8 @@ export const UpdateAlbumRequestSchema = z.object({
   name: z.string().nullable(),
   url: z.string()
 })).nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  merge_into_album_id: z.string().nullable()
 });
 export type UpdateAlbumRequest = z.infer<typeof UpdateAlbumRequestSchema>;
 
@@ -2246,6 +2403,7 @@ export const UpdateSongsRequestSchema = z.object({
   track_number: z.number().nullable(),
   disc_number: z.number().nullable(),
   duration: z.number().nullable(),
+  track_artist: z.string().nullable(),
   year: z.number().nullable(),
   bpm: z.number().nullable(),
   lyrics: z.string().nullable(),
@@ -2253,6 +2411,7 @@ export const UpdateSongsRequestSchema = z.object({
   artist: z.object({
   name: z.string()
 }).nullable(),
+  artist_id: z.string().nullable(),
   artist_name: z.string().nullable(),
   album: z.object({
   title: z.string(),
@@ -2260,6 +2419,7 @@ export const UpdateSongsRequestSchema = z.object({
   release_date: z.string().nullable(),
   label: z.string().nullable()
 }).nullable(),
+  album_id: z.string().nullable(),
   album_title: z.string().nullable(),
   album_type: z.string().nullable(),
   release_date: z.string().nullable(),

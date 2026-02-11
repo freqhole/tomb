@@ -65,6 +65,8 @@ interface AlbumEditorOptions {
   albumId: string;
   onSave?: () => void;
   disableNestedModals?: boolean;
+  /** called after a successful merge with the target album id, so callers can navigate */
+  onMergeNavigate?: (newAlbumId: string) => void;
 }
 
 // song editor

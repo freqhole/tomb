@@ -23,6 +23,7 @@ interface UpdateAlbumData {
   genre_ids?: string[];
   genres?: string[]; // new genre names to create
   entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
+  merge_into_album_id?: string;
 }
 
 export function useUpdateArtistMutation() {
@@ -76,7 +77,17 @@ export function useUpdateAlbumMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
       queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
 
-      toast.success("album updated");
+      // if this was a merge, also invalidate the target album detail and its songs
+      if (variables.merge_into_album_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.albums.detail(variables.merge_into_album_id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.albums.songs(variables.merge_into_album_id),
+        });
+      }
+
+      toast.success(variables.merge_into_album_id ? "album merged" : "album updated");
     },
     onError: (error) => {
       console.error("failed to update album:", error);

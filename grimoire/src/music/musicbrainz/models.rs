@@ -80,6 +80,13 @@ pub struct Release {
     /// Release group this belongs to
     #[serde(rename = "release-group")]
     pub release_group: Option<ReleaseGroup>,
+
+    /// Label info (populated when inc=labels is used)
+    #[serde(rename = "label-info")]
+    pub label_info: Option<Vec<LabelInfo>>,
+
+    /// Official genres on the release itself (via inc=genres)
+    pub genres: Option<Vec<Genre>>,
 }
 
 /// MusicBrainz release group
@@ -106,6 +113,9 @@ pub struct ReleaseGroup {
     /// Artist credit information
     #[serde(rename = "artist-credit")]
     pub artist_credit: Option<Vec<ArtistCredit>>,
+
+    /// Official genres from musicbrainz (via inc=genres)
+    pub genres: Option<Vec<Genre>>,
 
     /// MusicBrainz score (relevance in search results)
     pub score: Option<u32>,
@@ -180,6 +190,10 @@ pub struct Track {
     /// Track length in milliseconds
     pub length: Option<u32>,
 
+    /// Artist credit for this track (different from release artist on compilations)
+    #[serde(rename = "artist-credit")]
+    pub artist_credit: Option<Vec<ArtistCredit>>,
+
     /// Recording this track represents
     pub recording: Option<Recording>,
 }
@@ -192,6 +206,44 @@ pub struct Tag {
 
     /// Vote count for this tag
     pub count: Option<u32>,
+}
+
+/// Official genre from musicbrainz (via inc=genres)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Genre {
+    /// MusicBrainz genre id
+    pub id: Uuid,
+
+    /// Genre name
+    pub name: String,
+
+    /// Vote count
+    pub count: Option<u32>,
+}
+
+/// Label info entry from a release (via inc=labels)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelInfo {
+    /// Catalog number for this release on this label
+    #[serde(rename = "catalog-number")]
+    pub catalog_number: Option<String>,
+
+    /// Label details
+    pub label: Option<LabelRef>,
+}
+
+/// Label reference within label-info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelRef {
+    /// MusicBrainz label id
+    pub id: Uuid,
+
+    /// Label name
+    pub name: String,
+
+    /// Label type (original production, imprint, etc.)
+    #[serde(rename = "type")]
+    pub label_type: Option<String>,
 }
 
 /// Alias information
@@ -593,6 +645,8 @@ mod tests {
             packaging: None,
             text_representation: None,
             release_group: None,
+            genres: None,
+            label_info: None,
         };
 
         assert!(release_with_art.has_cover_art());
@@ -612,6 +666,8 @@ mod tests {
             packaging: None,
             text_representation: None,
             release_group: None,
+            genres: None,
+            label_info: None,
         };
 
         assert!(!release_without_art.has_cover_art());

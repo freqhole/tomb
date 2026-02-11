@@ -72,13 +72,27 @@ export async function call<Resp>(
     const response = await fetch(url, options);
 
     if (!response.ok) {
+      // try to read the error body for details from the server
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      let errorCode: string | undefined;
+      try {
+        const errorBody = await response.json();
+        if (errorBody?.error) {
+          errorMessage = `HTTP ${response.status}: ${errorBody.error}`;
+        }
+        if (errorBody?.code) {
+          errorCode = errorBody.code;
+        }
+      } catch {
+        // body wasn't JSON or couldn't be read — use the default message
+      }
       return {
         success: false,
         error: new z.ZodError([
           {
             code: "custom",
-            path: [],
-            message: `HTTP ${response.status}: ${response.statusText}`,
+            path: errorCode ? [errorCode] : [],
+            message: errorMessage,
           },
         ]),
       };

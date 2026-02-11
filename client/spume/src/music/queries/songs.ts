@@ -209,7 +209,7 @@ export function useAlbumQuery(albumId: Accessor<string | undefined>) {
 
 export function useAlbumSongsQuery(albumId: Accessor<string | undefined>) {
   return createQuery(() => ({
-    queryKey: ["album", "songs", albumId()],
+    queryKey: queryKeys.albums.songs(albumId() || ""),
     queryFn: async () => {
       const id = albumId();
       if (!id)
@@ -300,7 +300,7 @@ export function useArtistQuery(artistId: Accessor<string | undefined>) {
 
 export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
   return createQuery(() => ({
-    queryKey: ["artist", "songs", artistId()],
+    queryKey: queryKeys.artists.songs(artistId() || ""),
     queryFn: async () => {
       const id = artistId();
       if (!id)
@@ -370,7 +370,7 @@ export function useGenresQuery(options?: UseGenresQueryOptions) {
 
 export function useGenreSongsQuery(genreId: Accessor<string | undefined>) {
   return createQuery(() => ({
-    queryKey: ["genre", "songs", genreId()],
+    queryKey: queryKeys.genres.songs(genreId() || ""),
     queryFn: async () => {
       const id = genreId();
       if (!id)

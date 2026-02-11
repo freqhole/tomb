@@ -124,6 +124,113 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         Err(e) => return GrimoireResponse::failure("failed to query album", vec![e.into()]),
     };
 
+    // ── merge into another album ──
+    // if merge_into_album_id is set, move all songs from this album to the target
+    // and clean up the now-empty source. all other field updates are ignored.
+    if let Some(ref target_id) = req.merge_into_album_id {
+        if target_id == &req.album_id {
+            return GrimoireResponse::failure(
+                "cannot merge album into itself",
+                vec![ErrorDetail::new(
+                    "invalid_merge",
+                    "Invalid Merge",
+                    "source and target album are the same",
+                )],
+            );
+        }
+
+        // verify target album exists
+        let target_exists =
+            match sqlx::query_scalar!(r#"SELECT id as "id!" FROM albumz WHERE id = ?"#, target_id)
+                .fetch_optional(&pool)
+                .await
+            {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to verify target album",
+                        vec![e.into()],
+                    )
+                }
+            };
+
+        if !target_exists {
+            return GrimoireResponse::failure(
+                "target album not found",
+                vec![ErrorDetail::new(
+                    "not_found",
+                    "Not Found",
+                    &format!("target album '{}' does not exist", target_id),
+                )],
+            );
+        }
+
+        // move all album_songz relationships from source to target
+        // use INSERT OR IGNORE to handle songs that already exist on the target,
+        // then delete leftover source rows
+        if let Err(e) = sqlx::query!(
+            "INSERT OR IGNORE INTO album_songz (album_id, song_id) SELECT ?, song_id FROM album_songz WHERE album_id = ?",
+            target_id,
+            req.album_id
+        )
+        .execute(&pool)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "failed to move songs to target album",
+                vec![e.into()],
+            );
+        }
+        let _ = sqlx::query!("DELETE FROM album_songz WHERE album_id = ?", req.album_id)
+            .execute(&pool)
+            .await;
+
+        // carry over images that don't already exist on the target
+        let _ = sqlx::query!(
+            "INSERT OR IGNORE INTO album_imagez (album_id, media_blob_id, is_primary) SELECT ?, media_blob_id, 0 FROM album_imagez WHERE album_id = ?",
+            target_id,
+            req.album_id
+        )
+        .execute(&pool)
+        .await;
+
+        // carry over genres that don't already exist on the target
+        let _ = sqlx::query!(
+            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) SELECT ?, genre_id FROM album_genrez WHERE album_id = ?",
+            target_id,
+            req.album_id
+        )
+        .execute(&pool)
+        .await;
+
+        // carry over links/urls that don't already exist on the target (dedup by url)
+        let _ = sqlx::query!(
+            "INSERT INTO entity_urlz (entity_type, entity_id, name, url) SELECT 'album', ?, name, url FROM entity_urlz WHERE entity_type = 'album' AND entity_id = ? AND url NOT IN (SELECT url FROM entity_urlz WHERE entity_type = 'album' AND entity_id = ?)",
+            target_id,
+            req.album_id,
+            target_id
+        )
+        .execute(&pool)
+        .await;
+
+        // fill in label and release_date on target only if the target doesn't have them
+        let _ = sqlx::query!(
+            "UPDATE albumz SET label = COALESCE(label, (SELECT label FROM albumz WHERE id = ?)), release_date = COALESCE(release_date, (SELECT release_date FROM albumz WHERE id = ?)), updated_at = unixepoch() WHERE id = ?",
+            req.album_id,
+            req.album_id,
+            target_id
+        )
+        .execute(&pool)
+        .await;
+
+        // clean up the now-empty source album
+        let _ = delete_album_if_unused(&req.album_id).await;
+
+        // return the target album
+        return super::get_album(target_id).await;
+    }
+
     // if album was deleted, undelete it
     if existing_album.deleted_at.is_some() {
         if let Err(e) = sqlx::query!(

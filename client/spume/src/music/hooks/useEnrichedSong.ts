@@ -4,6 +4,7 @@
 
 import type { QueryClient } from "@tanstack/solid-query";
 import type { Song } from "../services/storage/types";
+import { queryKeys } from "../queries/queryKeys";
 
 /**
  * looks up a song in the query cache and returns the latest version.
@@ -57,15 +58,15 @@ function findSongInCache(
 ): Song | null {
   // 1. check specific song query
   const songQuery =
-    queryClient.getQueryData<Song>(["song", sha256]) ||
-    queryClient.getQueryData<Song>(["song", id]);
+    queryClient.getQueryData<Song>([...queryKeys.songs.all(), sha256]) ||
+    queryClient.getQueryData<Song>([...queryKeys.songs.all(), id]);
   if (songQuery) return songQuery;
 
   // 2. check all infinite songs queries
   const songsQueries = queryClient.getQueriesData<{
     pages: Array<{ items: Song[] }>;
   }>({
-    queryKey: ["songs", "infinite"],
+    queryKey: [...queryKeys.songs.all(), "infinite"],
     exact: false,
   });
 
@@ -121,16 +122,18 @@ function findSongInCache(
 
   // 6. check playlist songs
   const playlistQueries = queryClient.getQueriesData<{
-    items: Song[];
+    pages: Array<{ items: Song[] }>;
   }>({
-    queryKey: ["playlist", "songs"],
+    queryKey: ["playlists"],
     exact: false,
   });
 
   for (const [_key, data] of playlistQueries) {
-    if (!data?.items) continue;
-    const found = data.items.find((s) => s.sha256 === sha256 || s.id === id);
-    if (found) return found;
+    if (!data?.pages) continue;
+    for (const page of data.pages) {
+      const found = page.items?.find((s) => s.sha256 === sha256 || s.id === id);
+      if (found) return found;
+    }
   }
 
   // not found in cache

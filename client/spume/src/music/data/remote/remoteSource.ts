@@ -742,6 +742,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     album_id: string;
     title?: string;
     artist_id?: string;
+    artist_name?: string;
     album_type?: string;
     release_date?: string;
     label?: string;
@@ -749,12 +750,13 @@ export class RemoteMusicDataSource implements MusicDataSource {
     genres?: string[]; // new genre names to create
     year?: number;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
+    merge_into_album_id?: string;
   }): Promise<void> {
     const result = await apiClient.music.updateAlbum(this.baseUrl, {
       album_id: params.album_id,
       title: params.title ?? null,
       artist_id: params.artist_id ?? null,
-      artist_name: null,
+      artist_name: params.artist_name ?? null,
       album_type: params.album_type ?? null,
       release_date: params.release_date ?? null,
       label: params.label ?? null,
@@ -762,6 +764,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       genres: params.genres ?? null,
       entity_urls: params.entity_urls ?? null,
       updated_by: null,
+      merge_into_album_id: params.merge_into_album_id ?? null,
     });
 
     if (!result.success) {
@@ -789,12 +792,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
     updated_by?: string | null;
   }): Promise<void> {
     // map simpler params to API schema
-    // use the simple string fields (artist_name, album_title) rather than object fields
+    // prefer _id fields when available, fall back to string name fields
     const apiParams: any = {
       song_ids: params.song_ids,
       title: params.title,
-      artist_name: params.artist,  // simple string field
-      album_title: params.album,   // simple string field
+      artist_id: params.artist_id,      // direct ID (preferred)
+      artist_name: params.artist,        // name fallback
+      album_id: params.album_id,         // direct ID (preferred)
+      album_title: params.album,         // name fallback
       track_number: params.track_number,
       disc_number: params.disc_number,
       year: params.year,
@@ -810,8 +815,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.updateSongs(this.baseUrl, apiParams);
 
     if (!result.success) {
-      console.error("updateSongs failed:", result.error);
-      throw new Error(`failed to update song: ${result.error?.message || JSON.stringify(result.error)}`);
+      // #TODO: should be able to remove the `as any` cast after turning strict mode on!
+      const err = (result as any).error;
+      console.error("updateSongs failed:", err);
+      throw new Error(`failed to update song: ${err?.message || JSON.stringify(err)}`);
     }
   }
 

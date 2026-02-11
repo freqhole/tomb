@@ -149,8 +149,9 @@ pub mod type_registry {
 
     // musicbrainz types
     use crate::music::musicbrainz::{
-        GetCoverArtRequest, GetRecordingRequest, GetReleaseRequest, SearchRecordingsRequest,
-        SearchReleasesRequest,
+        GetCoverArtRequest, GetRecordingRequest, GetReleaseRequest, MbArtistCreditEntry,
+        MbCoverArtImage, MbCoverArtThumbnails, MbMediumDetail, MbReleaseDetail, MbReleaseListItem,
+        MbSearchReleasesResponse, MbTrackDetail, SearchRecordingsRequest, SearchReleasesRequest,
     };
 
     // jobs types
@@ -344,6 +345,30 @@ pub mod type_registry {
 
         gen.add_schema::<GetCoverArtRequest>("GetCoverArtRequest");
         registered.insert("GetCoverArtRequest".to_string());
+
+        gen.add_schema::<MbSearchReleasesResponse>("MbSearchReleasesResponse");
+        registered.insert("MbSearchReleasesResponse".to_string());
+
+        gen.add_schema::<MbReleaseListItem>("MbReleaseListItem");
+        registered.insert("MbReleaseListItem".to_string());
+
+        gen.add_schema::<MbArtistCreditEntry>("MbArtistCreditEntry");
+        registered.insert("MbArtistCreditEntry".to_string());
+
+        gen.add_schema::<MbReleaseDetail>("MbReleaseDetail");
+        registered.insert("MbReleaseDetail".to_string());
+
+        gen.add_schema::<MbMediumDetail>("MbMediumDetail");
+        registered.insert("MbMediumDetail".to_string());
+
+        gen.add_schema::<MbTrackDetail>("MbTrackDetail");
+        registered.insert("MbTrackDetail".to_string());
+
+        gen.add_schema::<MbCoverArtImage>("MbCoverArtImage");
+        registered.insert("MbCoverArtImage".to_string());
+
+        gen.add_schema::<MbCoverArtThumbnails>("MbCoverArtThumbnails");
+        registered.insert("MbCoverArtThumbnails".to_string());
 
         // tag types
         gen.add_schema::<Tag>("Tag");

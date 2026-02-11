@@ -10,7 +10,6 @@ import { Icon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 
-
 export interface ArtistAutocompleteProps {
   /** current artist name value */
   value?: string;
@@ -26,6 +25,8 @@ export interface ArtistAutocompleteProps {
   class?: string;
   /** hint text */
   hint?: string;
+  /** custom label for the "create new" option (default: "create new: {input}") */
+  newLabel?: (input: string) => string;
 }
 
 interface ArtistOption {
@@ -45,7 +46,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
   const [localValue, setLocalValue] = createSignal<ArtistOption | undefined>(
     props.value && props.value.trim().length > 0
       ? { value: props.value, label: props.value }
-      : undefined,
+      : undefined
   );
 
   // sync local value when props.value changes (e.g., on reset)
@@ -59,9 +60,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
   });
 
   // track what user is typing for query purposes
-  const [searchInput, setSearchInput] = createSignal<string | undefined>(
-    undefined,
-  );
+  const [searchInput, setSearchInput] = createSignal<string | undefined>(undefined);
 
   // query artists based on what user types
   const artistQuery = useArtistAutocompleteQuery(searchInput);
@@ -92,16 +91,16 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
       results.unshift(currentVal);
     }
 
-    // add "create new" option if no exact match
+    // add "create new" / "rename to" option if input doesn't exactly match an existing name
+    // (case-sensitive so users can change casing, e.g. "the beatles" -> "The Beatles")
     const input = searchInput();
     if (input && input.trim().length > 0) {
-      const exactMatch = items.find(
-        (item) => item.name.toLowerCase() === input.trim().toLowerCase(),
-      );
+      const exactMatch = items.find((item) => item.name === input.trim());
       if (!exactMatch) {
+        const label = props.newLabel ? props.newLabel(input.trim()) : `create new: ${input.trim()}`;
         results.unshift({
           value: input.trim(),
-          label: `create new: ${input.trim()}`,
+          label,
           isNew: true,
         });
       }
@@ -148,16 +147,12 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
             <div class="flex-1 min-w-0">
               <Show when={props.item.rawValue.isNew}>
                 <div class="text-sm font-medium">
-                  <Combobox.ItemLabel>
-                    {props.item.rawValue.label}
-                  </Combobox.ItemLabel>
+                  <Combobox.ItemLabel>{props.item.rawValue.label}</Combobox.ItemLabel>
                 </div>
               </Show>
               <Show when={!props.item.rawValue.isNew}>
                 <div class="text-sm">
-                  <Combobox.ItemLabel>
-                    {props.item.rawValue.value}
-                  </Combobox.ItemLabel>
+                  <Combobox.ItemLabel>{props.item.rawValue.value}</Combobox.ItemLabel>
                 </div>
                 <div class="text-xs text-[var(--color-text-tertiary)]">
                   {props.item.rawValue.songCount || 0} song

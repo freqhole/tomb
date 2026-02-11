@@ -418,6 +418,10 @@ pub struct UpdateSongsRequest {
     #[arg(long)]
     pub duration: Option<i64>,
 
+    /// Track-level artist credit (e.g. for compilations)
+    #[arg(long)]
+    pub track_artist: Option<String>,
+
     #[arg(long)]
     pub year: Option<i64>,
 
@@ -434,12 +438,20 @@ pub struct UpdateSongsRequest {
     #[arg(skip)]
     pub artist: Option<UpdateArtistRequest>,
 
+    /// Artist ID (preferred over artist_name — directly assigns artist)
+    #[arg(long)]
+    pub artist_id: Option<String>,
+
     /// Artist name
     #[arg(long)]
     pub artist_name: Option<String>,
 
     #[arg(skip)]
     pub album: Option<UpdateAlbumRequest>,
+
+    /// Album ID (preferred over album_title — directly moves songs to this album)
+    #[arg(long)]
+    pub album_id: Option<String>,
 
     /// Album title
     #[arg(long)]
@@ -511,17 +523,21 @@ pub struct UpdateSongsRequest {
 
 impl UpdateSongsRequest {
     /// Normalize CLI fields into nested structures (for use after clap parsing)
+    /// priority: artist_id > artist_name > artist (nested object)
+    /// priority: album_id > album_title > album (nested object)
+    /// when an _id field is provided, the name-based fields are ignored.
+    /// the _id fields are left in place and handled directly by update_songs().
     pub fn normalize(mut self) -> Self {
-        // Convert artist_name to artist
-        if self.artist.is_none() && self.artist_name.is_some() {
+        // Convert artist_name to artist (only if no artist_id provided)
+        if self.artist.is_none() && self.artist_id.is_none() && self.artist_name.is_some() {
             self.artist = self
                 .artist_name
                 .take()
                 .map(|name| UpdateArtistRequest { name });
         }
 
-        // Convert album fields to album
-        if self.album.is_none() && self.album_title.is_some() {
+        // Convert album fields to album (only if no album_id provided)
+        if self.album.is_none() && self.album_id.is_none() && self.album_title.is_some() {
             self.album = Some(UpdateAlbumRequest {
                 title: self.album_title.take().unwrap(),
                 album_type: self.album_type.take(),

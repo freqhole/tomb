@@ -24,6 +24,7 @@ pub use rate_limiter::RateLimiter;
 
 // Re-export API types
 pub use api_types::{
-    GetCoverArtRequest, GetRecordingRequest, GetReleaseRequest, SearchRecordingsRequest,
-    SearchReleasesRequest,
+    GetCoverArtRequest, GetRecordingRequest, GetReleaseRequest, MbArtistCreditEntry,
+    MbCoverArtImage, MbCoverArtThumbnails, MbMediumDetail, MbReleaseDetail, MbReleaseListItem,
+    MbSearchReleasesResponse, MbTrackDetail, SearchRecordingsRequest, SearchReleasesRequest,
 };

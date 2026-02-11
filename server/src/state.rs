@@ -1,5 +1,6 @@
 //! application state
 
+use grimoire::music::musicbrainz::MusicBrainzClient;
 use std::sync::Arc;
 use tower_sessions_sqlx_store::SqliteStore;
 
@@ -13,8 +14,11 @@ pub struct AppState {
 
     /// session store for authentication
     pub session_store: SqliteStore,
-    // TODO: add auth state when implementing phase 2
-    // will be isolated to auth module, no webauthn-rs types here
+
+    /// shared musicbrainz client (None if disabled in config)
+    /// single instance ensures rate limiter state persists across requests
+    /// and the connection pool is reused
+    pub musicbrainz_client: Option<MusicBrainzClient>,
 }
 
 impl AppState {
@@ -22,9 +26,28 @@ impl AppState {
     ///
     /// session_store should be initialized via grimoire::sessions::init_session_store()
     pub fn new(config: grimoire::config::GrimoireConfig, session_store: SqliteStore) -> Self {
+        let musicbrainz_client = if config.musicbrainz.enabled {
+            match MusicBrainzClient::new(config.musicbrainz.clone()) {
+                Ok(client) => {
+                    tracing::info!("musicbrainz client initialized");
+                    Some(client)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to create musicbrainz client: {}, will be unavailable",
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Self {
             config: Arc::new(config),
             session_store,
+            musicbrainz_client,
         }
     }
 

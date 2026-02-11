@@ -79,13 +79,16 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
   track_number: null,
   disc_number: null,
   duration: null,
+  track_artist: null,
   year: null,
   bpm: null,
   lyrics: null,
   metadata: null,
   artist: null,
+  artist_id: null,
   artist_name: null,
   album: null,
+  album_id: null,
   album_title: null,
   album_type: null,
   release_date: null,
@@ -286,9 +289,8 @@ export const feedRequest: s.FeedRequest = {
 
 // MusicBrainz
 export const searchReleasesRequest: s.SearchReleasesRequest = {
-  query: "test query",
-  artist: null,
-  release: null,
+  artist: "test artist",
+  release: "test release",
   limit: null,
   offset: null,
 };

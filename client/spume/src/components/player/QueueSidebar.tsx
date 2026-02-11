@@ -218,7 +218,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           : isDragging()
                             ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
                             : isCurrentlyPlaying()
-                              ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                              ? "bg-[#66003b]/20 rounded-lg border-l-2 border-l-[var(--color-accent-500)]"
                               : "hover:bg-[var(--color-accent-500)]/10"
                       }`}
                       style={{

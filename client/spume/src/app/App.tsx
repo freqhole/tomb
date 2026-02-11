@@ -217,12 +217,10 @@ export function App() {
           <AlbumEditorModal
             albumId={state().albumId}
             onClose={hideAlbumEditor}
-            onSave={() => {
-              state().onSave?.();
-              hideAlbumEditor();
-            }}
+            onSave={() => state().onSave?.()}
             disableNestedModals={state().disableNestedModals}
             onOpenSongEditor={(songId) => showSongEditor({ songId, disableNestedModals: true })}
+            onMergeNavigate={state().onMergeNavigate}
           />
         )}
       </Show>

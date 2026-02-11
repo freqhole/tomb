@@ -177,8 +177,16 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (current.disc_number !== initial.disc_number) updates.disc_number = current.disc_number;
     if (current.bpm !== initial.bpm) updates.bpm = current.bpm;
     if (current.lyrics !== initial.lyrics) updates.lyrics = current.lyrics;
-    if (current.artist_name !== initial.artist_name) updates.artist = current.artist_name;
-    if (current.album_title !== initial.album_title) updates.album = current.album_title;
+    if (current.artist_name !== initial.artist_name) {
+      // prefer artist_id when available (from autocomplete selection)
+      if (artistId()) updates.artist_id = artistId();
+      else updates.artist = current.artist_name;
+    }
+    if (current.album_title !== initial.album_title) {
+      // prefer album_id when available (from autocomplete selection)
+      if (albumId()) updates.album_id = albumId();
+      else updates.album = current.album_title;
+    }
 
     // include entity URLs if changed (filter out deleted URLs)
     if (urlsChanged()) {

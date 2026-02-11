@@ -80,7 +80,7 @@ export const queryKeys = {
     recent: (limit: number) =>
       [...queryKeys.playlists.all(), "recent", limit] as const,
     detail: (id: string) => [...queryKeys.playlists.all(), id] as const,
-    songs: (playlistId: string) => ["playlist", "songs", getDataSourceKey(), playlistId] as const,
+    songs: (playlistId: string) => ["playlists", playlistId, "songs"] as const,
   },
 
   // search

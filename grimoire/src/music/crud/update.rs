@@ -12,10 +12,12 @@ use crate::music::crud::create_or_update::{
     get_current_album_for_song, get_current_artist_for_song,
 };
 use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
+use crate::music::entities::albums::get_album;
+use crate::music::entities::artists::get_artist;
+use crate::music::entities::songs;
 use crate::music::entities::tags::{
     add_albums_tags, find_or_create_tags, remove_albums_tags, replace_albums_tags,
 };
-use crate::music::entities::songs;
 use crate::response::GrimoireResponse;
 
 /// update songs with optional fields and relationships
@@ -52,10 +54,27 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
     // resolve relationships first (find or create once, reuse for all songs)
     // track whether artist was explicitly provided (before moving req.artist)
-    let artist_explicitly_provided = req.artist.is_some();
+    let artist_explicitly_provided = req.artist.is_some() || req.artist_id.is_some();
 
-    // resolve artist: either from request, or get current artist if we need it for album scoping
-    let artist = if let Some(artist_req) = req.artist {
+    // resolve artist: prefer artist_id (direct lookup), then artist (name-based find_or_create),
+    // then fall back to current artist if album is changing
+    let artist = if let Some(ref artist_id) = req.artist_id {
+        // artist_id provided — fetch directly by ID
+        let response = get_artist(artist_id).await;
+        match response.data {
+            Some(artist) => Some(artist),
+            None => {
+                return GrimoireResponse::failure(
+                    &format!("artist not found: {}", artist_id),
+                    vec![ErrorDetail::new(
+                        "artist_not_found",
+                        "Artist Not Found",
+                        &format!("no artist with id '{}'", artist_id),
+                    )],
+                );
+            }
+        }
+    } else if let Some(artist_req) = req.artist {
         // user is explicitly changing the artist
         let import_req = ArtistImportRequest {
             name: artist_req.name,
@@ -80,8 +99,8 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 return GrimoireResponse::failure("Failed to update songs", errors);
             }
         }
-    } else if req.album.is_some() {
-        // user is changing album but not artist - need current artist for scoping
+    } else if req.album.is_some() && req.album_id.is_none() {
+        // user is changing album by name but not artist - need current artist for scoping
         match get_current_artist_for_song(&req.song_ids[0]).await {
             Ok(Some(artist)) => Some(artist),
             Ok(None) => {
@@ -141,8 +160,25 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         None
     };
 
-    // handle album: if artist changed, need to get current album title and re-scope it
-    let album = if let Some(album_req) = req.album {
+    // handle album: prefer album_id (direct lookup), then album (name-based find_or_create),
+    // then re-scope current album if artist changed
+    let album = if let Some(ref album_id) = req.album_id {
+        // album_id provided — fetch directly by ID, skip find_or_create
+        let response = get_album(album_id).await;
+        match response.data {
+            Some(album) => Some(album),
+            None => {
+                return GrimoireResponse::failure(
+                    &format!("album not found: {}", album_id),
+                    vec![ErrorDetail::new(
+                        "album_not_found",
+                        "Album Not Found",
+                        &format!("no album with id '{}'", album_id),
+                    )],
+                );
+            }
+        }
+    } else if let Some(album_req) = req.album {
         // user explicitly provided new album
         if let Some(ref artist) = artist {
             let import_req = AlbumImportRequest {
@@ -184,7 +220,10 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     album_type: current_album.album_type.clone().into(),
                     release_date: current_album.release_date.clone(),
                     label: current_album.label.clone(),
-                    genre_ids: current_album.genres.as_ref().map(|g| g.0.iter().map(|r| r.id.clone()).collect()),
+                    genre_ids: current_album
+                        .genres
+                        .as_ref()
+                        .map(|g| g.0.iter().map(|r| r.id.clone()).collect()),
                     created_by: req.updated_by.clone(),
                 };
                 match find_or_create_album_for_artist(import_req, &new_artist.id).await {
@@ -234,6 +273,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         || req.track_number.is_some()
         || req.disc_number.is_some()
         || req.duration.is_some()
+        || req.track_artist.is_some()
         || req.year.is_some()
         || req.bpm.is_some()
         || req.lyrics.is_some()
@@ -255,6 +295,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                     disc_number = COALESCE(?, disc_number),
                     duration = COALESCE(?, duration),
                     bpm = COALESCE(?, bpm),
+                    track_artist = COALESCE(?, track_artist),
                     lyrics = COALESCE(?, lyrics),
                     metadata = CASE
                         WHEN ? IS NOT NULL THEN json_patch(COALESCE(metadata, '{}'), ?)
@@ -268,6 +309,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 req.disc_number,
                 req.duration,
                 req.bpm,
+                req.track_artist,
                 req.lyrics,
                 metadata_str,
                 metadata_str,

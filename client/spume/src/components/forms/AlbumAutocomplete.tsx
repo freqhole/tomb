@@ -3,13 +3,7 @@
 // optionally filters by artist_id to show only albums by that artist
 
 import { Combobox } from "@kobalte/core/combobox";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  Show,
-  type Accessor,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, Show, type Accessor } from "solid-js";
 import type { AlbumSummary } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useAlbumAutocompleteQuery } from "../../music/queries/autocomplete";
@@ -34,6 +28,8 @@ export interface AlbumAutocompleteProps {
   class?: string;
   /** hint text */
   hint?: string;
+  /** custom label for the "create new" option (default: "create new: {input}") */
+  newLabel?: (input: string) => string;
 }
 
 interface AlbumOption {
@@ -53,7 +49,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
   const [localValue, setLocalValue] = createSignal<AlbumOption | undefined>(
     props.value && props.value.trim().length > 0
       ? { value: props.value, label: props.value }
-      : undefined,
+      : undefined
   );
 
   // sync local value when props.value changes (e.g., on reset)
@@ -67,9 +63,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
   });
 
   // track what user is typing for query purposes
-  const [searchInput, setSearchInput] = createSignal<string | undefined>(
-    undefined,
-  );
+  const [searchInput, setSearchInput] = createSignal<string | undefined>(undefined);
 
   // query albums based on what user types, optionally filtered by artist
   const albumQuery = useAlbumAutocompleteQuery(searchInput, props.artistId);
@@ -100,16 +94,16 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
       results.unshift(currentVal);
     }
 
-    // add "create new" option if no exact match
+    // add "create new" / "rename to" option if input doesn't exactly match an existing title
+    // (case-sensitive so users can change casing, e.g. "best of" -> "Best Of")
     const input = searchInput();
     if (input && input.trim().length > 0) {
-      const exactMatch = items.find(
-        (item) => item.title.toLowerCase() === input.trim().toLowerCase(),
-      );
+      const exactMatch = items.find((item) => item.title === input.trim());
       if (!exactMatch) {
+        const label = props.newLabel ? props.newLabel(input.trim()) : `create new: ${input.trim()}`;
         results.unshift({
           value: input.trim(),
-          label: `create new: ${input.trim()}`,
+          label,
           isNew: true,
         });
       }
@@ -156,16 +150,12 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
             <div class="flex-1 min-w-0">
               <Show when={props.item.rawValue.isNew}>
                 <div class="text-sm font-medium">
-                  <Combobox.ItemLabel>
-                    {props.item.rawValue.label}
-                  </Combobox.ItemLabel>
+                  <Combobox.ItemLabel>{props.item.rawValue.label}</Combobox.ItemLabel>
                 </div>
               </Show>
               <Show when={!props.item.rawValue.isNew}>
                 <div class="text-sm">
-                  <Combobox.ItemLabel>
-                    {props.item.rawValue.value}
-                  </Combobox.ItemLabel>
+                  <Combobox.ItemLabel>{props.item.rawValue.value}</Combobox.ItemLabel>
                 </div>
                 <div class="text-xs text-[var(--color-text-tertiary)]">
                   {props.item.rawValue.artistName}

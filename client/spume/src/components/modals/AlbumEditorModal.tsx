@@ -1,24 +1,24 @@
 // album editor modal - edit album metadata
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import type { ImageMetadata } from "../../music/services/storage/types";
-import { updateAlbum } from "../../music/services/storage/db";
+import * as apiClient from "freqhole-api-client";
+import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../utils/jobs";
-import { queryClient } from "../../queryClient";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
+import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
 import { GenreAutocomplete } from "../forms/GenreAutocomplete";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
-import MediaImage from "../media/MediaImage";
 import { EntityImages } from "../layout/EntityImages";
+import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { pushModal, popModal } from "../../music/modals";
 import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
@@ -31,6 +31,108 @@ interface AlbumEditorModalProps {
   disableNestedModals?: boolean;
   /** callback to open song editor modal */
   onOpenSongEditor?: (songId: string) => void;
+  /** called after a successful merge with the target album id, so callers can navigate */
+  onMergeNavigate?: (newAlbumId: string) => void;
+}
+
+// inline component for bulk-setting disc number on all songs in an album
+function DiscNumberBulkAction(props: { songs: Song[]; onUpdated: () => void }) {
+  const [editing, setEditing] = createSignal(false);
+  const [discNum, setDiscNum] = createSignal("");
+  const [applying, setApplying] = createSignal(false);
+
+  const currentDisc = () => {
+    const discs = new Set(props.songs.map((s) => s.disc_number || 1));
+    return discs.size === 1 ? [...discs][0] : null;
+  };
+
+  const handleApply = async () => {
+    const num = parseInt(discNum(), 10);
+    if (isNaN(num) || num < 1) {
+      toast.error("enter a valid disc number");
+      return;
+    }
+
+    const remote = getCurrentRemote();
+    if (!remote?.base_url) return;
+
+    setApplying(true);
+    try {
+      // single API call — updateSongs applies same disc_number to all song_ids
+      const result = await apiClient.music.updateSongs(remote.base_url, {
+        song_ids: props.songs.map((s) => s.id),
+        disc_number: num,
+        title: null,
+        track_number: null,
+        artist_name: null,
+        album_title: null,
+        year: null,
+        duration: null,
+        bpm: null,
+        lyrics: null,
+        genre: null,
+        entity_urls: null,
+        user_id: null,
+        updated_by: null,
+      } as any);
+
+      if (result.success) {
+        toast.success(`set disc number to ${num} for ${props.songs.length} songs`);
+        props.onUpdated();
+        setEditing(false);
+      } else {
+        toast.error("failed to update disc number");
+      }
+    } catch (err) {
+      console.error("failed to update disc number:", err);
+      toast.error("failed to update disc number");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return (
+    <Show
+      when={editing()}
+      fallback={
+        <button
+          onClick={() => {
+            const cur = currentDisc();
+            setDiscNum(cur ? String(cur) : "1");
+            setEditing(true);
+          }}
+          class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+        >
+          set disc #
+        </button>
+      }
+    >
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-[var(--color-text-tertiary)]">disc</span>
+        <input
+          type="number"
+          min="1"
+          value={discNum()}
+          onInput={(e) => setDiscNum(e.currentTarget.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleApply()}
+          class="w-12 px-1.5 py-0.5 text-xs bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] text-center"
+        />
+        <button
+          onClick={handleApply}
+          disabled={applying()}
+          class="text-xs text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] disabled:opacity-50"
+        >
+          {applying() ? "..." : "apply all"}
+        </button>
+        <button
+          onClick={() => setEditing(false)}
+          class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+        >
+          cancel
+        </button>
+      </div>
+    </Show>
+  );
 }
 
 interface FormData {
@@ -67,8 +169,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedAlbumId, setLoadedAlbumId] = createSignal<string | null>(null);
-  const [activeTab, setActiveTab] = createSignal<"info" | "images">("info");
+  const [activeTab, setActiveTab] = createSignal<"info" | "images" | "musicbrainz">("info");
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
+
+  // when user picks an existing album from autocomplete, store its ID for merge
+  const [mergeTargetAlbumId, setMergeTargetAlbumId] = createSignal<string | undefined>(undefined);
 
   // entity URLs management
   const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
@@ -79,30 +184,36 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     message: string;
   } | null>(null);
 
+  // helper to sync form state from query data
+  const syncFormFromData = (album: NonNullable<typeof albumQuery.data>, songs: Song[]) => {
+    const firstSong = songs[0];
+    if (!firstSong) return;
+
+    const data: FormData = {
+      title: album.title || "",
+      artist_id: firstSong.artist_id,
+      artist_name: firstSong.artist_name || "",
+      album_type: album.album_type || "album",
+      genre_ids: album.genres?.map((g) => g.id) || [],
+      genres: album.genres?.map((g) => g.name) || [],
+      new_genres: [],
+      release_date: album.release_date || "",
+      label: album.label || "",
+      uploaded_blob_id: null,
+    };
+    setFormData(data);
+    setInitialData(data);
+  };
+
   // initialize form data when album loads or when albumId changes
   createEffect(() => {
     const album = albumQuery.data;
     const songs = songsQuery.data?.items;
     // reinitialize if this is a different album or first load
     if (album && songs && songs.length > 0 && loadedAlbumId() !== props.albumId) {
-      // get artist from first song (albums should have one artist)
-      const firstSong = songs[0];
-
-      const data: FormData = {
-        title: album.title || "",
-        artist_id: firstSong.artist_id,
-        artist_name: firstSong.artist_name || "",
-        album_type: album.album_type || "album",
-        genre_ids: album.genres?.map((g) => g.id) || [],
-        genres: album.genres?.map((g) => g.name) || [],
-        new_genres: [],
-        release_date: album.release_date || "",
-        label: album.label || "",
-        uploaded_blob_id: null,
-      };
-      setFormData(data);
-      setInitialData(data);
+      syncFormFromData(album, songs);
       setLoadedAlbumId(props.albumId);
+      setMergeTargetAlbumId(undefined);
     }
   });
 
@@ -172,6 +283,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.release_date !== initial.release_date ||
       current.label !== initial.label ||
       current.uploaded_blob_id !== null ||
+      mergeTargetAlbumId() !== undefined ||
       urlsChanged()
     );
   });
@@ -181,6 +293,34 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
     const data = formData();
     const initial = initialData();
+    const mergeTarget = mergeTargetAlbumId();
+
+    // if merging into another album, send merge_into_album_id and skip other field updates
+    if (mergeTarget) {
+      try {
+        await updateMutation.mutateAsync({
+          album_id: props.albumId,
+          merge_into_album_id: mergeTarget,
+        });
+
+        // invalidate before closing so the UI refreshes even if the modal unmounts
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(mergeTarget) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(mergeTarget) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() }),
+        ]);
+
+        props.onSave?.();
+        props.onMergeNavigate?.(mergeTarget);
+        props.onClose();
+      } catch (error) {
+        console.error("failed to merge album:", error);
+      }
+      return;
+    }
 
     // determine if genres changed (either IDs or new genres added)
     const genresChanged =
@@ -212,6 +352,16 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
           : undefined,
       });
 
+      // invalidate before closing so the UI refreshes even if the modal unmounts
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(props.albumId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(props.albumId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() }),
+      ]);
+
       props.onSave?.();
       props.onClose();
     } catch (error) {
@@ -225,6 +375,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     if (initial) {
       setFormData({ ...initial });
       setImagePreview(null);
+      setMergeTargetAlbumId(undefined);
     }
   };
 
@@ -267,6 +418,20 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       ...prev,
       [field]: initial[field],
     }));
+
+    // also reset merge target when resetting title
+    if (field === "title") {
+      setMergeTargetAlbumId(undefined);
+    }
+
+    // reset both artist fields together
+    if (field === "artist_name" || field === "artist_id") {
+      setFormData((prev) => ({
+        ...prev,
+        artist_id: initial.artist_id,
+        artist_name: initial.artist_name,
+      }));
+    }
 
     if (field === "uploaded_blob_id") {
       setImagePreview(null);
@@ -410,7 +575,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       class="fixed inset-0 bg-black/50 flex items-center justify-center"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
     >
-      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90vh] md:h-[600px] overflow-hidden flex flex-col">
+      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90vh] md:h-[85vh] overflow-hidden flex flex-col">
         {/* header */}
         <div class="flex items-center justify-between p-6">
           <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit album</h2>
@@ -439,6 +604,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <TabList class="px-6">
               <Tab id="info" label="info" />
               <Tab id="images" label="images" badge={images().length || undefined} />
+              <Tab id="musicbrainz" label="musicbrainz" />
             </TabList>
 
             <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
@@ -457,17 +623,33 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                     </button>
                   </Show>
                 </div>
-                <TextInput
+                <AlbumAutocomplete
                   value={formData().title}
-                  onInput={(e) =>
+                  onSelect={(selection) => {
                     setFormData((prev) => ({
                       ...prev,
-                      title: e.currentTarget.value,
-                    }))
-                  }
+                      title: selection.title,
+                    }));
+                    // if user picked an existing album (not the current one), it's a merge
+                    if (selection.id && selection.id !== props.albumId) {
+                      setMergeTargetAlbumId(selection.id);
+                    } else {
+                      setMergeTargetAlbumId(undefined);
+                    }
+                  }}
                   placeholder="album title"
-                  class="w-full"
+                  newLabel={(input) => `rename to: ${input}`}
                 />
+                <Show when={mergeTargetAlbumId()}>
+                  <p class="text-xs text-yellow-500">
+                    this will merge all songs into the selected album and delete this one
+                  </p>
+                </Show>
+                <Show when={!mergeTargetAlbumId() && formData().title !== initialData()?.title}>
+                  <p class="text-xs text-[var(--color-text-tertiary)]">
+                    this will rename the album
+                  </p>
+                </Show>
               </div>
 
               {/* artist */}
@@ -502,6 +684,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                     }))
                   }
                   placeholder="artist name"
+                  newLabel={(input) => `rename to: ${input}`}
                 />
                 <p class="text-xs text-[var(--color-text-tertiary)]">
                   changing the artist will move all songs to a different album scoped to that artist
@@ -641,9 +824,20 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
               {/* songs list */}
               <div class="space-y-2">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  songs in album ({songs().length})
-                </label>
+                <div class="flex items-center justify-between">
+                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                    songs in album ({songs().length})
+                  </label>
+                  <Show when={songs().length > 0}>
+                    <DiscNumberBulkAction
+                      songs={songs()}
+                      onUpdated={() => {
+                        songsQuery.refetch();
+                        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+                      }}
+                    />
+                  </Show>
+                </div>
                 <div class="bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
                   <Show
                     when={songs().length > 0}
@@ -658,7 +852,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                         <div class="flex items-center justify-between p-3 hover:bg-[var(--color-bg-hover)] group">
                           <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
-                              <span class="text-xs text-[var(--color-text-tertiary)] w-8 flex-shrink-0">
+                              <span class="text-xs text-[var(--color-text-tertiary)] w-8 flex-shrink-0 text-right">
+                                <span class="opacity-50">{song.disc_number || 1}.</span>
                                 {song.track_number}
                               </span>
                               <span class="text-sm text-[var(--color-text-primary)] truncate flex-1">
@@ -702,6 +897,40 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 onDelete={handleRemoveImage}
                 onSetPrimary={handleTogglePrimary}
                 uploading={!!processingJob()}
+              />
+            </TabPanel>
+
+            <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
+              <MusicBrainzPanel
+                albumId={props.albumId}
+                albumTitle={formData().title}
+                artistId={formData().artist_id || ""}
+                artistName={formData().artist_name}
+                albumType={formData().album_type}
+                releaseDate={formData().release_date || undefined}
+                label={formData().label || undefined}
+                genres={formData().genres}
+                songs={songs()}
+                onAlbumUpdated={async () => {
+                  // invalidate broad query families so all views update
+                  queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
+                  queryClient.invalidateQueries({
+                    queryKey: queryKeys.albums.songs(props.albumId),
+                  });
+                  queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+
+                  // refetch this modal's data and re-sync form when done
+                  const [albumResult, songsResult] = await Promise.all([
+                    albumQuery.refetch(),
+                    songsQuery.refetch(),
+                  ]);
+                  if (albumResult.data && songsResult.data?.items?.length) {
+                    syncFormFromData(albumResult.data, songsResult.data.items);
+                  }
+                }}
               />
             </TabPanel>
           </Tabs>

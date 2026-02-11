@@ -13,6 +13,7 @@ use crate::music::musicbrainz::{
 use crate::response::GrimoireResponse;
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
+use std::error::Error as StdError;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, warn};
@@ -118,7 +119,8 @@ impl MusicBrainzClient {
     /// Get specific release by MusicBrainz ID
     pub async fn get_release(&self, mbid: &str) -> GrimoireResponse<Release> {
         let url = format!("{}/release/{}", BASE_URL, mbid);
-        let query_string = "fmt=json&inc=artist-credits+recordings+media+release-groups";
+        let query_string =
+            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres";
 
         debug!("Fetching release: {}", mbid);
 
@@ -226,8 +228,6 @@ impl MusicBrainzClient {
         }
 
         // Respect rate limiting
-        self.rate_limiter.wait_if_needed().await;
-
         let full_url = if query_string.is_empty() {
             url.to_string()
         } else {
@@ -239,13 +239,51 @@ impl MusicBrainzClient {
         let mut retries = 0;
 
         loop {
-            let response = self
+            // respect rate limiting before each attempt
+            self.rate_limiter.wait_if_needed().await;
+
+            let response = match self
                 .client
                 .get(&full_url)
                 .header("Accept", "application/json")
                 .send()
                 .await
-                .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    // connection-level errors (resets, timeouts) — retry with backoff
+                    let is_timeout = e.is_timeout();
+                    let is_connect = e.is_connect();
+                    let source_chain = {
+                        let mut chain = vec![e.to_string()];
+                        let mut source = e.source();
+                        while let Some(s) = source {
+                            chain.push(s.to_string());
+                            source = s.source();
+                        }
+                        chain.join(" -> ")
+                    };
+
+                    if retries < MAX_RETRIES {
+                        retries += 1;
+                        let backoff = Duration::from_secs(2_u64.pow(retries));
+                        warn!(
+                            "connection error (attempt {}/{}), retrying in {:?}: {}",
+                            retries, MAX_RETRIES, backoff, source_chain
+                        );
+                        tokio::time::sleep(backoff).await;
+                        continue;
+                    }
+
+                    error!(
+                        "request failed after {} retries: timeout={} connect={} | {}",
+                        MAX_RETRIES, is_timeout, is_connect, source_chain
+                    );
+                    // treat exhausted connection errors as rate limiting
+                    // (musicbrainz resets connections when overloaded)
+                    return Err(GrimoireError::MusicBrainzRateLimit);
+                }
+            };
 
             match self.handle_response(response).await {
                 Ok(result) => return Ok(result),
@@ -283,8 +321,9 @@ impl MusicBrainzClient {
                 error!("Response body: {}", body);
                 GrimoireError::Serialization(e)
             })
-        } else if status.as_u16() == 429 {
-            warn!("Rate limit exceeded (429)");
+        } else if status.as_u16() == 429 || status.as_u16() == 503 {
+            // musicbrainz uses both 429 and 503 for rate limiting
+            warn!("Rate limit exceeded ({})", status.as_u16());
             Err(GrimoireError::MusicBrainzRateLimit)
         } else if status.as_u16() == 404 {
             Err(GrimoireError::MusicBrainzNoResults)

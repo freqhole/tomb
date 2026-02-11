@@ -13,7 +13,7 @@ import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { getCurrentRemote, getDataSource } from "../data";
-import { showAlbumEditor } from "../modals";
+import { showAlbumEditor, showImageCarousel } from "../modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -166,6 +166,48 @@ export function AlbumDetailView() {
     );
   });
 
+  // open image carousel with all album + song images (no waveforms)
+  const handleAlbumImageClick = () => {
+    const imageUrls: string[] = [];
+    const seen = new Set<string>();
+
+    const addImage = (img: { remote_url?: string; local_blob_id?: string; blob_type: string }) => {
+      if (img.blob_type === "waveform") return;
+      const url = img.remote_url || img.local_blob_id;
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        imageUrls.push(url);
+      }
+    };
+
+    // album images from the album entity (same source as edit modal)
+    const albumImages = albumQuery.data?.images;
+    if (albumImages?.length) {
+      for (const img of albumImages) addImage(img);
+    }
+
+    // also collect from song-level album_images as fallback
+    const songList = songs();
+    const firstSongAlbumImages = songList[0]?.album_images;
+    if (firstSongAlbumImages?.length) {
+      for (const img of firstSongAlbumImages) addImage(img);
+    }
+
+    // collect song images across all songs
+    for (const song of songList) {
+      if (song.images?.length) {
+        for (const img of song.images) addImage(img);
+      }
+    }
+
+    if (imageUrls.length === 0) return;
+
+    showImageCarousel({
+      images: imageUrls,
+      title: `${albumInfo()?.title || "album"} images`,
+    });
+  };
+
   // context menu for song rows
   const getSongContextMenuActions = (song: Song) => {
     return useSongContextMenu(song, {
@@ -184,7 +226,10 @@ export function AlbumDetailView() {
               <div class="flex flex-col md:flex-row gap-4 md:gap-6 p-4 md:p-6">
                 {/* album artwork */}
                 <ContextMenu actions={albumContextMenuActions()}>
-                  <div class="w-32 h-32 md:w-48 md:h-48 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <div
+                    class="w-32 h-32 md:w-48 md:h-48 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer"
+                    onClick={handleAlbumImageClick}
+                  >
                     <MediaImage
                       images={songs()[0]?.album_images}
                       imageUrl={albumArtworkUrl() || null}
@@ -256,7 +301,12 @@ export function AlbumDetailView() {
                       <span class="md:hidden">play</span>
                     </Button>
                     <button
-                      onClick={() => showAlbumEditor({ albumId: info().album_id || params.id })}
+                      onClick={() =>
+                        showAlbumEditor({
+                          albumId: info().album_id || params.id,
+                          onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
+                        })
+                      }
                       class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
                       title="edit album info"
                     >
