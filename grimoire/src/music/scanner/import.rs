@@ -10,6 +10,7 @@
 //! - URL extraction from comment tags
 
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
+use crate::config::get_config;
 use crate::jobs::JobError;
 use crate::music::crud::{
     add_entity_url, add_song, extract_url_domain_label, extract_urls_from_text, ImportSongRequest,
@@ -17,6 +18,7 @@ use crate::music::crud::{
 use lofty::{AudioFile, FileType, ItemValue, Probe, TaggedFileExt};
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 
 use super::filename_parser::parse_filename;
 
@@ -76,9 +78,10 @@ pub async fn extract_and_import(
     let tagged_file = match Probe::open(file_path).and_then(|p| p.read()) {
         Ok(file) => file,
         Err(e) => {
-            println!(
+            tracing::info!(
                 "warning: could not read metadata from {:?}: {}",
-                file_path, e
+                file_path,
+                e
             );
             // Fall back to basic song record with filename
             return import_basic(media_blob_id, file_path).await;
@@ -168,7 +171,7 @@ pub async fn extract_and_import(
         MediaEvent::new(media_blob_id.to_string(), MediaEventType::Add).with_event_data(event_data);
 
     if let Err(e) = record_event(&media_event).await {
-        eprintln!(
+        tracing::warn!(
             "Warning: Failed to record analytics event for song import: {}",
             e
         );
@@ -337,7 +340,22 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
         album_title,
         track_number,
         disc_number,
-        duration_ms: Some(duration_ms),
+        duration_ms: if duration_ms > 0 {
+            Some(duration_ms)
+        } else {
+            // lofty returned 0 duration - try ffprobe fallback
+            match get_duration_via_ffprobe(file_path) {
+                Some(ms) => {
+                    tracing::debug!(
+                        "info: used ffprobe fallback for duration of {:?} ({}ms)",
+                        file_path,
+                        ms
+                    );
+                    Some(ms)
+                }
+                None => Some(duration_ms),
+            }
+        },
         year,
         genre,
         lyrics,
@@ -368,6 +386,19 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
     let album_title = filename_data.album.clone();
     let track_number = filename_data.track_number.unwrap_or(1);
 
+    // try to get file properties via ffprobe (duration, bitrate, sample rate, etc.)
+    let ffprobe = get_ffprobe_properties(file_path);
+    let duration = ffprobe.as_ref().and_then(|p| p.duration_ms);
+    let metadata_json = ffprobe.as_ref().and_then(|p| {
+        if p.file_props.is_empty() {
+            None
+        } else {
+            let mut meta = serde_json::Map::new();
+            meta.insert("file".to_string(), serde_json::json!(p.file_props));
+            serde_json::to_string(&meta).ok()
+        }
+    });
+
     let import_request = ImportSongRequest {
         media_blob_id: media_blob_id.to_string(),
         title,
@@ -376,16 +407,17 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
         genre_name: None,
         track_number,
         disc_number: 1,
-        duration: None,
+        duration,
         year: None,
         bpm: None,
         track_artist: None,
-        metadata: None,
+        metadata: metadata_json,
         lyrics: None,
         created_by: Some("job_processor".to_string()),
         is_compilation: false,
     };
 
+    let used_ffprobe = ffprobe.is_some();
     let response = add_song(import_request).await;
 
     let result = if response.success {
@@ -408,14 +440,15 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
         "source": "job_processor",
         "file_path": file_path.to_string_lossy(),
         "metadata_extracted": false,
-        "used_filename_parsing": has_filename_data
+        "used_filename_parsing": has_filename_data,
+        "used_ffprobe": used_ffprobe
     });
 
     let media_event =
         MediaEvent::new(media_blob_id.to_string(), MediaEventType::Add).with_event_data(event_data);
 
     if let Err(e) = record_event(&media_event).await {
-        eprintln!(
+        tracing::warn!(
             "Warning: Failed to record analytics event for song import: {}",
             e
         );
@@ -506,7 +539,165 @@ fn format_file_type(file_type: FileType) -> String {
         _ => format!("{:?}", file_type),
     }
 }
+/// try to get audio duration using ffprobe as a fallback.
+/// returns duration in milliseconds, or None if ffprobe is not configured or fails.
+fn get_duration_via_ffprobe(file_path: &Path) -> Option<i64> {
+    let config = get_config();
+    let ffprobe_path = config.media.ffprobe_path.as_ref()?;
 
+    let mut args = shell_words::split(&config.media.ffprobe_duration_args).ok()?;
+
+    // replace {input} placeholder in parsed args
+    for arg in args.iter_mut() {
+        if arg.contains("{input}") {
+            *arg = arg.replace("{input}", &file_path.to_string_lossy());
+        }
+    }
+
+    let output = Command::new(ffprobe_path).args(&args).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let seconds: f64 = stdout.trim().parse().ok()?;
+    let ms = (seconds * 1000.0) as i64;
+
+    if ms > 0 {
+        Some(ms)
+    } else {
+        None
+    }
+}
+
+/// file properties extracted via ffprobe (used when lofty can't read the file)
+#[derive(Debug, Clone)]
+struct FfprobeProperties {
+    duration_ms: Option<i64>,
+    file_props: HashMap<String, serde_json::Value>,
+}
+
+/// get full file properties via ffprobe JSON output.
+/// returns duration and file properties (bitrate, sample rate, channels, format, etc.)
+/// or None if ffprobe is not configured or fails.
+fn get_ffprobe_properties(file_path: &Path) -> Option<FfprobeProperties> {
+    let config = get_config();
+    let ffprobe_path = config.media.ffprobe_path.as_ref()?;
+
+    let mut args = shell_words::split(&config.media.ffprobe_properties_args).ok()?;
+
+    // replace {input} placeholder in parsed args
+    for arg in args.iter_mut() {
+        if arg.contains("{input}") {
+            *arg = arg.replace("{input}", &file_path.to_string_lossy());
+        }
+    }
+
+    let output = Command::new(ffprobe_path).args(&args).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+
+    let mut file_props = HashMap::new();
+
+    // extract from format section
+    let format = json.get("format")?;
+
+    // duration
+    let duration_ms = format
+        .get("duration")
+        .and_then(|d| d.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|s| (s * 1000.0) as i64)
+        .filter(|&ms| ms > 0);
+
+    if let Some(ms) = duration_ms {
+        file_props.insert("duration_ms".to_string(), serde_json::json!(ms));
+    }
+
+    // overall bitrate (bps -> kbps)
+    if let Some(bitrate) = format
+        .get("bit_rate")
+        .and_then(|b| b.as_str())
+        .and_then(|s| s.parse::<u64>().ok())
+    {
+        file_props.insert(
+            "bitrate_kbps".to_string(),
+            serde_json::json!(bitrate / 1000),
+        );
+    }
+
+    // format name
+    if let Some(format_name) = format.get("format_long_name").and_then(|f| f.as_str()) {
+        file_props.insert("format".to_string(), serde_json::json!(format_name));
+    } else if let Some(format_name) = format.get("format_name").and_then(|f| f.as_str()) {
+        file_props.insert("format".to_string(), serde_json::json!(format_name));
+    }
+
+    // extract from first audio stream
+    if let Some(streams) = json.get("streams").and_then(|s| s.as_array()) {
+        if let Some(audio_stream) = streams
+            .iter()
+            .find(|s| s.get("codec_type").and_then(|t| t.as_str()) == Some("audio"))
+        {
+            // codec name (e.g. "aac", "mp3", "flac")
+            if let Some(codec) = audio_stream.get("codec_name").and_then(|c| c.as_str()) {
+                file_props.insert("codec".to_string(), serde_json::json!(codec));
+            }
+
+            // sample rate
+            if let Some(sample_rate) = audio_stream
+                .get("sample_rate")
+                .and_then(|s| s.as_str())
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                file_props.insert("sample_rate_hz".to_string(), serde_json::json!(sample_rate));
+            }
+
+            // channels
+            if let Some(channels) = audio_stream.get("channels").and_then(|c| c.as_u64()) {
+                file_props.insert("channels".to_string(), serde_json::json!(channels));
+            }
+
+            // audio stream bitrate (bps -> kbps)
+            if let Some(audio_bitrate) = audio_stream
+                .get("bit_rate")
+                .and_then(|b| b.as_str())
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                file_props.insert(
+                    "audio_bitrate_kbps".to_string(),
+                    serde_json::json!(audio_bitrate / 1000),
+                );
+            }
+
+            // bit depth (bits_per_raw_sample or bits_per_sample)
+            let bit_depth = audio_stream
+                .get("bits_per_raw_sample")
+                .and_then(|b| b.as_str())
+                .and_then(|s| s.parse::<u64>().ok())
+                .or_else(|| audio_stream.get("bits_per_sample").and_then(|b| b.as_u64()));
+            if let Some(bd) = bit_depth {
+                if bd > 0 {
+                    file_props.insert("bit_depth".to_string(), serde_json::json!(bd));
+                }
+            }
+        }
+    }
+
+    // mark that properties came from ffprobe
+    file_props.insert("source".to_string(), serde_json::json!("ffprobe"));
+
+    Some(FfprobeProperties {
+        duration_ms,
+        file_props,
+    })
+}
 /// extract all non-empty tags from the tagged file
 fn extract_all_tags(tagged_file: &lofty::TaggedFile) -> HashMap<String, String> {
     let mut tags = HashMap::new();

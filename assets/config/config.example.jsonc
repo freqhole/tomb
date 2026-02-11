@@ -54,6 +54,19 @@
     "extract_album_art_args": "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}",
     "generate_waveform_args": "-i {input} -filter_complex \"color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto\" -frames:v 1 -y {output}",
 
+    // ffprobe fallback for duration extraction (OPTIONAL)
+    // when lofty can't determine audio duration (e.g. for WMA, some m4a, opus-in-ogg),
+    // ffprobe is used as a fallback to extract the duration from the file.
+    // if ffprobe_path is omitted or null, the fallback is skipped and duration will be null.
+    // ffprobe is part of the ffmpeg suite - install ffmpeg to get it.
+    //
+    // the command executed will be: <ffprobe_path> <args with {input} replaced>
+    // ffprobe_duration_args: output must be a single line with duration in seconds (e.g. "234.567")
+    // ffprobe_properties_args: output must be JSON with format and streams sections
+    "ffprobe_path": "ffprobe",
+    "ffprobe_duration_args": "-v quiet -show_entries format=duration -of csv=p=0 {input}",
+    "ffprobe_properties_args": "-v quiet -print_format json -show_format -show_streams {input}",
+
     // Duplicate detection during scan
     // Skip importing songs that match existing songs (same artist, album, title, track/disc number, similar duration)
     "skip_duplicates": true,

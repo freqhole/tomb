@@ -52,6 +52,18 @@ pub struct MediaConfig {
     /// Path to ffmpeg binary
     #[serde(default = "default_ffmpeg_path")]
     pub ffmpeg_path: String,
+    /// Path to ffprobe binary (optional, used as fallback for duration extraction
+    /// when lofty can't determine duration). if not set, the fallback is skipped.
+    #[serde(default)]
+    pub ffprobe_path: Option<String>,
+    /// Args for extracting duration via ffprobe (placeholder: {input})
+    /// output must be a single line with duration in seconds (float).
+    #[serde(default = "default_ffprobe_duration_args")]
+    pub ffprobe_duration_args: String,
+    /// Args for extracting file properties via ffprobe (placeholder: {input})
+    /// output must be JSON with format and streams sections.
+    #[serde(default = "default_ffprobe_properties_args")]
+    pub ffprobe_properties_args: String,
     /// Args for extracting album art (placeholders: {input}, {output})
     #[serde(default = "default_extract_album_art_args")]
     pub extract_album_art_args: String,
@@ -68,6 +80,14 @@ pub struct MediaConfig {
 
 fn default_ffmpeg_path() -> String {
     "ffmpeg".to_string()
+}
+
+fn default_ffprobe_duration_args() -> String {
+    "-v quiet -show_entries format=duration -of csv=p=0 {input}".to_string()
+}
+
+fn default_ffprobe_properties_args() -> String {
+    "-v quiet -print_format json -show_format -show_streams {input}".to_string()
 }
 
 fn default_extract_album_art_args() -> String {
@@ -403,6 +423,9 @@ mod tests {
                 },
                 genres: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
+                ffprobe_path: None,
+                ffprobe_duration_args: default_ffprobe_duration_args(),
+                ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
                 generate_waveform_args: "--whatever".to_string(),
                 generate_scan_duplicate_report: false,
@@ -437,6 +460,9 @@ mod tests {
                 },
                 genres: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
+                ffprobe_path: None,
+                ffprobe_duration_args: default_ffprobe_duration_args(),
+                ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
                 generate_waveform_args: "--whatever".to_string(),
                 generate_scan_duplicate_report: false,
@@ -469,6 +495,9 @@ mod tests {
                 },
                 genres: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
+                ffprobe_path: None,
+                ffprobe_duration_args: default_ffprobe_duration_args(),
+                ffprobe_properties_args: default_ffprobe_properties_args(),
                 extract_album_art_args: "--whatever".to_string(),
                 generate_waveform_args: "--whatever".to_string(),
                 generate_scan_duplicate_report: false,

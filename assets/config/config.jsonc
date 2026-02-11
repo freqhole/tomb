@@ -23,10 +23,15 @@
     "max_fs_file_size": 1073741824,
 
     // Supported audio file formats for scanning
-    "supported_audio_formats": ["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "aiff", "ape", "wv"],
+    "supported_audio_formats": ["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "aif", "aiff"],
 
     // FFmpeg configuration for audio processing (album art, waveforms)
     "ffmpeg_path": "ffmpeg",
+    // ffprobe fallback for duration when lofty can't determine it (e.g. WMA, some m4a)
+    // remove or set to null to disable the fallback
+    "ffprobe_path": "ffprobe",
+    "ffprobe_duration_args": "-v quiet -show_entries format=duration -of csv=p=0 {input}",
+    "ffprobe_properties_args": "-v quiet -print_format json -show_format -show_streams {input}",
     "extract_album_art_args": "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}",
     "generate_waveform_args": "-i {input} -filter_complex \"color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto\" -frames:v 1 -y {output}",
 
