@@ -23,7 +23,25 @@
 
     // Automatically run database migrations on startup
     // Set to false if you want to run migrations manually
-    "auto_run_migrations": true
+    "auto_run_migrations": true,
+
+    // Connection pool settings (OPTIONAL - defaults shown)
+    // each database operation creates a short-lived connection pool.
+    // these settings control pool behavior and can help with slow hardware.
+    //
+    // max_connections: max simultaneous connections to the SQLite file (default: 5)
+    //   SQLite handles one writer at a time, so more connections mostly helps reads.
+    //   lowering this can reduce contention on very slow storage.
+    //
+    // acquire_timeout_seconds: how long to wait for a connection before giving up (default: 120)
+    //   if you see "pool timed out while waiting for an open connection" errors,
+    //   increase this value. the default 120s should be fine for most cases including
+    //   Raspberry Pi, but heavy scan jobs on slow SD cards might need more.
+    //
+    // idle_timeout_seconds: how long idle connections stay open before closing (default: 300)
+    "max_connections": 5,
+    "acquire_timeout_seconds": 120,
+    "idle_timeout_seconds": 300
   },
 
   // Media processing and categorization

@@ -109,10 +109,26 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
         let next_job = match next_job_response.data {
             Some(job_opt) => job_opt,
             None => {
-                return GrimoireResponse::failure(
-                    "failed to get next pending job",
-                    next_job_response.errors,
-                )
+                // log the error but don't kill the processor - this is likely a transient
+                // db pool timeout, especially on slower hardware
+                let error_msgs: Vec<String> = next_job_response
+                    .errors
+                    .iter()
+                    .map(|e| e.detail.clone())
+                    .collect();
+                warn!(
+                    "failed to get next pending job (will retry): {}",
+                    error_msgs.join(", ")
+                );
+                // back off a bit before retrying
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(10)) => {},
+                    _ = cancellation_token.cancelled() => {
+                        info!("shutdown requested during error backoff, stopping job processor");
+                        return GrimoireResponse::success("job processor stopped gracefully", ());
+                    }
+                }
+                continue;
             }
         };
 
@@ -164,10 +180,18 @@ pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
         let next_job = match next_job_response.data {
             Some(job_opt) => job_opt,
             None => {
-                return GrimoireResponse::failure(
-                    "failed to get next pending job",
-                    next_job_response.errors,
-                )
+                // log the error but don't kill the processor - transient db pool timeout
+                let error_msgs: Vec<String> = next_job_response
+                    .errors
+                    .iter()
+                    .map(|e| e.detail.clone())
+                    .collect();
+                warn!(
+                    "failed to get next pending job (will retry): {}",
+                    error_msgs.join(", ")
+                );
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
             }
         };
 

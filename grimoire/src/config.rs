@@ -36,6 +36,16 @@ pub struct DatabaseConfig {
     pub filename: String,
     /// Automatically run migrations on startup
     pub auto_run_migrations: bool,
+    /// Maximum number of connections in the pool (default: 5)
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+    /// Timeout in seconds when acquiring a connection from the pool (default: 120)
+    /// increase this on slower hardware (e.g. Raspberry Pi) to avoid pool timeout errors
+    #[serde(default = "default_acquire_timeout_seconds")]
+    pub acquire_timeout_seconds: u64,
+    /// Idle timeout in seconds before closing unused connections (default: 300)
+    #[serde(default = "default_idle_timeout_seconds")]
+    pub idle_timeout_seconds: u64,
 }
 
 /// Media processing configuration
@@ -76,6 +86,18 @@ pub struct MediaConfig {
     /// Generate CSV report of skipped duplicates during scan
     #[serde(default = "default_generate_scan_duplicate_report")]
     pub generate_scan_duplicate_report: bool,
+}
+
+fn default_max_connections() -> u32 {
+    5
+}
+
+fn default_acquire_timeout_seconds() -> u64 {
+    120
+}
+
+fn default_idle_timeout_seconds() -> u64 {
+    300
 }
 
 fn default_ffmpeg_path() -> String {
@@ -413,6 +435,9 @@ mod tests {
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
                 auto_run_migrations: true,
+                max_connections: default_max_connections(),
+                acquire_timeout_seconds: default_acquire_timeout_seconds(),
+                idle_timeout_seconds: default_idle_timeout_seconds(),
             },
             media: MediaConfig {
                 max_fs_file_size: 1000,
@@ -450,6 +475,9 @@ mod tests {
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
                 auto_run_migrations: true,
+                max_connections: default_max_connections(),
+                acquire_timeout_seconds: default_acquire_timeout_seconds(),
+                idle_timeout_seconds: default_idle_timeout_seconds(),
             },
             media: MediaConfig {
                 max_fs_file_size: 1000,
@@ -485,6 +513,9 @@ mod tests {
             database: DatabaseConfig {
                 filename: "".to_string(),
                 auto_run_migrations: true,
+                max_connections: default_max_connections(),
+                acquire_timeout_seconds: default_acquire_timeout_seconds(),
+                idle_timeout_seconds: default_idle_timeout_seconds(),
             },
             media: MediaConfig {
                 max_fs_file_size: 1000,

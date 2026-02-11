@@ -14,7 +14,15 @@
     // SQLite database filename (stored in data_dir)
     "filename": "grimoire.db",
     // Automatically run migrations on startup
-    "auto_run_migrations": true
+    "auto_run_migrations": true,
+
+    // Connection pool settings
+    // each call to the database creates a short-lived pool; these control its behavior.
+    // increase acquire_timeout_seconds on slower hardware (e.g. Raspberry Pi) if you see
+    // "pool timed out while waiting for an open connection" errors.
+    "max_connections": 5,
+    "acquire_timeout_seconds": 120,
+    "idle_timeout_seconds": 300
   },
 
   // Media processing and categorization

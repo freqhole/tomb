@@ -1,6 +1,7 @@
 //! internal database module - single SQLite database connection
 //! consumers use grimoire apis that handle connections internally
 
+use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
 use crate::config::get_config;
@@ -21,7 +22,16 @@ pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
     }
 
     let connection_string = format!("sqlite:{}?mode=rwc", db_path.display());
-    let pool = SqlitePool::connect(&connection_string).await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(config.database.max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(
+            config.database.acquire_timeout_seconds,
+        ))
+        .idle_timeout(std::time::Duration::from_secs(
+            config.database.idle_timeout_seconds,
+        ))
+        .connect(&connection_string)
+        .await?;
 
     // Configure SQLite settings via PRAGMA statements
     sqlx::query("PRAGMA journal_mode = WAL")
