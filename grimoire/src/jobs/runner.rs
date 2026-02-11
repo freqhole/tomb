@@ -7,7 +7,7 @@ use super::music::{
     process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
     process_rescan_directories_job, process_scan_directory_job,
 };
-use super::service::{get_next_pending_job, mark_job_completed, mark_job_failed, delete_job};
+use super::service::{delete_job, get_next_pending_job, mark_job_completed, mark_job_failed};
 use crate::response::GrimoireResponse;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
