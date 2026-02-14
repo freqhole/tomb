@@ -14,11 +14,7 @@ interface AuthExpiredToastProps {
 // persistent toast shown when a remote's session cookie has expired
 export function AuthExpiredToast(props: AuthExpiredToastProps) {
   return (
-    <KobalteToast
-      toastId={props.toastId}
-      persistent={true}
-      class="toast pointer-events-auto"
-    >
+    <KobalteToast toastId={props.toastId} persistent={true} class="toast pointer-events-auto">
       <div
         class="flex items-start gap-3 p-4 rounded-lg shadow-lg border min-w-[320px] max-w-[420px]"
         style={{

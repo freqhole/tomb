@@ -47,7 +47,9 @@ export function ReauthModal(props: ReauthModalProps) {
         }
 
         const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(startResult.data);
-        const credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
+        const credential = (await navigator.credentials.create(
+          credentialOptions
+        )) as PublicKeyCredential;
 
         if (!credential) {
           throw new Error("failed to create credential");
@@ -70,13 +72,16 @@ export function ReauthModal(props: ReauthModalProps) {
         }
 
         const credentialOptions = apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
-        const credential = (await navigator.credentials.get(credentialOptions)) as PublicKeyCredential;
+        const credential = (await navigator.credentials.get(
+          credentialOptions
+        )) as PublicKeyCredential;
 
         if (!credential) {
           throw new Error("failed to get credential");
         }
 
-        const serializedCredential = apiClient.webauthn.serializeAuthenticationCredential(credential);
+        const serializedCredential =
+          apiClient.webauthn.serializeAuthenticationCredential(credential);
         const finishResult = await apiClient.auth.loginFinish(baseUrl, serializedCredential);
 
         if (!finishResult.success) {
