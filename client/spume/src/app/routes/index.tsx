@@ -1,8 +1,13 @@
 import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import { onMount } from "solid-js";
+import { createEffect, createSignal, onMount, Show } from "solid-js";
+import * as apiClient from "freqhole-api-client";
 import { useLocalSource, useRemoteSource } from "../../music/data";
 import { getActiveRemote, getRemoteById } from "../../music/services/remotes/remoteManager";
+import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
+import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
+import { ReauthModal } from "../../components/auth/ReauthModal";
+import { toast } from "../../components/feedback/Toast";
 import { AlbumDetailView } from "../../music/views/AlbumDetailView";
 import { AlbumsView } from "../../music/views/AlbumsView";
 import { ArtistsView } from "../../music/views/ArtistsView";
@@ -159,9 +164,22 @@ function LocalContextHandler(props: { children?: any }) {
 }
 
 // handler for remote context routes - ensures we're using the correct remote
+// also watches for auth expiry and prompts re-authentication
 function RemoteContextHandler(props: { children?: any }) {
   const params = useParams<{ remoteId: string }>();
   const queryClient = useQueryClient();
+
+  // track the resolved remote info for auth flow
+  const [remoteInfo, setRemoteInfo] = createSignal<{
+    remote_id: string;
+    name: string;
+    base_url: string;
+  } | null>(null);
+
+  // re-auth modal state
+  const [showReauthModal, setShowReauthModal] = createSignal(false);
+  // track the toast id so we can dismiss it after re-auth
+  let authToastId: number | null = null;
 
   onMount(async () => {
     const remoteId = params.remoteId;
@@ -169,6 +187,7 @@ function RemoteContextHandler(props: { children?: any }) {
 
     const remote = await getRemoteById(remoteId);
     if (remote) {
+      setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
       await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       queryClient.invalidateQueries();
     } else {
@@ -176,5 +195,70 @@ function RemoteContextHandler(props: { children?: any }) {
     }
   });
 
-  return <>{props.children}</>;
+  // watch for auth expiry on this remote
+  createEffect(async () => {
+    const info = remoteInfo();
+    if (!info) return;
+
+    const needsAuth = getRemoteNeedsAuth(info.remote_id);
+    if (!needsAuth) return;
+
+    // confirm it's actually an auth issue (not just server being down)
+    try {
+      const whoamiResult = await apiClient.auth.whoami(info.base_url);
+      if (whoamiResult.success) {
+        // session is actually valid — clear the flag (false alarm)
+        clearRemoteNeedsAuth(info.remote_id);
+        return;
+      }
+    } catch {
+      // network error — server might be down, don't show auth toast
+      return;
+    }
+
+    // confirmed auth expiry — show persistent toast
+    if (authToastId === null) {
+      authToastId = toast.custom((toastProps) => (
+        <AuthExpiredToast
+          toastId={toastProps.toastId}
+          remoteName={info.name}
+          onSignIn={() => setShowReauthModal(true)}
+        />
+      ));
+    }
+  });
+
+  const handleReauthSuccess = () => {
+    const info = remoteInfo();
+    if (info) {
+      clearRemoteNeedsAuth(info.remote_id);
+    }
+    setShowReauthModal(false);
+
+    // dismiss the auth toast
+    if (authToastId !== null) {
+      toast.dismiss(authToastId);
+      authToastId = null;
+    }
+
+    // re-fetch data now that we're authenticated
+    queryClient.invalidateQueries();
+  };
+
+  return (
+    <>
+      {props.children}
+      <Show when={remoteInfo()}>
+        {(info) => (
+          <ReauthModal
+            isOpen={showReauthModal()}
+            onClose={() => setShowReauthModal(false)}
+            onSuccess={handleReauthSuccess}
+            baseUrl={info().base_url}
+            remoteName={info().name}
+          />
+        )}
+      </Show>
+    </>
+  );
 }

@@ -6,6 +6,18 @@ type SafeParseSuccess<T> = { success: true; data: T };
 type SafeParseError = { success: false; error: z.ZodError };
 export type SafeParseResult<T> = SafeParseSuccess<T> | SafeParseError;
 
+// sentinel path value used to tag 401 errors for detection
+const AUTH_ERROR_PATH = "__auth_expired__";
+
+// check if a failed SafeParseResult is a 401 auth error
+export function isAuthError<T>(result: SafeParseResult<T>): boolean {
+  if (result.success) return false;
+  const err = (result as SafeParseError).error;
+  return err.issues.some(
+    (issue) => issue.code === "custom" && issue.path.includes(AUTH_ERROR_PATH),
+  );
+}
+
 // internal call function used by all wrappers
 export async function call<Resp>(
   baseUrl: string,
@@ -86,12 +98,21 @@ export async function call<Resp>(
       } catch {
         // body wasn't JSON or couldn't be read — use the default message
       }
+      // build path array: include auth sentinel for 401s, and server error code if present
+      const issuePath: (string | number)[] = [];
+      if (response.status === 401) {
+        issuePath.push(AUTH_ERROR_PATH);
+      }
+      if (errorCode) {
+        issuePath.push(errorCode);
+      }
+
       return {
         success: false,
         error: new z.ZodError([
           {
             code: "custom",
-            path: errorCode ? [errorCode] : [],
+            path: issuePath,
             message: errorMessage,
           },
         ]),

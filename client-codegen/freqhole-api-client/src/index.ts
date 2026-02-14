@@ -17,5 +17,5 @@ export type * from "./codegen/schema.js";
 export * as schema from "./codegen/schema.js";
 
 // export low-level escape hatch
-export { request } from "./client.js";
+export { request, isAuthError } from "./client.js";
 export type { SafeParseResult } from "./client.js";

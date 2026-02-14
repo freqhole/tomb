@@ -1,6 +1,7 @@
 // remote data source implementation
 // queries remote server for music library data using freqhole-api-client
 import * as apiClient from "freqhole-api-client";
+import { isAuthError } from "freqhole-api-client";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -17,6 +18,7 @@ import type {
   SuggestionsResponse,
 } from "../types";
 import { adaptSongFromAPI, type RemoteSong } from "./adapters";
+import { setRemoteNeedsAuth } from "./authState";
 
 // remote data source implementation
 // uses cookie-based auth - no credentials stored client-side
@@ -27,6 +29,22 @@ export class RemoteMusicDataSource implements MusicDataSource {
   constructor(baseUrl: string, remoteId: string) {
     this.baseUrl = baseUrl;
     this.remoteId = remoteId;
+  }
+
+  // check a failed result for 401 auth errors and flag the remote if needed.
+  // call this before throwing on any API failure.
+  private checkAuthError(result: apiClient.SafeParseResult<any>): void {
+    if (isAuthError(result)) {
+      setRemoteNeedsAuth(this.remoteId);
+    }
+  }
+
+  // check result for errors - flags auth issues and throws with the given message
+  private assertSuccess<T>(result: apiClient.SafeParseResult<T>, message: string): asserts result is { success: true; data: T } {
+    if (!result.success) {
+      this.checkAuthError(result);
+      throw new Error(message);
+    }
   }
 
   // helper to convert our QueryParams to API QueryParams
@@ -66,6 +84,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query songs");
     }
 
@@ -99,6 +118,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success || result.data.items.length === 0) {
+      if (!result.success) this.checkAuthError(result);
       return null;
     }
 
@@ -113,6 +133,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.queryAlbums(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query albums");
     }
 
@@ -164,6 +185,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query album songs");
     }
 
@@ -186,6 +208,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.queryArtists(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query artists");
     }
 
@@ -231,6 +254,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query artist songs");
     }
 
@@ -255,6 +279,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.queryGenres(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query genres");
     }
 
@@ -285,6 +310,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query genre songs");
     }
 
@@ -307,6 +333,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.listPlaylists(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query playlists");
     }
 
@@ -350,6 +377,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to query playlist songs");
     }
 
@@ -379,6 +407,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       console.error("create playlist failed:", result);
       throw new Error("failed to create playlist - check console for details");
     }
@@ -413,6 +442,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to update playlist");
     }
 
@@ -434,6 +464,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to delete playlist");
     }
   }
@@ -444,6 +475,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to delete song");
     }
   }
@@ -454,6 +486,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to delete album");
     }
   }
@@ -464,6 +497,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to delete artist");
     }
   }
@@ -478,6 +512,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       console.error("add songs to playlist failed:", result);
       throw new Error(
         "failed to add songs to playlist - check console for details",
@@ -495,6 +530,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to remove songs from playlist");
     }
   }
@@ -511,6 +547,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to reorder playlist songs");
     }
   }
@@ -531,6 +568,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to get search suggestions");
     }
 
@@ -553,6 +591,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to search");
     }
 
@@ -571,6 +610,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success || !result.data) {
+      if (!result.success) this.checkAuthError(result);
       const errorMsg = result.success === false && 'error' in result 
         ? JSON.stringify(result.error) 
         : 'unknown error';
@@ -683,6 +723,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
       throw new Error(`failed to set favorite: ${errorMsg}`);
     }
@@ -710,6 +751,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
       throw new Error(`failed to set rating: ${errorMsg}`);
     }
@@ -734,6 +776,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to update artist");
     }
   }
@@ -768,6 +811,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to update album");
     }
   }
@@ -815,6 +859,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.updateSongs(this.baseUrl, apiParams);
 
     if (!result.success) {
+      this.checkAuthError(result);
       // #TODO: should be able to remove the `as any` cast after turning strict mode on!
       const err = (result as any).error;
       console.error("updateSongs failed:", err);
@@ -826,6 +871,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.listTags(this.baseUrl);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to get tags");
     }
 
@@ -856,6 +902,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.auth.whoami(this.baseUrl);
 
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to get source info");
     }
 
@@ -870,6 +917,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async getAlbumTags(albumId: string): Promise<string[]> {
     const result = await apiClient.music.getAlbumsTags(this.baseUrl, { album_ids: [albumId] });
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to get album tags");
     }
     return result.data.map((t: any) => t.tag.name);
@@ -878,6 +926,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
     const result = await apiClient.music.addAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: [], tag_names: tagNames });
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to add tags to album");
     }
   }
@@ -885,6 +934,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
     const result = await apiClient.music.removeAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: tagIds });
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to remove tags from album");
     }
   }
@@ -905,6 +955,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
     
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to upload image");
     }
     
@@ -920,6 +971,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       case 'artist': {
         const result = await apiClient.music.getArtistImages(this.baseUrl, { id: params.entityId });
         if (!result.success) {
+          this.checkAuthError(result);
           throw new Error("failed to get artist images");
         }
         return result.data.map((blobId: string) => `${this.baseUrl}/api/blobs/${blobId}`);
@@ -950,6 +1002,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     console.log('deleteImage result:', result);
     
     if (!result.success) {
+      this.checkAuthError(result);
       console.error('deleteImage failed:', result);
       throw new Error("failed to remove image");
     }
@@ -967,6 +1020,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
     
     if (!result.success) {
+      this.checkAuthError(result);
       throw new Error("failed to set primary image");
     }
   }
