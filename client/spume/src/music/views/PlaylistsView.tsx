@@ -1191,7 +1191,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                           onDrop={() => handleDrop(index())}
                                           onDoubleClick={() => handleSongDoubleClick(song)}
                                           onPlayClick={() => handleSongDoubleClick(song)}
-                                          images={song.images}
+                                          images={song.images?.length ? song.images : song.album_images}
                                           disabled={!isEditablePlaylist(selectedPlaylist()!)}
                                         >
                                           <DraggableRowSongContent

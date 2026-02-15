@@ -72,19 +72,9 @@ import type {
 import { getPrimaryImageBlobId } from "../../utils/images";
 
 
-// helper to construct ImageMetadata array from album_images
+// return the song's own images (never mix in album images)
 function buildSongImages(song: Song): ImageMetadata[] {
-  // if song already has images array, return it
-  if (song.images?.length) {
-    return song.images;
-  }
-  
-  // fallback to album images if available
-  if (song.album_images?.length) {
-    return song.album_images;
-  }
-  
-  return [];
+  return song.images?.length ? song.images : [];
 }
 
 // helper to construct ImageMetadata from database image records

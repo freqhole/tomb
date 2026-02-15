@@ -125,8 +125,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_primary_genre_id: item.genre?.id || null,
     album_primary_genre_name: album?.genres?.[0]?.name || item.genre?.name || null,
 
-    // song-specific images with exact priority hierarchy:
-    // 1. song primary → 2. any song thumbnail → 3. album primary → 4. album thumbnail → 5. waveform
+    // song-specific images only (album images stored separately in album_images)
     images: (() => {
       const mapImage = (img: any) => ({
         remote_blob_id: img.blob_id,
@@ -136,43 +135,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
       });
       
       const songImages = (item.images || []).map(mapImage);
-      const albumImages = (album?.images || []).map(mapImage);
-      
-      // priority helpers
-      // song images: use 'thumbnail' blob_type (has parent_blob_id pointing to audio)
-      // album images: use 'original' blob_type (standalone images with no parent)
-      const findSongPrimary = (imgs: ReturnType<typeof mapImage>[]) => 
-        imgs.find(img => img.blob_type === 'thumbnail' && img.is_primary);
-      const findSongThumbnail = (imgs: ReturnType<typeof mapImage>[]) => 
-        imgs.find(img => img.blob_type === 'thumbnail');
-      const findSongOriginal = (imgs: ReturnType<typeof mapImage>[]) => 
-        imgs.find(img => img.blob_type === 'original');
-      const findAlbumPrimary = (imgs: ReturnType<typeof mapImage>[]) => 
-        imgs.find(img => img.blob_type === 'original' && img.is_primary);
-      const findAlbumOriginal = (imgs: ReturnType<typeof mapImage>[]) => 
-        imgs.find(img => img.blob_type === 'original');
-      const findWaveform = (imgs: ReturnType<typeof mapImage>[]) => 
-        imgs.find(img => img.blob_type === 'waveform');
-      
-      // exact priority order
-      const candidates = [
-        findSongPrimary(songImages),    // 1. song primary thumbnail
-        findSongThumbnail(songImages),  // 2. any song thumbnail
-        findSongOriginal(songImages),   // 3. any song original (user-uploaded)
-        findAlbumPrimary(albumImages),  // 4. album primary original
-        findAlbumOriginal(albumImages), // 5. any album original
-        findWaveform(songImages),       // 6. song waveform (last resort)
-      ].filter(Boolean) as ReturnType<typeof mapImage>[];
-      
-      // deduplicate by blob_id (same image could match multiple priority slots)
-      const seen = new Set<string>();
-      const deduped = candidates.filter(img => {
-        if (seen.has(img.remote_blob_id)) return false;
-        seen.add(img.remote_blob_id);
-        return true;
-      });
-      
-      return deduped.length > 0 ? deduped : undefined;
+      return songImages.length > 0 ? songImages : undefined;
     })(),
 
     // user-specific metadata (from API response top-level)
@@ -183,6 +146,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_tags: item.album_tags || undefined,
     album_genres: album?.genres || undefined,
     album_images: album?.images?.map((img: any) => ({
+      remote_blob_id: img.blob_id,
       remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
       is_primary: !!img.is_primary,
       blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original' | 'preview',

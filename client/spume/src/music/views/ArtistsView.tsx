@@ -20,6 +20,7 @@ import { useArtistContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
+import type { ImageMetadata } from "../services/storage/types";
 
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
@@ -429,30 +430,28 @@ export function ArtistsView(props: ArtistsViewProps) {
     const songs = artistSongs();
     const imageMap = new Map<string, string>();
 
-    // add all artist images (except waveforms), deduplicate by blob_id
+    const addImage = (img: ImageMetadata) => {
+      if (img.blob_type === "waveform") return;
+      const url = img.remote_url || img.local_blob_id;
+      if (!url) return;
+      const key = img.remote_blob_id || img.local_blob_id || url;
+      imageMap.set(key, url);
+    };
+
+    // artist images
     if (artist.images?.length) {
-      for (const img of artist.images) {
-        if (img.blob_type !== "waveform") {
-          const blobId = img.remote_blob_id || img.local_blob_id;
-          const url = img.remote_url || img.local_blob_id;
-          if (blobId && url) imageMap.set(blobId, url);
-        }
-      }
+      for (const img of artist.images) addImage(img);
     }
 
-    // collect all song and album images (except waveforms), deduplicate by blob_id
+    // song + album images from all songs
     for (const song of songs) {
       if (song.images?.length) {
-        for (const img of song.images) {
-          if (img.blob_type !== "waveform") {
-            const blobId = img.remote_blob_id || img.local_blob_id;
-            const url = img.remote_url || img.local_blob_id;
-            if (blobId && url) imageMap.set(blobId, url);
-          }
-        }
+        for (const img of song.images) addImage(img);
+      }
+      if (song.album_images?.length) {
+        for (const img of song.album_images) addImage(img);
       }
     }
-
     const imageUrls = Array.from(imageMap.values());
 
     if (imageUrls.length === 0) {

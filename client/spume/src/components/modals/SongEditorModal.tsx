@@ -61,9 +61,9 @@ export function SongEditorModal(props: SongEditorModalProps) {
   // entity URLs management
   const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
   const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
-
   // image management
-  const [images, setImages] = createSignal<ImageMetadata[]>([]);
+  const [songImages, setSongImages] = createSignal<ImageMetadata[]>([]);
+  const albumImages = () => songQuery.data?.album_images ?? [];
   const [loadedSongId, setLoadedSongId] = createSignal<string | null>(null);
   const [imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
@@ -107,16 +107,13 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }
   });
 
-  // sync images when song data updates (separate from form init to allow refresh)
+  // sync song images when song data updates (separate from form init to allow refresh)
   createEffect(() => {
     const song = songQuery.data;
-    if (song?.images && song.images.length > 0) {
-      setImages(song.images);
-    } else if (song?.album_images && song.album_images.length > 0) {
-      setImages(song.album_images);
+    if (song?.images) {
+      setSongImages(song.images);
     }
   });
-
   // register modal in stack for esc key handling
   onMount(() => {
     const modalId = `song-${props.songId}`;
@@ -326,11 +323,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
       // add new image to list (marked as primary if it's the first one)
       const newImage: ImageMetadata = {
         local_blob_id: blob_id,
-        is_primary: images().length === 0,
+        is_primary: songImages().length === 0,
         blob_type: "thumbnail",
       };
-      const updatedImages = [...images(), newImage];
-      setImages(updatedImages);
+      const updatedImages = [...songImages(), newImage];
+      setSongImages(updatedImages);
 
       setProcessingJob({ status: "completed", message: "image uploaded successfully" });
       setTimeout(() => {
@@ -352,7 +349,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
   };
 
   const handleTogglePrimary = async (index: number) => {
-    const imageToSet = images()[index];
+    const imageToSet = songImages()[index];
     const blobId = imageToSet.remote_blob_id || imageToSet.local_blob_id;
 
     if (!blobId) {
@@ -368,11 +365,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
         blobId,
       });
 
-      const updated = images().map((img, i) => ({
+      const updated = songImages().map((img, i) => ({
         ...img,
         is_primary: i === index,
       }));
-      setImages(updated);
+      setSongImages(updated);
 
       toast.success("primary image updated");
       songQuery.refetch();
@@ -384,7 +381,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
   const handleRemoveImage = async (index: number) => {
     try {
-      const imageToRemove = images()[index];
+      const imageToRemove = songImages()[index];
       const songData = songQuery.data;
       if (!songData) return;
 
@@ -403,14 +400,14 @@ export function SongEditorModal(props: SongEditorModalProps) {
         blobId: blobId,
       });
 
-      const updated = images().filter((_, i) => i !== index);
+      const updated = songImages().filter((_, i) => i !== index);
 
       // if we removed the primary image and there are still images, make the first one primary
       if (updated.length > 0 && !updated.some((img) => img.is_primary)) {
         updated[0].is_primary = true;
       }
 
-      setImages(updated);
+      setSongImages(updated);
       toast.success("image removed");
       songQuery.refetch();
     } catch (err) {
@@ -463,7 +460,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
         >
           <TabList class="px-4">
             <Tab id="info" label="info" />
-            <Tab id="images" label="images" badge={images().length || undefined} />
+            <Tab id="images" label="images" badge={(songImages().length + albumImages().length) || undefined} />
             <Tab id="metadata" label="metadata" />
           </TabList>
 
@@ -716,9 +713,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
           </TabPanel>
 
           {/* images tab */}
-          <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
+          <TabPanel id="images" class="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* song images - editable */}
             <EntityImages
-              images={images()}
+              title="song images"
+              images={songImages()}
               onUpload={(file) => {
                 const event = new Event("change") as any;
                 const input = document.createElement("input");
@@ -733,8 +732,15 @@ export function SongEditorModal(props: SongEditorModalProps) {
               onSetPrimary={handleTogglePrimary}
               uploading={!!processingJob()}
             />
-          </TabPanel>
 
+            {/* album images - read-only context */}
+            <Show when={albumImages().length > 0}>
+              <EntityImages
+                title="album images"
+                images={albumImages()}
+              />
+            </Show>
+          </TabPanel>
           {/* metadata tab - raw JSON display */}
           <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6">
             <Show

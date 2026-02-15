@@ -1,5 +1,5 @@
 // image carousel modal - display a slideshow of images
-import { createSignal, Show, For, onCleanup } from "solid-js";
+import { createSignal, Show, For, onCleanup, onMount } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 
 export interface ImageCarouselModalProps {
@@ -27,6 +27,11 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
     }
   };
 
+  // advance to next image, looping back to start
+  const handleAdvance = () => {
+    setCurrentIndex((i) => (i + 1) % props.images.length);
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "ArrowLeft") {
       handlePrev();
@@ -43,12 +48,16 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
     document.body.style.overflow = "";
   });
 
+  let containerRef!: HTMLDivElement;
+  onMount(() => containerRef?.focus());
+
   return (
     <div
-      class="fixed inset-0 z-[1100] flex items-center justify-center bg-black/90"
+      ref={containerRef}
+      class="fixed inset-0 z-[1100] flex items-center justify-center bg-black/90 outline-none"
       onClick={props.onClose}
       onKeyDown={handleKeyDown}
-      tabIndex={0}
+      tabIndex={-1}
     >
       {/* close button */}
       <button
@@ -72,10 +81,13 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
         {currentIndex() + 1} / {props.images.length}
       </div>
 
-      {/* main content - prevent close when clicking image */}
+      {/* main content - click image to advance */}
       <div
-        class="relative flex items-center justify-center w-full h-full p-16 mb-10"
-        onClick={(e) => e.stopPropagation()}
+        class="relative flex items-center justify-center w-full h-full p-16 mb-10 cursor-pointer"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleAdvance();
+        }}
       >
         {/* prev button */}
         <Show when={canGoPrev()}>
@@ -111,7 +123,10 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
       </div>
 
       {/* thumbnail strip at bottom */}
-      <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto overflow-y-hidden px-4 z-10">
+      <div
+        class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto overflow-y-hidden px-4 z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
         <For each={props.images}>
           {(img, idx) => (
             <button

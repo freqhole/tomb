@@ -302,7 +302,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
                         }}
                       >
                         <MediaThumbnail
-                          images={song.images}
+                          images={song.images?.length ? song.images : song.album_images}
                           onPlayClick={() => {
                             props.onSongPlay?.(song);
                           }}

@@ -41,7 +41,7 @@ export function SongCard(props: SongCardProps) {
         <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg relative">
           <div class="absolute inset-0 rounded-lg group-hover:rounded-none overflow-hidden">
             <MediaImage
-              images={props.song.images}
+              images={props.song.images?.length ? props.song.images : props.song.album_images}
               alt={props.song.title}
               domainType="song"
               enableAlbumHover
