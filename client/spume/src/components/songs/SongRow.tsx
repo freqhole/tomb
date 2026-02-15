@@ -6,6 +6,7 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface SongRowProps {
   /** song title */
@@ -23,7 +24,7 @@ export interface SongRowProps {
   /** double click handler for play action */
   onDoubleClick?: () => void;
   /** structured image metadata array (preferred) */
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   /** thumbnail url (legacy, for backward compatibility) */
   thumbnailUrl?: string;
   /** index number for display (will be zero-padded to 3 digits) */
@@ -56,9 +57,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
       onClick={() => props.onClick?.()}
       onDblClick={() => props.onDoubleClick?.()}
       class={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer group ${
-        props.isSelected
-          ? "bg-[var(--color-bg-elevated)]"
-          : "hover:bg-[var(--color-bg-elevated)]"
+        props.isSelected ? "bg-[var(--color-bg-elevated)]" : "hover:bg-[var(--color-bg-elevated)]"
       } ${props.class || ""}`}
     >
       {/* thumbnail with track number overlay or simple track number */}
@@ -68,9 +67,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
           <div class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
             {props.showPlayOnHover && !props.isPlaying ? (
               <>
-                <span class="group-hover:hidden">
-                  {props.trackNumber ?? ""}
-                </span>
+                <span class="group-hover:hidden">{props.trackNumber ?? ""}</span>
                 <svg
                   class="hidden group-hover:inline w-4 h-4 mx-auto"
                   fill="currentColor"
@@ -107,9 +104,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
       <div class="flex-1 min-w-0">
         <div
           class={`${
-            props.isPlaying
-              ? "text-[var(--color-accent)]"
-              : "text-[var(--color-text-primary)]"
+            props.isPlaying ? "text-[var(--color-accent)]" : "text-[var(--color-text-primary)]"
           }`}
         >
           <MarqueeText text={props.title} hoverOnly={true} />
@@ -131,18 +126,12 @@ export function SongRow(props: SongRowProps): JSX.Element {
       {/* rating */}
       <Show when={props.onRatingChange && props.songId}>
         <div class="flex-shrink-0">
-          <Rating
-            rating={props.rating ?? 0}
-            size="sm"
-            onRatingChange={props.onRatingChange}
-          />
+          <Rating rating={props.rating ?? 0} size="sm" onRatingChange={props.onRatingChange} />
         </div>
       </Show>
 
       {/* duration */}
-      <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">
-        {props.duration}
-      </div>
+      <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">{props.duration}</div>
     </div>
   );
 

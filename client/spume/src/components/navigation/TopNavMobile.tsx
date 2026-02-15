@@ -1,6 +1,7 @@
 import { For, Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 // re-export shared types
 export type { NavMenuItem, NavMenuSection, RecentPlaylist } from "./TopNav";
@@ -38,7 +39,7 @@ export interface TopNavMobileProps {
   recentPlaylists?: Array<{
     id: string;
     name: string;
-    images?: import("../../music/services/storage/types").ImageMetadata[];
+    images?: ImageMetadata[];
     thumbnailUrl?: string | null;
     thumbnailBlobId?: string | null;
     updatedAt: number;

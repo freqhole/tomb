@@ -4,6 +4,7 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { getPlayingIndicatorClasses } from "../../../design-system/colors";
 import { formatDuration } from "../../utils/formatDuration";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -37,7 +38,7 @@ export interface DraggableRowProps {
   /** whether to show drag handle instead of index */
   showDragHandle?: boolean;
   /** structured image metadata array (preferred) */
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   /** thumbnail blob id (legacy, for backward compatibility) */
   thumbnailBlobId?: string;
   /** thumbnail url (legacy, fallback for remote) */

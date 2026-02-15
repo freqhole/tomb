@@ -5,6 +5,7 @@ import { Icon, type IconName } from "../icons/registry";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import MediaImage from "../media/MediaImage";
 import { TopNavMobile } from "./TopNavMobile";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -26,7 +27,7 @@ export interface RecentPlaylist {
   /** playlist name */
   name: string;
   /** structured image metadata array (preferred) */
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   /** playlist thumbnail url (legacy, for backward compatibility) */
   thumbnailUrl?: string | null;
   thumbnailBlobId?: string | null;
@@ -191,9 +192,11 @@ export function TopNav(props: TopNavProps) {
         class={`flex items-center gap-3 z-[1000] ${props.class || ""}`}
         classList={{
           // narrow: full-width fixed strip at top
-          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-2 border-b border-white/10": isNarrow(),
+          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-2 border-b border-white/10":
+            isNarrow(),
           // wide: fixed top-left floating element, doesn't push content
-          "fixed top-4 left-4 bg-black/80 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg": !isNarrow(),
+          "fixed top-4 left-4 bg-black/80 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
+            !isNarrow(),
         }}
         style={{ height: isNarrow() ? "var(--nav-height, 56px)" : "auto" }}
       >

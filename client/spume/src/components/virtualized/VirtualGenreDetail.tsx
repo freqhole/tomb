@@ -16,6 +16,7 @@ import { formatLongDuration } from "../../utils/formatDuration";
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 const NARROW_BREAKPOINT = 768;
 
@@ -28,8 +29,8 @@ export interface VirtualGenreDetailSong {
   album_title: string;
   duration_seconds: number;
   year: number | null;
-  images?: import("../../music/services/storage/types").ImageMetadata[];
-  album_images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
+  album_images?: ImageMetadata[];
   album_is_favorite?: boolean;
 }
 
@@ -41,7 +42,7 @@ interface AlbumGroup {
   year: number | null;
   songCount: number;
   totalDuration: number;
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   isFavorite?: boolean;
 }
 

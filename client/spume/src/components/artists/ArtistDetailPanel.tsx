@@ -5,7 +5,7 @@ import {
   useArtistContextMenu,
   useSongContextMenu,
 } from "../../music/services/contextMenu";
-import type { Song } from "../../music/services/storage/types";
+import type { Song, ImageMetadata, GenreRef } from "../../music/services/storage/types";
 import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -25,7 +25,7 @@ export interface ArtistDetailPanelArtist {
   song_count: number;
   album_count: number;
   total_duration: number;
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -36,13 +36,13 @@ interface AlbumGroup {
   year: number | null;
   songs: Song[];
   totalDuration: number;
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   artworkUrl: string | null;
   blobId?: string | null;
   isFavorite: boolean;
   rating?: number;
   genre?: string | null;
-  genres?: import("../../music/services/storage/types").GenreRef[];
+  genres?: GenreRef[];
   tags?: string[];
 }
 

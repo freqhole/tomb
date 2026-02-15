@@ -6,6 +6,7 @@ import { HeadingSection } from "../layout/HeadingSection";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { VirtualGenreDetail } from "../virtualized/VirtualGenreDetail";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface GenreDetailPanelGenre {
   genre_id: string;
@@ -23,7 +24,7 @@ export interface GenreDetailPanelSong {
   album_title: string;
   duration_seconds: number;
   year: number | null;
-  album_images?: import("../../music/services/storage/types").ImageMetadata[];
+  album_images?: ImageMetadata[];
   album_is_favorite?: boolean;
 }
 

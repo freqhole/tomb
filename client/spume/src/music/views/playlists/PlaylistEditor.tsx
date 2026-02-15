@@ -8,7 +8,7 @@ import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../quer
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
 import { pollJobUntilComplete } from "../../../utils/jobs";
-import type { Playlist } from "../../services/storage/types";
+import type { Playlist, ImageMetadata } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
 import { EntityUrlz, type EntityUrl } from "../../../components/forms/EntityUrlz";
 
@@ -86,7 +86,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       }
 
       const currentImages = playlistImages();
-      const newImage: import("../../services/storage/types").ImageMetadata = {
+      const newImage: ImageMetadata = {
         local_blob_id: blob_id,
         remote_url: null,
         is_primary: currentImages.length === 0,

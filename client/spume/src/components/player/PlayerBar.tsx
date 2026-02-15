@@ -5,6 +5,7 @@ import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
 import MediaImage from "../media/MediaImage";
 import { formatDuration } from "../../utils/formatDuration";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlayerBarSong {
   /** song id */
@@ -18,9 +19,9 @@ export interface PlayerBarSong {
   /** album name */
   album?: string;
   /** structured image metadata array (preferred) */
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   /** album images for fallback when song has no images */
-  album_images?: import("../../music/services/storage/types").ImageMetadata[];
+  album_images?: ImageMetadata[];
   /** thumbnail blob id (legacy, for backward compatibility) */
   thumbnailBlobId?: string;
   /** thumbnail image url (legacy, fallback for remote) */

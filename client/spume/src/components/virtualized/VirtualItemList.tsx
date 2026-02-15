@@ -4,13 +4,14 @@ import { useScrollRestore } from "../../utils/scrollRestore";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface ListItem {
   id: string;
   title: string;
   subtitle?: string;
   metadata?: string;
-  images?: import("../../music/services/storage/types").ImageMetadata[];
+  images?: ImageMetadata[];
   thumbnailUrl?: string | null;
   /** domain type for appropriate fallback icon */
   domainType?: "song" | "album" | "artist" | "genre" | "playlist";

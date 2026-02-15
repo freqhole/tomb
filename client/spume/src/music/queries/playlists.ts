@@ -8,6 +8,7 @@ import {
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
 import type { PlaylistSummary, Song } from "../data/types";
+import type { ImageMetadata } from "../services/storage/types";
 import { queryKeys } from "./queryKeys";
 
 // query hook for recent playlists (no pagination, just top N)
@@ -169,7 +170,7 @@ export function useUpdatePlaylistMutation() {
       title?: string | null;
       description?: string | null;
       is_public?: boolean | null;
-      images?: import("../services/storage/types").ImageMetadata[] | null;
+      images?: ImageMetadata[] | null;
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     }) => {
       const dataSource = getDataSource();
