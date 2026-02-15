@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import * as apiClient from "freqhole-api-client";
 import { useLocalSource, useRemoteSource } from "../../music/data";
-import { getActiveRemote, getRemoteById } from "../../music/services/remotes/remoteManager";
+import { getActiveRemote, getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
 import { ReauthModal } from "../../components/auth/ReauthModal";

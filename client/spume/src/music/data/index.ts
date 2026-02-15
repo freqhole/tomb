@@ -8,7 +8,7 @@ import {
   deactivateAllRemotes,
   getRemoteById,
   setActiveRemote,
-} from "../services/remotes/remoteManager";
+} from "../../app/services/remotes/remoteManager";
 import { LocalMusicDataSource, localDataSource } from "./local/localSource";
 import { RemoteMusicDataSource } from "./remote/remoteSource";
 import type { MusicDataSource } from "./types";

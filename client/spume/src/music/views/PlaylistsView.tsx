@@ -53,7 +53,7 @@ import {
   type DownloadProgress,
   type SyncCheckResult,
 } from "../services/playlists/downloadSync";
-import { getRemoteByUrl } from "../services/remotes/remoteManager";
+import { getRemoteByUrl } from "../../app/services/remotes/remoteManager";
 import { getPlaylistById, initMusicDB } from "../services/storage/db";
 import { convertToLocalPlaylist, isEditablePlaylist } from "../services/storage/playlists";
 import { type Playlist } from "../services/storage/types";

@@ -2,8 +2,8 @@
 // auth is handled via cookies, so no credentials stored here
 
 import { app } from "freqhole-api-client";
-import { initAppDB } from "../../../app/services/storage/db";
-import { STORE_REMOTES, type Remote } from "../../../app/services/storage/types";
+import { initAppDB } from "../storage/db";
+import { STORE_REMOTES, type Remote } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
 
 // get all remotes

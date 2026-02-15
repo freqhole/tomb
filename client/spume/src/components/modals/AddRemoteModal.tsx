@@ -2,7 +2,7 @@
 // steps: 1) enter url, 2) test connection, 3) authenticate, 4) complete
 import * as apiClient from "freqhole-api-client";
 import { createSignal, Match, Show, Switch } from "solid-js";
-import { createRemote, getAllRemotes } from "../../music/services/remotes/remoteManager";
+import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";

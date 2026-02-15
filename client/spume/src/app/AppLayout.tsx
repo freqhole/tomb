@@ -47,7 +47,7 @@ import {
   deactivateAllRemotes,
   getAllRemotes,
   setActiveRemote,
-} from "../music/services/remotes/remoteManager";
+} from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
 import type { Remote } from "./services/storage/types";
 import { routes } from "../music/utils/routing";

@@ -31,7 +31,7 @@ import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
 } from "../music/services/cache/blobCache";
-import { getAllRemotes } from "../music/services/remotes/remoteManager";
+import { getAllRemotes } from "./services/remotes/remoteManager";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
