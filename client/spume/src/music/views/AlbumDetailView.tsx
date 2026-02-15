@@ -2,7 +2,7 @@
 import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import { setQueue } from "../../app/services/storage/db";
+import { playQueue } from "../services/audio/queue";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
@@ -18,7 +18,6 @@ import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
-import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu, useSongContextMenu } from "../services/contextMenu";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
@@ -117,8 +116,7 @@ export function AlbumDetailView() {
     const songList = songs();
     if (songList.length === 0) return;
 
-    await setQueue(songList);
-    await playSong(songList[0]);
+    await playQueue(songList);
   };
 
   const handleSongDoubleClick = async (song: Song) => {
@@ -126,8 +124,8 @@ export function AlbumDetailView() {
     if (songList.length === 0) return;
 
     // set queue to all album songs and play the clicked one
-    await setQueue(songList);
-    await playSong(song);
+    const startIndex = songList.findIndex((s) => s.sha256 === song.sha256);
+    await playQueue(songList, { startIndex: Math.max(0, startIndex) });
   };
 
   const handleArtistClick = () => {

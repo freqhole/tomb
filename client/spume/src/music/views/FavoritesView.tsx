@@ -5,7 +5,7 @@ import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
 } from "../../components/layout/FavoritesLayout";
-import { setQueue } from "../../app/services/storage/db";
+import { playQueue } from "../services/audio/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { getDataSource } from "../data";
 import type {
@@ -17,7 +17,6 @@ import type {
   GenreRef,
 } from "../data/types";
 import { useFavoritesInfiniteQuery, useToggleFavoriteMutation } from "../queries/favorites";
-import { playSong } from "../services/audio/player";
 import {
   useSongContextMenu,
   useAlbumContextMenu,
@@ -138,8 +137,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       }
 
       const sortedSongs = songs; // TODO: use sortSongsCanonical when available
-      await setQueue(sortedSongs);
-      await playSong(sortedSongs[0]);
+      await playQueue(sortedSongs);
     } catch (error) {
       console.error("failed to play album:", error);
     }
@@ -188,8 +186,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       }
 
       const sortedSongs = songs; // TODO: use sortSongsCanonical when available
-      await setQueue(sortedSongs);
-      await playSong(sortedSongs[0]);
+      await playQueue(sortedSongs);
     } catch (error) {
       console.error("failed to play artist:", error);
     }
@@ -239,8 +236,7 @@ export function FavoritesView(props: FavoritesViewProps) {
         return;
       }
 
-      await setQueue(songs);
-      await playSong(songs[0]);
+      await playQueue(songs);
     } catch (error) {
       console.error("failed to play playlist:", error);
     }

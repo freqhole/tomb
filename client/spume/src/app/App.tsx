@@ -26,7 +26,7 @@ import {
   useTagSelectorState,
 } from "../music/modals";
 import { queryKeys } from "../music/queries/queryKeys";
-import { playSong } from "../music/services/audio/player";
+import { addToQueue } from "../music/services/audio/queue";
 import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
@@ -36,7 +36,7 @@ import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
 import { importMusicFiles } from "./services/fileImport";
-import { appState, initAppDB, setQueue } from "./services/storage/db";
+import { initAppDB } from "./services/storage/db";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -110,17 +110,7 @@ export function App() {
 
   const handleSongDoubleClick = async (song: Song) => {
     // add song to end of queue and play it
-    const state = appState();
-    const currentQueue = state?.queue || [];
-
-    // add to end of queue if not already there
-    if (!currentQueue.some((s) => s.sha256 === song.sha256)) {
-      const newQueue = [...currentQueue, song];
-      await setQueue(newQueue);
-    }
-
-    // play the clicked song
-    await playSong(song);
+    await addToQueue([song], { startPlaying: true });
   };
 
   return (

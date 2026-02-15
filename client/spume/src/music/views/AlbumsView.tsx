@@ -1,7 +1,6 @@
 // albums view - displays all albums in a grid with infinite scroll
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
-import { setQueue } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
@@ -12,7 +11,7 @@ import { getDataSource } from "../data";
 import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
-import { playSong } from "../services/audio/player";
+import { playQueue } from "../services/audio/queue";
 import { useAlbumContextMenu } from "../services/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
@@ -200,8 +199,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       const sortedSongs = sortSongsCanonical(songs);
 
       // set queue and play first song
-      await setQueue(sortedSongs);
-      await playSong(sortedSongs[0]);
+      await playQueue(sortedSongs);
     } catch (error) {
       console.error("failed to play album:", error);
     }

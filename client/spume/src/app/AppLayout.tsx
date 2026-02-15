@@ -23,8 +23,6 @@ import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
-  canGoNext,
-  canGoPrevious,
   currentTime,
   duration,
   isPlaying,
@@ -37,6 +35,13 @@ import {
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
+import {
+  canGoNext,
+  canGoPrevious,
+  clearQueue,
+  removeFromQueue,
+  reorderQueue,
+} from "../music/services/audio/queue";
 import { useSongContextMenu } from "../music/services/contextMenu";
 import {
   deactivateAllRemotes,
@@ -52,7 +57,7 @@ import {
   closePlaylistSelector,
 } from "../music/services/playlistSelectorState";
 import { showImageCarousel } from "../music/modals";
-import { appState, setCurrentSong, setQueue, setQueueOpen } from "./services/storage/db";
+import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 
 // responsive breakpoint
@@ -391,33 +396,13 @@ export function AppLayout(props: AppLayoutProps) {
             }
           }}
           onRemoveSong={(index) => {
-            const state = appState();
-            if (state?.queue) {
-              const removedSong = state.queue[index];
-              const newQueue = state.queue.filter((_, i) => i !== index);
-              void setQueue(newQueue);
-
-              // if we removed the currently playing song, stop playback and clear it
-              if (removedSong.sha256 === state.current_sha256) {
-                stop();
-                void setCurrentSong(null);
-              }
-            }
+            void removeFromQueue(index);
           }}
           onReorder={(fromIndex, toIndex) => {
-            const state = appState();
-            if (state?.queue) {
-              const newQueue = [...state.queue];
-              const [movedSong] = newQueue.splice(fromIndex, 1);
-              newQueue.splice(toIndex, 0, movedSong);
-              void setQueue(newQueue);
-            }
+            void reorderQueue(fromIndex, toIndex);
           }}
           onClearAll={() => {
-            // stop playback and clear current song
-            stop();
-            void setCurrentSong(null);
-            void setQueue([]);
+            void clearQueue();
           }}
           getContextMenuActions={(index, queueSong) => {
             const state = appState();

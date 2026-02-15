@@ -11,7 +11,8 @@ import {
   Show,
   untrack,
 } from "solid-js";
-import { appState, setQueue } from "../../app/services/storage/db";
+import { playQueue, addToQueue } from "../services/audio/queue";
+import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
@@ -43,7 +44,6 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { useToggleFavoriteMutation } from "../queries/favorites";
-import { playSong } from "../services/audio/player";
 import { usePlaylistContextMenu, useSongContextMenu } from "../services/contextMenu";
 import { storeBlob, getBlobObjectURL } from "../services/storage/blobs";
 import {
@@ -368,15 +368,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // handle song double-click (play song)
   const handleSongDoubleClick = async (song: Song) => {
-    await setQueue(playlistSongs());
-    await playSong(song);
+    const songs = playlistSongs();
+    const startIndex = songs.findIndex((s) => s.sha256 === song.sha256);
+    await playQueue(songs, { startIndex: Math.max(0, startIndex) });
   };
 
   // handle add song to queue
   const handleAddSongToQueue = async (song: Song) => {
-    const state = appState();
-    const currentQueue = state?.queue || [];
-    await setQueue([...currentQueue, song]);
+    await addToQueue([song]);
   };
 
   // fetch more playlists when scrolling near end
@@ -502,8 +501,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const handlePlayAll = async () => {
     const songs = playlistSongs();
     if (songs.length > 0) {
-      await setQueue(songs);
-      await playSong(songs[0]);
+      await playQueue(songs);
     }
   };
 
@@ -511,9 +509,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const handleAddToQueue = async () => {
     const songs = playlistSongs();
     if (songs.length > 0) {
-      const state = appState();
-      const currentQueue = state?.queue || [];
-      await setQueue([...currentQueue, ...songs]);
+      await addToQueue(songs);
     }
   };
 

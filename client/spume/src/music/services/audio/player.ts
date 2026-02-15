@@ -3,10 +3,15 @@ import { createSignal } from "solid-js";
 import {
   appState,
   setCurrentSong,
-  setQueue,
 } from "../../../app/services/storage/db";
 import { getDataSource } from "../../data";
 import { preCacheNextSongs } from "../cache/blobCache";
+import {
+  canGoNext,
+  canGoPrevious,
+  markPlaybackEnded,
+  resetPlaybackEnded,
+} from "./queueState";
 import { cleanupAudioURL, getAudioURL } from "../storage/audioAccess";
 import type { Song } from "../storage/types";
 
@@ -17,32 +22,8 @@ const [duration, setDuration] = createSignal(0);
 const [volume, setVolume] = createSignal(1.0);
 const [isLoading, setIsLoading] = createSignal(false);
 
-// track if playback has ended (all songs in queue finished)
-let playbackEnded = false;
-
 // track if we've pre-cached the next song
 let hasPreCachedNext = false;
-
-// computed signals for next/prev availability
-const canGoNext = () => {
-  const {queue, current_sha256} = appState();
-  if (!queue.length) return false;
-  const currentId = current_sha256;
-  const currentIdx = currentId
-    ? queue.findIndex((s) => s.sha256 === currentId)
-    : -1;
-  return currentIdx >= 0 && currentIdx < queue.length - 1;
-};
-
-const canGoPrevious = () => {
-  const {queue, current_sha256} = appState();
-  if (!queue.length) return false;
-  const currentId = current_sha256;
-  const currentIdx = currentId
-    ? queue.findIndex((s) => s.sha256 === currentId)
-    : -1;
-  return currentIdx > 0;
-};
 
 // audio element (singleton)
 let audioElement: HTMLAudioElement | null = null;
@@ -234,7 +215,7 @@ export async function playSong(songOrId: string | Song): Promise<void> {
     hasPreCachedNext = false;
 
     // reset playback ended flag since we're playing now
-    playbackEnded = false;
+    resetPlaybackEnded();
 
     setIsLoading(false);
   } catch (error) {
@@ -349,7 +330,7 @@ export async function playNext(): Promise<void> {
       // if this was the last song, stop trying
       if (nextIdx >= queue.length - 1) {
         console.error("reached end of queue, no playable songs found");
-        playbackEnded = true;
+        markPlaybackEnded();
         return;
       }
     }
@@ -377,75 +358,12 @@ async function handleSongEnded(): Promise<void> {
   // check if there's a next song before calling playNext
   if (!canGoNext()) {
     // queue has ended - set flag so we know to autoplay when new songs are added
-    playbackEnded = true;
+    markPlaybackEnded();
     return;
   }
 
   // playNext has built-in retry logic
   await playNext();
-}
-
-// replace queue and play first song
-// used for "play all", "shuffle all", etc.
-export async function playQueue(songs: Song[]): Promise<void> {
-  if (songs.length === 0) return;
-
-  await setQueue(songs);
-  await playSong(songs[0]);
-}
-
-// add songs to queue with flexible options
-// handles both "add to end" and "play next" (insert after current) scenarios
-export async function addToQueue(
-  songs: Song[],
-  options?: {
-    startPlaying?: boolean;
-    position?: "end" | "next";
-  },
-): Promise<void> {
-  if (songs.length === 0) return;
-
-  const startPlaying = options?.startPlaying ?? false;
-  const position = options?.position ?? "end";
-
-  const {queue, current_sha256} = appState();
-  const currentQueue = queue || [];
-  const currentId = current_sha256;
-
-  let newQueue: Song[];
-
-  if (position === "next") {
-    // insert after currently playing song
-    if (!currentId || currentQueue.length === 0) {
-      // no current song, just add to front
-      newQueue = [...songs, ...currentQueue];
-    } else {
-      // find current song index
-      const currentIdx = currentQueue.findIndex((s) => s.sha256 === currentId);
-
-      if (currentIdx === -1) {
-        // current song not in queue (shouldn't happen), append to end
-        newQueue = [...currentQueue, ...songs];
-      } else {
-        // insert after current song
-        newQueue = [
-          ...currentQueue.slice(0, currentIdx + 1),
-          ...songs,
-          ...currentQueue.slice(currentIdx + 1),
-        ];
-      }
-    }
-  } else {
-    // add to end (default)
-    newQueue = [...currentQueue, ...songs];
-  }
-
-  await setQueue(newQueue);
-
-  // autoplay if: explicitly requested, nothing is currently playing, or playback ended
-  if (startPlaying || !current_sha256 || playbackEnded) {
-    await playSong(songs[0]);
-  }
 }
 
 // cleanup
@@ -462,10 +380,7 @@ export function cleanup(): void {
 }
 
 // re-export signals
-// #TODO: consider not re-exporting...
 export {
-  canGoNext,
-  canGoPrevious,
   currentTime,
   duration,
   isLoading,

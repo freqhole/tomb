@@ -1,14 +1,8 @@
 // top nav search component with suggestions and navigation
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchField, SearchSuggestion } from "../../music/data/types";
-import { addToQueue } from "../../music/services/audio/player";
+import { addToQueue } from "../../music/services/audio/queue";
 import { routes } from "../../music/utils/routing";
 import { IconButton } from "../buttons/IconButton";
 import type { SearchSuggestion as SearchInputSuggestion } from "../forms/SearchInput";
@@ -53,13 +47,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   // get current filterable view name
   const currentFilterableView = createMemo(() => {
     const pathname = props.currentPath || "";
-    const filterableRoutes = [
-      "songs",
-      "albums",
-      "artists",
-      "playlists",
-      "genres",
-    ];
+    const filterableRoutes = ["songs", "albums", "artists", "playlists", "genres"];
     return filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
   });
 
@@ -130,16 +118,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const hasQueryParams = fullPath.includes("?");
-    const filterableRoutes = [
-      "songs",
-      "albums",
-      "artists",
-      "playlists",
-      "genres",
-    ];
-    const currentRoute = filterableRoutes.find((route) =>
-      pathname.endsWith(`/${route}`),
-    );
+    const filterableRoutes = ["songs", "albums", "artists", "playlists", "genres"];
+    const currentRoute = filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
     if (currentRoute && hasQueryParams) {
       // strip query params by navigating to just the pathname
       props.onNavigate?.(pathname);
@@ -147,10 +127,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     // keep expanded even after clearing
   };
 
-  const handleThumbnailClick = async (
-    suggestion: SearchSuggestion,
-    albumId?: string,
-  ) => {
+  const handleThumbnailClick = async (suggestion: SearchSuggestion, albumId?: string) => {
     const dataSource = getDataSource();
 
     try {
@@ -162,9 +139,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
         case "album":
           // fetch and add all songs in the album to queue
-          const albumSongs = await dataSource.getAlbumSongs?.(
-            suggestion.entity_id,
-          );
+          const albumSongs = await dataSource.getAlbumSongs?.(suggestion.entity_id);
           if (albumSongs && albumSongs.items.length > 0) {
             await addToQueue(albumSongs.items, { startPlaying: true });
           }
@@ -172,9 +147,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
         case "playlist":
           // fetch and add all songs in the playlist to queue
-          const playlistSongs = await dataSource.getPlaylistSongs?.(
-            suggestion.entity_id,
-          );
+          const playlistSongs = await dataSource.getPlaylistSongs?.(suggestion.entity_id);
           if (playlistSongs && playlistSongs.items.length > 0) {
             await addToQueue(playlistSongs.items, { startPlaying: true });
           }
@@ -244,16 +217,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
     // strip query string from currentPath to get just the pathname
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
-    const filterableRoutes = [
-      "songs",
-      "albums",
-      "artists",
-      "playlists",
-      "genres",
-    ];
-    const currentRoute = filterableRoutes.find((route) =>
-      pathname.endsWith(`/${route}`),
-    );
+    const filterableRoutes = ["songs", "albums", "artists", "playlists", "genres"];
+    const currentRoute = filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
 
     if (currentRoute) {
       props.onNavigate?.(`${pathname}?q=${encodeURIComponent(query)}`);
@@ -313,20 +278,13 @@ export function TopNavSearch(props: TopNavSearchProps) {
       <Show
         when={isExpanded() || searchValue()}
         fallback={
-          <IconButton
-            icon="search"
-            aria-label="search"
-            onClick={handleToggle}
-            variant="ghost"
-          />
+          <IconButton icon="search" aria-label="search" onClick={handleToggle} variant="ghost" />
         }
       >
         <div class="flex items-center gap-2 transition-all duration-300">
           <SearchInput
             ref={inputRef}
-            placeholder={
-              props.placeholder || "search songs, artists, albums..."
-            }
+            placeholder={props.placeholder || "search songs, artists, albums..."}
             loading={props.isLoadingSuggestions}
             suggestions={suggestions()}
             open={suggestionsOpen()}
@@ -343,8 +301,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onBlur={(e) => {
               // check if we're blurring to something outside the search component
               const relatedTarget = e.relatedTarget as HTMLElement | null;
-              const isBlurringToSuggestion =
-                relatedTarget?.closest('[role="listbox"]');
+              const isBlurringToSuggestion = relatedTarget?.closest('[role="listbox"]');
 
               // don't process blur if clicking on a suggestion
               if (isBlurringToSuggestion) {

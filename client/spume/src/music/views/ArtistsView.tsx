@@ -1,7 +1,7 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
-import { appState, setQueue } from "../../app/services/storage/db";
+import { playQueue, addToQueue } from "../services/audio/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
@@ -16,7 +16,6 @@ import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
-import { playSong } from "../services/audio/player";
 import { useArtistContextMenu } from "../services/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
@@ -297,8 +296,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     const songs = artistSongs();
     if (!songs || songs.length === 0) return;
 
-    await setQueue(songs);
-    await playSong(songs[0]);
+    await playQueue(songs);
   };
 
   // shuffle all songs for selected artist
@@ -307,8 +305,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (!songs || songs.length === 0) return;
 
     const shuffled = shuffleArray(songs);
-    await setQueue(shuffled);
-    await playSong(shuffled[0]);
+    await playQueue(shuffled);
   };
 
   // add all songs to end of queue
@@ -316,10 +313,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     const songs = artistSongs();
     if (!songs || songs.length === 0) return;
 
-    const state = appState();
-    const currentQueue = state?.queue || [];
-    const newQueue = [...currentQueue, ...songs];
-    await setQueue(newQueue);
+    await addToQueue(songs);
   };
 
   // navigate to album detail
@@ -333,8 +327,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     const result = await datasource.getAlbumSongs?.(albumId);
     if (!result || result.items.length === 0) return;
 
-    await setQueue(result.items);
-    await playSong(result.items[0]);
+    await playQueue(result.items);
   };
 
   // add album to queue
@@ -343,9 +336,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     const result = await datasource.getAlbumSongs?.(albumId);
     if (!result || result.items.length === 0) return;
 
-    const state = appState();
-    const currentQueue = state?.queue || [];
-    await setQueue([...currentQueue, ...result.items]);
+    await addToQueue(result.items);
   };
 
   // play specific song
@@ -357,8 +348,8 @@ export function ArtistsView(props: ArtistsViewProps) {
     const clickedSong = result.items.find((s) => s.id === songId);
     if (!clickedSong) return;
 
-    await setQueue(result.items);
-    await playSong(clickedSong);
+    const startIndex = result.items.findIndex((s) => s.id === songId);
+    await playQueue(result.items, { startIndex: Math.max(0, startIndex) });
   };
 
   // edit artist
@@ -503,8 +494,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           const datasource = getDataSource();
           const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
           if (!result || result.items.length === 0) return;
-          await setQueue(result.items);
-          await playSong(result.items[0]);
+          await playQueue(result.items);
         },
         onShuffle: async () => {
           setSelectedArtistId(artist.artist_id);
@@ -513,8 +503,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
           if (!result || result.items.length === 0) return;
           const shuffled = shuffleArray(result.items);
-          await setQueue(shuffled);
-          await playSong(shuffled[0]);
+          await playQueue(shuffled);
         },
         onAddToQueue: async () => {
           setSelectedArtistId(artist.artist_id);
@@ -522,9 +511,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           const datasource = getDataSource();
           const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
           if (!result || result.items.length === 0) return;
-          const state = appState();
-          const currentQueue = state?.queue || [];
-          await setQueue([...currentQueue, ...result.items]);
+          await addToQueue(result.items);
         },
       }
     );

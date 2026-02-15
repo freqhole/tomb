@@ -1,7 +1,7 @@
 // genres view - displays all genres in a two-column layout with genre detail panel
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { appState, setQueue } from "../../app/services/storage/db";
+import { playQueue, addToQueue } from "../services/audio/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
@@ -12,7 +12,6 @@ import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
-import { playSong } from "../services/audio/player";
 import { useAlbumContextMenu, useGenreContextMenu } from "../services/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
@@ -217,8 +216,7 @@ export function GenresView(props: GenresViewProps) {
     const songs = genreSongs();
     if (!songs || songs.length === 0) return;
 
-    await setQueue(songs);
-    await playSong(songs[0]);
+    await playQueue(songs);
   };
 
   // shuffle all songs for selected genre
@@ -227,8 +225,7 @@ export function GenresView(props: GenresViewProps) {
     if (!songs || songs.length === 0) return;
 
     const shuffled = shuffleArray(songs);
-    await setQueue(shuffled);
-    await playSong(shuffled[0]);
+    await playQueue(shuffled);
   };
 
   // add all songs to end of queue
@@ -236,10 +233,7 @@ export function GenresView(props: GenresViewProps) {
     const songs = genreSongs();
     if (!songs || songs.length === 0) return;
 
-    const state = appState();
-    const currentQueue = state?.queue || [];
-    const newQueue = [...currentQueue, ...songs];
-    await setQueue(newQueue);
+    await addToQueue(songs);
   };
 
   // navigate to album detail
@@ -253,8 +247,7 @@ export function GenresView(props: GenresViewProps) {
     const sortedSongs = sortSongsCanonical(songs);
 
     if (sortedSongs.length === 0) return;
-    await setQueue(sortedSongs);
-    await playSong(sortedSongs[0]);
+    await playQueue(sortedSongs);
   };
 
   // add album to queue
@@ -262,9 +255,7 @@ export function GenresView(props: GenresViewProps) {
     const songs = genreSongs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(songs);
 
-    const state = appState();
-    const currentQueue = state?.queue || [];
-    await setQueue([...currentQueue, ...sortedSongs]);
+    await addToQueue(sortedSongs);
   };
 
   // toggle album favorite
@@ -372,8 +363,7 @@ export function GenresView(props: GenresViewProps) {
                     // play all songs (limited to 100)
                     const songs = genreSongs().slice(0, 100);
                     if (songs.length === 0) return;
-                    await setQueue(songs);
-                    await playSong(songs[0]);
+                    await playQueue(songs);
                   },
                   onShuffle: async () => {
                     setSelectedGenreId(genre.genre_id);
@@ -381,17 +371,14 @@ export function GenresView(props: GenresViewProps) {
                     const songs = genreSongs().slice(0, 100);
                     if (songs.length === 0) return;
                     const shuffled = shuffleArray(songs);
-                    await setQueue(shuffled);
-                    await playSong(shuffled[0]);
+                    await playQueue(shuffled);
                   },
                   onAddToQueue: async () => {
                     setSelectedGenreId(genre.genre_id);
                     await new Promise((resolve) => setTimeout(resolve, 50));
                     const songs = genreSongs().slice(0, 100);
                     if (songs.length === 0) return;
-                    const state = appState();
-                    const currentQueue = state?.queue || [];
-                    await setQueue([...currentQueue, ...songs]);
+                    await addToQueue(songs);
                   },
                 }
               );
