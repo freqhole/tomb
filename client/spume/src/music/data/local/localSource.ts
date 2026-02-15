@@ -24,8 +24,6 @@ import {
   getRating,
   getSongById,
   initMusicDB,
-  migrateFavorite,
-  migrateRating,
   queryAlbums,
   queryArtists,
   queryGenres,
@@ -928,10 +926,6 @@ export class LocalMusicDataSource implements MusicDataSource {
           bio: oldArtist.bio,
           images: oldArtist.images,
         });
-        
-        // migrate favorites and ratings
-        await migrateFavorite("artist", oldArtistId, artistId);
-        await migrateRating("artist", oldArtistId, artistId);
       }
     }
     
@@ -954,10 +948,6 @@ export class LocalMusicDataSource implements MusicDataSource {
           year: oldAlbum.year,
           images: oldAlbum.images,
         });
-        
-        // migrate favorites and ratings
-        await migrateFavorite("album", oldAlbumId, albumId);
-        await migrateRating("album", oldAlbumId, albumId);
       }
     }
     

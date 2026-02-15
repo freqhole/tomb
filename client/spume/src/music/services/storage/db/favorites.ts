@@ -30,18 +30,3 @@ export async function checkFavorite(
   const favorite = await db.get(STORE_FAVORITES, [targetType, targetId]);
   return !!favorite;
 }
-
-export async function migrateFavorite(
-  targetType: "song" | "album" | "artist" | "playlist",
-  oldId: string,
-  newId: string,
-): Promise<void> {
-  const db = await initMusicDB();
-  const oldFavorite = await db.get(STORE_FAVORITES, [targetType, oldId]);
-  if (oldFavorite) {
-    // copy to new entity
-    await setFavorite(targetType, newId, true);
-    // delete old favorite
-    await db.delete(STORE_FAVORITES, [targetType, oldId]);
-  }
-}

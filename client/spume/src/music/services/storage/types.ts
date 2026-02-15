@@ -239,7 +239,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 11; // bumped for album_tags table
+export const MUSIC_DB_VERSION = 11;
 
 // store names
 export const STORE_ARTISTS = "artists";

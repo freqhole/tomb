@@ -26,18 +26,3 @@ export async function getRating(
   const rating = await db.get(STORE_RATINGS, [targetType, targetId]);
   return rating?.rating ?? null;
 }
-
-export async function migrateRating(
-  targetType: "song" | "album" | "artist",
-  oldId: string,
-  newId: string,
-): Promise<void> {
-  const db = await initMusicDB();
-  const oldRating = await db.get(STORE_RATINGS, [targetType, oldId]);
-  if (oldRating) {
-    // copy to new entity
-    await setRating(targetType, newId, oldRating.rating);
-    // delete old rating
-    await db.delete(STORE_RATINGS, [targetType, oldId]);
-  }
-}
