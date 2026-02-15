@@ -22,7 +22,7 @@ import {
   useAlbumContextMenu,
   useArtistContextMenu,
   usePlaylistContextMenu,
-} from "../services/contextMenu";
+} from "../hooks/contextMenu";
 import { routes } from "../utils/routing";
 
 export interface FavoritesViewProps {

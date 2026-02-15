@@ -16,7 +16,7 @@ import { showArtistEditor, showImageCarousel } from "../modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
-import { useArtistContextMenu } from "../services/contextMenu";
+import { useArtistContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";

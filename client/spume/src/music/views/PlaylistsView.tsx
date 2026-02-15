@@ -44,7 +44,7 @@ import {
   useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { useToggleFavoriteMutation } from "../queries/favorites";
-import { usePlaylistContextMenu, useSongContextMenu } from "../services/contextMenu";
+import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { storeBlob, getBlobObjectURL } from "../services/storage/blobs";
 import {
   checkIfPlaylistNeedsSync,

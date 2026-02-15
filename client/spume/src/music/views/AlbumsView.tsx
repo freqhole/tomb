@@ -12,7 +12,7 @@ import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
 import { playQueue } from "../services/audio/queue";
-import { useAlbumContextMenu } from "../services/contextMenu";
+import { useAlbumContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import { formatLongDuration } from "../../utils/formatDuration";

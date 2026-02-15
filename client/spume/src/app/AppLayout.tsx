@@ -42,7 +42,7 @@ import {
   removeFromQueue,
   reorderQueue,
 } from "../music/services/audio/queue";
-import { useSongContextMenu } from "../music/services/contextMenu";
+import { useSongContextMenu } from "../music/hooks/contextMenu";
 import {
   deactivateAllRemotes,
   getAllRemotes,
@@ -55,7 +55,7 @@ import { confirmState, closeConfirm, resolveConfirm } from "./services/confirmSt
 import {
   playlistSelectorState,
   closePlaylistSelector,
-} from "../music/services/playlistSelectorState";
+} from "../music/hooks/playlistSelectorState";
 import { showImageCarousel } from "../music/modals";
 import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";

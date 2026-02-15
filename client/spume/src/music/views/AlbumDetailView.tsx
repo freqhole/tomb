@@ -18,7 +18,7 @@ import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
-import { useAlbumContextMenu, useSongContextMenu } from "../services/contextMenu";
+import { useAlbumContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";

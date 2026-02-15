@@ -18,7 +18,7 @@ import {
 } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
 import { routes } from "../utils/routing";
-import { addToQueue, playQueue } from "./audio/queue";
+import { addToQueue, playQueue } from "../services/audio/queue";
 
 // shared helper to create favorite menu action
 // standardizes favorite toggle across all context menus

@@ -12,7 +12,7 @@ import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
-import { useAlbumContextMenu, useGenreContextMenu } from "../services/contextMenu";
+import { useAlbumContextMenu, useGenreContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 

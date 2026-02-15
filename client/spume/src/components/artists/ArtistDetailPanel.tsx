@@ -4,7 +4,7 @@ import {
   useAlbumContextMenu,
   useArtistContextMenu,
   useSongContextMenu,
-} from "../../music/services/contextMenu";
+} from "../../music/hooks/contextMenu";
 import type { Song, ImageMetadata, GenreRef } from "../../music/services/storage/types";
 import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";

@@ -19,7 +19,7 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
 import { playQueue } from "../services/audio/queue";
-import { useSongContextMenu } from "../services/contextMenu";
+import { useSongContextMenu } from "../hooks/contextMenu";
 
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
