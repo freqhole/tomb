@@ -2,12 +2,11 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/audio/queue";
+import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
-import { SearchSortControls } from "../../components/controls/SearchSortControls";
-import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
@@ -201,7 +200,19 @@ export function ArtistsView(props: ArtistsViewProps) {
   // update page info for TopNav (mobile displays "artists (N)")
   createEffect(() => {
     const count = sortedArtists().length;
-    setPageInfo({ title: "artists", count });
+    setPageInfo({
+      title: "artists",
+      count,
+      sortFields: artistSortFields,
+      sortBy: sortBy(),
+      sortDirection: sortDirection(),
+      defaultSortBy: "name",
+      defaultSortDirection: "asc",
+      onSortChange: (field, direction) => {
+        setSortBy(field);
+        setSortDirection(direction);
+      },
+    });
   });
 
   // get selected artist data
@@ -523,75 +534,59 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // left column - artist list
   const leftColumn = (
-    <div class="flex flex-col h-full">
-      <div class="mt-2 md:mt-[60px]">
-        <HeadingSection
-          title="artists"
-          count={sortedArtists().length}
-          hideOnNarrow
-          controls={
-            <SearchSortControls
-              sortBy={sortBy()}
-              sortDirection={sortDirection()}
-              onSortChange={(field, direction) => {
-                setSortBy(field);
-                setSortDirection(direction);
-              }}
-              sortFields={artistSortFields}
-            />
-          }
-        />
-      </div>
-
-      <div class="flex-1 overflow-hidden">
-        <Show
-          when={artistListItems().length > 0}
-          fallback={
-            <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-              <div class="text-center max-w-md">
-                <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                  no artists in your library yet
-                </p>
-                <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                  click "add music" above to import local audio files or download from urls
-                </p>
-                <Button variant="primary" onClick={props.onAddMusic}>
-                  add music
-                </Button>
+    <>
+      <div class="flex flex-col h-full">
+        <div class="flex-1 overflow-hidden">
+          <Show
+            when={artistListItems().length > 0}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                <div class="text-center max-w-md">
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                    no artists in your library yet
+                  </p>
+                  <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                    click "add music" above to import local audio files or download from urls
+                  </p>
+                  <Button variant="primary" onClick={props.onAddMusic}>
+                    add music
+                  </Button>
+                </div>
               </div>
-            </div>
-          }
-        >
-          <VirtualItemList
-            items={artistListItems()}
-            selectedId={selectedArtistId()}
-            onItemClick={(item) => {
-              setIsLocalClick(true);
-              // show detail on narrow viewport
-              if (isNarrow()) {
-                setShowingDetailOnNarrow(true);
-              }
-              navigate(buildRoute(`/artists/${item.id}`));
-              props.onArtistClick?.(item.id);
-            }}
-            onVirtualizerReady={(scrollFn) => {
-              setScrollToIndex(() => scrollFn);
-
-              // only scroll if current artist matches the initial one (prevents scroll on subsequent clicks)
-              const current = selectedArtistId();
-              if (current && current === initialArtistId) {
-                const index = sortedArtists().findIndex((a) => a.artist_id === current);
-                if (index >= 0) {
-                  setTimeout(() => scrollFn(index), 50);
+            }
+          >
+            <VirtualItemList
+              items={artistListItems()}
+              selectedId={selectedArtistId()}
+              scrollPaddingTop={100}
+              onItemClick={(item) => {
+                setIsLocalClick(true);
+                // show detail on narrow viewport
+                if (isNarrow()) {
+                  setShowingDetailOnNarrow(true);
                 }
-              }
-            }}
-            getContextMenuActions={getContextMenuActions}
-            height={window.innerHeight - 120}
-          />
-        </Show>
+                navigate(buildRoute(`/artists/${item.id}`));
+                props.onArtistClick?.(item.id);
+              }}
+              onVirtualizerReady={(scrollFn) => {
+                setScrollToIndex(() => scrollFn);
+
+                // only scroll if current artist matches the initial one (prevents scroll on subsequent clicks)
+                const current = selectedArtistId();
+                if (current && current === initialArtistId) {
+                  const index = sortedArtists().findIndex((a) => a.artist_id === current);
+                  if (index >= 0) {
+                    setTimeout(() => scrollFn(index), 50);
+                  }
+                }
+              }}
+              getContextMenuActions={getContextMenuActions}
+              height={window.innerHeight - ((appState()?.queue.length || 0) > 0 ? 80 : 0)}
+            />
+          </Show>
+        </div>
       </div>
-    </div>
+    </>
   );
 
   // right column - artist detail

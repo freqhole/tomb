@@ -2,12 +2,11 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/audio/queue";
+import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
-import { SearchSortControls } from "../../components/controls/SearchSortControls";
 import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
-import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -174,7 +173,19 @@ export function GenresView(props: GenresViewProps) {
   // update page info for TopNav (mobile displays "genres (N)")
   createEffect(() => {
     const count = sortedGenres().length;
-    setPageInfo({ title: "genres", count });
+    setPageInfo({
+      title: "genres",
+      count,
+      sortFields: genreSortFields,
+      sortBy: sortBy(),
+      sortDirection: sortDirection(),
+      defaultSortBy: "name",
+      defaultSortDirection: "asc",
+      onSortChange: (field, direction) => {
+        setSortBy(field);
+        setSortDirection(direction);
+      },
+    });
   });
 
   // get selected genre data
@@ -280,114 +291,98 @@ export function GenresView(props: GenresViewProps) {
 
   // left column - genre list
   const leftColumn = (
-    <div class="flex flex-col h-full">
-      <div class="mt-2 md:mt-[60px]">
-        <HeadingSection
-          title="genres"
-          count={sortedGenres().length}
-          hideOnNarrow
-          controls={
-            <SearchSortControls
-              sortBy={sortBy()}
-              sortDirection={sortDirection()}
-              onSortChange={(field, direction) => {
-                setSortBy(field);
-                setSortDirection(direction);
-              }}
-              sortFields={genreSortFields}
-            />
-          }
-        />
-      </div>
-
-      <div class="flex-1 overflow-hidden">
-        <Show
-          when={genreListItems().length > 0}
-          fallback={
-            <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-              <div class="text-center max-w-md">
-                <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                  no genres in your library yet
-                </p>
-                <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                  click "add music" above to import local audio files or download from urls
-                </p>
-                <Button variant="primary" onClick={props.onAddMusic}>
-                  add music
-                </Button>
+    <>
+      <div class="flex flex-col h-full">
+        <div class="flex-1 overflow-hidden">
+          <Show
+            when={genreListItems().length > 0}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                <div class="text-center max-w-md">
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                    no genres in your library yet
+                  </p>
+                  <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                    click "add music" above to import local audio files or download from urls
+                  </p>
+                  <Button variant="primary" onClick={props.onAddMusic}>
+                    add music
+                  </Button>
+                </div>
               </div>
-            </div>
-          }
-        >
-          <VirtualItemList
-            items={genreListItems()}
-            selectedId={selectedGenreId()}
-            hideImage
-            onItemClick={(item) => {
-              setIsLocalClick(true);
-              // show detail on narrow viewport
-              if (isNarrow()) {
-                setShowingDetailOnNarrow(true);
-              }
-              navigate(buildRoute(`/genres/${item.id}`));
-            }}
-            onVirtualizerReady={(scrollFn) => {
-              setScrollToIndex(() => scrollFn);
-
-              // only scroll if current genre matches the initial one (prevents scroll on subsequent clicks)
-              const current = selectedGenreId();
-              if (current && current === initialGenreId) {
-                const index = sortedGenres().findIndex((g) => g.genre_id === current);
-                if (index >= 0) {
-                  setTimeout(() => scrollFn(index), 50);
+            }
+          >
+            <VirtualItemList
+              items={genreListItems()}
+              selectedId={selectedGenreId()}
+              scrollPaddingTop={100}
+              hideImage
+              onItemClick={(item) => {
+                setIsLocalClick(true);
+                // show detail on narrow viewport
+                if (isNarrow()) {
+                  setShowingDetailOnNarrow(true);
                 }
-              }
-            }}
-            getContextMenuActions={(item) => {
-              const genre = sortedGenres().find((g) => g.genre_id === item.id);
-              if (!genre) return [];
+                navigate(buildRoute(`/genres/${item.id}`));
+              }}
+              onVirtualizerReady={(scrollFn) => {
+                setScrollToIndex(() => scrollFn);
 
-              return useGenreContextMenu(
-                {
-                  id: genre.genre_id,
-                  name: genre.name,
-                  song_count: genre.song_count,
-                },
-                {
-                  isFavorite: false, // genres don't support favorites yet
-                  onPlayAll: async () => {
-                    // select this genre first
-                    setSelectedGenreId(genre.genre_id);
-                    // wait a tick for query to update
-                    await new Promise((resolve) => setTimeout(resolve, 50));
-                    // play all songs (limited to 100)
-                    const songs = genreSongs().slice(0, 100);
-                    if (songs.length === 0) return;
-                    await playQueue(songs);
-                  },
-                  onShuffle: async () => {
-                    setSelectedGenreId(genre.genre_id);
-                    await new Promise((resolve) => setTimeout(resolve, 50));
-                    const songs = genreSongs().slice(0, 100);
-                    if (songs.length === 0) return;
-                    const shuffled = shuffleArray(songs);
-                    await playQueue(shuffled);
-                  },
-                  onAddToQueue: async () => {
-                    setSelectedGenreId(genre.genre_id);
-                    await new Promise((resolve) => setTimeout(resolve, 50));
-                    const songs = genreSongs().slice(0, 100);
-                    if (songs.length === 0) return;
-                    await addToQueue(songs);
-                  },
+                // only scroll if current genre matches the initial one (prevents scroll on subsequent clicks)
+                const current = selectedGenreId();
+                if (current && current === initialGenreId) {
+                  const index = sortedGenres().findIndex((g) => g.genre_id === current);
+                  if (index >= 0) {
+                    setTimeout(() => scrollFn(index), 50);
+                  }
                 }
-              );
-            }}
-            height={window.innerHeight - 120}
-          />
-        </Show>
+              }}
+              getContextMenuActions={(item) => {
+                const genre = sortedGenres().find((g) => g.genre_id === item.id);
+                if (!genre) return [];
+
+                return useGenreContextMenu(
+                  {
+                    id: genre.genre_id,
+                    name: genre.name,
+                    song_count: genre.song_count,
+                  },
+                  {
+                    isFavorite: false, // genres don't support favorites yet
+                    onPlayAll: async () => {
+                      // select this genre first
+                      setSelectedGenreId(genre.genre_id);
+                      // wait a tick for query to update
+                      await new Promise((resolve) => setTimeout(resolve, 50));
+                      // play all songs (limited to 100)
+                      const songs = genreSongs().slice(0, 100);
+                      if (songs.length === 0) return;
+                      await playQueue(songs);
+                    },
+                    onShuffle: async () => {
+                      setSelectedGenreId(genre.genre_id);
+                      await new Promise((resolve) => setTimeout(resolve, 50));
+                      const songs = genreSongs().slice(0, 100);
+                      if (songs.length === 0) return;
+                      const shuffled = shuffleArray(songs);
+                      await playQueue(shuffled);
+                    },
+                    onAddToQueue: async () => {
+                      setSelectedGenreId(genre.genre_id);
+                      await new Promise((resolve) => setTimeout(resolve, 50));
+                      const songs = genreSongs().slice(0, 100);
+                      if (songs.length === 0) return;
+                      await addToQueue(songs);
+                    },
+                  }
+                );
+              }}
+              height={window.innerHeight - ((appState()?.queue.length || 0) > 0 ? 80 : 0)}
+            />
+          </Show>
+        </div>
       </div>
-    </div>
+    </>
   );
 
   // right column - genre detail

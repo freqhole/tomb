@@ -39,6 +39,8 @@ export interface VirtualAlbumGridProps {
   class?: string;
   /** unique key for scroll restoration (e.g., 'albums', 'albums-rock') */
   scrollRestoreKey?: string;
+  /** top padding inside the scroll container (px) - content scrolls under this space */
+  scrollPaddingTop?: number;
 }
 
 export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
@@ -163,7 +165,10 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
-      style={{ height: `${props.height || 600}px` }}
+      style={{
+        height: `${props.height || 600}px`,
+        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+      }}
     >
       {/* virtual grid container */}
       <div

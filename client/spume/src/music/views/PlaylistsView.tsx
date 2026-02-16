@@ -804,26 +804,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
               <TwoColumnLayout
                 leftColumn={
                   <>
-                    {/* header */}
-                    <Show when={!isNarrow()}>
-                      <div class="flex items-center justify-between p-4">
-                        <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
-                          playlists
-                        </h1>
-                        <p class="text-sm text-[var(--color-text-secondary)]">
-                          {playlistsQuery.isLoading
-                            ? "loading..."
-                            : `${playlists().length} ${playlists().length === 1 ? "playlist" : "playlists"}`}
-                        </p>
-                      </div>
-                    </Show>
-
-                    <div
-                      style={{ height: isNarrow() ? "calc(100% - 68px)" : "calc(100% - 128px)" }}
-                    >
+                    <div style={{ height: isNarrow() ? "calc(100% - 68px)" : "100%" }}>
                       <VirtualItemList
                         items={playlistListItems()}
                         selectedId={selectedPlaylistId()}
+                        scrollPaddingTop={100}
                         onItemClick={handlePlaylistClick}
                         onVirtualizerReady={(scrollFn) => {
                           setScrollToIndex(() => scrollFn);
@@ -1191,7 +1176,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                           onDrop={() => handleDrop(index())}
                                           onDoubleClick={() => handleSongDoubleClick(song)}
                                           onPlayClick={() => handleSongDoubleClick(song)}
-                                          images={song.images?.length ? song.images : song.album_images}
+                                          images={
+                                            song.images?.length ? song.images : song.album_images
+                                          }
                                           disabled={!isEditablePlaylist(selectedPlaylist()!)}
                                         >
                                           <DraggableRowSongContent

@@ -107,8 +107,11 @@ export function TopNavSearch(props: TopNavSearchProps) {
       setIsExpanded(false);
       props.onCollapse?.();
     } else {
-      // expanding - just open
+      // expanding - open and focus input after it renders
       setIsExpanded(true);
+      setTimeout(() => {
+        inputRef?.focus();
+      }, 0);
     }
   };
 

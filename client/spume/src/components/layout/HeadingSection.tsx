@@ -126,11 +126,12 @@ export function HeadingSection(props: HeadingSectionProps) {
     // padding - detail variant uses responsive padding
     if (isDetail()) {
       classes.push("px-3 md:px-6 py-2 md:py-4");
-    } else if (local.compact) {
-      classes.push("p-2");
-    } else {
-      classes.push("p-3");
     }
+    // else if (local.compact) {
+    //   classes.push("p-2");
+    // } else {
+    //   classes.push("p-3");
+    // }
 
     if (local.class) {
       classes.push(local.class);
@@ -144,7 +145,7 @@ export function HeadingSection(props: HeadingSectionProps) {
     if (isDetail()) {
       return "text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate";
     }
-    return `${local.compact ? "text-xl" : "text-2xl"} font-semibold text-[var(--color-text-primary)] ${local.compact ? "mb-1" : "mb-2"}`;
+    return `${local.compact ? "text-xl" : "text-2xl"} font-semibold text-[var(--color-text-primary)]`;
   };
 
   // hide on narrow if requested (title/count shown in TopNav instead)
@@ -209,7 +210,7 @@ export function HeadingSection(props: HeadingSectionProps) {
   return (
     <div class={containerClasses()} {...others}>
       {/* header row with title and controls */}
-      <div class={`flex items-start justify-between ${local.compact ? "mb-2" : "mb-4"} gap-4`}>
+      <div class={`flex items-start justify-between gap-4`}>
         {/* left side: title and count */}
         <div class="flex-1 min-w-0">
           <h1 class={titleClasses()}>{local.titleElement || local.title}</h1>

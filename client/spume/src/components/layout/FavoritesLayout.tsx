@@ -147,12 +147,8 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     <div class="h-full flex flex-col">
       {/* header with tabs */}
       <div class="py-2 md:p-6">
-        <h1 class="hidden md:block text-3xl font-bold text-[var(--color-text-primary)] mb-6">
-          favorites
-        </h1>
-
         {/* filter tabs */}
-        <div class="flex center gap-2 overflow-x-auto md:overflow-x-visible md:flex-wrap scrollbar-hide">
+        <div class="md:ml-[250px] flex md:justify-end center gap-2 overflow-x-auto md:overflow-x-visible md:flex-wrap scrollbar-hide">
           <TabButton type="all" label="all" count={counts().all} />
           <TabButton type="songs" label="songs" count={counts().songs} />
           <TabButton type="albums" label="albums" count={counts().albums} />

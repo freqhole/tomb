@@ -5,8 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
-import { SearchSortControls } from "../../components/controls/SearchSortControls";
-import { TagFilterPicker, type TagFilter } from "../../components/forms/TagFilterPicker";
+import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import {
   VirtualSongList,
   type SortField,
@@ -47,19 +46,16 @@ export function SongsView(props: SongsViewProps) {
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
 
-  // responsive list height: window - header (122px) - player bar (80px)
-  const HEADER_HEIGHT = 122;
-  const PLAYER_HEIGHT = 80;
-  const [listHeight, setListHeight] = createSignal(
-    window.innerHeight - HEADER_HEIGHT - PLAYER_HEIGHT
-  );
+  // responsive list height — window minus player bar
+  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const [listHeight, setListHeight] = createSignal(window.innerHeight - playerBarHeight());
 
   onMount(() => {
     let resizeTimeout: number | undefined;
     const handleResize = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = window.setTimeout(() => {
-        setListHeight(window.innerHeight - HEADER_HEIGHT - PLAYER_HEIGHT);
+        setListHeight(window.innerHeight - playerBarHeight());
         const narrow = window.innerWidth < NARROW_BREAKPOINT;
         setIsNarrow(narrow);
       }, 100);
@@ -71,6 +67,16 @@ export function SongsView(props: SongsViewProps) {
       clearPageInfo(); // clear page info when leaving view
     });
   });
+
+  // update list height when player bar visibility changes
+  createEffect(
+    on(
+      () => playerBarHeight(),
+      () => {
+        setListHeight(window.innerHeight - playerBarHeight());
+      }
+    )
+  );
 
   // sorting state
   const [sortField, setSortField] = createSignal<SongSortField>("added_at");
@@ -122,10 +128,29 @@ export function SongsView(props: SongsViewProps) {
     return pages.flatMap((page) => page.items);
   });
 
-  // update page info for TopNav (mobile displays "songs (N)")
+  // update page info for TopNav
   createEffect(() => {
     const count = allSongs().length;
-    setPageInfo({ title: "songs", count });
+    setPageInfo({
+      title: "songs",
+      count,
+      sortFields: songSortFields,
+      sortBy: sortField(),
+      sortDirection: sortDirection(),
+      defaultSortBy: "added_at",
+      defaultSortDirection: "desc",
+      onSortChange: (field, direction) => {
+        setSortField(field as SongSortField);
+        setSortDirection(direction);
+      },
+      availableTags: availableTags(),
+      selectedTagFilters: tagFilters(),
+      tagsLoading: tagsQuery.isLoading,
+      onAddTag: handleAddTag,
+      onRemoveTag: handleRemoveTag,
+      onToggleTagMode: handleToggleMode,
+      onClearAllTags: handleClearAllTags,
+    });
   });
 
   // load more handler
@@ -250,40 +275,6 @@ export function SongsView(props: SongsViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* header */}
-      <div class="flex items-center justify-between p-4">
-        <div class="hidden md:block mr-4">
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">songs</h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {songsQuery.isLoading
-              ? "loading..."
-              : `${allSongs().length} ${allSongs().length === 1 ? "song" : "songs"}${songsQuery.hasNextPage ? "+" : ""}`}
-          </p>
-        </div>
-        <div class="flex-1 flex justify-between items-center gap-4">
-          <TagFilterPicker
-            availableTags={availableTags()}
-            selectedFilters={tagFilters()}
-            onAddTag={handleAddTag}
-            onRemoveTag={handleRemoveTag}
-            onToggleMode={handleToggleMode}
-            onClearAll={handleClearAllTags}
-            loading={tagsQuery.isLoading}
-            compact={true}
-          />
-          {/* show sort controls only on narrow - table has sortable headers */}
-          <Show when={isNarrow()}>
-            <SearchSortControls
-              sortFields={songSortFields}
-              sortBy={sortField()}
-              sortDirection={sortDirection()}
-              onSortByChange={(field) => setSortField(field as SongSortField)}
-              onSortDirectionChange={setSortDirection}
-            />
-          </Show>
-        </div>
-      </div>
-
       {/* song list */}
       <div class="flex-1 overflow-hidden">
         {allSongs().length === 0 && !songsQuery.isLoading ? (

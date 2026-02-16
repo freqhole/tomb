@@ -4,10 +4,10 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
-import { SearchSortControls } from "../../components/controls/SearchSortControls";
-import { TagFilterPicker, type TagFilter } from "../../components/forms/TagFilterPicker";
+import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
+import { appState } from "../../app/services/storage/db";
 import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
@@ -34,17 +34,16 @@ export function AlbumsView(props: AlbumsViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // responsive grid height
-  // header: 84px, tag picker: 26px, player bar: 80px = 190px total
-  const TOTAL_CHROME_HEIGHT = 84 + 26 + 80;
-  const [gridHeight, setGridHeight] = createSignal(window.innerHeight - TOTAL_CHROME_HEIGHT);
+  // responsive grid height — window minus player bar
+  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const [gridHeight, setGridHeight] = createSignal(window.innerHeight - playerBarHeight());
 
   onMount(() => {
     let resizeTimeout: number | undefined;
     const handleResize = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = window.setTimeout(() => {
-        setGridHeight(window.innerHeight - TOTAL_CHROME_HEIGHT);
+        setGridHeight(window.innerHeight - playerBarHeight());
       }, 100);
     };
     window.addEventListener("resize", handleResize);
@@ -54,6 +53,16 @@ export function AlbumsView(props: AlbumsViewProps) {
       clearPageInfo(); // clear page info when leaving view
     });
   });
+
+  // update grid height when player bar visibility changes
+  createEffect(
+    on(
+      () => playerBarHeight(),
+      () => {
+        setGridHeight(window.innerHeight - playerBarHeight());
+      }
+    )
+  );
 
   // track query changes to force grid reset
   const [isResetting, setIsResetting] = createSignal(false);
@@ -138,10 +147,29 @@ export function AlbumsView(props: AlbumsViewProps) {
     });
   });
 
-  // update page info for TopNav (mobile displays "albums (N)")
+  // update page info for TopNav
   createEffect(() => {
     const count = albums().length;
-    setPageInfo({ title: "albums", count });
+    setPageInfo({
+      title: "albums",
+      count,
+      sortFields: albumSortFields,
+      sortBy: sortField(),
+      sortDirection: sortDirection(),
+      defaultSortBy: "added_at",
+      defaultSortDirection: "desc",
+      onSortChange: (field, direction) => {
+        setSortField(field as AlbumSortField);
+        setSortDirection(direction);
+      },
+      availableTags: availableTags(),
+      selectedTagFilters: tagFilters(),
+      tagsLoading: tagsQuery.isLoading,
+      onAddTag: handleAddTag,
+      onRemoveTag: handleRemoveTag,
+      onToggleTagMode: handleToggleMode,
+      onClearAllTags: handleClearAllTags,
+    });
   });
 
   // tag filter handlers
@@ -235,37 +263,6 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* header */}
-      <div class="flex items-center justify-between p-4">
-        <div class="hidden md:block mr-4">
-          <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">albums</h1>
-          <p class="text-sm text-[var(--color-text-secondary)]">
-            {albumsQuery.isLoading
-              ? "loading..."
-              : `${albums().length} ${albums().length === 1 ? "album" : "albums"}${albumsQuery.hasNextPage ? "+" : ""}`}
-          </p>
-        </div>
-        <div class="flex-1 flex justify-between items-center gap-4">
-          <TagFilterPicker
-            availableTags={availableTags()}
-            selectedFilters={tagFilters()}
-            onAddTag={handleAddTag}
-            onRemoveTag={handleRemoveTag}
-            onToggleMode={handleToggleMode}
-            onClearAll={handleClearAllTags}
-            loading={tagsQuery.isLoading}
-            compact={true}
-          />
-          <SearchSortControls
-            sortFields={albumSortFields}
-            sortBy={sortField()}
-            sortDirection={sortDirection()}
-            onSortByChange={(field) => setSortField(field as AlbumSortField)}
-            onSortDirectionChange={setSortDirection}
-          />
-        </div>
-      </div>
-
       {/* album grid */}
       <div class="flex-1 overflow-hidden">
         {isResetting() ? (
@@ -302,6 +299,7 @@ export function AlbumsView(props: AlbumsViewProps) {
               showGenres={true}
               cardSize="medium"
               height={gridHeight()}
+              scrollPaddingTop={100}
               scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters()
                 .map((f) => f.tag)
                 .join(",")}`}

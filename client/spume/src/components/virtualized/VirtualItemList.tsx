@@ -34,6 +34,8 @@ export interface VirtualItemListProps {
   getContextMenuActions?: (item: ListItem, index: number) => MenuAction[];
   /** height of the container in pixels (defaults to 100% of parent) */
   height?: number;
+  /** top padding inside the scroll container (px) - content scrolls under this space */
+  scrollPaddingTop?: number;
   /** hide image/thumbnail for all items */
   hideImage?: boolean;
   /** additional CSS classes */
@@ -172,7 +174,10 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
-      style={{ height: heightStyle() }}
+      style={{
+        height: heightStyle(),
+        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+      }}
       onScroll={handleScroll}
     >
       {/* virtual list container */}

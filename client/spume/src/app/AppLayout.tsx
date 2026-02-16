@@ -16,6 +16,7 @@ import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorMod
 import { ToastRegion } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { TopNav } from "../components/navigation/TopNav";
+import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getDataSource } from "../music/data";
@@ -52,10 +53,7 @@ import type { Song } from "../music/services/storage/types";
 import type { Remote } from "./services/storage/types";
 import { routes } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm } from "./services/confirmState";
-import {
-  playlistSelectorState,
-  closePlaylistSelector,
-} from "../music/hooks/playlistSelectorState";
+import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import { showImageCarousel } from "../music/modals";
 import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
@@ -268,6 +266,19 @@ export function AppLayout(props: AppLayoutProps) {
     await setQueueOpen(!queueOpen());
   };
 
+  // build view options for the TopNav view selector
+  const viewOptions = (): ViewOption[] => {
+    const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
+    return [
+      { label: "songs", path: `${prefix}/songs` },
+      { label: "albums", path: `${prefix}/albums` },
+      { label: "artists", path: `${prefix}/artists` },
+      { label: "genres", path: `${prefix}/genres` },
+      { label: "playlists", path: `${prefix}/playlists` },
+      { label: "favorites", path: `${prefix}/favorites` },
+    ];
+  };
+
   return (
     <div
       class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
@@ -312,6 +323,7 @@ export function AppLayout(props: AppLayoutProps) {
         queueLength={appState()?.queue.length || 0}
         pageTitle={getPageInfo().title}
         pageCount={getPageInfo().count}
+        viewOptions={viewOptions()}
         mainNavSections={[
           {
             items: [

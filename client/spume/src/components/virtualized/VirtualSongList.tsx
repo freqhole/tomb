@@ -330,7 +330,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
         >
           <div class="w-12 shrink-0"></div>
           <div
-            class={`flex-1 min-w-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`flex-1 min-w-0 ${CELL_PAD} px-6 flex items-center justify-end gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("title")}
           >
             title <span class="text-[10px]">{getSortIndicator("title")}</span>
