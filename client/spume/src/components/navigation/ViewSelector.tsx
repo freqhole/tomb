@@ -91,7 +91,7 @@ export function ViewSelector(props: ViewSelectorProps) {
 
       {/* flyout menu */}
       <Show when={open()}>
-        <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px] py-1">
+        <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px] py-1 px-4">
           <For each={props.views}>
             {(view) => {
               const isActive = () => view.label === props.currentTitle;
