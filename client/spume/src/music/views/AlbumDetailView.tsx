@@ -221,25 +221,9 @@ export function AlbumDetailView() {
           {(info) => (
             <>
               {/* header with album info - responsive layout */}
-              <div class="flex flex-col md:flex-row gap-4 md:gap-6 p-4 md:p-6">
-                {/* album artwork */}
-                <ContextMenu actions={albumContextMenuActions()}>
-                  <div
-                    class="w-32 h-32 md:w-48 md:h-48 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer"
-                    onClick={handleAlbumImageClick}
-                  >
-                    <MediaImage
-                      images={songs()[0]?.album_images}
-                      imageUrl={albumArtworkUrl() || null}
-                      alt={info().title}
-                      class="w-full h-full object-cover"
-                      domainType="album"
-                    />
-                  </div>
-                </ContextMenu>
-
+              <div class="flex flex-col justify-between md:flex-row gap-4 md:gap-6 p-4 md:p-6">
                 {/* album info */}
-                <div class="flex flex-col justify-center gap-1 md:gap-2 min-w-0 text-center md:text-left">
+                <div class="flex flex-col justify-center gap-1 min-w-0 text-center md:mt-[50px] md:gap-2 md:text-left">
                   <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)] truncate">
                     {info().title}
                   </h1>
@@ -327,6 +311,23 @@ export function AlbumDetailView() {
                     />
                   </div>
                 </div>
+
+                {/* album artwork */}
+                <ContextMenu actions={albumContextMenuActions()}>
+                  <div
+                    class="w-32 h-32 md:w-64 md:h-64 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
+                    title="view album images"
+                    onClick={handleAlbumImageClick}
+                  >
+                    <MediaImage
+                      images={songs()[0]?.album_images}
+                      imageUrl={albumArtworkUrl() || null}
+                      alt={info().title}
+                      class="w-full h-full object-cover"
+                      domainType="album"
+                    />
+                  </div>
+                </ContextMenu>
               </div>
 
               {/* songs list */}
