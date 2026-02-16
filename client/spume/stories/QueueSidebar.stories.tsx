@@ -123,6 +123,7 @@ export const Interactive: Story = {
         </div>
 
         <QueueSidebar
+          historyEntries={[]}
           songs={songs()}
           currentIndex={currentIndex()}
           isOpen={isOpen()}
@@ -237,6 +238,7 @@ export const Open: Story = {
           </p>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={songs()}
           currentIndex={currentIndex()}
           isOpen={isOpen()}
@@ -268,6 +270,7 @@ export const Closed: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={mockQueueSongs}
           currentIndex={0}
           isOpen={isOpen()}
@@ -297,6 +300,7 @@ export const EmptyQueue: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={[]}
           currentIndex={0}
           isOpen={isOpen()}
@@ -326,6 +330,7 @@ export const SingleSong: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={[mockQueueSongs[0]]}
           currentIndex={0}
           isOpen={isOpen()}
@@ -357,6 +362,7 @@ export const LongQueue: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={longQueue}
           currentIndex={10}
           isOpen={isOpen()}
@@ -386,6 +392,7 @@ export const PlayingFirstSong: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={mockQueueSongs}
           currentIndex={0}
           isOpen={isOpen()}
@@ -415,6 +422,7 @@ export const PlayingLastSong: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={mockQueueSongs}
           currentIndex={mockQueueSongs.length - 1}
           isOpen={isOpen()}
@@ -444,6 +452,7 @@ export const MixedThumbnails: Story = {
           </button>
         </div>
         <QueueSidebar
+          historyEntries={[]}
           songs={[
             mockQueueSongs[0], // with thumbnail
             mockQueueSongs[1], // no thumbnail
@@ -504,6 +513,7 @@ export const NarrowBottomSheetOpen: Story = {
         </div>
 
         <QueueSidebar
+          historyEntries={[]}
           songs={songs()}
           currentIndex={currentIndex()}
           isOpen={isOpen()}
@@ -550,6 +560,7 @@ export const NarrowBottomSheetClosed: Story = {
         </div>
 
         <QueueSidebar
+          historyEntries={[]}
           songs={mockQueueSongs}
           currentIndex={0}
           isOpen={isOpen()}
@@ -587,6 +598,7 @@ export const ResponsiveComparison: Story = {
               </button>
             </div>
             <QueueSidebar
+          historyEntries={[]}
               songs={mockQueueSongs.slice(0, 5)}
               currentIndex={1}
               isOpen={narrowOpen()}
@@ -614,6 +626,7 @@ export const ResponsiveComparison: Story = {
               </button>
             </div>
             <QueueSidebar
+          historyEntries={[]}
               songs={mockQueueSongs.slice(0, 5)}
               currentIndex={1}
               isOpen={wideOpen()}

@@ -137,7 +137,9 @@ export function FavoritesView(props: FavoritesViewProps) {
       }
 
       const sortedSongs = songs; // TODO: use sortSongsCanonical when available
-      await playQueue(sortedSongs);
+      await playQueue(sortedSongs, {
+        source: { type: "album", label: album.title, entity_id: album.album_id },
+      });
     } catch (error) {
       console.error("failed to play album:", error);
     }
@@ -149,6 +151,7 @@ export function FavoritesView(props: FavoritesViewProps) {
         id: album.album_id,
         title: album.title,
         artist_name: album.artist_name,
+        artist_id: album.artist_id,
         song_count: album.song_count,
       },
       {
@@ -186,7 +189,14 @@ export function FavoritesView(props: FavoritesViewProps) {
       }
 
       const sortedSongs = songs; // TODO: use sortSongsCanonical when available
-      await playQueue(sortedSongs);
+      await playQueue(sortedSongs, {
+        source: {
+          type: "artist",
+          label: artist.name,
+          entity_id: artist.artist_id,
+          image: artist.images?.[0],
+        },
+      });
     } catch (error) {
       console.error("failed to play artist:", error);
     }
@@ -236,7 +246,14 @@ export function FavoritesView(props: FavoritesViewProps) {
         return;
       }
 
-      await playQueue(songs);
+      await playQueue(songs, {
+        source: {
+          type: "playlist",
+          label: playlist.title,
+          entity_id: playlist.playlist_id,
+          image: playlist.images?.[0],
+        },
+      });
     } catch (error) {
       console.error("failed to play playlist:", error);
     }

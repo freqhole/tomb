@@ -11,11 +11,12 @@ import {
 } from "../src/components/cards/StatsCard";
 import { SearchSortControls } from "../src/components/controls/SearchSortControls";
 import { HeadingSection } from "../src/components/layout/HeadingSection";
-import { TwoColumnLayout, ResponsiveMasterDetail, type MasterDetailContext } from "../src/components/layout/TwoColumnLayout";
 import {
-  DraggableRow,
-  DraggableRowSongContent,
-} from "../src/components/lists/DraggableRow";
+  TwoColumnLayout,
+  ResponsiveMasterDetail,
+  type MasterDetailContext,
+} from "../src/components/layout/TwoColumnLayout";
+import { DraggableRow, DraggableRowSongContent } from "../src/components/lists/DraggableRow";
 import { AlphabetNav } from "../src/components/navigation/AlphabetNav";
 import { TopNav } from "../src/components/navigation/TopNav";
 import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
@@ -87,16 +88,12 @@ export const FullAppDemo: Story = {
     const [topNavOpen, setTopNavOpen] = createSignal(false);
 
     // player state
-    const [currentSong, setCurrentSong] = createSignal<Song | null>(
-      generatedSongs[0],
-    );
+    const [currentSong, setCurrentSong] = createSignal<Song | null>(generatedSongs[0]);
     const [isPlaying, setIsPlaying] = createSignal(false);
     const [volume, setVolume] = createSignal(0.75);
     const [currentTime, setCurrentTime] = createSignal(45);
     const [queueOpen, setQueueOpen] = createSignal(false);
-    const [queueSongs, setQueueSongs] = createSignal<Song[]>(
-      generatedSongs.slice(0, 20),
-    );
+    const [queueSongs, setQueueSongs] = createSignal<Song[]>(generatedSongs.slice(0, 20));
     const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
 
     // responsive: track if viewport is narrow (< 768px)
@@ -135,39 +132,22 @@ export const FullAppDemo: Story = {
     };
 
     // artists view state
-    const [selectedArtist, setSelectedArtist] = createSignal<Artist | null>(
-      mockArtists[0],
-    );
+    const [selectedArtist, setSelectedArtist] = createSignal<Artist | null>(mockArtists[0]);
     const [artistSortBy, setArtistSortBy] = createSignal("name");
-    const [artistSortDirection, setArtistSortDirection] = createSignal<
-      "asc" | "desc"
-    >("asc");
-    const [currentLetter, setCurrentLetter] = createSignal<
-      string | undefined
-    >();
-    const [playlistSongs, setPlaylistSongs] = createSignal<Song[]>(
-      generatedSongs.slice(0, 10),
-    );
+    const [artistSortDirection, setArtistSortDirection] = createSignal<"asc" | "desc">("asc");
+    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>();
+    const [playlistSongs, setPlaylistSongs] = createSignal<Song[]>(generatedSongs.slice(0, 10));
     const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
-    const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
-      null,
-    );
-    const [selectedSongIds, setSelectedSongIds] = createSignal<Set<string>>(
-      new Set(),
-    );
+    const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+    const [selectedSongIds, setSelectedSongIds] = createSignal<Set<string>>(new Set());
 
     // genres view state
-    const [selectedGenre, setSelectedGenre] = createSignal<Genre | null>(
-      mockGenres[0],
-    );
+    const [selectedGenre, setSelectedGenre] = createSignal<Genre | null>(mockGenres[0]);
     const [genreSortBy, setGenreSortBy] = createSignal("name");
-    const [genreSortDirection, setGenreSortDirection] = createSignal<
-      "asc" | "desc"
-    >("asc");
+    const [genreSortDirection, setGenreSortDirection] = createSignal<"asc" | "desc">("asc");
 
     // playlists view state
-    const [selectedPlaylist, setSelectedPlaylist] =
-      createSignal<Playlist | null>(mockPlaylists[0]);
+    const [selectedPlaylist, setSelectedPlaylist] = createSignal<Playlist | null>(mockPlaylists[0]);
 
     // search state
     const [searchValue, setSearchValue] = createSignal("");
@@ -183,28 +163,21 @@ export const FullAppDemo: Story = {
           id: `artist-${a.id}`,
           text: a.name,
           category: "artists",
-          highlight: a.name.replace(
-            new RegExp(`(${query})`, "gi"),
-            "<mark>$1</mark>",
-          ),
+          highlight: a.name.replace(new RegExp(`(${query})`, "gi"), "<mark>$1</mark>"),
           count: a.songCount,
         }));
 
       const songSuggestions = generatedSongs
         .filter(
           (s) =>
-            s.title.toLowerCase().includes(query) ||
-            s.artist_name?.toLowerCase().includes(query),
+            s.title.toLowerCase().includes(query) || s.artist_name?.toLowerCase().includes(query)
         )
         .slice(0, 3)
         .map((s) => ({
           id: `song-${s.id}`,
           text: s.title,
           category: "songs",
-          highlight: s.title.replace(
-            new RegExp(`(${query})`, "gi"),
-            "<mark>$1</mark>",
-          ),
+          highlight: s.title.replace(new RegExp(`(${query})`, "gi"), "<mark>$1</mark>"),
         }));
 
       const albumSuggestions = mockAlbums
@@ -214,10 +187,7 @@ export const FullAppDemo: Story = {
           id: `album-${a.id}`,
           text: a.title,
           category: "albums",
-          highlight: a.title.replace(
-            new RegExp(`(${query})`, "gi"),
-            "<mark>$1</mark>",
-          ),
+          highlight: a.title.replace(new RegExp(`(${query})`, "gi"), "<mark>$1</mark>"),
         }));
 
       return [...artistSuggestions, ...songSuggestions, ...albumSuggestions];
@@ -234,9 +204,7 @@ export const FullAppDemo: Story = {
         const bVal = b[field];
 
         if (typeof aVal === "string" && typeof bVal === "string") {
-          return dir === "asc"
-            ? aVal.localeCompare(bVal)
-            : bVal.localeCompare(aVal);
+          return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
         }
 
         if (typeof aVal === "number" && typeof bVal === "number") {
@@ -260,9 +228,7 @@ export const FullAppDemo: Story = {
         const bVal = b[field];
 
         if (typeof aVal === "string" && typeof bVal === "string") {
-          return dir === "asc"
-            ? aVal.localeCompare(bVal)
-            : bVal.localeCompare(aVal);
+          return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
         }
 
         if (typeof aVal === "number" && typeof bVal === "number") {
@@ -360,10 +326,8 @@ export const FullAppDemo: Story = {
     const handleSkip = (direction: "prev" | "next") => {
       const song = currentSong();
       if (!song) return;
-      
-      const currentIndex = generatedSongs.findIndex(
-        (s) => s.sha256 === song.sha256,
-      );
+
+      const currentIndex = generatedSongs.findIndex((s) => s.sha256 === song.sha256);
       if (direction === "prev" && currentIndex > 0) {
         setCurrentSong(generatedSongs[currentIndex - 1]);
       } else if (direction === "next" && currentIndex < generatedSongs.length - 1) {
@@ -443,8 +407,7 @@ export const FullAppDemo: Story = {
                   >
                     <div class="font-medium">{artist.name}</div>
                     <div class="text-xs text-[var(--color-text-tertiary)]">
-                      {formatNumber(artist.songCount)} songs · {artist.albumCount}{" "}
-                      albums
+                      {formatNumber(artist.songCount)} songs · {artist.albumCount} albums
                     </div>
                   </button>
                 )}
@@ -535,23 +498,14 @@ export const FullAppDemo: Story = {
 
                 {/* sticky action buttons */}
                 <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
-                  <Button
-                    variant="primary"
-                    onClick={() => console.log("play all songs")}
-                  >
+                  <Button variant="primary" onClick={() => console.log("play all songs")}>
                     <span class="hidden md:inline">play all</span>
                     <span class="md:hidden">play</span>
                   </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => console.log("shuffle")}
-                  >
+                  <Button variant="secondary" onClick={() => console.log("shuffle")}>
                     shuffle
                   </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => console.log("add to queue")}
-                  >
+                  <Button variant="ghost" onClick={() => console.log("add to queue")}>
                     <span class="hidden md:inline">add to queue</span>
                     <span class="md:hidden">+queue</span>
                   </Button>
@@ -623,8 +577,7 @@ export const FullAppDemo: Story = {
                   >
                     <div class="font-medium">{genre.name}</div>
                     <div class="text-xs text-[var(--color-text-tertiary)]">
-                      {formatNumber(genre.songCount)} songs · {genre.artistCount}{" "}
-                      artists
+                      {formatNumber(genre.songCount)} songs · {genre.artistCount} artists
                     </div>
                   </button>
                 )}
@@ -683,12 +636,7 @@ export const FullAppDemo: Story = {
                       <For each={generatedSongs.slice(0, 15)}>
                         {(song) => (
                           <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                            <IconButton
-                              icon="play"
-                              size="sm"
-                              variant="ghost"
-                              aria-label="play"
-                            />
+                            <IconButton icon="play" size="sm" variant="ghost" aria-label="play" />
                             <div class="flex-1 min-w-0">
                               <div class="body-small text-[var(--color-text-primary)] truncate">
                                 {song.title}
@@ -762,8 +710,7 @@ export const FullAppDemo: Story = {
                   >
                     <div class="font-medium">{playlist.name}</div>
                     <div class="text-xs text-[var(--color-text-tertiary)]">
-                      {playlist.songCount} songs ·{" "}
-                      {formatDuration(playlist.duration)}
+                      {playlist.songCount} songs · {formatDuration(playlist.duration)}
                     </div>
                   </button>
                 )}
@@ -809,12 +756,8 @@ export const FullAppDemo: Story = {
                   {/* songs list */}
                   <div class="px-3 md:px-6 pb-4">
                     <div class="mb-3 flex items-center justify-between">
-                      <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                        songs
-                      </h3>
-                      <div class="text-sm text-[var(--color-text-secondary)]">
-                        drag to reorder
-                      </div>
+                      <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">songs</h3>
+                      <div class="text-sm text-[var(--color-text-secondary)]">drag to reorder</div>
                     </div>
                     <div class="space-y-1">
                       <For each={playlistSongs()}>
@@ -862,8 +805,7 @@ export const FullAppDemo: Story = {
                       </For>
                     </div>
                     <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
-                      {playlistSongs().length} songs • {selectedSongIds().size}{" "}
-                      selected
+                      {playlistSongs().length} songs • {selectedSongIds().size} selected
                     </div>
                   </div>
                 </div>
@@ -1063,9 +1005,9 @@ export const FullAppDemo: Story = {
         {/* main content area + queue */}
         <div
           class="flex-1 overflow-hidden flex"
-          style={{ 
-            "padding-top": isNarrow() ? "var(--nav-height)" : undefined, 
-            "padding-bottom": "var(--player-bar-height)" 
+          style={{
+            "padding-top": isNarrow() ? "var(--nav-height)" : undefined,
+            "padding-bottom": "var(--player-bar-height)",
           }}
         >
           {/* main content */}
@@ -1081,6 +1023,7 @@ export const FullAppDemo: Story = {
             onSongClick={handleQueueSongClick}
             onRemoveSong={handleRemoveFromQueue}
             onClearAll={() => setQueueSongs([])}
+            historyEntries={[]}
           />
         </div>
 
@@ -1120,4 +1063,3 @@ export const FullAppDemo: Story = {
     );
   },
 };
-

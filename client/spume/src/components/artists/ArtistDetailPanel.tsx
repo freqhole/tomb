@@ -503,6 +503,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                           id: album().albumId,
                           title: album().albumTitle,
                           artist_name: props.artist.name,
+                          artist_id: props.artist.artist_id,
                           song_count: album().songs.length,
                         },
                         {

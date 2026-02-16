@@ -7,9 +7,11 @@ import {
   setQueue,
   setQueueOpen,
 } from "../../../app/services/storage/db";
+import type { QueueSourceContext } from "../../../app/services/storage/types";
 import { evictCachedBlob } from "../cache/blobCache";
 import { playSong, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
+import { addHistoryEntry } from "./queueHistory";
 import type { Song } from "../storage/types";
 
 // re-export queue state so consumers can import everything from queue.ts
@@ -28,13 +30,18 @@ export {
 // plays songs[startIndex] (default 0) after setting the queue
 export async function playQueue(
   songs: Song[],
-  options?: { startIndex?: number },
+  options?: { startIndex?: number; source?: QueueSourceContext },
 ): Promise<void> {
   if (songs.length === 0) return;
 
   const startIndex = options?.startIndex ?? 0;
   await setQueue(songs);
   await playSong(songs[startIndex]);
+
+  // record history
+  if (options?.source) {
+    void addHistoryEntry(songs, options.source);
+  }
 }
 
 // add songs to queue with flexible options
@@ -44,6 +51,7 @@ export async function addToQueue(
   options?: {
     startPlaying?: boolean;
     position?: "end" | "next";
+    source?: QueueSourceContext;
   },
 ): Promise<void> {
   if (songs.length === 0) return;
@@ -82,6 +90,11 @@ export async function addToQueue(
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   if (startPlaying || !current_sha256 || hasPlaybackEnded()) {
     await playSong(songs[0]);
+  }
+
+  // record history
+  if (options?.source) {
+    void addHistoryEntry(songs, options.source);
   }
 }
 

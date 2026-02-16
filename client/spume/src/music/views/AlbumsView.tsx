@@ -227,7 +227,9 @@ export function AlbumsView(props: AlbumsViewProps) {
       const sortedSongs = sortSongsCanonical(songs);
 
       // set queue and play first song
-      await playQueue(sortedSongs);
+      await playQueue(sortedSongs, {
+        source: { type: "album", label: album.title, entity_id: album.id },
+      });
     } catch (error) {
       console.error("failed to play album:", error);
     }
@@ -247,11 +249,17 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   // build context menu actions for each album
   const getContextMenuActions = (album: CollectionCardData) => {
+    // look up original AlbumSummary to get artist_id
+    const pages = albumsQuery.data?.pages ?? [];
+    const allAlbums = pages.flatMap((page) => page.items);
+    const original = allAlbums.find((a) => a.album_id === album.id);
+
     return useAlbumContextMenu(
       {
         id: album.id,
         title: album.title,
         artist_name: album.artist,
+        artist_id: original?.artist_id,
         song_count: album.trackCount,
       },
       {

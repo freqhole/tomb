@@ -1,15 +1,52 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createSignal, For, Show, type JSX } from "solid-js";
 import type { Song } from "../../music/data/types";
+import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
-import { Badge } from "../badges/Badge";
-import { Icon } from "../icons/registry";
+
+import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { isBlobCachedReactive } from "../../music/services/cache/blobCache";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
+
+type QueueTab = "queue" | "history";
+
+// relative time formatting
+function timeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return `${weeks}w ago`;
+}
+
+// icon name for history entry type
+function historyTypeIcon(type: QueueHistoryEntry["type"]): IconName {
+  switch (type) {
+    case "song":
+      return "music";
+    case "album":
+      return "album";
+    case "artist":
+      return "artist";
+    case "genre":
+      return "genre";
+    case "playlist":
+      return "playlist";
+    case "shuffle":
+      return "shuffle";
+    default:
+      return "queue";
+  }
+}
 
 export interface QueueSidebarProps {
   /** list of songs in queue */
@@ -34,6 +71,16 @@ export interface QueueSidebarProps {
   variant?: "overlay" | "inline";
   /** callback when queue is reordered */
   onReorder?: (fromIndex: number, toIndex: number) => void;
+  /** history entries */
+  historyEntries: QueueHistoryEntry[];
+  /** callback to replay a history entry */
+  onReplayHistoryEntry?: (entry: QueueHistoryEntry) => void;
+  /** callback to remove a history entry */
+  onRemoveHistoryEntry?: (id: string) => void;
+  /** callback to clear all history */
+  onClearHistory?: () => void;
+  /** callback to get context menu actions for a history entry */
+  getHistoryContextMenuActions?: (entry: QueueHistoryEntry) => MenuAction[];
   /** additional classes */
   class?: string;
 }
@@ -41,7 +88,9 @@ export interface QueueSidebarProps {
 // queue sidebar component
 export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
+  let historyScrollRef: HTMLDivElement | undefined;
 
+  const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
 
@@ -50,7 +99,16 @@ export function QueueSidebar(props: QueueSidebarProps) {
       return props.songs.length;
     },
     getScrollElement: () => scrollElementRef,
-    estimateSize: () => 60, // estimated height of each queue item
+    estimateSize: () => 60,
+    overscan: 5,
+  });
+
+  const historyVirtualizer = createVirtualizer({
+    get count() {
+      return props.historyEntries.length;
+    },
+    getScrollElement: () => historyScrollRef,
+    estimateSize: () => 56,
     overscan: 5,
   });
 
@@ -145,43 +203,74 @@ export function QueueSidebar(props: QueueSidebarProps) {
           </div>
         </Show> */}
 
-        {/* header */}
-        <div class="flex items-center justify-between p-4">
-          <div class="flex items-center gap-3">
-            <Icon name="queue" size={20} color="var(--color-accent-500)" />
-            <h2 class="text-lg font-medium text-[var(--color-text-primary)] m-0">queue</h2>
-            <Badge variant="default" size="sm">
-              {props.songs.length} {props.songs.length === 1 ? "song" : "songs"}
-            </Badge>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <Show when={props.songs.length > 0}>
-              <button
-                class="px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
-                onClick={() => props.onClearAll()}
-                title="clear all"
-              >
-                clear all
-              </button>
-            </Show>
-
+        {/* header — tabs + clear + close */}
+        <div class="flex items-center justify-between px-4 pt-3 pb-2">
+          <div class="flex items-center gap-1">
             <button
-              class="p-2 hover:bg-[var(--color-accent-500)]/20 transition-colors"
-              onClick={() => props.onClose()}
-              title="close queue"
-              aria-label="close queue"
+              class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                activeTab() === "queue"
+                  ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/5"
+              }`}
+              onClick={() => setActiveTab("queue")}
             >
-              <Icon name="close" size={20} color="var(--color-accent-500)" />
+              queue{props.songs.length > 0 ? ` (${props.songs.length})` : ""}
+            </button>
+            <button
+              class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                activeTab() === "history"
+                  ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/5"
+              }`}
+              onClick={() => setActiveTab("history")}
+            >
+              history
+              {/* {props.historyEntries.length > 0 ? ` (${props.historyEntries.length})` : ""} */}
             </button>
           </div>
+
+          <Show
+            when={
+              (activeTab() === "queue" && props.songs.length > 0) ||
+              (activeTab() === "history" && props.historyEntries.length > 0)
+            }
+          >
+            <button
+              class="px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
+              onClick={() => {
+                if (activeTab() === "queue") {
+                  props.onClearAll();
+                } else {
+                  props.onClearHistory?.();
+                }
+              }}
+              title={
+                activeTab() === "queue" ? "clear all songs from queue" : "clear all queue history"
+              }
+            >
+              clear
+            </button>
+          </Show>
+
+          <button
+            class="p-2 hover:bg-[var(--color-accent-500)]/20 transition-colors"
+            onClick={() => props.onClose()}
+            title="close"
+            aria-label="close"
+          >
+            <Icon name="close" size={20} color="var(--color-accent-500)" />
+          </button>
         </div>
 
-        {/* queue list */}
+        {/* queue tab content */}
         <div
           ref={scrollElementRef}
           class="flex-1 overflow-y-auto"
-          style={{ "overflow-anchor": "none", "overscroll-behavior": "contain" }}
+          style={{
+            "overflow-anchor": "none",
+            "overscroll-behavior": "contain",
+            display: activeTab() === "queue" ? undefined : "none",
+          }}
         >
           <Show
             when={props.songs.length > 0}
@@ -234,13 +323,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       onDrop={() => handleDrop(itemIndex)}
                       onClick={() => {
                         if (isMobile()) {
-                          // on mobile, single tap plays
                           handleSongDoubleClick(itemIndex);
                         }
-                        // on desktop, single click does nothing - only double-click plays
                       }}
                       onDblClick={() => {
-                        // on desktop, double-click plays
                         if (!isMobile()) {
                           handleSongDoubleClick(itemIndex);
                         }
@@ -332,6 +418,129 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     </ContextMenu>
                   ) : (
                     songRow
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </div>
+
+        {/* history tab content */}
+        <div
+          ref={historyScrollRef}
+          class="flex-1 overflow-y-auto"
+          style={{
+            "overflow-anchor": "none",
+            "overscroll-behavior": "contain",
+            display: activeTab() === "history" ? undefined : "none",
+          }}
+        >
+          <Show
+            when={props.historyEntries.length > 0}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                  <Icon name="recent" size={32} color="var(--color-accent-500)" />
+                </div>
+                <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">no history yet</p>
+                <p class="text-[var(--color-text-muted)] text-xs m-0">
+                  songs you queue will appear here
+                </p>
+              </div>
+            }
+          >
+            <div
+              class="relative p-2"
+              style={{
+                height: `${historyVirtualizer.getTotalSize()}px`,
+              }}
+            >
+              <For each={historyVirtualizer.getVirtualItems()} fallback={null}>
+                {(virtualItem) => {
+                  const entry = () => props.historyEntries[virtualItem.index];
+                  const [isRowHovered, setIsRowHovered] = createSignal(false);
+                  const isArtist = () => entry().type === "artist";
+
+                  const historyRow = (
+                    <div
+                      class="absolute top-0 left-0 w-full flex items-center px-2 py-1.5 group transition-all duration-200 cursor-pointer hover:bg-[var(--color-accent-500)]/10"
+                      style={{
+                        transform: `translateY(${virtualItem.start}px)`,
+                        height: `${virtualItem.size}px`,
+                      }}
+                      onMouseEnter={() => setIsRowHovered(true)}
+                      onMouseLeave={() => setIsRowHovered(false)}
+                      onClick={() => {
+                        if (isMobile()) {
+                          props.onReplayHistoryEntry?.(entry());
+                        }
+                      }}
+                      onDblClick={() => {
+                        if (!isMobile()) {
+                          props.onReplayHistoryEntry?.(entry());
+                        }
+                      }}
+                      title={isMobile() ? "tap to re-queue" : "double-click to re-queue"}
+                    >
+                      {/* type icon / thumbnail */}
+                      <div
+                        class={`w-10 h-10 flex-shrink-0 mr-3 flex items-center justify-center ${isArtist() ? "rounded-full" : "rounded"} bg-[var(--color-accent-500)]/10 overflow-hidden`}
+                      >
+                        <Show
+                          when={entry().image}
+                          fallback={
+                            <Icon
+                              name={historyTypeIcon(entry().type)}
+                              size={20}
+                              color="var(--color-accent-500)"
+                            />
+                          }
+                        >
+                          <MediaThumbnail
+                            images={entry().image ? [entry().image!] : undefined}
+                            size={40}
+                            class={isArtist() ? "rounded-full" : undefined}
+                          />
+                        </Show>
+                      </div>
+
+                      {/* label + song count */}
+                      <div class="flex-1 min-w-0">
+                        <h4 class="text-sm font-medium text-[var(--color-text-primary)] m-0 truncate">
+                          {entry().label}
+                        </h4>
+                        <p class="text-xs text-[var(--color-text-secondary)] m-0">
+                          {entry().type} &middot; {entry().song_count}{" "}
+                          {entry().song_count === 1 ? "song" : "songs"}
+                        </p>
+                      </div>
+
+                      {/* timestamp */}
+                      <div class="text-xs text-[var(--color-text-muted)] ml-2 flex-shrink-0">
+                        {timeAgo(entry().queued_at)}
+                      </div>
+
+                      {/* remove button */}
+                      <button
+                        class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-1.5 ml-1 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onRemoveHistoryEntry?.(entry().id);
+                        }}
+                        title="remove from history"
+                        aria-label="remove from history"
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  );
+
+                  return props.getHistoryContextMenuActions && entry() ? (
+                    <ContextMenu actions={props.getHistoryContextMenuActions(entry()!)}>
+                      {historyRow}
+                    </ContextMenu>
+                  ) : (
+                    historyRow
                   );
                 }}
               </For>

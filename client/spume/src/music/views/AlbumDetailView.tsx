@@ -115,8 +115,10 @@ export function AlbumDetailView() {
   const handlePlayAlbum = async () => {
     const songList = songs();
     if (songList.length === 0) return;
-
-    await playQueue(songList);
+    const info = albumInfo();
+    await playQueue(songList, {
+      source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
+    });
   };
 
   const handleSongDoubleClick = async (song: Song) => {
@@ -125,7 +127,11 @@ export function AlbumDetailView() {
 
     // set queue to all album songs and play the clicked one
     const startIndex = songList.findIndex((s) => s.sha256 === song.sha256);
-    await playQueue(songList, { startIndex: Math.max(0, startIndex) });
+    const info = albumInfo();
+    await playQueue(songList, {
+      startIndex: Math.max(0, startIndex),
+      source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
+    });
   };
 
   const handleArtistClick = () => {
@@ -155,6 +161,7 @@ export function AlbumDetailView() {
         id: info.album_id || params.id,
         title: info.title || "",
         artist_name: songs()[0]?.artist_name,
+        artist_id: info.artist_id,
         song_count: songs().length,
       },
       {

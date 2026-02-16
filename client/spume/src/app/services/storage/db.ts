@@ -7,6 +7,7 @@ import {
   APP_DB_NAME,
   APP_DB_VERSION,
   STORE_APP_STATE,
+  STORE_QUEUE_HISTORY,
   STORE_REMOTES,
   type AppState,
 } from "./types";
@@ -35,6 +36,14 @@ async function initAppDB(): Promise<IDBPDatabase> {
         remotesStore.createIndex("by_name", "name");
         remotesStore.createIndex("by_is_active", "is_active");
         remotesStore.createIndex("by_created_at", "created_at");
+      }
+
+      // create queue_history store (v3)
+      if (!db.objectStoreNames.contains(STORE_QUEUE_HISTORY)) {
+        const historyStore = db.createObjectStore(STORE_QUEUE_HISTORY, {
+          keyPath: "id",
+        });
+        historyStore.createIndex("by_queued_at", "queued_at");
       }
     },
   });

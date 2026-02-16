@@ -203,7 +203,7 @@ export function SongsView(props: SongsViewProps) {
 
   // play song immediately when thumbnail is clicked
   const handlePlayClick = async (song: Song, index: number) => {
-    await playQueue([song]);
+    await playQueue([song], { source: { type: "song", label: song.title } });
   };
 
   // build context menu actions for a song

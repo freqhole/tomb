@@ -50,13 +50,22 @@ import {
   setActiveRemote,
 } from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
-import type { Remote } from "./services/storage/types";
+import type { Remote, QueueHistoryEntry } from "./services/storage/types";
+import type { MenuAction } from "../components/overlays/ContextMenu";
+import { IconNames, type IconName } from "../components/icons/registry";
 import { routes } from "../music/utils/routing";
-import { confirmState, closeConfirm, resolveConfirm } from "./services/confirmState";
+import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import { showImageCarousel } from "../music/modals";
 import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
+import {
+  queueHistory,
+  loadQueueHistory,
+  removeHistoryEntry,
+  clearQueueHistory,
+} from "../music/services/queue/queueHistory";
+import { addToQueue } from "../music/services/queue/queue";
 
 // responsive breakpoint
 const NARROW_BREAKPOINT = 768;
@@ -96,6 +105,9 @@ export function AppLayout(props: AppLayoutProps) {
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
+
+    // load queue history from idb
+    loadQueueHistory();
 
     try {
       const allRemotes = await getAllRemotes();
@@ -266,6 +278,102 @@ export function AppLayout(props: AppLayoutProps) {
     await setQueueOpen(!queueOpen());
   };
 
+  // build context menu actions for a history entry
+  const getHistoryContextMenuActions = (entry: QueueHistoryEntry): MenuAction[] => {
+    const actions: MenuAction[] = [];
+
+    // replay actions
+    actions.push({
+      label: "play again",
+      icon: IconNames.play,
+      onClick: () => {
+        void addToQueue(entry.songs, {
+          startPlaying: true,
+          source: {
+            type: entry.type,
+            label: entry.label,
+            entity_id: entry.entity_id,
+            image: entry.image,
+          },
+        });
+      },
+    });
+
+    actions.push({
+      label: "add to queue",
+      icon: IconNames.queue,
+      onClick: () => {
+        void addToQueue(entry.songs, {
+          source: {
+            type: entry.type,
+            label: entry.label,
+            entity_id: entry.entity_id,
+            image: entry.image,
+          },
+        });
+      },
+    });
+
+    // navigation actions based on type
+    const firstSong = entry.songs[0];
+    const navActions: MenuAction[] = [];
+
+    // for song/album types, show both "view album" and "view artist"
+    if (entry.type === "song" || entry.type === "album") {
+      const albumId = entry.type === "album" ? entry.entity_id : firstSong?.album_id;
+      const artistId = firstSong?.artist_id;
+      if (albumId) {
+        navActions.push({
+          label: "view album",
+          icon: IconNames.album,
+          onClick: () => navigate(routes.album(albumId)),
+        });
+      }
+      if (artistId) {
+        navActions.push({
+          label: "view artist",
+          icon: IconNames.artist,
+          onClick: () => navigate(routes.artist(artistId)),
+        });
+      }
+    } else if (entry.entity_id) {
+      const typeNavMap: Record<
+        string,
+        { label: string; route: (id: string) => string; icon: IconName }
+      > = {
+        artist: { label: "view artist", route: routes.artist, icon: IconNames.artist },
+        playlist: { label: "view playlist", route: routes.playlist, icon: IconNames.playlist },
+        genre: { label: "view genre", route: routes.genre, icon: IconNames.genre },
+      };
+      const nav = typeNavMap[entry.type];
+      if (nav) {
+        navActions.push({
+          label: nav.label,
+          icon: nav.icon,
+          onClick: () => navigate(nav.route(entry.entity_id!)),
+        });
+      }
+    }
+
+    if (navActions.length > 0) {
+      actions.push({ type: "separator" });
+      actions.push(...navActions);
+    }
+
+    // remove from history
+    actions.push({ type: "separator" });
+    actions.push({
+      label: "remove from history",
+      icon: IconNames.delete,
+      destructive: true,
+      onClick: () => {
+        void removeHistoryEntry(entry.id);
+      },
+    });
+
+    return actions;
+  };
+
   // build view options for the TopNav view selector
   const viewOptions = (): ViewOption[] => {
     const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
@@ -422,10 +530,37 @@ export function AppLayout(props: AppLayoutProps) {
 
             const fullSong = state.queue[index];
             return useSongContextMenu(fullSong, {
-              showPlayActions: false, // already in queue, no need for play actions
+              showPlayActions: false,
               isFavorite: fullSong.is_favorite || false,
             });
           }}
+          historyEntries={queueHistory()}
+          onReplayHistoryEntry={(entry) => {
+            void addToQueue(entry.songs, {
+              startPlaying: true,
+              source: {
+                type: entry.type,
+                label: entry.label,
+                entity_id: entry.entity_id,
+                image: entry.image,
+              },
+            });
+          }}
+          onRemoveHistoryEntry={(id) => {
+            void removeHistoryEntry(id);
+          }}
+          onClearHistory={async () => {
+            const confirmed = await confirm({
+              title: "clear history",
+              message: "are you sure you want to clear all queue history?",
+              confirmText: "clear",
+              variant: "danger",
+            });
+            if (confirmed) {
+              void clearQueueHistory();
+            }
+          }}
+          getHistoryContextMenuActions={getHistoryContextMenuActions}
         />
       </div>
 

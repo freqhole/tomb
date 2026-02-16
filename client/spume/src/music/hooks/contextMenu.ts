@@ -84,7 +84,7 @@ export function useSongContextMenu(
       label: "play now",
       icon: IconNames.play,
       onClick: async () => {
-        await playQueue([song]);
+        await playQueue([song], { source: { type: "song", label: song.title } });
       },
     });
 
@@ -92,7 +92,7 @@ export function useSongContextMenu(
       label: "play next",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueue([song], { position: "next" });
+        await addToQueue([song], { position: "next", source: { type: "song", label: song.title } });
       },
     });
 
@@ -100,7 +100,7 @@ export function useSongContextMenu(
       label: "add to queue",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueue([song]);
+        await addToQueue([song], { source: { type: "song", label: song.title } });
       },
     });
 
@@ -265,7 +265,7 @@ export function useMultipleSongsContextMenu(
       label: `play ${songs.length} songs`,
       icon: IconNames.play,
       onClick: async () => {
-        await playQueue(songs);
+        await playQueue(songs, { source: { type: "song", label: `${songs.length} songs` } });
       },
     });
 
@@ -273,7 +273,7 @@ export function useMultipleSongsContextMenu(
       label: "play next",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueue(songs, { position: "next" });
+        await addToQueue(songs, { position: "next", source: { type: "song", label: `${songs.length} songs` } });
       },
     });
 
@@ -281,7 +281,7 @@ export function useMultipleSongsContextMenu(
       label: "add to queue",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueue(songs);
+        await addToQueue(songs, { source: { type: "song", label: `${songs.length} songs` } });
       },
     });
 
@@ -370,6 +370,7 @@ export interface AlbumContextMenuData {
   id: string;
   title: string;
   artist_name?: string | null;
+  artist_id?: string | null;
   song_count?: number;
 }
 
@@ -391,7 +392,7 @@ export function useAlbumContextMenu(
         const dataSource = getDataSource();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
-          await playQueue(response.items);
+          await playQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
         }
       },
     });
@@ -404,7 +405,7 @@ export function useAlbumContextMenu(
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           const shuffled = [...response.items].sort(() => Math.random() - 0.5);
-          await playQueue(shuffled);
+          await playQueue(shuffled, { source: { type: "shuffle", label: album.title, entity_id: album.id } });
         }
       },
     });
@@ -416,7 +417,7 @@ export function useAlbumContextMenu(
         const dataSource = getDataSource();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
-          await addToQueue(response.items);
+          await addToQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
         }
       },
     });
@@ -432,6 +433,16 @@ export function useAlbumContextMenu(
       navigate(routes.album(album.id));
     },
   });
+
+  if (album.artist_id) {
+    actions.push({
+      label: "view artist",
+      icon: IconNames.artist,
+      onClick: () => {
+        navigate(routes.artist(album.artist_id!));
+      },
+    });
+  }
 
   actions.push({ type: "separator" });
 
@@ -503,7 +514,7 @@ export function usePlaylistContextMenu(
         const dataSource = getDataSource();
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
-          await playQueue(response.items);
+          await playQueue(response.items, { source: { type: "playlist", label: playlist.title, entity_id: playlist.id } });
         }
       },
     });
@@ -516,7 +527,7 @@ export function usePlaylistContextMenu(
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
           const shuffled = [...response.items].sort(() => Math.random() - 0.5);
-          await playQueue(shuffled);
+          await playQueue(shuffled, { source: { type: "shuffle", label: playlist.title, entity_id: playlist.id } });
         }
       },
     });
@@ -528,7 +539,7 @@ export function usePlaylistContextMenu(
         const dataSource = getDataSource();
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
-          await addToQueue(response.items);
+          await addToQueue(response.items, { source: { type: "playlist", label: playlist.title, entity_id: playlist.id } });
         }
       },
     });

@@ -114,7 +114,7 @@ export function App() {
 
   const handleSongDoubleClick = async (song: Song) => {
     // add song to end of queue and play it
-    await addToQueue([song], { startPlaying: true });
+    await addToQueue([song], { startPlaying: true, source: { type: "song", label: song.title } });
   };
 
   return (

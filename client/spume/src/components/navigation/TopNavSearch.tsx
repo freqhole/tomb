@@ -167,7 +167,10 @@ export function TopNavSearch(props: TopNavSearchProps) {
         case "album": {
           const albumSongs = await dataSource.getAlbumSongs?.(suggestion.entity_id);
           if (albumSongs && albumSongs.items.length > 0) {
-            await addToQueue(albumSongs.items, { startPlaying: true });
+            await addToQueue(albumSongs.items, {
+              startPlaying: true,
+              source: { type: "album", label: suggestion.display, entity_id: suggestion.entity_id },
+            });
           }
           break;
         }
@@ -175,7 +178,14 @@ export function TopNavSearch(props: TopNavSearchProps) {
         case "playlist": {
           const playlistSongs = await dataSource.getPlaylistSongs?.(suggestion.entity_id);
           if (playlistSongs && playlistSongs.items.length > 0) {
-            await addToQueue(playlistSongs.items, { startPlaying: true });
+            await addToQueue(playlistSongs.items, {
+              startPlaying: true,
+              source: {
+                type: "playlist",
+                label: suggestion.display,
+                entity_id: suggestion.entity_id,
+              },
+            });
           }
           break;
         }
@@ -260,7 +270,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
         return;
       }
 
-      await addToQueue([song], { startPlaying: true });
+      await addToQueue([song], { startPlaying: true, source: { type: "song", label: song.title } });
     } catch (error) {
       console.error("failed to play song:", error);
     }

@@ -1,5 +1,5 @@
 // application-level storage types (domain-agnostic)
-import type { Song } from "../../../music/services/storage/types";
+import type { ImageMetadata, Song } from "../../../music/services/storage/types";
 
 export interface AppState {
   id: "app_state";
@@ -8,6 +8,34 @@ export interface AppState {
   queue_open: boolean; // whether queue sidebar is open
   active_remote_id: string | null; // currently active remote source id
   last_updated: number;
+}
+
+// queue history entry — represents one "add to queue" action
+export type QueueHistorySourceType =
+  | "song"
+  | "album"
+  | "artist"
+  | "genre"
+  | "playlist"
+  | "shuffle";
+
+export interface QueueHistoryEntry {
+  id: string; // uuid
+  type: QueueHistorySourceType;
+  label: string; // display text, e.g. "KMFDM - Angst"
+  entity_id?: string; // album_id, artist_id, playlist_id, genre name
+  song_count: number; // how many songs were added
+  songs: Song[]; // the actual songs (for re-queuing)
+  queued_at: number; // timestamp
+  image?: ImageMetadata; // first image for thumbnail
+}
+
+// source context passed to addToQueue/playQueue for history tracking
+export interface QueueSourceContext {
+  type: QueueHistorySourceType;
+  label: string;
+  entity_id?: string;
+  image?: ImageMetadata;
 }
 
 // remote server configurations (no credentials - uses cookies)
@@ -29,8 +57,9 @@ export interface Remote {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 2; // bumped for remotes table
+export const APP_DB_VERSION = 3; // bumped for queue_history store
 
 // app store names
 export const STORE_APP_STATE = "app_state";
 export const STORE_REMOTES = "remotes";
+export const STORE_QUEUE_HISTORY = "queue_history";

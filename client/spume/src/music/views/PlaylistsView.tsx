@@ -370,12 +370,21 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const handleSongDoubleClick = async (song: Song) => {
     const songs = playlistSongs();
     const startIndex = songs.findIndex((s) => s.sha256 === song.sha256);
-    await playQueue(songs, { startIndex: Math.max(0, startIndex) });
+    const playlist = selectedPlaylist();
+    await playQueue(songs, {
+      startIndex: Math.max(0, startIndex),
+      source: {
+        type: "playlist",
+        label: playlist?.title ?? "playlist",
+        entity_id: playlist?.playlist_id,
+        image: playlist?.images?.[0],
+      },
+    });
   };
 
   // handle add song to queue
   const handleAddSongToQueue = async (song: Song) => {
-    await addToQueue([song]);
+    await addToQueue([song], { source: { type: "song", label: song.title } });
   };
 
   // fetch more playlists when scrolling near end
@@ -501,7 +510,15 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const handlePlayAll = async () => {
     const songs = playlistSongs();
     if (songs.length > 0) {
-      await playQueue(songs);
+      const playlist = selectedPlaylist();
+      await playQueue(songs, {
+        source: {
+          type: "playlist",
+          label: playlist?.title ?? "playlist",
+          entity_id: playlist?.playlist_id,
+          image: playlist?.images?.[0],
+        },
+      });
     }
   };
 
@@ -509,7 +526,15 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const handleAddToQueue = async () => {
     const songs = playlistSongs();
     if (songs.length > 0) {
-      await addToQueue(songs);
+      const playlist = selectedPlaylist();
+      await addToQueue(songs, {
+        source: {
+          type: "playlist",
+          label: playlist?.title ?? "playlist",
+          entity_id: playlist?.playlist_id,
+          image: playlist?.images?.[0],
+        },
+      });
     }
   };
 

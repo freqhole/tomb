@@ -307,25 +307,46 @@ export function ArtistsView(props: ArtistsViewProps) {
   const handlePlayAll = async () => {
     const songs = artistSongs();
     if (!songs || songs.length === 0) return;
-
-    await playQueue(songs);
+    const artist = selectedArtist();
+    await playQueue(songs, {
+      source: {
+        type: "artist",
+        label: artist?.name ?? "artist",
+        entity_id: artist?.artist_id,
+        image: artist?.images?.[0],
+      },
+    });
   };
 
   // shuffle all songs for selected artist
   const handleShuffle = async () => {
     const songs = artistSongs();
     if (!songs || songs.length === 0) return;
-
+    const artist = selectedArtist();
     const shuffled = shuffleArray(songs);
-    await playQueue(shuffled);
+    await playQueue(shuffled, {
+      source: {
+        type: "shuffle",
+        label: artist?.name ?? "artist",
+        entity_id: artist?.artist_id,
+        image: artist?.images?.[0],
+      },
+    });
   };
 
   // add all songs to end of queue
   const handleAddToQueue = async () => {
     const songs = artistSongs();
     if (!songs || songs.length === 0) return;
-
-    await addToQueue(songs);
+    const artist = selectedArtist();
+    await addToQueue(songs, {
+      source: {
+        type: "artist",
+        label: artist?.name ?? "artist",
+        entity_id: artist?.artist_id,
+        image: artist?.images?.[0],
+      },
+    });
   };
 
   // navigate to album detail
@@ -338,8 +359,10 @@ export function ArtistsView(props: ArtistsViewProps) {
     const datasource = getDataSource();
     const result = await datasource.getAlbumSongs?.(albumId);
     if (!result || result.items.length === 0) return;
-
-    await playQueue(result.items);
+    const albumTitle = result.items[0]?.album_title ?? albumId;
+    await playQueue(result.items, {
+      source: { type: "album", label: albumTitle, entity_id: albumId },
+    });
   };
 
   // add album to queue
@@ -347,8 +370,10 @@ export function ArtistsView(props: ArtistsViewProps) {
     const datasource = getDataSource();
     const result = await datasource.getAlbumSongs?.(albumId);
     if (!result || result.items.length === 0) return;
-
-    await addToQueue(result.items);
+    const albumTitle = result.items[0]?.album_title ?? albumId;
+    await addToQueue(result.items, {
+      source: { type: "album", label: albumTitle, entity_id: albumId },
+    });
   };
 
   // play specific song
@@ -361,7 +386,11 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (!clickedSong) return;
 
     const startIndex = result.items.findIndex((s) => s.id === songId);
-    await playQueue(result.items, { startIndex: Math.max(0, startIndex) });
+    const albumTitle = result.items[0]?.album_title ?? albumId;
+    await playQueue(result.items, {
+      startIndex: Math.max(0, startIndex),
+      source: { type: "album", label: albumTitle, entity_id: albumId },
+    });
   };
 
   // edit artist
@@ -504,7 +533,14 @@ export function ArtistsView(props: ArtistsViewProps) {
           const datasource = getDataSource();
           const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
           if (!result || result.items.length === 0) return;
-          await playQueue(result.items);
+          await playQueue(result.items, {
+            source: {
+              type: "artist",
+              label: artist.name,
+              entity_id: artist.artist_id,
+              image: artist.images?.[0],
+            },
+          });
         },
         onShuffle: async () => {
           setSelectedArtistId(artist.artist_id);
@@ -513,7 +549,14 @@ export function ArtistsView(props: ArtistsViewProps) {
           const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
           if (!result || result.items.length === 0) return;
           const shuffled = shuffleArray(result.items);
-          await playQueue(shuffled);
+          await playQueue(shuffled, {
+            source: {
+              type: "shuffle",
+              label: artist.name,
+              entity_id: artist.artist_id,
+              image: artist.images?.[0],
+            },
+          });
         },
         onAddToQueue: async () => {
           setSelectedArtistId(artist.artist_id);
@@ -521,7 +564,14 @@ export function ArtistsView(props: ArtistsViewProps) {
           const datasource = getDataSource();
           const result = await datasource.getArtistSongs?.(artist.artist_id, { limit: 100 });
           if (!result || result.items.length === 0) return;
-          await addToQueue(result.items);
+          await addToQueue(result.items, {
+            source: {
+              type: "artist",
+              label: artist.name,
+              entity_id: artist.artist_id,
+              image: artist.images?.[0],
+            },
+          });
         },
       }
     );

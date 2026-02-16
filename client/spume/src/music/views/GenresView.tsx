@@ -226,25 +226,31 @@ export function GenresView(props: GenresViewProps) {
   const handlePlayAll = async () => {
     const songs = genreSongs();
     if (!songs || songs.length === 0) return;
-
-    await playQueue(songs);
+    const genre = selectedGenre();
+    await playQueue(songs, {
+      source: { type: "genre", label: genre?.name ?? "genre", entity_id: genre?.genre_id },
+    });
   };
 
   // shuffle all songs for selected genre
   const handleShuffle = async () => {
     const songs = genreSongs();
     if (!songs || songs.length === 0) return;
-
+    const genre = selectedGenre();
     const shuffled = shuffleArray(songs);
-    await playQueue(shuffled);
+    await playQueue(shuffled, {
+      source: { type: "shuffle", label: genre?.name ?? "genre", entity_id: genre?.genre_id },
+    });
   };
 
   // add all songs to end of queue
   const handleAddToQueue = async () => {
     const songs = genreSongs();
     if (!songs || songs.length === 0) return;
-
-    await addToQueue(songs);
+    const genre = selectedGenre();
+    await addToQueue(songs, {
+      source: { type: "genre", label: genre?.name ?? "genre", entity_id: genre?.genre_id },
+    });
   };
 
   // navigate to album detail
@@ -258,15 +264,20 @@ export function GenresView(props: GenresViewProps) {
     const sortedSongs = sortSongsCanonical(songs);
 
     if (sortedSongs.length === 0) return;
-    await playQueue(sortedSongs);
+    const albumTitle = sortedSongs[0]?.album_title ?? albumId;
+    await playQueue(sortedSongs, {
+      source: { type: "album", label: albumTitle, entity_id: albumId },
+    });
   };
 
   // add album to queue
   const handleAddAlbumToQueue = async (albumId: string) => {
     const songs = genreSongs().filter((s) => s.album_id === albumId);
     const sortedSongs = sortSongsCanonical(songs);
-
-    await addToQueue(sortedSongs);
+    const albumTitle = sortedSongs[0]?.album_title ?? albumId;
+    await addToQueue(sortedSongs, {
+      source: { type: "album", label: albumTitle, entity_id: albumId },
+    });
   };
 
   // toggle album favorite
@@ -357,7 +368,9 @@ export function GenresView(props: GenresViewProps) {
                       // play all songs (limited to 100)
                       const songs = genreSongs().slice(0, 100);
                       if (songs.length === 0) return;
-                      await playQueue(songs);
+                      await playQueue(songs, {
+                        source: { type: "genre", label: genre.name, entity_id: genre.genre_id },
+                      });
                     },
                     onShuffle: async () => {
                       setSelectedGenreId(genre.genre_id);
@@ -365,14 +378,18 @@ export function GenresView(props: GenresViewProps) {
                       const songs = genreSongs().slice(0, 100);
                       if (songs.length === 0) return;
                       const shuffled = shuffleArray(songs);
-                      await playQueue(shuffled);
+                      await playQueue(shuffled, {
+                        source: { type: "shuffle", label: genre.name, entity_id: genre.genre_id },
+                      });
                     },
                     onAddToQueue: async () => {
                       setSelectedGenreId(genre.genre_id);
                       await new Promise((resolve) => setTimeout(resolve, 50));
                       const songs = genreSongs().slice(0, 100);
                       if (songs.length === 0) return;
-                      await addToQueue(songs);
+                      await addToQueue(songs, {
+                        source: { type: "genre", label: genre.name, entity_id: genre.genre_id },
+                      });
                     },
                   }
                 );
@@ -426,6 +443,7 @@ export function GenresView(props: GenresViewProps) {
                 id: albumId,
                 title: firstSong.album_title,
                 artist_name: firstSong.artist_name,
+                artist_id: firstSong.artist_id,
                 song_count: albumSongs.length,
               },
               { showPlayActions: true }
