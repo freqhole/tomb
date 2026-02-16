@@ -1,7 +1,6 @@
 import { Search } from "@kobalte/core/search";
 import { createSignal, For, Show, splitProps, type JSX } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
@@ -115,11 +114,7 @@ function HighlightedText(props: { text: string; highlight?: string }) {
         {(part) => {
           if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
             const content = part.slice(6, -7); // remove <mark></mark>
-            return (
-              <span class="text-[var(--color-accent-500)] font-medium">
-                {content}
-              </span>
-            );
+            return <span class="text-[var(--color-accent-500)] font-medium">{content}</span>;
           }
           return part;
         }}
@@ -225,9 +220,7 @@ export function SearchInput(props: SearchInputProps) {
               onPointerDown={(e) => {
                 // check if click was on thumbnail during capture phase
                 const target = e.target as HTMLElement;
-                const clickedThumbnail = target.closest(
-                  '[data-thumbnail="true"]',
-                );
+                const clickedThumbnail = target.closest('[data-thumbnail="true"]');
 
                 if (clickedThumbnail) {
                   e.stopPropagation();
@@ -259,12 +252,10 @@ export function SearchInput(props: SearchInputProps) {
                       thumbnailUrl={itemProps.item.rawValue.thumbnailUrl}
                       size={40}
                       hideIndex={
-                        !itemProps.item.rawValue.count ||
-                        itemProps.item.rawValue.count <= 1
+                        !itemProps.item.rawValue.count || itemProps.item.rawValue.count <= 1
                       }
                       indexText={
-                        itemProps.item.rawValue.count &&
-                        itemProps.item.rawValue.count > 1
+                        itemProps.item.rawValue.count && itemProps.item.rawValue.count > 1
                           ? `${itemProps.item.rawValue.count}`
                           : undefined
                       }
@@ -315,47 +306,24 @@ export function SearchInput(props: SearchInputProps) {
 
         <Search.Control class="relative">
           {(api) => (
-            <>
-              <div class="absolute left-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none z-10">
-                <Show
-                  when={local.loading}
-                  fallback={
-                    <Icon
-                      name="search"
-                      size={18}
-                      color="var(--color-text-muted)"
-                    />
-                  }
-                >
-                  <div class="animate-spin">
-                    <Icon
-                      name="loader"
-                      size={18}
-                      color="var(--color-accent-500)"
-                    />
-                  </div>
-                </Show>
-              </div>
-
-              <Search.Input
-                ref={(el) => {
-                  inputRef = el;
-                  if (typeof local.ref === "function") {
-                    local.ref(el);
-                  }
-                }}
-                onFocus={() => local.onFocus?.()}
-                onBlur={(e) => local.onBlur?.(e)}
-                onKeyDown={(e) => local.onKeyDown?.(e)}
-                class={`
-                  ${variantClasses()}
-                  px-3 py-2 pl-10 text-sm h-10
-                  text-[var(--color-text-primary)]
-                  placeholder:text-[var(--color-text-muted)]
-                  focus:outline-none
-                `}
-              />
-            </>
+            <Search.Input
+              ref={(el) => {
+                inputRef = el;
+                if (typeof local.ref === "function") {
+                  local.ref(el);
+                }
+              }}
+              onFocus={() => local.onFocus?.()}
+              onBlur={(e) => local.onBlur?.(e)}
+              onKeyDown={(e) => local.onKeyDown?.(e)}
+              class={`
+                ${variantClasses()}
+                px-3 py-2 text-sm h-10
+                text-[var(--color-text-primary)]
+                placeholder:text-[var(--color-text-muted)]
+                focus:outline-none
+              `}
+            />
           )}
         </Search.Control>
 
@@ -387,10 +355,7 @@ export function SearchInput(props: SearchInputProps) {
               </div>
             </Show>
 
-            <Search.Listbox
-              class="max-h-80 overflow-y-auto"
-              onScroll={handleScroll}
-            />
+            <Search.Listbox class="max-h-80 overflow-y-auto" onScroll={handleScroll} />
 
             <Show when={local.loadingMore}>
               <div class="px-4 py-2 text-center text-sm text-[var(--color-text-secondary)]">
