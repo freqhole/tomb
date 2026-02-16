@@ -3,7 +3,7 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion } from "../../music/data/types";
-import { addToQueue } from "../../music/services/audio/queue";
+import { addToQueue } from "../../music/services/queue/queue";
 import { routes } from "../../music/utils/routing";
 import { Icon } from "../icons/registry";
 import type { SearchSuggestion as SearchInputSuggestion } from "../forms/SearchInput";

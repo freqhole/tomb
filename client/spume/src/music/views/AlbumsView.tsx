@@ -11,7 +11,7 @@ import { appState } from "../../app/services/storage/db";
 import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
-import { playQueue } from "../services/audio/queue";
+import { playQueue } from "../services/queue/queue";
 import { useAlbumContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";

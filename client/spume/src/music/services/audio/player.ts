@@ -11,7 +11,7 @@ import {
   canGoPrevious,
   markPlaybackEnded,
   resetPlaybackEnded,
-} from "./queueState";
+} from "../queue/queueState";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, trySwapToCachedURL } from "../storage/audioAccess";
 import type { Song } from "../storage/types";
 

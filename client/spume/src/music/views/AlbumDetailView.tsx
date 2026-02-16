@@ -2,7 +2,7 @@
 import { useNavigate, useParams } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import { playQueue } from "../services/audio/queue";
+import { playQueue } from "../services/queue/queue";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";

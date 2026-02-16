@@ -26,7 +26,7 @@ import {
   useTagSelectorState,
 } from "../music/modals";
 import { queryKeys } from "../music/queries/queryKeys";
-import { addToQueue } from "../music/services/audio/queue";
+import { addToQueue } from "../music/services/queue/queue";
 import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,

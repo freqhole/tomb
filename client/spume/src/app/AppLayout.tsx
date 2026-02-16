@@ -42,7 +42,7 @@ import {
   clearQueue,
   removeFromQueue,
   reorderQueue,
-} from "../music/services/audio/queue";
+} from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
 import {
   deactivateAllRemotes,

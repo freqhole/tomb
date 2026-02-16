@@ -5,7 +5,7 @@ import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
 } from "../../components/layout/FavoritesLayout";
-import { playQueue } from "../services/audio/queue";
+import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { getDataSource } from "../data";
 import type {

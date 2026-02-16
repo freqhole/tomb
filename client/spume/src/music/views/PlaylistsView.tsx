@@ -11,7 +11,7 @@ import {
   Show,
   untrack,
 } from "solid-js";
-import { playQueue, addToQueue } from "../services/audio/queue";
+import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { Button } from "../../components/buttons/Button";

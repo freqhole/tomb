@@ -1,7 +1,7 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
-import { playQueue, addToQueue } from "../services/audio/queue";
+import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";

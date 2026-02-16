@@ -8,7 +8,7 @@ import {
   setQueueOpen,
 } from "../../../app/services/storage/db";
 import { evictCachedBlob } from "../cache/blobCache";
-import { playSong, stop } from "./player";
+import { playSong, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import type { Song } from "../storage/types";
 

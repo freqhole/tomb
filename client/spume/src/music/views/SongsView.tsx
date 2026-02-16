@@ -17,7 +17,7 @@ import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
-import { playQueue } from "../services/audio/queue";
+import { playQueue } from "../services/queue/queue";
 import { useSongContextMenu } from "../hooks/contextMenu";
 
 // narrow breakpoint for responsive layout
