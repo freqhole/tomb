@@ -7,6 +7,7 @@ import {
   setQueue,
   setQueueOpen,
 } from "../../../app/services/storage/db";
+import { evictCachedBlob } from "../cache/blobCache";
 import { playSong, stop } from "./player";
 import { hasPlaybackEnded } from "./queueState";
 import type { Song } from "../storage/types";
@@ -86,6 +87,7 @@ export async function addToQueue(
 
 // remove a song from the queue by index
 // stops playback if the removed song is currently playing
+// evicts cached audio if the song is no longer in the queue
 export async function removeFromQueue(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
@@ -98,6 +100,14 @@ export async function removeFromQueue(index: number): Promise<void> {
   if (removedSong?.sha256 === state.current_sha256) {
     stop();
     await setCurrentSong(null);
+  }
+
+  // evict from cache if remote song is no longer anywhere in the queue
+  if (removedSong?.source_url && removedSong.source_type === "remote") {
+    const stillInQueue = newQueue.some((s) => s.sha256 === removedSong.sha256);
+    if (!stillInQueue) {
+      void evictCachedBlob(removedSong.source_url);
+    }
   }
 }
 
@@ -116,9 +126,22 @@ export async function reorderQueue(
 }
 
 // clear the entire queue and stop playback
+// evicts all cached remote songs from the queue
 export async function clearQueue(): Promise<void> {
+  const state = appState();
+
   stop();
   await setCurrentSong(null);
+
+  // evict cached audio for all remote songs in the queue
+  if (state?.queue) {
+    for (const song of state.queue) {
+      if (song.source_url && song.source_type === "remote") {
+        void evictCachedBlob(song.source_url);
+      }
+    }
+  }
+
   await setQueue([]);
 }
 

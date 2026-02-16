@@ -1,10 +1,57 @@
 // blob cache manager for remote audio/image caching
 // uses hybrid time-based + LRU eviction strategy
 
+import { createSignal } from "solid-js";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 
 const CACHE_NAME = "freqhole-blobs-v1";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// reactive set of cached audio URLs for UI feedback
+const [cachedAudioURLs, setCachedAudioURLs] = createSignal<Set<string>>(new Set());
+
+// check if a URL is in the reactive cache set (for UI binding)
+export function isBlobCachedReactive(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return cachedAudioURLs().has(url);
+}
+
+function addToCachedSet(url: string): void {
+  setCachedAudioURLs((prev) => {
+    const next = new Set(prev);
+    next.add(url);
+    return next;
+  });
+}
+
+function removeFromCachedSet(url: string): void {
+  setCachedAudioURLs((prev) => {
+    if (!prev.has(url)) return prev;
+    const next = new Set(prev);
+    next.delete(url);
+    return next;
+  });
+}
+
+function clearCachedSet(): void {
+  setCachedAudioURLs(new Set<string>());
+}
+
+// seed the reactive set from existing cache metadata on startup
+export async function initCachedAudioURLs(): Promise<void> {
+  try {
+    const allMetadata = await getAllMetadata();
+    const audioUrls = new Set(
+      allMetadata
+        .filter((m) => m.type === "audio")
+        .map((m) => m.url),
+    );
+    setCachedAudioURLs(audioUrls);
+    debug(`initialized cached audio URL set with ${audioUrls.size} entries`);
+  } catch (error) {
+    errorLog("failed to initialize cached audio URL set:", error);
+  }
+}
 
 // pending cache queue - tracks URLs waiting to be cached
 interface PendingCacheItem {
@@ -222,6 +269,11 @@ export async function cacheBlob(
 
     debug(`cached blob: ${url} (${(size / 1024).toFixed(1)} kb)`);
 
+    // update reactive cache set for audio blobs
+    if (type === "audio") {
+      addToCachedSet(url);
+    }
+
     // check if we need to evict old entries
     await evictIfNeeded();
   } catch (error) {
@@ -322,6 +374,7 @@ async function evictIfNeeded(): Promise<void> {
       for (const metadata of itemsToDelete) {
         await cache.delete(metadata.url);
         await deleteMetadata(metadata.url);
+        removeFromCachedSet(metadata.url);
       }
     }
   } catch (error) {
@@ -412,6 +465,22 @@ export async function preCacheBlob(
   }
 }
 
+// evict a specific cached blob by URL
+export async function evictCachedBlob(url: string): Promise<void> {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const deleted = await cache.delete(url);
+    await deleteMetadata(url);
+
+    if (deleted) {
+      removeFromCachedSet(url);
+      debug(`evicted cached blob: ${url}`);
+    }
+  } catch (error) {
+    errorLog("failed to evict cached blob:", error);
+  }
+}
+
 // clear all cached blobs
 export async function clearBlobCache(): Promise<void> {
   try {
@@ -420,6 +489,7 @@ export async function clearBlobCache(): Promise<void> {
     const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
     const store = tx.objectStore(METADATA_STORE_NAME);
     await store.clear();
+    clearCachedSet();
     debug("blob cache cleared");
   } catch (error) {
     errorLog("failed to clear cache:", error);

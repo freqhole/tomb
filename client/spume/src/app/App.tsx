@@ -30,6 +30,7 @@ import { addToQueue } from "../music/services/audio/queue";
 import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
+  initCachedAudioURLs,
 } from "../music/services/cache/blobCache";
 import { getAllRemotes } from "./services/remotes/remoteManager";
 import { initMusicDB } from "../music/services/storage/db";
@@ -64,6 +65,9 @@ export function App() {
 
       // initialize cache network handlers (online/offline events)
       initCacheNetworkHandlers();
+
+      // seed reactive cache set from existing metadata
+      void initCachedAudioURLs();
 
       // check if we have any remotes configured
       const remotes = await getAllRemotes();

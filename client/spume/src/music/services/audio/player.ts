@@ -12,7 +12,7 @@ import {
   markPlaybackEnded,
   resetPlaybackEnded,
 } from "./queueState";
-import { cleanupAudioURL, getAudioURL } from "../storage/audioAccess";
+import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, trySwapToCachedURL } from "../storage/audioAccess";
 import type { Song } from "../storage/types";
 
 // player state signals
@@ -30,6 +30,9 @@ let audioElement: HTMLAudioElement | null = null;
 
 // current song id (for cleanup)
 let currentSongId: string | null = null;
+
+// pending swap listener cleanup (removed when song changes)
+let pendingSwapCleanup: (() => void) | null = null;
 
 // initialize audio element
 function initAudio(): HTMLAudioElement {
@@ -60,6 +63,20 @@ function initAudio(): HTMLAudioElement {
   audioElement.addEventListener("pause", () => {
     setIsPlaying(false);
     updateMediaSession();
+
+    // try swapping direct URL to cached version while paused
+    void trySwapCurrentSongToCached();
+  });
+
+  // network stall - audio is waiting for data
+  // good opportunity to swap to cached version if available
+  audioElement.addEventListener("waiting", () => {
+    void trySwapCurrentSongToCached();
+  });
+
+  // seek completed - swap even if playing (brief pause-swap-resume)
+  audioElement.addEventListener("seeked", () => {
+    void trySwapCurrentSongToCached(true);
   });
 
   // song ended
@@ -175,6 +192,67 @@ function handlePreCacheNext() {
   void preCacheNextSongs(current_sha256, queue, 30);
 }
 
+// swap from direct remote URL to cached blob URL while player is stopped
+// only swaps when the player is NOT actively playing to avoid any audio interruption
+// when forceWhilePlaying is true (e.g. seek), we pause briefly, swap, and resume
+// triggered by: pause, waiting (network stall), seeked
+async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<void> {
+  if (!audioElement) return;
+
+  const wasPlaying = !audioElement.paused;
+  if (wasPlaying && !forceWhilePlaying) return;
+
+  const {current_sha256} = appState();
+  if (!current_sha256) return;
+
+  // only attempt if the song is currently using a direct URL
+  if (!isPlayingDirectURL(current_sha256)) return;
+
+  const cachedURL = await trySwapToCachedURL(current_sha256);
+  if (!cachedURL) return;
+
+  // double-check same song before swapping
+  if (appState().current_sha256 !== current_sha256) return;
+
+  // save current position before swapping src
+  const savedTime = audioElement.currentTime;
+  const swapSongId = current_sha256;
+
+  // clean up any previous swap listener
+  if (pendingSwapCleanup) {
+    pendingSwapCleanup();
+    pendingSwapCleanup = null;
+  }
+
+  // swap to cached blob URL (same-origin, no crossOrigin needed)
+  if (wasPlaying) {
+    audioElement.pause();
+  }
+  audioElement.crossOrigin = "";
+  audioElement.src = cachedURL;
+
+  // restore position once media is loadable, but only for the right song
+  const restorePosition = () => {
+    if (audioElement && currentSongId === swapSongId) {
+      audioElement.currentTime = savedTime;
+      if (wasPlaying) {
+        void audioElement.play();
+      }
+    }
+    audioElement?.removeEventListener("loadedmetadata", restorePosition);
+    if (pendingSwapCleanup === cleanup) {
+      pendingSwapCleanup = null;
+    }
+  };
+  const cleanup = () => {
+    audioElement?.removeEventListener("loadedmetadata", restorePosition);
+  };
+  pendingSwapCleanup = cleanup;
+  audioElement.addEventListener("loadedmetadata", restorePosition);
+
+  console.log(`swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`);
+}
+
 // play a specific song
 export async function playSong(songOrId: string | Song): Promise<void> {
   const audio = initAudio();
@@ -198,14 +276,26 @@ export async function playSong(songOrId: string | Song): Promise<void> {
     // this ensures media session gets correct song when events fire
     await setCurrentSong(song.sha256);
 
-    // cleanup previous audio url
+    // cleanup previous audio url and any pending swap listener
     if (currentSongId) {
       cleanupAudioURL(currentSongId);
+    }
+    if (pendingSwapCleanup) {
+      pendingSwapCleanup();
+      pendingSwapCleanup = null;
     }
 
     // get audio url using abstraction
     const audioURL = await getAudioURL(song);
     currentSongId = song.sha256;
+
+    // set crossOrigin for direct remote URLs (needed for cookie auth on cross-origin)
+    // blob: and opfs-backed URLs are same-origin and don't need this
+    if (audioURL.startsWith("http")) {
+      audio.crossOrigin = "use-credentials";
+    } else {
+      audio.crossOrigin = "";
+    }
 
     // load and play
     audio.src = audioURL;

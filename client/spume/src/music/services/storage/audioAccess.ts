@@ -1,13 +1,38 @@
 // audio access abstraction - handles getting audio urls from various sources
-import { cacheBlob, getCachedBlob } from "../cache/blobCache";
+import { createSignal } from "solid-js";
+import { cacheBlob, getCachedBlob, preCacheBlob } from "../cache/blobCache";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 
 // cache of active blob urls to prevent memory leaks
 const activeBlobURLs = new Map<string, string>();
 
+// track songs currently playing from a direct (non-cached) remote URL
+// maps sha256 -> source_url so we can swap to cached version later
+const directURLSongs = new Map<string, string>();
+
+// reactive signal tracking which sha256s are playing from direct URL
+const [directURLSet, setDirectURLSet] = createSignal<Set<string>>(new Set());
+
+function addToDirectURLSet(sha256: string): void {
+  setDirectURLSet((prev) => {
+    const next = new Set(prev);
+    next.add(sha256);
+    return next;
+  });
+}
+
+function removeFromDirectURLSet(sha256: string): void {
+  setDirectURLSet((prev) => {
+    if (!prev.has(sha256)) return prev;
+    const next = new Set(prev);
+    next.delete(sha256);
+    return next;
+  });
+}
+
 // get audio url for playback
-// handles opfs and remote urls
+// handles opfs, cached remote, and direct remote streaming
 export async function getAudioURL(song: Song): Promise<string> {
   console.log(
     `getting audio url for song: ${song.title} (source: ${song.source_type})`,
@@ -19,6 +44,8 @@ export async function getAudioURL(song: Song): Promise<string> {
     URL.revokeObjectURL(oldURL);
     activeBlobURLs.delete(song.sha256);
   }
+  directURLSongs.delete(song.sha256);
+  removeFromDirectURLSet(song.sha256);
 
   // local and downloaded files: read from opfs
   if (song.source_type === "local" || song.source_type === "downloaded") {
@@ -38,7 +65,7 @@ export async function getAudioURL(song: Song): Promise<string> {
     }
   }
 
-  // remote files: check cache first, then fetch and cache
+  // remote files: check cache first, then fall back to direct streaming URL
   if (song.source_type === "remote") {
     if (!song.source_url) {
       throw new Error(`remote song has no source url: ${song.sha256}`);
@@ -56,25 +83,54 @@ export async function getAudioURL(song: Song): Promise<string> {
       return url;
     }
 
-    // fetch and cache
-    console.log(`fetching and caching remote url: ${song.source_url}`);
-    const response = await fetch(song.source_url, { credentials: "include" });
-    if (!response.ok) {
-      throw new Error(`failed to fetch remote audio: ${response.status}`);
-    }
+    // not cached: return direct URL for immediate streaming
+    // the browser will handle range requests and buffering natively
+    console.log(`streaming direct URL (not cached): ${song.source_url}`);
+    directURLSongs.set(song.sha256, song.source_url);
+    addToDirectURLSet(song.sha256);
 
-    // cache the response (clone it first since we need to use it twice)
-    const responseClone = response.clone();
-    void cacheBlob(song.source_url, responseClone, "audio");
+    // start background caching so the song is available offline later
+    void preCacheBlob(song.source_url, "audio");
 
-    // create blob url from response
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    activeBlobURLs.set(song.sha256, url);
-    return url;
+    return song.source_url;
   }
 
   throw new Error(`unsupported song source type: ${song.source_type}`);
+}
+
+// check if a song is playing from a direct (non-cached) URL
+export function isPlayingDirectURL(sha256: string): boolean {
+  return directURLSongs.has(sha256);
+}
+
+// reactive version for UI binding
+export function isPlayingDirectURLReactive(sha256: string | undefined): boolean {
+  if (!sha256) return false;
+  return directURLSet().has(sha256);
+}
+
+// attempt to swap a direct-URL song to its cached version
+// returns the new blob URL if swap is possible, null otherwise
+export async function trySwapToCachedURL(sha256: string): Promise<string | null> {
+  const sourceUrl = directURLSongs.get(sha256);
+  if (!sourceUrl) return null; // not playing from direct URL
+
+  const cached = await getCachedBlob(sourceUrl);
+  if (!cached) return null; // not yet cached
+
+  const blob = await cached.blob();
+  const url = URL.createObjectURL(blob);
+
+  // cleanup old blob URL if any
+  if (activeBlobURLs.has(sha256)) {
+    URL.revokeObjectURL(activeBlobURLs.get(sha256)!);
+  }
+  activeBlobURLs.set(sha256, url);
+  directURLSongs.delete(sha256);
+  removeFromDirectURLSet(sha256);
+
+  console.log(`prepared cached URL swap for song: ${sha256}`);
+  return url;
 }
 
 // cleanup audio url for a song

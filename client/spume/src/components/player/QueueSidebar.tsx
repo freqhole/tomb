@@ -8,6 +8,8 @@ import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
+import { isBlobCachedReactive } from "../../music/services/cache/blobCache";
+import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 
 export interface QueueSidebarProps {
   /** list of songs in queue */
@@ -293,7 +295,16 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                       {/* duration and favorite indicator */}
                       <div class="flex items-center gap-2 ml-3 flex-shrink-0">
-                        <div class="text-xs text-[var(--color-text-muted)]">
+                        <div
+                          class="text-xs"
+                          style={{
+                            color:
+                              isBlobCachedReactive(song()?.source_url) &&
+                              !(isCurrentlyPlaying() && isPlayingDirectURLReactive(song()?.sha256))
+                                ? "var(--color-text-secondary)"
+                                : "var(--color-text-muted)",
+                          }}
+                        >
                           {formatDuration(song()?.duration_seconds)}
                         </div>
                         <Show when={song()?.is_favorite}>
