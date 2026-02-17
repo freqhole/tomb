@@ -147,7 +147,13 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show
           when={props.collection.isFavorite !== undefined && props.collection.isFavorite !== null}
         >
-          <div class="absolute top-2 right-2 z-10">
+          <div
+            class="absolute top-2 right-2 z-40 transition-opacity duration-200"
+            classList={{
+              "opacity-100": props.collection.isFavorite === true,
+              "opacity-0 group-hover:opacity-100": props.collection.isFavorite !== true,
+            }}
+          >
             <FavoriteHeart
               isFavorite={props.collection.isFavorite ?? false}
               onToggle={(isFavorite) => props.onFavoriteToggle?.(props.collection, isFavorite)}

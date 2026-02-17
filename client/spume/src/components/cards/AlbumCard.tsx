@@ -50,7 +50,13 @@ export function AlbumCard(props: AlbumCardProps) {
             />
           </div>
         </div>
-        <div class="absolute top-2 right-2 z-10">
+        <div
+          class="absolute top-2 right-2 z-40 transition-opacity duration-200"
+          classList={{
+            "opacity-100": props.album.is_favorite === true,
+            "opacity-0 group-hover:opacity-100": props.album.is_favorite !== true,
+          }}
+        >
           <FavoriteHeart
             isFavorite={props.album.is_favorite ?? false}
             onToggle={(isFavorite) => {

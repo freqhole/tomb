@@ -47,7 +47,13 @@ export function ArtistCard(props: ArtistCardProps) {
             />
           </div>
         </div>
-        <div class="absolute top-2 right-2 z-10 pointer-events-none">
+        <div
+          class="absolute top-2 right-2 z-40 pointer-events-none transition-opacity duration-200"
+          classList={{
+            "opacity-100": props.artist.is_favorite === true,
+            "opacity-0 group-hover:opacity-100": props.artist.is_favorite !== true,
+          }}
+        >
           <FavoriteHeart
             isFavorite={props.artist.is_favorite ?? false}
             onToggle={(isFavorite) => {
