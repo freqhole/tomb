@@ -6,6 +6,7 @@ import type { Song } from "../../../music/services/storage/types";
 import {
   APP_DB_NAME,
   APP_DB_VERSION,
+  STORE_ANALYTICS_EVENTS,
   STORE_APP_STATE,
   STORE_QUEUE_HISTORY,
   STORE_REMOTES,
@@ -44,6 +45,15 @@ async function initAppDB(): Promise<IDBPDatabase> {
           keyPath: "id",
         });
         historyStore.createIndex("by_queued_at", "queued_at");
+      }
+
+      // create analytics_events store (v4)
+      if (!db.objectStoreNames.contains(STORE_ANALYTICS_EVENTS)) {
+        const eventsStore = db.createObjectStore(STORE_ANALYTICS_EVENTS, {
+          keyPath: "id",
+        });
+        eventsStore.createIndex("by_status", "status");
+        eventsStore.createIndex("by_created_at", "created_at");
       }
     },
   });

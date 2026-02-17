@@ -65,7 +65,8 @@ import {
   removeHistoryEntry,
   clearQueueHistory,
 } from "../music/services/queue/queueHistory";
-import { addToQueue } from "../music/services/queue/queue";
+import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
+import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 
 // responsive breakpoint
 const NARROW_BREAKPOINT = 768;
@@ -108,6 +109,10 @@ export function AppLayout(props: AppLayoutProps) {
 
     // load queue history from idb
     loadQueueHistory();
+
+    // start analytics sync loop
+    startAnalyticsSync();
+    onCleanup(() => stopAnalyticsSync());
 
     try {
       const allRemotes = await getAllRemotes();
@@ -281,11 +286,23 @@ export function AppLayout(props: AppLayoutProps) {
   // build context menu actions for a history entry
   const getHistoryContextMenuActions = (entry: QueueHistoryEntry): MenuAction[] => {
     const actions: MenuAction[] = [];
+    const hasProgress = (entry.listened_seconds || 0) > 0;
+
+    // resume action (when entry has progress)
+    if (hasProgress) {
+      actions.push({
+        label: "resume",
+        icon: IconNames.play,
+        onClick: () => {
+          void resumeHistoryEntry(entry);
+        },
+      });
+    }
 
     // replay actions
     actions.push({
       label: "play again",
-      icon: IconNames.play,
+      icon: hasProgress ? IconNames.recent : IconNames.play,
       onClick: () => {
         void addToQueue(entry.songs, {
           startPlaying: true,
@@ -378,6 +395,7 @@ export function AppLayout(props: AppLayoutProps) {
   const viewOptions = (): ViewOption[] => {
     const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
     return [
+      { label: "feed", path: `${prefix}/feed` },
       { label: "songs", path: `${prefix}/songs` },
       { label: "albums", path: `${prefix}/albums` },
       { label: "artists", path: `${prefix}/artists` },
@@ -435,6 +453,13 @@ export function AppLayout(props: AppLayoutProps) {
         mainNavSections={[
           {
             items: [
+              {
+                label: "feed",
+                onClick: () => {
+                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
+                  navigate(`${prefix}/feed`);
+                },
+              },
               {
                 label: "songs",
                 onClick: () => {
@@ -536,15 +561,22 @@ export function AppLayout(props: AppLayoutProps) {
           }}
           historyEntries={queueHistory()}
           onReplayHistoryEntry={(entry) => {
-            void addToQueue(entry.songs, {
-              startPlaying: true,
-              source: {
-                type: entry.type,
-                label: entry.label,
-                entity_id: entry.entity_id,
-                image: entry.image,
-              },
-            });
+            const hasProgress = (entry.listened_seconds || 0) > 0;
+            if (hasProgress) {
+              // resume from where we left off
+              void resumeHistoryEntry(entry);
+            } else {
+              // play from the beginning
+              void addToQueue(entry.songs, {
+                startPlaying: true,
+                source: {
+                  type: entry.type,
+                  label: entry.label,
+                  entity_id: entry.entity_id,
+                  image: entry.image,
+                },
+              });
+            }
           }}
           onRemoveHistoryEntry={(id) => {
             void removeHistoryEntry(id);

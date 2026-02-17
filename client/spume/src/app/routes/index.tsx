@@ -12,6 +12,7 @@ import { AlbumDetailView } from "../../music/views/AlbumDetailView";
 import { AlbumsView } from "../../music/views/AlbumsView";
 import { ArtistsView } from "../../music/views/ArtistsView";
 import { FavoritesView } from "../../music/views/FavoritesView";
+import { FeedView } from "../../music/views/FeedView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
@@ -70,6 +71,7 @@ export function routes(props: RoutesProps) {
 
         {/* local context routes */}
         <Route path="/local" component={LocalContextHandler}>
+          <Route path="/feed" component={FeedView} />
           <Route
             path="/songs"
             component={() => (
@@ -108,6 +110,7 @@ export function routes(props: RoutesProps) {
 
         {/* remote context routes */}
         <Route path="/:remoteId" component={RemoteContextHandler}>
+          <Route path="/feed" component={FeedView} />
           <Route
             path="/songs"
             component={() => (

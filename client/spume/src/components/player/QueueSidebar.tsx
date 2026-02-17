@@ -460,6 +460,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const entry = () => props.historyEntries[virtualItem.index];
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
                   const isArtist = () => entry().type === "artist";
+                  const hasProgress = () => (entry().listened_seconds || 0) > 0;
+                  const progressPercent = () => {
+                    const total = entry().total_seconds || 0;
+                    if (total === 0) return 0;
+                    return Math.min(100, ((entry().listened_seconds || 0) / total) * 100);
+                  };
 
                   const historyRow = (
                     <div
@@ -480,11 +486,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           props.onReplayHistoryEntry?.(entry());
                         }
                       }}
-                      title={isMobile() ? "tap to re-queue" : "double-click to re-queue"}
+                      title={
+                        isMobile()
+                          ? hasProgress()
+                            ? "tap to resume"
+                            : "tap to re-queue"
+                          : hasProgress()
+                            ? "double-click to resume"
+                            : "double-click to re-queue"
+                      }
                     >
                       {/* type icon / thumbnail */}
                       <div
-                        class={`w-10 h-10 flex-shrink-0 mr-3 flex items-center justify-center ${isArtist() ? "rounded-full" : "rounded"} bg-[var(--color-accent-500)]/10 overflow-hidden`}
+                        class={`w-10 h-10 flex-shrink-0 mr-3 flex items-center justify-center ${isArtist() ? "rounded-full" : "rounded"} bg-[var(--color-accent-500)]/10 overflow-hidden relative`}
                       >
                         <Show
                           when={entry().image}
@@ -502,9 +516,20 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             class={isArtist() ? "rounded-full" : undefined}
                           />
                         </Show>
+
+                        {/* progress ring overlay on thumbnail */}
+                        <Show when={hasProgress() && progressPercent() < 100}>
+                          <div
+                            class="absolute inset-0 flex items-center justify-center"
+                            style={{
+                              background: `conic-gradient(var(--color-accent-500) ${progressPercent()}%, transparent ${progressPercent()}%)`,
+                              opacity: "0.3",
+                            }}
+                          />
+                        </Show>
                       </div>
 
-                      {/* label + song count */}
+                      {/* label + song count + progress */}
                       <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-medium text-[var(--color-text-primary)] m-0 truncate">
                           {entry().label}
@@ -512,7 +537,21 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
                           {entry().type} &middot; {entry().song_count}{" "}
                           {entry().song_count === 1 ? "song" : "songs"}
+                          <Show when={hasProgress()}>
+                            {" "}
+                            &middot; {Math.round(progressPercent())}%
+                          </Show>
                         </p>
+
+                        {/* progress bar */}
+                        <Show when={hasProgress()}>
+                          <div class="mt-1 h-0.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden">
+                            <div
+                              class="h-full bg-[var(--color-accent-500)] rounded-full transition-all duration-300"
+                              style={{ width: `${progressPercent()}%` }}
+                            />
+                          </div>
+                        </Show>
                       </div>
 
                       {/* timestamp */}

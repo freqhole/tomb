@@ -12,6 +12,12 @@ import {
   markPlaybackEnded,
   resetPlaybackEnded,
 } from "../queue/queueState";
+import {
+  activeHistoryEntryId,
+  markSongCompleted,
+  recordTimeProgress,
+} from "../queue/listenProgress";
+import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, trySwapToCachedURL } from "../storage/audioAccess";
 import type { Song } from "../storage/types";
 
@@ -34,6 +40,10 @@ let currentSongId: string | null = null;
 // pending swap listener cleanup (removed when song changes)
 let pendingSwapCleanup: (() => void) | null = null;
 
+// progress tracking state
+let lastTimeUpdateValue = 0; // last known currentTime for delta calculation
+let songCompletionRecorded = false; // prevent duplicate completion events per song
+
 // initialize audio element
 function initAudio(): HTMLAudioElement {
   if (audioElement) return audioElement;
@@ -43,8 +53,49 @@ function initAudio(): HTMLAudioElement {
 
   // time update
   audioElement.addEventListener("timeupdate", () => {
-    setCurrentTime(audioElement!.currentTime);
+    const ct = audioElement!.currentTime;
+    setCurrentTime(ct);
     handlePreCacheNext();
+
+    // record listen progress delta
+    if (activeHistoryEntryId() && ct > lastTimeUpdateValue) {
+      const delta = ct - lastTimeUpdateValue;
+      // only record reasonable deltas (< 5s to avoid seek jumps)
+      if (delta > 0 && delta < 5) {
+        const { queue, current_sha256 } = appState();
+        const songIdx = current_sha256
+          ? queue.findIndex((s) => s.sha256 === current_sha256)
+          : 0;
+        recordTimeProgress(delta, songIdx, ct);
+      }
+    }
+    lastTimeUpdateValue = ct;
+
+    // check for song completion (>90% listened)
+    if (
+      activeHistoryEntryId() &&
+      !songCompletionRecorded &&
+      audioElement!.duration > 0
+    ) {
+      const progress = ct / audioElement!.duration;
+      if (progress >= 0.9) {
+        songCompletionRecorded = true;
+        const { queue, current_sha256 } = appState();
+        const songIdx = current_sha256
+          ? queue.findIndex((s) => s.sha256 === current_sha256)
+          : 0;
+        markSongCompleted(songIdx);
+
+        // queue a play_complete analytics event
+        const currentSong = queue.find((s) => s.sha256 === current_sha256);
+        if (currentSong) {
+          void queueAnalyticsEvent("play_complete", {
+            media_blob_id: currentSong.sha256,
+            song_id: currentSong.id,
+          });
+        }
+      }
+    }
   });
 
   // duration loaded
@@ -306,6 +357,10 @@ export async function playSong(songOrId: string | Song): Promise<void> {
 
     // reset playback ended flag since we're playing now
     resetPlaybackEnded();
+
+    // reset progress tracking for new song
+    lastTimeUpdateValue = 0;
+    songCompletionRecorded = false;
 
     setIsLoading(false);
   } catch (error) {

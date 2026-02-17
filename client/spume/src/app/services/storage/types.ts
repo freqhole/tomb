@@ -28,6 +28,42 @@ export interface QueueHistoryEntry {
   songs: Song[]; // the actual songs (for re-queuing)
   queued_at: number; // timestamp
   image?: ImageMetadata; // first image for thumbnail
+  // listen progress tracking (v4)
+  listened_seconds: number; // total seconds listened across all songs
+  total_seconds: number; // sum of all song durations
+  songs_completed: number; // songs where >90% was listened
+  current_song_index: number; // which song we're on (for resume)
+  current_song_position: number; // position in current song (for resume)
+}
+
+// analytics event — queued locally for offline-first sync to server
+export type AnalyticsEventType =
+  | "play_complete"
+  | "favorite"
+  | "unfavorite"
+  | "rate";
+
+export type AnalyticsEventStatus =
+  | "pending"
+  | "sending"
+  | "failed"
+  | "sent";
+
+export interface AnalyticsEvent {
+  id: string; // uuid
+  type: AnalyticsEventType;
+  payload: {
+    media_blob_id?: string;
+    song_id?: string;
+    session_id?: string;
+    event_data?: Record<string, unknown>;
+  };
+  status: AnalyticsEventStatus;
+  retry_count: number;
+  max_retries: number;
+  created_at: number;
+  last_attempt_at?: number;
+  error?: string;
 }
 
 // source context passed to addToQueue/playQueue for history tracking
@@ -57,9 +93,10 @@ export interface Remote {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 3; // bumped for queue_history store
+export const APP_DB_VERSION = 4; // bumped for analytics_events store + history progress fields
 
 // app store names
 export const STORE_APP_STATE = "app_state";
 export const STORE_REMOTES = "remotes";
 export const STORE_QUEUE_HISTORY = "queue_history";
+export const STORE_ANALYTICS_EVENTS = "analytics_events";

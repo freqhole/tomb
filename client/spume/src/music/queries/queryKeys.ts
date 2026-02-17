@@ -106,4 +106,18 @@ export const queryKeys = {
     all: () => ["tags", getDataSourceKey()] as const,
     list: () => [...queryKeys.tags.all(), "list"] as const,
   },
+
+  // analytics / feed
+  analytics: {
+    all: () => ["analytics", getDataSourceKey()] as const,
+    feed: (limit?: number) => [...queryKeys.analytics.all(), "feed", limit] as const,
+    topSongs: (limit?: number, period?: string) =>
+      [...queryKeys.analytics.all(), "topSongs", limit, period] as const,
+    topAlbums: (limit?: number, period?: string) =>
+      [...queryKeys.analytics.all(), "topAlbums", limit, period] as const,
+    topArtists: (limit?: number, period?: string) =>
+      [...queryKeys.analytics.all(), "topArtists", limit, period] as const,
+    listeningHistory: (limit?: number) =>
+      [...queryKeys.analytics.all(), "listeningHistory", limit] as const,
+  },
 } as const;

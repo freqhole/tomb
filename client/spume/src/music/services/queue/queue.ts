@@ -12,6 +12,7 @@ import { evictCachedBlob } from "../cache/blobCache";
 import { playSong, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry } from "./queueHistory";
+import { startTracking, stopTracking } from "./listenProgress";
 import type { Song } from "../storage/types";
 
 // re-export queue state so consumers can import everything from queue.ts
@@ -38,9 +39,12 @@ export async function playQueue(
   await setQueue(songs);
   await playSong(songs[startIndex]);
 
-  // record history
+  // record history and start progress tracking
   if (options?.source) {
-    void addHistoryEntry(songs, options.source);
+    const entryId = await addHistoryEntry(songs, options.source);
+    if (entryId) {
+      startTracking(entryId);
+    }
   }
 }
 
@@ -92,9 +96,12 @@ export async function addToQueue(
     await playSong(songs[0]);
   }
 
-  // record history
+  // record history and start progress tracking
   if (options?.source) {
-    void addHistoryEntry(songs, options.source);
+    const entryId = await addHistoryEntry(songs, options.source);
+    if (entryId) {
+      startTracking(entryId);
+    }
   }
 }
 
@@ -144,6 +151,7 @@ export async function clearQueue(): Promise<void> {
   const state = appState();
 
   stop();
+  stopTracking();
   await setCurrentSong(null);
 
   // evict cached audio for all remote songs in the queue
@@ -160,3 +168,39 @@ export async function clearQueue(): Promise<void> {
 
 // re-export db helpers that consumers commonly need alongside queue ops
 export { setQueueOpen };
+
+// resume a history entry from where it left off
+export async function resumeHistoryEntry(
+  entry: import("../../../app/services/storage/types").QueueHistoryEntry,
+): Promise<void> {
+  if (entry.songs.length === 0) return;
+
+  const resumeIndex = Math.min(
+    entry.current_song_index || 0,
+    entry.songs.length - 1,
+  );
+
+  await setQueue(entry.songs);
+
+  // play the song at the resume index
+  const song = entry.songs[resumeIndex];
+  await playSong(song);
+
+  // seek to saved position after a brief delay (audio needs to load)
+  if (entry.current_song_position > 0) {
+    const { seek } = await import("../audio/player");
+    // wait for audio to be ready before seeking
+    setTimeout(() => {
+      seek(entry.current_song_position);
+    }, 200);
+  }
+
+  // resume progress tracking with existing state
+  const { resumeTracking } = await import("./listenProgress");
+  resumeTracking(entry.id, {
+    listened_seconds: entry.listened_seconds || 0,
+    songs_completed: entry.songs_completed || 0,
+    current_song_index: resumeIndex,
+    current_song_position: entry.current_song_position || 0,
+  });
+}

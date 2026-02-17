@@ -48,12 +48,12 @@ export async function loadQueueHistory(): Promise<void> {
   }
 }
 
-// add a history entry
+// add a history entry — returns the entry id
 export async function addHistoryEntry(
   songs: Song[],
   source: QueueSourceContext,
-): Promise<void> {
-  if (songs.length === 0) return;
+): Promise<string | null> {
+  if (songs.length === 0) return null;
 
   try {
     const db = await initAppDB();
@@ -74,6 +74,12 @@ export async function addHistoryEntry(
       songs: unwrapSongs(songs),
       queued_at: Date.now(),
       image: firstImage ? { ...firstImage } : undefined,
+      // progress tracking defaults
+      listened_seconds: 0,
+      total_seconds: songs.reduce((sum, s) => sum + (s.duration_seconds || 0), 0),
+      songs_completed: 0,
+      current_song_index: 0,
+      current_song_position: 0,
     };
 
     await db.put(STORE_QUEUE_HISTORY, entry);
@@ -96,8 +102,11 @@ export async function addHistoryEntry(
 
     // reload the signal
     await loadQueueHistory();
+
+    return entry.id;
   } catch (error) {
     console.error("failed to add queue history entry:", error);
+    return null;
   }
 }
 
@@ -109,6 +118,37 @@ export async function removeHistoryEntry(id: string): Promise<void> {
     await loadQueueHistory();
   } catch (error) {
     console.error("failed to remove history entry:", error);
+  }
+}
+
+// update listen progress on a history entry (called periodically during playback)
+export async function updateHistoryProgress(
+  id: string,
+  updates: {
+    listened_seconds?: number;
+    songs_completed?: number;
+    current_song_index?: number;
+    current_song_position?: number;
+  },
+): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated = {
+      ...entry,
+      ...updates,
+    };
+
+    await db.put(STORE_QUEUE_HISTORY, updated);
+
+    // update signal in-place (avoid full reload for frequent updates)
+    setQueueHistory((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+    );
+  } catch (error) {
+    console.error("failed to update history progress:", error);
   }
 }
 

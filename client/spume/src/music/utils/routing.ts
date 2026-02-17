@@ -28,6 +28,7 @@ export function buildRoute(path: string): string {
  */
 export const routes = {
   // main views
+  feed: () => buildRoute("/feed"),
   songs: () => buildRoute("/songs"),
   albums: () => buildRoute("/albums"),
   artists: () => buildRoute("/artists"),
