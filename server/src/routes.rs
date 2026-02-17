@@ -238,6 +238,10 @@ pub fn build_router() -> Router<AppState> {
             put(music::analytics::update_listen_session_progress_handler),
         )
         .route(
+            routes["music"]["update_listen_session_songs"].path,
+            put(music::analytics::update_listen_session_songs_handler),
+        )
+        .route(
             routes["music"]["update_listen_session_status"].path,
             put(music::analytics::update_listen_session_status_handler),
         )

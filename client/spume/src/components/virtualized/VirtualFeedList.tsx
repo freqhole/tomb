@@ -13,6 +13,7 @@ import { useNavigate } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import type { FavoriteTarget } from "../../music/queries/favorites";
+import { getCurrentUserId } from "../../music/data";
 
 const ROW_HEIGHT = 100;
 const IMAGE_SIZE = ROW_HEIGHT - 12; // 6px padding top + bottom
@@ -221,6 +222,14 @@ function FeedRow(props: {
   const isSession = () => props.item.feed_type === "listen_session";
   const hasProgress = () => isSession() && (props.item.progress_percent ?? 0) > 0;
   const progressPercent = () => Math.min(100, props.item.progress_percent ?? 0);
+  const isResumable = () => {
+    if (!isSession()) return false;
+    const item = props.item;
+    const isComplete = item.session_status === "completed" || (item.progress_percent ?? 0) >= 100;
+    if (isComplete) return false;
+    const isOwn = item.user_id && item.user_id === getCurrentUserId();
+    return isOwn && hasProgress();
+  };
 
   // build natural language action line
   const actionText = createMemo(() => {
@@ -320,7 +329,14 @@ function FeedRow(props: {
         <Show
           when={hasImages()}
           fallback={
-            <div class="w-full h-full flex items-center justify-center">
+            <div
+              class="w-full h-full flex items-center justify-center transition-opacity"
+              style={{
+                opacity: (isResumable() ? isRowHovered() : isThumbHovered() && isRowHovered())
+                  ? "0"
+                  : "1",
+              }}
+            >
               <Icon name={typeInfo().icon} size={48} color={typeInfo().color} />
             </div>
           }
@@ -334,19 +350,28 @@ function FeedRow(props: {
           >
             <Icon name={typeInfo().icon} size={32} color={typeInfo().color} />
           </div>
-
-          {/* hover icon — carousel for new_image (opens gallery), play for everything else */}
-          <div
-            class="absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity"
-            style={{ opacity: isThumbHovered() && isRowHovered() ? "1" : "0" }}
-          >
-            <Icon
-              name={props.item.feed_type === "new_image" ? "carousel" : "play"}
-              size={36}
-              color={typeInfo().color}
-            />
-          </div>
         </Show>
+
+        {/* hover icon — carousel for new_image (opens gallery), play for everything else */}
+        <div
+          class="absolute inset-0 flex flex-col items-center justify-center bg-black/30 rounded transition-opacity"
+          style={{
+            opacity: (isResumable() ? isRowHovered() : isThumbHovered() && isRowHovered())
+              ? "1"
+              : "0",
+          }}
+        >
+          <Icon
+            name={props.item.feed_type === "new_image" ? "carousel" : "play"}
+            size={isResumable() ? 28 : 36}
+            color={typeInfo().color}
+          />
+          <Show when={isResumable()}>
+            <span class="text-[10px] font-medium mt-0.5" style={{ color: typeInfo().color }}>
+              resume
+            </span>
+          </Show>
+        </div>
       </div>
 
       {/* content area */}

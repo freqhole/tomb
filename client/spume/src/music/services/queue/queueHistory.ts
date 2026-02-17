@@ -8,6 +8,7 @@ import {
   type QueueSourceContext,
 } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
+import { computeSmartLabel } from "./smartLabel";
 
 const MAX_HISTORY_ENTRIES = 1000;
 
@@ -49,9 +50,17 @@ export async function loadQueueHistory(): Promise<void> {
 }
 
 // add a history entry — returns the entry id
+// when resumeProgress is provided, the entry is created with existing progress
+// (used when resuming a server session that has no matching IDB entry)
 export async function addHistoryEntry(
   songs: Song[],
   source: QueueSourceContext,
+  resumeProgress?: {
+    listened_seconds: number;
+    songs_completed: number;
+    current_song_index: number;
+    current_song_position: number;
+  },
 ): Promise<string | null> {
   if (songs.length === 0) return null;
 
@@ -74,12 +83,12 @@ export async function addHistoryEntry(
       songs: unwrapSongs(songs),
       queued_at: Date.now(),
       image: firstImage ? { ...firstImage } : undefined,
-      // progress tracking defaults
-      listened_seconds: 0,
+      // progress tracking — use resume state if provided, otherwise defaults
+      listened_seconds: resumeProgress?.listened_seconds ?? 0,
       total_seconds: songs.reduce((sum, s) => sum + (s.duration_seconds || 0), 0),
-      songs_completed: 0,
-      current_song_index: 0,
-      current_song_position: 0,
+      songs_completed: resumeProgress?.songs_completed ?? 0,
+      current_song_index: resumeProgress?.current_song_index ?? 0,
+      current_song_position: resumeProgress?.current_song_position ?? 0,
     };
 
     await db.put(STORE_QUEUE_HISTORY, entry);
@@ -149,6 +158,40 @@ export async function updateHistoryProgress(
     );
   } catch (error) {
     console.error("failed to update history progress:", error);
+  }
+}
+
+// update the song list on an existing history entry
+// called when songs are added to, removed from, or reordered in the queue
+export async function updateHistoryEntrySongs(
+  id: string,
+  songs: Song[],
+): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated: QueueHistoryEntry = {
+      ...entry,
+      songs: unwrapSongs(songs),
+      song_count: songs.length,
+      label: computeSmartLabel(songs),
+      total_seconds: songs.reduce((sum, s) => sum + (s.duration_seconds || 0), 0),
+    };
+
+    await db.put(STORE_QUEUE_HISTORY, updated);
+
+    // update signal in-place
+    setQueueHistory((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, songs: updated.songs, song_count: updated.song_count, label: updated.label, total_seconds: updated.total_seconds }
+          : e,
+      ),
+    );
+  } catch (error) {
+    console.error("failed to update history entry songs:", error);
   }
 }
 

@@ -1267,6 +1267,26 @@ export function updateListenSessionStatus(
   );
 }
 
+export function updateListenSessionSongs(
+  baseUrl: string,
+  id: string,
+  params: s.UpdateListenSessionSongsRequest,
+  apiKey?: string,
+) {
+  const path = routes.music.update_listen_session_songs.path.replace("{id}", id);
+  return call(
+    baseUrl,
+    "music",
+    "update_listen_session_songs",
+    routes.music.update_listen_session_songs.resp,
+    routes.music.update_listen_session_songs.req,
+    routes.music.update_listen_session_songs.method,
+    path,
+    params,
+    apiKey,
+  );
+}
+
 export function listListenSessions(
   baseUrl: string,
   params: s.ListListenSessionsRequest,

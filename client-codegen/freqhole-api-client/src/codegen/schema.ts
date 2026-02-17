@@ -2498,6 +2498,14 @@ export const UpdateListenSessionProgressRequestSchema = z.object({
 });
 export type UpdateListenSessionProgressRequest = z.infer<typeof UpdateListenSessionProgressRequestSchema>;
 
+export const UpdateListenSessionSongsRequestSchema = z.object({
+  song_ids: z.array(z.string()),
+  label: z.string(),
+  total_songs: z.number(),
+  total_duration_ms: z.number()
+});
+export type UpdateListenSessionSongsRequest = z.infer<typeof UpdateListenSessionSongsRequestSchema>;
+
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),
   title: z.string().nullable(),

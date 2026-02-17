@@ -7,6 +7,7 @@ import * as apiClient from "freqhole-api-client";
 import { getCurrentRemote } from "../../data";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
+import { computeSmartLabel } from "./smartLabel";
 
 // the currently active server session id
 const [activeServerSessionId, setActiveServerSessionId] = createSignal<string | null>(null);
@@ -113,6 +114,36 @@ async function flushServerProgress(): Promise<void> {
     );
   } catch (error) {
     console.error("failed to flush server session progress:", error);
+  }
+}
+
+// update the song list of the active server session
+// called when songs are added to or removed from the queue
+export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
+  const sessionId = activeServerSessionId();
+  if (!sessionId) return;
+
+  const remote = getCurrentRemote();
+  if (!remote) return;
+
+  const totalDurationMs = songs.reduce(
+    (sum, s) => sum + (s.duration_seconds || 0) * 1000,
+    0,
+  );
+
+  try {
+    await apiClient.music.updateListenSessionSongs(
+      remote.base_url,
+      sessionId,
+      {
+        song_ids: songs.map((s) => s.id || s.sha256),
+        label: computeSmartLabel(songs),
+        total_songs: songs.length,
+        total_duration_ms: totalDurationMs,
+      },
+    );
+  } catch (error) {
+    console.error("failed to update server session songs:", error);
   }
 }
 

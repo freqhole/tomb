@@ -292,6 +292,64 @@ pub async fn update_listen_session_status(
     }
 }
 
+/// request to update session songs (queue sync)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdateListenSessionSongsRequest {
+    /// updated list of song ids (replaces the entire list)
+    pub song_ids: Vec<String>,
+    /// updated label (smart label computed by client)
+    pub label: String,
+    /// updated total songs count
+    pub total_songs: i64,
+    /// updated total duration in milliseconds
+    pub total_duration_ms: i64,
+}
+
+/// update session songs — syncs the session's song list with the current queue
+///
+/// called when the user adds or removes songs from the queue while a session
+/// is active. ownership-checked: only the session owner can update songs.
+pub async fn update_listen_session_songs(
+    session_id: &str,
+    user_id: &str,
+    req: &UpdateListenSessionSongsRequest,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let song_ids_json = serde_json::to_string(&req.song_ids).unwrap_or_else(|_| "[]".to_string());
+
+    let result = sqlx::query!(
+        r#"
+        UPDATE listen_sessionz
+        SET song_ids = ?,
+            label = ?,
+            total_songs = ?,
+            total_duration_ms = ?,
+            updated_at = unixepoch()
+        WHERE id = ? AND user_id = ? AND status IN ('active', 'paused')
+        "#,
+        song_ids_json,
+        req.label,
+        req.total_songs,
+        req.total_duration_ms,
+        session_id,
+        user_id,
+    )
+    .execute(&pool)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => GrimoireResponse::success_unit("session songs updated"),
+        Ok(_) => GrimoireResponse::failure("listen session not found or not active", vec![]),
+        Err(e) => GrimoireResponse::failure("failed to update session songs", vec![e.into()]),
+    }
+}
+
 /// get a single listen session by id (readable by any authenticated user)
 pub async fn get_listen_session(session_id: &str) -> GrimoireResponse<ListenSession> {
     let pool = match database::connect().await {
@@ -322,12 +380,7 @@ pub async fn get_listen_session(session_id: &str) -> GrimoireResponse<ListenSess
         Ok(Some(row)) => {
             let song_ids: Vec<String> = serde_json::from_str(&row.song_ids).unwrap_or_default();
 
-            let progress = if row.total_duration_ms > 0 {
-                Some(
-                    (row.listened_duration_ms as f64 / row.total_duration_ms as f64 * 100.0)
-                        .min(100.0),
-                )
-            } else if row.total_songs > 0 {
+            let progress = if row.total_songs > 0 {
                 Some((row.songs_completed as f64 / row.total_songs as f64 * 100.0).min(100.0))
             } else {
                 Some(0.0)
@@ -430,12 +483,7 @@ pub async fn list_listen_sessions(
         .map(|row| {
             let song_ids: Vec<String> = serde_json::from_str(&row.song_ids).unwrap_or_default();
 
-            let progress = if row.total_duration_ms > 0 {
-                Some(
-                    (row.listened_duration_ms as f64 / row.total_duration_ms as f64 * 100.0)
-                        .min(100.0),
-                )
-            } else if row.total_songs > 0 {
+            let progress = if row.total_songs > 0 {
                 Some((row.songs_completed as f64 / row.total_songs as f64 * 100.0).min(100.0))
             } else {
                 Some(0.0)

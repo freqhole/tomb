@@ -669,8 +669,8 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* feed type filter icon - desktop only, when view has feed types */}
-          <Show when={!isNarrow() && info().feedTypeOptions?.length}>
+          {/* feed type filter icon - when view has feed types */}
+          <Show when={info().feedTypeOptions?.length}>
             <div
               class="relative flex-shrink-0"
               onMouseEnter={() => {
@@ -685,8 +685,8 @@ export function TopNav(props: TopNavProps) {
               <button
                 class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer"
                 classList={{
-                  "text-[var(--color-accent-500)]": hasActiveFeedFilters(),
-                  "text-white/60 hover:text-white": !hasActiveFeedFilters(),
+                  "text-[var(--color-accent-500)]": hasActiveFeedFilters() || feedFilterOpen(),
+                  "text-white/60 hover:text-white": !hasActiveFeedFilters() && !feedFilterOpen(),
                 }}
                 onClick={() => {
                   if (feedFilterOpen() && feedFilterLocked()) {
@@ -744,8 +744,8 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* my items toggle - desktop only, when view supports it */}
-          <Show when={!isNarrow() && info().onToggleMyItems}>
+          {/* my items toggle - when view supports it */}
+          <Show when={info().onToggleMyItems}>
             <button
               class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0"
               classList={{
@@ -756,6 +756,17 @@ export function TopNav(props: TopNavProps) {
               title={info().myItemsOnly ? "showing my items only" : "showing all items"}
             >
               <Icon name="user" size={16} />
+            </button>
+          </Show>
+
+          {/* back to top - shown after scroll threshold, after all filter controls */}
+          <Show when={info().showBackToTop && info().onBackToTop}>
+            <button
+              class="p-1.5 rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200"
+              onClick={() => info().onBackToTop?.()}
+              title="back to top"
+            >
+              <Icon name="chevronUp" size={16} />
             </button>
           </Show>
 
@@ -818,8 +829,8 @@ export function TopNav(props: TopNavProps) {
           </div>
         </Show>
 
-        {/* selected feed type + my items badges - desktop only, below nav bar */}
-        <Show when={!isNarrow() && hasActiveFeedFilters()}>
+        {/* selected feed type + my items badges - below nav bar */}
+        <Show when={hasActiveFeedFilters()}>
           <div class="flex gap-1.5 flex-wrap mt-1.5 px-1">
             <For each={info().selectedFeedTypes}>
               {(filter) => {

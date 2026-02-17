@@ -9,11 +9,12 @@ use grimoire::music::analytics::{
     create_listen_session, create_play_event, delete_listen_session, get_combined_feed,
     get_listen_session, get_song_play_analytics, get_top_albums, get_top_artists, get_top_songs,
     get_user_listening_history, list_listen_sessions, record_play_event,
-    update_listen_session_progress, update_listen_session_status, CreateListenSessionRequest,
-    FeedRequest, FeedResponse, ListListenSessionsRequest, ListListenSessionsResponse,
-    ListenSession, ListeningHistoryRequest, ListeningHistoryResponse, PlayAnalytics,
-    RecordPlayRequest, SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist,
+    update_listen_session_progress, update_listen_session_songs, update_listen_session_status,
+    CreateListenSessionRequest, FeedRequest, FeedResponse, ListListenSessionsRequest,
+    ListListenSessionsResponse, ListenSession, ListeningHistoryRequest, ListeningHistoryResponse,
+    PlayAnalytics, RecordPlayRequest, SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist,
     TopArtistsRequest, TopSong, TopSongsRequest, UpdateListenSessionProgressRequest,
+    UpdateListenSessionSongsRequest,
 };
 use grimoire::EmptyResponse;
 
@@ -315,6 +316,32 @@ inventory::submit! {
         method: Method::PUT,
         domain: Domain::Music,
         request_type: "UpdateListenSessionProgressRequest",
+        response_type: "EmptyResponse",
+    }
+}
+
+/// update listen session songs (queue sync)
+pub async fn update_listen_session_songs_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateListenSessionSongsRequest>,
+) -> Result<Json<EmptyResponse>, ApiError> {
+    let response = update_listen_session_songs(&id, &user.user_id, &req).await;
+
+    if response.success {
+        Ok(Json(EmptyResponse::ok()))
+    } else {
+        Err(ApiError::Internal(response.message))
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "update_listen_session_songs",
+        path: "/api/analytics/sessions/{id}/songs",
+        method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "UpdateListenSessionSongsRequest",
         response_type: "EmptyResponse",
     }
 }

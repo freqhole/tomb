@@ -2,6 +2,7 @@ import { For, Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { getPageInfo } from "../../app/services/pageInfo";
 
 // re-export shared types
 export type { NavMenuItem, NavMenuSection, RecentPlaylist } from "./TopNav";
@@ -83,6 +84,9 @@ function formatRelativeTime(timestamp: number): string {
  * contains: brand info, source selector, navigation links, recent playlists, storage stats
  */
 export function TopNavMobile(props: TopNavMobileProps) {
+  // derived state from pageInfo store
+  const info = () => getPageInfo();
+
   // helper to close menu after action
   const handleMenuItemClick = (callback?: () => void) => {
     props.onClose();
@@ -250,6 +254,87 @@ export function TopNavMobile(props: TopNavMobileProps) {
                 </div>
               </Show>
             </div>
+
+            {/* section 2.5: feed controls (filters, my items, back to top) - only when available */}
+            <Show
+              when={
+                info().feedTypeOptions?.length ||
+                info().onToggleMyItems ||
+                (info().showBackToTop && info().onBackToTop)
+              }
+            >
+              <div class="p-3 border-t border-white/10">
+                <h4 class="text-xs text-white/50 uppercase tracking-wide font-medium m-0 mb-2">
+                  feed controls
+                </h4>
+                <div class="space-y-1">
+                  {/* back to top */}
+                  <Show when={info().showBackToTop && info().onBackToTop}>
+                    <button
+                      class="w-full px-3 py-2 text-left text-sm text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer flex items-center gap-2"
+                      onClick={() => {
+                        info().onBackToTop?.();
+                        props.onClose();
+                      }}
+                    >
+                      <Icon name="chevronUp" size={14} />
+                      <span>back to top</span>
+                    </button>
+                  </Show>
+
+                  {/* my items toggle */}
+                  <Show when={info().onToggleMyItems}>
+                    <button
+                      class="w-full px-3 py-2 text-left text-sm hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer flex items-center gap-2"
+                      classList={{
+                        "text-[var(--color-accent-500)]": info().myItemsOnly,
+                        "text-white/70 hover:text-white": !info().myItemsOnly,
+                      }}
+                      onClick={() => info().onToggleMyItems?.()}
+                    >
+                      <Icon name="user" size={14} />
+                      <span>{info().myItemsOnly ? "showing my items" : "show my items only"}</span>
+                    </button>
+                  </Show>
+
+                  {/* feed type filters */}
+                  <Show when={info().feedTypeOptions?.length}>
+                    <div class="pt-1">
+                      <div class="px-3 py-1 text-xs text-white/40">filter by type</div>
+                      <For each={info().feedTypeOptions}>
+                        {(option) => {
+                          const isSelected = () =>
+                            (info().selectedFeedTypes || []).some((f) => f.type === option.value);
+                          return (
+                            <button
+                              class="w-full px-3 py-1.5 text-left text-sm hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer flex items-center gap-2"
+                              classList={{
+                                "text-[var(--color-accent-500)]": isSelected(),
+                                "text-white/70 hover:text-white": !isSelected(),
+                              }}
+                              onClick={() => info().onToggleFeedType?.(option.value)}
+                            >
+                              <span class="w-3 text-center text-xs">
+                                {isSelected() ? "\u2713" : ""}
+                              </span>
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        }}
+                      </For>
+                      <Show when={(info().selectedFeedTypes || []).length > 0}>
+                        <button
+                          class="w-full px-3 py-1.5 text-left text-xs text-white/50 hover:text-white hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer mt-1"
+                          onClick={() => info().onClearFeedTypes?.()}
+                        >
+                          clear filters
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              </div>
+            </Show>
 
             {/* section 3: recent playlists */}
             <div class="flex flex-col p-3">

@@ -49,6 +49,10 @@ export interface PageInfo {
   onClearFeedTypes?: () => void;
   myItemsOnly?: boolean;
   onToggleMyItems?: () => void;
+
+  // back-to-top control (optional - views with long scroll)
+  showBackToTop?: boolean;
+  onBackToTop?: () => void;
 }
 
 // singleton signals for page info

@@ -72,7 +72,8 @@ pub use api_types::{
 // Re-export session types and functions
 pub use sessions::{
     create_listen_session, delete_listen_session, get_listen_session, list_listen_sessions,
-    update_listen_session_progress, update_listen_session_status, CreateListenSessionRequest,
-    ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
-    ListenSessionType, UpdateListenSessionProgressRequest,
+    update_listen_session_progress, update_listen_session_songs, update_listen_session_status,
+    CreateListenSessionRequest, ListListenSessionsRequest, ListListenSessionsResponse,
+    ListenSession, ListenSessionStatus, ListenSessionType, UpdateListenSessionProgressRequest,
+    UpdateListenSessionSongsRequest,
 };

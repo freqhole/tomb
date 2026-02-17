@@ -11,9 +11,9 @@ import type { QueueSourceContext } from "../../../app/services/storage/types";
 import { evictCachedBlob } from "../cache/blobCache";
 import { playSong, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
-import { addHistoryEntry } from "./queueHistory";
-import { startTracking, stopTracking } from "./listenProgress";
-import { createServerSession, stopServerSession } from "./serverSession";
+import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
+import { activeHistoryEntryId, startTracking, stopTracking } from "./listenProgress";
+import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId } from "./serverSession";
 import type { Song } from "../storage/types";
 
 // re-export queue state so consumers can import everything from queue.ts
@@ -32,7 +32,17 @@ export {
 // plays songs[startIndex] (default 0) after setting the queue
 export async function playQueue(
   songs: Song[],
-  options?: { startIndex?: number; source?: QueueSourceContext; skipServerSession?: boolean },
+  options?: {
+    startIndex?: number;
+    source?: QueueSourceContext;
+    skipServerSession?: boolean;
+    resumeProgress?: {
+      listened_seconds: number;
+      songs_completed: number;
+      current_song_index: number;
+      current_song_position: number;
+    };
+  },
 ): Promise<void> {
   if (songs.length === 0) return;
 
@@ -42,9 +52,15 @@ export async function playQueue(
 
   // record history and start progress tracking
   if (options?.source) {
-    const entryId = await addHistoryEntry(songs, options.source);
+    const entryId = await addHistoryEntry(songs, options.source, options.resumeProgress);
     if (entryId) {
-      startTracking(entryId);
+      if (options.resumeProgress) {
+        // resume tracking with existing progress state
+        const { resumeTracking } = await import("./listenProgress");
+        resumeTracking(entryId, options.resumeProgress);
+      } else {
+        startTracking(entryId);
+      }
     }
     // create server-side listen session (fire and forget)
     // skip when caller will handle session tracking (e.g. resuming an existing session)
@@ -102,14 +118,25 @@ export async function addToQueue(
     await playSong(songs[0]);
   }
 
-  // record history and start progress tracking
+  // sync history + server session with the full queue
   if (options?.source) {
-    const entryId = await addHistoryEntry(songs, options.source);
-    if (entryId) {
-      startTracking(entryId);
+    const existingEntryId = activeHistoryEntryId();
+    if (existingEntryId) {
+      // update the active history entry with the full queue
+      void updateHistoryEntrySongs(existingEntryId, newQueue);
+    } else {
+      // no active entry — create a new one and start tracking
+      const entryId = await addHistoryEntry(newQueue, options.source);
+      if (entryId) {
+        startTracking(entryId);
+      }
     }
-    // create server-side listen session (fire and forget)
-    void createServerSession(songs, options.source);
+    // sync server session: update active session with full queue, or create new
+    if (activeServerSessionId()) {
+      void updateServerSessionSongs(newQueue);
+    } else {
+      void createServerSession(newQueue, options.source);
+    }
   }
 }
 
@@ -137,6 +164,18 @@ export async function removeFromQueue(index: number): Promise<void> {
       void evictCachedBlob(removedSong.source_url);
     }
   }
+
+  // sync history + server session with updated queue
+  if (newQueue.length > 0) {
+    const entryId = activeHistoryEntryId();
+    if (entryId) {
+      void updateHistoryEntrySongs(entryId, newQueue);
+    }
+    void updateServerSessionSongs(newQueue);
+  } else {
+    stopTracking();
+    void stopServerSession("abandoned");
+  }
 }
 
 // reorder a song within the queue (drag-and-drop)
@@ -151,6 +190,13 @@ export async function reorderQueue(
   const [movedSong] = newQueue.splice(fromIndex, 1);
   newQueue.splice(toIndex, 0, movedSong);
   await setQueue(newQueue);
+
+  // sync history + server session with reordered queue
+  const entryId = activeHistoryEntryId();
+  if (entryId) {
+    void updateHistoryEntrySongs(entryId, newQueue);
+  }
+  void updateServerSessionSongs(newQueue);
 }
 
 // clear the entire queue and stop playback

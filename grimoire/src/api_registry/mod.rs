@@ -146,7 +146,8 @@ pub mod type_registry {
         ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
         OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
         SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
-        TopSongsRequest, UpdateListenSessionProgressRequest, UserStats,
+        TopSongsRequest, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
+        UserStats,
     };
 
     // musicbrainz types
@@ -347,6 +348,9 @@ pub mod type_registry {
 
         gen.add_schema::<UpdateListenSessionProgressRequest>("UpdateListenSessionProgressRequest");
         registered.insert("UpdateListenSessionProgressRequest".to_string());
+
+        gen.add_schema::<UpdateListenSessionSongsRequest>("UpdateListenSessionSongsRequest");
+        registered.insert("UpdateListenSessionSongsRequest".to_string());
 
         gen.add_schema::<ListListenSessionsRequest>("ListListenSessionsRequest");
         registered.insert("ListListenSessionsRequest".to_string());

@@ -105,7 +105,7 @@ export function FeedView() {
   // set page info with feed filter controls
   createEffect(
     on(
-      () => [allItems().length, feedTypeFilters(), myItemsOnly()] as const,
+      () => [allItems().length, feedTypeFilters(), myItemsOnly(), showBackToTop()] as const,
       ([count]) => {
         setPageInfo({
           title: "feed",
@@ -139,6 +139,8 @@ export function FeedView() {
           onClearFeedTypes: () => setFeedTypeFilters([]),
           myItemsOnly: myItemsOnly(),
           onToggleMyItems: () => setMyItemsOnly((prev) => !prev),
+          showBackToTop: showBackToTop(),
+          onBackToTop: handleBackToTop,
         });
       }
     )
@@ -216,15 +218,25 @@ export function FeedView() {
         return;
       }
 
-      // only completed sessions can't be resumed — active, paused, and abandoned all can
-      const canResume = session.status !== "completed" && session.current_song_index < songs.length;
+      // a session is effectively done if its status is "completed" or all songs were played
+      const isEffectivelyComplete =
+        session.status === "completed" || session.songs_completed >= session.total_songs;
+      const canResume = !isEffectivelyComplete && session.current_song_index < songs.length;
 
       if (canResume) {
         // resume: play from current song index
         // skip server session creation — resumeServerSession below handles tracking
+        const resumeProgress = {
+          listened_seconds: Math.round(session.listened_duration_ms / 1000),
+          songs_completed: session.songs_completed,
+          current_song_index: session.current_song_index,
+          current_song_position: Math.round(session.current_song_position_ms / 1000),
+        };
+
         await playQueue(songs, {
           startIndex: session.current_song_index,
           skipServerSession: true,
+          resumeProgress,
           source: {
             type: session.session_type as any,
             label: session.label,
@@ -242,7 +254,7 @@ export function FeedView() {
 
         toast.info("resumed session");
       } else {
-        // completed — start fresh
+        // completed — start fresh as a new session
         await playQueue(songs, {
           source: {
             type: session.session_type as any,
@@ -250,6 +262,7 @@ export function FeedView() {
             entity_id: session.entity_id ?? undefined,
           },
         });
+        toast.info("started new session");
       }
     } catch (error) {
       console.error("failed to play session:", error);
@@ -452,8 +465,10 @@ export function FeedView() {
     // listening sessions get their own menu
     if (item.feed_type === "listen_session") {
       const isOwnSession = item.user_id && item.user_id === getCurrentUserId();
+      const isCompleted =
+        item.session_status === "completed" || (item.progress_percent ?? 0) >= 100;
 
-      if (isOwnSession) {
+      if (isOwnSession && !isCompleted) {
         actions.push({
           label: "resume",
           icon: IconNames.play,
@@ -712,20 +727,6 @@ export function FeedView() {
                 scrollKey="feed-view"
                 onScroll={handleScroll}
               />
-
-              {/* back to top button */}
-              <div
-                class="fixed z-50 transition-all duration-300"
-                classList={{
-                  "opacity-100 translate-y-0": showBackToTop(),
-                  "opacity-0 translate-y-4 pointer-events-none": !showBackToTop(),
-                }}
-                style={{ bottom: `${playerBarHeight() + 24}px`, right: "24px" }}
-              >
-                <Button variant="secondary" onClick={handleBackToTop}>
-                  <Icon name="chevronUp" size={16} />
-                </Button>
-              </div>
             </Show>
           </Show>
         </Show>

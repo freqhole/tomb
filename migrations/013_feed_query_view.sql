@@ -221,7 +221,7 @@ WHERE p.deleted_at IS NULL
 
 UNION ALL
 
--- listen sessions (exclude single-song sessions)
+-- listen sessions
 SELECT
     ls.id as id,
     'listen_session' as feed_type,
@@ -265,7 +265,6 @@ SELECT
     ls.session_type as session_type,
     ls.status as session_status,
     CASE
-        WHEN ls.total_duration_ms > 0 THEN MIN(ls.listened_duration_ms * 100.0 / ls.total_duration_ms, 100.0)
         WHEN ls.total_songs > 0 THEN MIN(ls.songs_completed * 100.0 / ls.total_songs, 100.0)
         ELSE 0.0
     END as progress_percent,
@@ -289,7 +288,6 @@ SELECT
     NULL as description,
     NULL as tags
 FROM listen_sessionz ls
-WHERE ls.total_songs > 1
 
 UNION ALL
 
