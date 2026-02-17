@@ -255,7 +255,7 @@ SELECT
                  WHERE si.song_id = ls.entity_id AND mb.blob_type NOT IN ('waveform')), '[]')
         ELSE '[]'
     END as images,
-    ls.updated_at as created_at,
+    ls.created_at as created_at,
     ls.user_id as user_id,
     (SELECT u.username FROM user_accountz u WHERE u.id = ls.user_id) as username,
     NULL as play_count,
