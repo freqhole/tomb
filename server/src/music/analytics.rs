@@ -6,8 +6,8 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::analytics::{
-    create_listen_session, create_play_event, get_combined_feed, get_listen_session,
-    get_song_play_analytics, get_top_albums, get_top_artists, get_top_songs,
+    create_listen_session, create_play_event, delete_listen_session, get_combined_feed,
+    get_listen_session, get_song_play_analytics, get_top_albums, get_top_artists, get_top_songs,
     get_user_listening_history, list_listen_sessions, record_play_event,
     update_listen_session_progress, update_listen_session_status, CreateListenSessionRequest,
     FeedRequest, FeedResponse, ListListenSessionsRequest, ListListenSessionsResponse,
@@ -194,7 +194,13 @@ pub async fn feed_handler(
     let limit = req.limit.unwrap_or(50);
     let offset = req.offset.unwrap_or(0);
 
-    let response = get_combined_feed(limit, offset).await;
+    let response = get_combined_feed(
+        limit,
+        offset,
+        req.feed_types.as_deref(),
+        req.user_id.as_deref(),
+    )
+    .await;
 
     response
         .data
@@ -341,6 +347,37 @@ inventory::submit! {
         name: "update_listen_session_status",
         path: "/api/analytics/sessions/{id}/status/{status}",
         method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "EmptyResponse",
+    }
+}
+
+/// delete a listen session
+/// admins can delete any session, other users can only delete their own
+pub async fn delete_listen_session_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+) -> Result<Json<EmptyResponse>, ApiError> {
+    let response =
+        delete_listen_session(&id, &user.user_id, user.role.is_admin()).await;
+
+    if response.success {
+        Ok(Json(EmptyResponse::ok()))
+    } else if response.message.contains("not found") {
+        Err(ApiError::NotFound)
+    } else if response.message.contains("not authorized") {
+        Err(ApiError::Forbidden)
+    } else {
+        Err(ApiError::Internal(response.message))
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "delete_listen_session",
+        path: "/api/analytics/sessions/{id}",
+        method: Method::DELETE,
         domain: Domain::Music,
         request_type: "String",
         response_type: "EmptyResponse",

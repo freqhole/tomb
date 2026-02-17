@@ -75,6 +75,7 @@ export interface VirtualFeedListProps {
   onNearEnd?: () => void;
   isFetchingMore?: boolean;
   scrollKey?: string;
+  onScroll?: (scrollTop: number) => void;
 }
 
 export function VirtualFeedList(props: VirtualFeedListProps) {
@@ -129,7 +130,12 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
         height: `${props.height}px`,
         "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
       }}
-      onScroll={checkNearEnd}
+      onScroll={() => {
+        checkNearEnd();
+        if (props.onScroll && scrollContainerRef) {
+          props.onScroll(scrollContainerRef.scrollTop);
+        }
+      }}
     >
       {/* centered gutter container — constrain width on desktop */}
       <div class="mx-auto max-w-3xl">
@@ -341,17 +347,26 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
           />
         </Show>
 
-        {/* line 3: artist · album */}
-        <Show when={artistAlbumLine()}>
+        {/* line 3: artist · album (for sessions, merge metadata onto this line) */}
+        <Show when={artistAlbumLine() || (isSession() && metaParts().length > 0)}>
           <MarqueeText
-            text={artistAlbumLine()}
+            text={
+              isSession()
+                ? [artistAlbumLine(), metaParts().join(" \u00b7 ")].filter(Boolean).join(" \u00b7 ")
+                : artistAlbumLine()
+            }
             class="text-sm text-[var(--color-text-secondary)]"
             isHovering={isRowHovered}
           />
         </Show>
 
-        {/* line 4: metadata — genre, year, tracks, duration, tags */}
-        <Show when={metaParts().length > 0 || (props.item.tags && props.item.tags.length > 0)}>
+        {/* line 4: metadata — genre, year, tracks, duration, tags (non-session items only) */}
+        <Show
+          when={
+            !isSession() &&
+            (metaParts().length > 0 || (props.item.tags && props.item.tags.length > 0))
+          }
+        >
           <div class="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] overflow-hidden">
             <Show when={metaParts().length > 0}>
               <MarqueeText
@@ -374,7 +389,7 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
 
         {/* session progress bar */}
         <Show when={hasProgress()}>
-          <div class="flex items-center gap-2 mt-1">
+          <div class="flex items-center gap-2">
             <div class="flex-1 h-1 bg-[var(--color-accent-500)]/15 rounded-full overflow-hidden">
               <div
                 class="h-full bg-[var(--color-accent-500)] rounded-full transition-all duration-300"

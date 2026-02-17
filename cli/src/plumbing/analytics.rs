@@ -4,10 +4,9 @@ use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::music::analytics::{
     create_play_event, get_album_play_count, get_all_user_stats, get_artist_play_count,
-    get_combined_feed, get_overview_stats, get_recent_albums, get_recent_favorites,
-    get_recent_listens, get_session_summary, get_song_play_analytics, get_song_play_count,
-    get_top_albums, get_top_artists, get_top_songs, get_user_listening_history, get_user_stats,
-    record_play_event,
+    get_combined_feed, get_overview_stats, get_session_summary, get_song_play_analytics,
+    get_song_play_count, get_top_albums, get_top_artists, get_top_songs,
+    get_user_listening_history, get_user_stats, record_play_event, FeedItemType,
 };
 use grimoire::music::crud::{query_songs, QueryParams};
 use serde::Serialize;
@@ -349,7 +348,8 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             }
         }
         AnalyticsAction::RecentListens { limit, offset } => {
-            let response = get_recent_listens(limit, offset).await;
+            let types = vec![FeedItemType::RecentListen];
+            let response = get_combined_feed(limit, offset, Some(&types), None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
@@ -369,7 +369,8 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             )
         }
         AnalyticsAction::RecentFavorites { limit, offset } => {
-            let response = get_recent_favorites(limit, offset).await;
+            let types = vec![FeedItemType::RecentFavorite];
+            let response = get_combined_feed(limit, offset, Some(&types), None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
@@ -389,7 +390,8 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             )
         }
         AnalyticsAction::RecentAlbums { limit, offset } => {
-            let response = get_recent_albums(limit, offset).await;
+            let types = vec![FeedItemType::RecentAlbum];
+            let response = get_combined_feed(limit, offset, Some(&types), None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
@@ -409,7 +411,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             )
         }
         AnalyticsAction::Feed { limit, offset } => {
-            let response = get_combined_feed(limit, offset).await;
+            let response = get_combined_feed(limit, offset, None, None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }

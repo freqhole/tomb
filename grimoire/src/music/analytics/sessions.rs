@@ -465,3 +465,53 @@ pub async fn list_listen_sessions(
 
     GrimoireResponse::success("listen sessions retrieved", (items, count))
 }
+
+/// delete a listen session
+///
+/// admins can delete any session, other users can only delete their own.
+pub async fn delete_listen_session(
+    session_id: &str,
+    requesting_user_id: &str,
+    is_admin: bool,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    // check ownership if not admin
+    if !is_admin {
+        let owner =
+            sqlx::query_scalar::<_, String>("SELECT user_id FROM listen_sessionz WHERE id = ?")
+                .bind(session_id)
+                .fetch_optional(&pool)
+                .await;
+
+        match owner {
+            Ok(Some(uid)) if uid == requesting_user_id => {} // allowed
+            Ok(Some(_)) => {
+                return GrimoireResponse::failure("not authorized to delete this session", vec![])
+            }
+            Ok(None) => return GrimoireResponse::failure("session not found", vec![]),
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to check session ownership",
+                    vec![e.into()],
+                )
+            }
+        }
+    }
+
+    let result = sqlx::query("DELETE FROM listen_sessionz WHERE id = ?")
+        .bind(session_id)
+        .execute(&pool)
+        .await;
+
+    match result {
+        Ok(r) if r.rows_affected() > 0 => GrimoireResponse::success_unit("session deleted"),
+        Ok(_) => GrimoireResponse::failure("session not found", vec![]),
+        Err(e) => GrimoireResponse::failure("failed to delete session", vec![e.into()]),
+    }
+}

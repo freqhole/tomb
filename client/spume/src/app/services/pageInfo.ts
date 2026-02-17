@@ -3,6 +3,20 @@ import { createSignal } from "solid-js";
 import type { SortField } from "../../components/controls/SearchSortControls";
 import type { TagFilter, TagOption } from "../../components/forms/TagFilterPicker";
 
+// feed type filter option
+export interface FeedTypeOption {
+  /** feed type value (e.g. "recent_listen") */
+  value: string;
+  /** human-readable label (e.g. "listens") */
+  label: string;
+}
+
+// a selected feed type filter with include/exclude mode
+export interface FeedTypeFilter {
+  type: string;
+  mode: "include" | "exclude";
+}
+
 export interface PageInfo {
   /** page title (e.g. "songs", "artists") */
   title?: string;
@@ -25,6 +39,16 @@ export interface PageInfo {
   onRemoveTag?: (tag: string) => void;
   onToggleTagMode?: (tag: string) => void;
   onClearAllTags?: () => void;
+
+  // feed type filter controls (optional - only feed view)
+  feedTypeOptions?: FeedTypeOption[];
+  selectedFeedTypes?: FeedTypeFilter[];
+  onToggleFeedType?: (type: string) => void;
+  onToggleFeedTypeMode?: (type: string) => void;
+  onRemoveFeedType?: (type: string) => void;
+  onClearFeedTypes?: () => void;
+  myItemsOnly?: boolean;
+  onToggleMyItems?: () => void;
 }
 
 // singleton signals for page info

@@ -68,6 +68,8 @@ export function useActivityFeedQuery(limit: number = 50) {
       const result = await apiClient.music.activityFeed(remote.base_url, {
         limit,
         offset: null,
+        feed_types: null,
+        user_id: null,
       });
 
       if (!result.success) {
@@ -83,35 +85,77 @@ export function useActivityFeedQuery(limit: number = 50) {
   }));
 }
 
-// infinite scrolling activity feed query
-export function useActivityFeedInfiniteQuery(pageSize: number = 50) {
-  return createInfiniteQuery(() => ({
-    queryKey: queryKeys.analytics.feedInfinite(),
-    queryFn: async ({ pageParam }: { pageParam: number }): Promise<FeedResponse> => {
-      const remote = getCurrentRemote();
-      if (!remote) return { items: [], total: 0 };
+// feed item type literal values for filtering
+export type FeedItemTypeFilter =
+  | "recent_listen"
+  | "recent_favorite"
+  | "recent_album"
+  | "recent_rating"
+  | "recent_playlist"
+  | "listen_session"
+  | "new_image";
 
-      const result = await apiClient.music.activityFeed(remote.base_url, {
-        limit: pageSize,
-        offset: pageParam,
-      });
+// all available feed type filter values
+export const ALL_FEED_TYPES: FeedItemTypeFilter[] = [
+  "recent_listen",
+  "recent_favorite",
+  "recent_album",
+  "recent_rating",
+  "recent_playlist",
+  "listen_session",
+  "new_image",
+];
 
-      if (!result.success) {
-        throw new Error("failed to fetch activity feed");
-      }
+// human-readable labels for feed types
+export const FEED_TYPE_LABELS: Record<FeedItemTypeFilter, string> = {
+  recent_listen: "listens",
+  recent_favorite: "favorites",
+  recent_album: "albums",
+  recent_rating: "ratings",
+  recent_playlist: "playlists",
+  listen_session: "sessions",
+  new_image: "images",
+};
 
-      return adaptFeedResponse(result.data, remote.base_url);
-    },
-    getNextPageParam: (lastPage, allPages) => {
-      const totalFetched = allPages.reduce((sum, page) => sum + page.items.length, 0);
-      if (totalFetched >= lastPage.total) return undefined;
-      return totalFetched;
-    },
-    initialPageParam: 0,
-    enabled: !!getCurrentRemote(),
-    staleTime: 30_000,
-    gcTime: 5 * 60_000,
-  }));
+// infinite scrolling activity feed query with optional filters
+export function useActivityFeedInfiniteQuery(
+  pageSize: number = 50,
+  feedTypes?: () => FeedItemTypeFilter[] | null,
+  userId?: () => string | null,
+) {
+  return createInfiniteQuery(() => {
+    const types = feedTypes?.() ?? null;
+    const uid = userId?.() ?? null;
+    return {
+      queryKey: queryKeys.analytics.feedInfinite(types, uid),
+      queryFn: async ({ pageParam }: { pageParam: number }): Promise<FeedResponse> => {
+        const remote = getCurrentRemote();
+        if (!remote) return { items: [], total: 0 };
+
+        const result = await apiClient.music.activityFeed(remote.base_url, {
+          limit: pageSize,
+          offset: pageParam,
+          feed_types: types,
+          user_id: uid,
+        });
+
+        if (!result.success) {
+          throw new Error("failed to fetch activity feed");
+        }
+
+        return adaptFeedResponse(result.data, remote.base_url);
+      },
+      getNextPageParam: (lastPage: FeedResponse, allPages: FeedResponse[]) => {
+        const totalFetched = allPages.reduce((sum, page) => sum + page.items.length, 0);
+        if (totalFetched >= lastPage.total) return undefined;
+        return totalFetched;
+      },
+      initialPageParam: 0,
+      enabled: !!getCurrentRemote(),
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+    };
+  });
 }
 
 // top songs query

@@ -6,21 +6,61 @@ import { Button } from "../../components/buttons/Button";
 import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { appState } from "../../app/services/storage/db";
-import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { getCurrentRemote, getCurrentUserId, getDataSource } from "../data";
 import type { FeedItem } from "../data/types";
-import { useActivityFeedInfiniteQuery } from "../queries/analytics";
+import {
+  useActivityFeedInfiniteQuery,
+  ALL_FEED_TYPES,
+  FEED_TYPE_LABELS,
+  type FeedItemTypeFilter,
+} from "../queries/analytics";
 import { routes } from "../utils/routing";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { resumeServerSession } from "../services/queue/serverSession";
 import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
 import { showImageCarousel } from "../modals";
+import { useQueryClient } from "@tanstack/solid-query";
+import { queryKeys } from "../queries/queryKeys";
 
 export function FeedView() {
   const navigate = useNavigate();
-  const feedQuery = useActivityFeedInfiniteQuery(50);
+  const queryClient = useQueryClient();
   const remote = getCurrentRemote();
+
+  // filter state
+  const [feedTypeFilters, setFeedTypeFilters] = createSignal<FeedTypeFilter[]>([]);
+  const [myItemsOnly, setMyItemsOnly] = createSignal(false);
+
+  // derived filter accessors for the query
+  const feedTypesForQuery = () => {
+    const filters = feedTypeFilters();
+    if (filters.length === 0) return null;
+
+    const includes = filters
+      .filter((f) => f.mode === "include")
+      .map((f) => f.type as FeedItemTypeFilter);
+    const excludes = filters
+      .filter((f) => f.mode === "exclude")
+      .map((f) => f.type as FeedItemTypeFilter);
+
+    if (includes.length > 0) {
+      // include mode: only show these types
+      return includes;
+    }
+    if (excludes.length > 0) {
+      // exclude mode: show everything except these types
+      return ALL_FEED_TYPES.filter((t) => !excludes.includes(t));
+    }
+    return null;
+  };
+  const userIdForQuery = () => {
+    if (!myItemsOnly()) return null;
+    return getCurrentUserId() ?? null;
+  };
+
+  const feedQuery = useActivityFeedInfiniteQuery(50, feedTypesForQuery, userIdForQuery);
 
   // flatten all pages into a single array
   const allItems = createMemo(() => {
@@ -61,12 +101,44 @@ export function FeedView() {
     )
   );
 
-  // set page info
+  // set page info with feed filter controls
   createEffect(
     on(
-      () => allItems().length,
-      (count) => {
-        setPageInfo({ title: "feed", count });
+      () => [allItems().length, feedTypeFilters(), myItemsOnly()] as const,
+      ([count]) => {
+        setPageInfo({
+          title: "feed",
+          count,
+          feedTypeOptions: ALL_FEED_TYPES.map((t) => ({
+            value: t,
+            label: FEED_TYPE_LABELS[t],
+          })),
+          selectedFeedTypes: feedTypeFilters(),
+          onToggleFeedType: (type: string) => {
+            setFeedTypeFilters((prev) => {
+              const existing = prev.find((f) => f.type === type);
+              if (existing) {
+                // already selected — remove it
+                return prev.filter((f) => f.type !== type);
+              }
+              // add as include by default
+              return [...prev, { type, mode: "include" }];
+            });
+          },
+          onToggleFeedTypeMode: (type: string) => {
+            setFeedTypeFilters((prev) =>
+              prev.map((f) =>
+                f.type === type ? { ...f, mode: f.mode === "include" ? "exclude" : "include" } : f
+              )
+            );
+          },
+          onRemoveFeedType: (type: string) => {
+            setFeedTypeFilters((prev) => prev.filter((f) => f.type !== type));
+          },
+          onClearFeedTypes: () => setFeedTypeFilters([]),
+          myItemsOnly: myItemsOnly(),
+          onToggleMyItems: () => setMyItemsOnly((prev) => !prev),
+        });
       }
     )
   );
@@ -385,6 +457,37 @@ export function FeedView() {
           }
         },
       });
+
+      // delete session (own sessions only)
+      if (isOwnSession && item.session_id) {
+        actions.push({ type: "separator" });
+        actions.push({
+          label: "delete session",
+          icon: IconNames.delete,
+          onClick: async () => {
+            try {
+              if (item.session_id && remote) {
+                const result = await apiClient.music.deleteListenSession(
+                  remote.base_url,
+                  item.session_id
+                );
+                if (result.success) {
+                  toast.info("session deleted");
+                  // invalidate feed queries to refresh
+                  void queryClient.invalidateQueries({
+                    queryKey: queryKeys.analytics.all(),
+                  });
+                } else {
+                  toast.error("failed to delete session");
+                }
+              }
+            } catch {
+              toast.error("failed to delete session");
+            }
+          },
+        });
+      }
+
       return actions;
     }
 
@@ -472,14 +575,25 @@ export function FeedView() {
     return actions;
   };
 
-  // expose scroll ref for refresh button
+  // expose scroll ref for refresh button + back-to-top
   let feedListRef: HTMLDivElement | undefined;
+  const [showBackToTop, setShowBackToTop] = createSignal(false);
+
+  // track scroll to show/hide back-to-top button
+  const handleScroll = (scrollTop: number) => {
+    setShowBackToTop(scrollTop > 400);
+  };
 
   const handleRefresh = () => {
     // scroll to top of the feed list's scroll container
     const scrollEl = feedListRef?.querySelector(".overflow-auto") as HTMLElement | null;
     scrollEl?.scrollTo({ top: 0, behavior: "smooth" });
     void feedQuery.refetch();
+  };
+
+  const handleBackToTop = () => {
+    const scrollEl = feedListRef?.querySelector(".overflow-auto") as HTMLElement | null;
+    scrollEl?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -495,47 +609,89 @@ export function FeedView() {
       </Show>
 
       <Show when={remote}>
-        <Show
-          when={!feedQuery.isLoading}
-          fallback={
-            <div class="flex items-center justify-center py-12">
-              <Icon name="loader" size={24} color="var(--color-text-muted)" />
-              <span class="text-[var(--color-text-muted)] ml-2 text-sm">loading feed...</span>
-            </div>
-          }
-        >
+        {/* error state */}
+        <Show when={feedQuery.isError}>
+          <div class="flex flex-col items-center justify-center py-16 text-center">
+            <Icon name="alertTriangle" size={32} color="var(--color-error)" />
+            <p class="text-[var(--color-text-secondary)] mt-2 text-sm">failed to load feed</p>
+            <Button variant="secondary" onClick={() => void feedQuery.refetch()} class="mt-3">
+              retry
+            </Button>
+          </div>
+        </Show>
+
+        <Show when={!feedQuery.isError}>
           <Show
-            when={allItems().length > 0}
+            when={!feedQuery.isLoading}
             fallback={
-              <div class="flex flex-col items-center justify-center py-16 text-center">
-                <Icon name="recent" size={32} color="var(--color-text-muted)" />
-                <p class="text-[var(--color-text-muted)] mt-2 text-sm">
-                  no activity yet — start listening to build your feed
-                </p>
+              <div class="flex items-center justify-center py-12">
+                <Icon name="loader" size={24} color="var(--color-text-muted)" />
+                <span class="text-[var(--color-text-muted)] ml-2 text-sm">loading feed...</span>
               </div>
             }
           >
-            <VirtualFeedList
-              items={allItems()}
-              height={listHeight()}
-              scrollPaddingTop={72}
-              onItemClick={handleItemClick}
-              onImageClick={handleImageClick}
-              getContextMenuActions={getContextMenuActions}
-              onNearEnd={loadMore}
-              isFetchingMore={feedQuery.isFetchingNextPage}
-              scrollKey="feed-view"
-            />
-
-            {/* fixed refresh button — centered in feed column, just below nav */}
-            <div
-              class="fixed z-50"
-              style={{ top: "12px", left: "50%", transform: "translateX(-50%)" }}
+            <Show
+              when={allItems().length > 0}
+              fallback={
+                <div class="flex flex-col items-center justify-center py-16 text-center">
+                  <Icon name="recent" size={32} color="var(--color-text-muted)" />
+                  <p class="text-[var(--color-text-muted)] mt-2 text-sm">
+                    {feedTypeFilters().length > 0 || myItemsOnly()
+                      ? "no items match your filters"
+                      : "no activity yet — start listening to build your feed"}
+                  </p>
+                  <Show when={feedTypeFilters().length > 0 || myItemsOnly()}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setFeedTypeFilters([]);
+                        setMyItemsOnly(false);
+                      }}
+                      class="mt-3"
+                    >
+                      clear filters
+                    </Button>
+                  </Show>
+                </div>
+              }
             >
-              <Button variant="primary" onClick={handleRefresh}>
-                refresh feed
-              </Button>
-            </div>
+              <VirtualFeedList
+                items={allItems()}
+                height={listHeight()}
+                scrollPaddingTop={72}
+                onItemClick={handleItemClick}
+                onImageClick={handleImageClick}
+                getContextMenuActions={getContextMenuActions}
+                onNearEnd={loadMore}
+                isFetchingMore={feedQuery.isFetchingNextPage}
+                scrollKey="feed-view"
+                onScroll={handleScroll}
+              />
+
+              {/* fixed refresh button — centered in feed column, just below nav */}
+              <div
+                class="fixed z-50"
+                style={{ top: "12px", left: "50%", transform: "translateX(-50%)" }}
+              >
+                <Button variant="primary" onClick={handleRefresh}>
+                  refresh feed
+                </Button>
+              </div>
+
+              {/* back to top button */}
+              <div
+                class="fixed z-50 transition-all duration-300"
+                classList={{
+                  "opacity-100 translate-y-0": showBackToTop(),
+                  "opacity-0 translate-y-4 pointer-events-none": !showBackToTop(),
+                }}
+                style={{ bottom: `${playerBarHeight() + 24}px`, right: "24px" }}
+              >
+                <Button variant="secondary" onClick={handleBackToTop}>
+                  <Icon name="chevronUp" size={16} />
+                </Button>
+              </div>
+            </Show>
           </Show>
         </Show>
       </Show>

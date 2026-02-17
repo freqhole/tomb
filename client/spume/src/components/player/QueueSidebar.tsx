@@ -517,17 +517,6 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             class={isArtist() ? "rounded-full" : undefined}
                           />
                         </Show>
-
-                        {/* progress ring overlay on thumbnail */}
-                        <Show when={hasProgress() && progressPercent() < 100}>
-                          <div
-                            class="absolute inset-0 flex items-center justify-center"
-                            style={{
-                              background: `conic-gradient(var(--color-accent-500) ${progressPercent()}%, transparent ${progressPercent()}%)`,
-                              opacity: "0.3",
-                            }}
-                          />
-                        </Show>
                       </div>
 
                       {/* label + song count + progress */}

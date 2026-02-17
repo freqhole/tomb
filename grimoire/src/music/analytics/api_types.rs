@@ -1,5 +1,6 @@
 //! api request types for analytics endpoints
 
+use super::FeedItemType;
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
@@ -77,6 +78,11 @@ pub struct FeedRequest {
     pub limit: Option<i64>,
     /// offset for pagination
     pub offset: Option<i64>,
+    /// optional list of feed types to include (e.g. ["recent_favorite", "listen_session"])
+    /// when empty or None, all types are returned
+    pub feed_types: Option<Vec<FeedItemType>>,
+    /// optional user id to filter by (only show this user's activity)
+    pub user_id: Option<String>,
 }
 
 /// response with feed items and total count

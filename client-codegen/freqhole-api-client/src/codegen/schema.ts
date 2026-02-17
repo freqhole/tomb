@@ -770,7 +770,9 @@ export type FeedItemType = z.infer<typeof FeedItemTypeSchema>;
 
 export const FeedRequestSchema = z.object({
   limit: z.number().nullable(),
-  offset: z.number().nullable()
+  offset: z.number().nullable(),
+  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")])).nullable(),
+  user_id: z.string().nullable()
 });
 export type FeedRequest = z.infer<typeof FeedRequestSchema>;
 

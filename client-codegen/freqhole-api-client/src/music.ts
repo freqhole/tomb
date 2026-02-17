@@ -1185,6 +1185,25 @@ export function createListenSession(
   );
 }
 
+export function deleteListenSession(
+  baseUrl: string,
+  id: string,
+  apiKey?: string,
+) {
+  const path = routes.music.delete_listen_session.path.replace("{id}", id);
+  return call(
+    baseUrl,
+    "music",
+    "delete_listen_session",
+    routes.music.delete_listen_session.resp,
+    routes.music.delete_listen_session.req,
+    routes.music.delete_listen_session.method,
+    path,
+    undefined,
+    apiKey,
+  );
+}
+
 export function getListenSession(
   baseUrl: string,
   id: string,

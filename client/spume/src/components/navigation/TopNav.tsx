@@ -116,8 +116,11 @@ export function TopNav(props: TopNavProps) {
   const [sortLocked, setSortLocked] = createSignal(false);
   const [tagOpen, setTagOpen] = createSignal(false);
   const [tagLocked, setTagLocked] = createSignal(false);
+  const [feedFilterOpen, setFeedFilterOpen] = createSignal(false);
+  const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
+  let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
 
   // derived state from pageInfo store
   const info = () => getPageInfo();
@@ -127,6 +130,8 @@ export function TopNav(props: TopNavProps) {
     return i.sortBy !== i.defaultSortBy || i.sortDirection !== i.defaultSortDirection;
   };
   const hasActiveTags = () => (info().selectedTagFilters?.length || 0) > 0;
+  const hasActiveFeedFilters = () =>
+    (info().selectedFeedTypes?.length || 0) > 0 || info().myItemsOnly;
   const unselectedTags = () => {
     const i = info();
     if (!i.availableTags?.length) return [];
@@ -664,6 +669,96 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
+          {/* feed type filter icon - desktop only, when view has feed types */}
+          <Show when={!isNarrow() && info().feedTypeOptions?.length}>
+            <div
+              class="relative flex-shrink-0"
+              onMouseEnter={() => {
+                clearTimeout(feedFilterCloseTimeout);
+                if (!feedFilterOpen()) setFeedFilterOpen(true);
+              }}
+              onMouseLeave={() => {
+                if (feedFilterLocked()) return;
+                feedFilterCloseTimeout = setTimeout(() => setFeedFilterOpen(false), 150);
+              }}
+            >
+              <button
+                class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer"
+                classList={{
+                  "text-[var(--color-accent-500)]": hasActiveFeedFilters(),
+                  "text-white/60 hover:text-white": !hasActiveFeedFilters(),
+                }}
+                onClick={() => {
+                  if (feedFilterOpen() && feedFilterLocked()) {
+                    setFeedFilterLocked(false);
+                    setFeedFilterOpen(false);
+                  } else {
+                    setFeedFilterOpen(true);
+                    setFeedFilterLocked(true);
+                  }
+                  setSortOpen(false);
+                  setSortLocked(false);
+                  setTagOpen(false);
+                  setTagLocked(false);
+                }}
+                title="feed type filters"
+              >
+                <Icon name="filter" size={16} />
+              </button>
+              <Show when={feedFilterOpen()}>
+                <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
+                  <div class="p-2">
+                    <Show when={hasActiveFeedFilters()}>
+                      <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
+                        <button
+                          onClick={() => info().onClearFeedTypes?.()}
+                          class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
+                        >
+                          show all types
+                        </button>
+                      </div>
+                    </Show>
+                    <For each={info().feedTypeOptions}>
+                      {(option) => {
+                        const isSelected = () =>
+                          (info().selectedFeedTypes || []).some((f) => f.type === option.value);
+                        return (
+                          <button
+                            onClick={() => info().onToggleFeedType?.(option.value)}
+                            class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] rounded transition-colors flex items-center gap-2"
+                            classList={{
+                              "text-[var(--color-accent-500)]": isSelected(),
+                              "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]":
+                                !isSelected(),
+                            }}
+                          >
+                            <span class="w-3 text-center">{isSelected() ? "\u2713" : ""}</span>
+                            <span>{option.label}</span>
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+            </div>
+          </Show>
+
+          {/* my items toggle - desktop only, when view supports it */}
+          <Show when={!isNarrow() && info().onToggleMyItems}>
+            <button
+              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0"
+              classList={{
+                "text-[var(--color-accent-500)]": info().myItemsOnly,
+                "text-white/60 hover:text-white": !info().myItemsOnly,
+              }}
+              onClick={() => info().onToggleMyItems?.()}
+              title={info().myItemsOnly ? "showing my items only" : "showing all items"}
+            >
+              <Icon name="user" size={16} />
+            </button>
+          </Show>
+
           {/* page title - only on narrow views, hidden when search is expanded */}
           <Show when={isNarrow() && props.pageTitle && !searchExpanded()}>
             <div class="flex-shrink-0 text-sm text-white/70 truncate max-w-[120px]">
@@ -720,6 +815,49 @@ export function TopNav(props: TopNavProps) {
                 </button>
               )}
             </For>
+          </div>
+        </Show>
+
+        {/* selected feed type + my items badges - desktop only, below nav bar */}
+        <Show when={!isNarrow() && hasActiveFeedFilters()}>
+          <div class="flex gap-1.5 flex-wrap mt-1.5 px-1">
+            <For each={info().selectedFeedTypes}>
+              {(filter) => {
+                const label = () =>
+                  info().feedTypeOptions?.find((o) => o.value === filter.type)?.label ??
+                  filter.type;
+                return (
+                  <button
+                    onClick={() => info().onToggleFeedTypeMode?.(filter.type)}
+                    title={
+                      filter.mode === "include"
+                        ? `include: ${label()} (click to exclude)`
+                        : `exclude: ${label()} (click to include)`
+                    }
+                    class="cursor-pointer hover:opacity-90 transition-opacity border-none bg-transparent p-0"
+                  >
+                    <Badge
+                      variant={filter.mode === "include" ? "success" : "error"}
+                      size="sm"
+                      removable={true}
+                      onRemove={() => info().onRemoveFeedType?.(filter.type)}
+                    >
+                      {label()}
+                    </Badge>
+                  </button>
+                );
+              }}
+            </For>
+            <Show when={info().myItemsOnly}>
+              <Badge
+                variant="accent"
+                size="sm"
+                removable={true}
+                onRemove={() => info().onToggleMyItems?.()}
+              >
+                my items
+              </Badge>
+            </Show>
           </div>
         </Show>
       </nav>

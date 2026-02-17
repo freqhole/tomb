@@ -285,6 +285,8 @@ export const topAlbumsRequest: s.TopAlbumsRequest = {
 export const feedRequest: s.FeedRequest = {
   limit: 10,
   offset: 0,
+  feed_types: null,
+  user_id: null,
 };
 
 // MusicBrainz

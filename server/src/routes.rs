@@ -1,8 +1,8 @@
 //! route composition
 
 use axum::{
-    extract::DefaultBodyLimit, middleware as axum_middleware, routing::get, routing::head,
-    routing::post, routing::put, Router,
+    extract::DefaultBodyLimit, middleware as axum_middleware, routing::delete, routing::get,
+    routing::head, routing::post, routing::put, Router,
 };
 use grimoire::api_registry;
 
@@ -240,6 +240,10 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["update_listen_session_status"].path,
             put(music::analytics::update_listen_session_status_handler),
+        )
+        .route(
+            routes["music"]["delete_listen_session"].path,
+            delete(music::analytics::delete_listen_session_handler),
         )
         // tags routes
         .route(
