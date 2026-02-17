@@ -1,13 +1,19 @@
 //! analytics handlers
 
-use axum::{extract::Extension, Json};
+use axum::{
+    extract::{Extension, Path},
+    Json,
+};
 use grimoire::api_registry::{Domain, Method, RouteInfo};
 use grimoire::music::analytics::{
-    create_play_event, get_combined_feed, get_song_play_analytics, get_top_albums, get_top_artists,
-    get_top_songs, get_user_listening_history, record_play_event, FeedRequest, FeedResponse,
-    ListeningHistoryRequest, ListeningHistoryResponse, PlayAnalytics, RecordPlayRequest,
-    SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
-    TopSongsRequest,
+    create_listen_session, create_play_event, get_combined_feed, get_listen_session,
+    get_song_play_analytics, get_top_albums, get_top_artists, get_top_songs,
+    get_user_listening_history, list_listen_sessions, record_play_event,
+    update_listen_session_progress, update_listen_session_status, CreateListenSessionRequest,
+    FeedRequest, FeedResponse, ListListenSessionsRequest, ListListenSessionsResponse,
+    ListenSession, ListeningHistoryRequest, ListeningHistoryResponse, PlayAnalytics,
+    RecordPlayRequest, SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist,
+    TopArtistsRequest, TopSong, TopSongsRequest, UpdateListenSessionProgressRequest,
 };
 use grimoire::EmptyResponse;
 
@@ -204,5 +210,139 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "FeedRequest",
         response_type: "FeedResponse",
+    }
+}
+
+/// create a new listen session
+pub async fn create_listen_session_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<CreateListenSessionRequest>,
+) -> Result<Json<ListenSession>, ApiError> {
+    let response = create_listen_session(&user.user_id, &req).await;
+
+    response
+        .data
+        .ok_or_else(|| ApiError::Internal(response.message))
+        .map(Json)
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "create_listen_session",
+        path: "/api/analytics/sessions",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "CreateListenSessionRequest",
+        response_type: "ListenSession",
+    }
+}
+
+/// list listen sessions
+pub async fn list_listen_sessions_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<ListListenSessionsRequest>,
+) -> Result<Json<ListListenSessionsResponse>, ApiError> {
+    // always scope to the authenticated user's sessions
+    let mut req = req;
+    req.user_id = Some(user.user_id.clone());
+
+    let response = list_listen_sessions(&req).await;
+
+    response
+        .data
+        .map(|(items, total)| Json(ListListenSessionsResponse { items, total }))
+        .ok_or_else(|| ApiError::Internal(response.message))
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "list_listen_sessions",
+        path: "/api/analytics/sessions/list",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListListenSessionsRequest",
+        response_type: "ListListenSessionsResponse",
+    }
+}
+
+/// get a single listen session (readable by any authenticated user)
+pub async fn get_listen_session_handler(
+    Extension(_user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+) -> Result<Json<ListenSession>, ApiError> {
+    let response = get_listen_session(&id).await;
+
+    response.data.ok_or_else(|| ApiError::NotFound).map(Json)
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "get_listen_session",
+        path: "/api/analytics/sessions/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "ListenSession",
+    }
+}
+
+/// update listen session progress
+pub async fn update_listen_session_progress_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateListenSessionProgressRequest>,
+) -> Result<Json<EmptyResponse>, ApiError> {
+    let response = update_listen_session_progress(&id, &user.user_id, &req).await;
+
+    if response.success {
+        Ok(Json(EmptyResponse::ok()))
+    } else {
+        Err(ApiError::Internal(response.message))
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "update_listen_session_progress",
+        path: "/api/analytics/sessions/{id}/progress",
+        method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "UpdateListenSessionProgressRequest",
+        response_type: "EmptyResponse",
+    }
+}
+
+/// update listen session status (complete, abandon, pause)
+pub async fn update_listen_session_status_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Path((id, status)): Path<(String, String)>,
+) -> Result<Json<EmptyResponse>, ApiError> {
+    // validate status
+    let valid_statuses = ["active", "paused", "completed", "abandoned"];
+    if !valid_statuses.contains(&status.as_str()) {
+        return Err(ApiError::BadRequest(format!(
+            "invalid status: {}. must be one of: {}",
+            status,
+            valid_statuses.join(", ")
+        )));
+    }
+
+    let response = update_listen_session_status(&id, &user.user_id, &status).await;
+
+    if response.success {
+        Ok(Json(EmptyResponse::ok()))
+    } else {
+        Err(ApiError::Internal(response.message))
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "update_listen_session_status",
+        path: "/api/analytics/sessions/{id}/status/{status}",
+        method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "EmptyResponse",
     }
 }

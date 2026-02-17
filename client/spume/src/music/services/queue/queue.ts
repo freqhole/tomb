@@ -13,6 +13,7 @@ import { playSong, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry } from "./queueHistory";
 import { startTracking, stopTracking } from "./listenProgress";
+import { createServerSession, stopServerSession } from "./serverSession";
 import type { Song } from "../storage/types";
 
 // re-export queue state so consumers can import everything from queue.ts
@@ -31,7 +32,7 @@ export {
 // plays songs[startIndex] (default 0) after setting the queue
 export async function playQueue(
   songs: Song[],
-  options?: { startIndex?: number; source?: QueueSourceContext },
+  options?: { startIndex?: number; source?: QueueSourceContext; skipServerSession?: boolean },
 ): Promise<void> {
   if (songs.length === 0) return;
 
@@ -44,6 +45,11 @@ export async function playQueue(
     const entryId = await addHistoryEntry(songs, options.source);
     if (entryId) {
       startTracking(entryId);
+    }
+    // create server-side listen session (fire and forget)
+    // skip when caller will handle session tracking (e.g. resuming an existing session)
+    if (!options?.skipServerSession) {
+      void createServerSession(songs, options.source);
     }
   }
 }
@@ -102,6 +108,8 @@ export async function addToQueue(
     if (entryId) {
       startTracking(entryId);
     }
+    // create server-side listen session (fire and forget)
+    void createServerSession(songs, options.source);
   }
 }
 
@@ -152,6 +160,7 @@ export async function clearQueue(): Promise<void> {
 
   stop();
   stopTracking();
+  void stopServerSession("abandoned");
   await setCurrentSong(null);
 
   // evict cached audio for all remote songs in the queue

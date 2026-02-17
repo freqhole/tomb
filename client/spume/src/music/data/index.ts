@@ -25,6 +25,14 @@ const [currentRemote, setCurrentRemote] = createSignal<{
   base_url: string;
 } | null>(null);
 
+// current authenticated user id (per remote)
+const [currentUserId, setCurrentUserId] = createSignal<string | null>(null);
+
+// get the current authenticated user id
+export function getCurrentUserId() {
+  return currentUserId();
+}
+
 // get the currently active data source
 export function getDataSource(): MusicDataSource {
   return activeSource();
@@ -40,6 +48,7 @@ export async function useLocalSource(): Promise<void> {
   debug("switching to local data source");
   setActiveSource(localDataSource);
   setCurrentRemote(null);
+  setCurrentUserId(null);
 
   // persist to app state and deactivate all remotes
   await setActiveRemoteId(null);
@@ -56,6 +65,19 @@ export async function useRemoteSource(
   const remoteSource = new RemoteMusicDataSource(baseUrl, remoteId);
   setActiveSource(remoteSource);
   setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
+
+  // fetch current user id from whoami
+  try {
+    const whoamiResult = await apiClient.auth.whoami(baseUrl);
+    if (whoamiResult.success && whoamiResult.data) {
+      setCurrentUserId(whoamiResult.data.user_id);
+      debug(`authenticated as user: ${whoamiResult.data.username} (${whoamiResult.data.user_id})`);
+    } else {
+      setCurrentUserId(null);
+    }
+  } catch {
+    setCurrentUserId(null);
+  }
 
   // persist to app state and mark remote as active
   await setActiveRemoteId(remoteId);

@@ -5,6 +5,7 @@ import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
 import MediaImage from "../media/MediaImage";
 import { formatDuration } from "../../utils/formatDuration";
+import { getSongDisplayImages } from "../../utils/images";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlayerBarSong {
@@ -146,7 +147,7 @@ export function PlayerBar(props: PlayerBarProps) {
             onClick={() => props.onImageClick?.()}
           >
             <MediaImage
-              images={props.song?.images}
+              images={props.song ? getSongDisplayImages(props.song) : undefined}
               blobId={props.song?.thumbnailBlobId}
               imageUrl={props.song?.thumbnailUrl}
               alt={props.song?.title || "song artwork"}
@@ -289,7 +290,7 @@ export function PlayerBar(props: PlayerBarProps) {
             onClick={() => props.onImageClick?.()}
           >
             <MediaImage
-              images={props.song?.images}
+              images={props.song ? getSongDisplayImages(props.song) : undefined}
               blobId={props.song?.thumbnailBlobId}
               imageUrl={props.song?.thumbnailUrl}
               alt={props.song?.title || "song artwork"}

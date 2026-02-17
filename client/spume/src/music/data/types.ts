@@ -417,3 +417,53 @@ export interface MusicDataSource {
     song_count: number;
   }>;
 }
+
+// feed item types — matches server's snake_case enum
+export type FeedItemType =
+  | "recent_listen"
+  | "recent_favorite"
+  | "recent_album"
+  | "recent_rating"
+  | "recent_playlist"
+  | "listen_session"
+  | "new_image";
+
+// a single feed event in the activity stream
+export interface FeedItem {
+  id: string;
+  feed_type: FeedItemType;
+  song_id: string | null;
+  album_id: string | null;
+  artist_id: string | null;
+  playlist_id: string | null;
+  title: string;
+  subtitle: string | null;
+  images: ImageMetadata[] | null;
+  created_at: number;
+  user_id: string | null;
+  username: string | null;
+  play_count: number | null;
+  rating: number | null;
+  target_type: string | null;
+  session_id: string | null;
+  session_type: string | null;
+  session_status: string | null;
+  progress_percent: number | null;
+  songs_completed: number | null;
+  total_songs: number | null;
+  // enrichment fields
+  artist_name: string | null;
+  album_title: string | null;
+  genre: string | null;
+  year: number | null;
+  song_count: number | null;
+  total_duration_ms: number | null;
+  description: string | null;
+  tags: string[] | null;
+}
+
+// paginated feed response
+export interface FeedResponse {
+  items: FeedItem[];
+  total: number;
+}

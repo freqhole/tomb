@@ -20,15 +20,18 @@ function pickBestImage(images?: ImageData[]): ImageData | null {
 
   const getType = (img: ImageData) => img.blob_type || img.type;
 
-  // priority: primary thumbnail → any thumbnail → first available
+  // priority: primary thumbnail → any thumbnail → any primary → first non-waveform → waveform (last resort)
   const primaryThumb = arr.find((img) => img.is_primary && getType(img) === "thumbnail");
   if (primaryThumb) return primaryThumb;
 
   const anyThumb = arr.find((img) => getType(img) === "thumbnail");
   if (anyThumb) return anyThumb;
 
-  const primary = arr.find((img) => img.is_primary);
+  const primary = arr.find((img) => img.is_primary && getType(img) !== "waveform");
   if (primary) return primary;
+
+  const nonWaveform = arr.find((img) => getType(img) !== "waveform");
+  if (nonWaveform) return nonWaveform;
 
   return arr[0] || null;
 }
@@ -100,7 +103,8 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
     });
   });
 
-  const size = () => props.size ?? 48;
+  const size = () => props.size ?? null;
+  const hasDimensions = () => size() != null;
   const showPlayIcon = () => props.showPlayIcon !== false;
   const displayText = () => {
     if (props.indexText !== undefined) {
@@ -115,7 +119,7 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   return (
     <div
       class={`group/thumbnail flex-shrink-0 relative ${props.enablePlayClick !== false ? "cursor-pointer" : ""} ${props.class || ""}`}
-      style={{ width: `${size()}px`, height: `${size()}px` }}
+      style={hasDimensions() ? { width: `${size()}px`, height: `${size()}px` } : undefined}
       draggable={false}
       data-thumbnail="true"
       onClick={(e) => {
@@ -141,7 +145,11 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
         <Show
           when={imageUrl()}
           fallback={
-            <Icon name="music" size={size() > 40 ? 32 : 24} color="var(--color-text-disabled)" />
+            <Icon
+              name="music"
+              size={(size() ?? 48) > 40 ? 32 : 24}
+              color="var(--color-text-disabled)"
+            />
           }
         >
           <img src={imageUrl()!} alt="" class="w-full h-full object-cover" decoding="async" />

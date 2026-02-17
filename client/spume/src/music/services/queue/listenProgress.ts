@@ -4,6 +4,7 @@
 
 import { createSignal } from "solid-js";
 import { updateHistoryProgress } from "./queueHistory";
+import { recordServerProgress, markServerSongCompleted } from "./serverSession";
 
 // the currently active history entry id being tracked
 const [activeHistoryEntryId, setActiveHistoryEntryId] = createSignal<string | null>(null);
@@ -97,12 +98,16 @@ export function recordTimeProgress(delta: number, songIndex: number, songPositio
   accumulatedSeconds += delta;
   currentSongIndex = songIndex;
   currentSongPosition = songPosition;
+
+  // also update server session progress (converts seconds to ms)
+  recordServerProgress(delta * 1000, songIndex, songPosition * 1000);
 }
 
 // mark a song as completed (>90% listened)
 export function markSongCompleted(songIndex: number): void {
   if (!activeHistoryEntryId()) return;
   completedSongs.add(songIndex);
+  markServerSongCompleted(songIndex);
 }
 
 // get current accumulated progress (for UI without waiting for flush)

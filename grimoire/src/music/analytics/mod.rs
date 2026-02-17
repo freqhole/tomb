@@ -38,6 +38,7 @@ pub mod events;
 pub mod feed;
 pub mod models;
 pub mod queries;
+pub mod sessions;
 
 // Re-export core types
 pub use models::{
@@ -55,8 +56,8 @@ pub use queries::{
 
 // Re-export feed types and functions
 pub use feed::{
-    get_combined_feed, get_recent_albums, get_recent_favorites, get_recent_listens, FeedItem,
-    FeedItemType,
+    get_combined_feed, get_recent_albums, get_recent_favorites, get_recent_listens,
+    get_recent_playlists, get_recent_ratings, get_recent_sessions, FeedItem, FeedItemType,
 };
 
 // Re-export admin types and functions
@@ -69,4 +70,12 @@ pub use admin::{
 pub use api_types::{
     FeedRequest, FeedResponse, ListeningHistoryRequest, ListeningHistoryResponse,
     RecordPlayRequest, SongAnalyticsRequest, TopAlbumsRequest, TopArtistsRequest, TopSongsRequest,
+};
+
+// Re-export session types and functions
+pub use sessions::{
+    create_listen_session, get_listen_session, list_listen_sessions,
+    update_listen_session_progress, update_listen_session_status, CreateListenSessionRequest,
+    ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
+    ListenSessionType, UpdateListenSessionProgressRequest,
 };

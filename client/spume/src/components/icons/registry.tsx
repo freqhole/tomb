@@ -46,9 +46,7 @@ import {
 import type { IconProps } from "./types";
 
 // Base icon wrapper for consistent behavior
-const BaseIcon = (
-  props: IconProps & { children: any; defaultSize?: number },
-) => {
+const BaseIcon = (props: IconProps & { children: any; defaultSize?: number }) => {
   const size = () => props.size ?? props.defaultSize ?? 16;
   const color = () => props.color ?? "currentColor";
 
@@ -79,51 +77,31 @@ export const CloseIcon = (props: IconProps) => (
 );
 
 export const AddIcon = (props: IconProps) => (
-  <BaseIcon
-    {...props}
-    defaultSize={14}
-    aria-label={props["aria-label"] ?? "Add"}
-  >
+  <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "Add"}>
     <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
   </BaseIcon>
 );
 
 export const EditIcon = (props: IconProps) => (
-  <BaseIcon
-    {...props}
-    defaultSize={14}
-    aria-label={props["aria-label"] ?? "Edit"}
-  >
+  <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "Edit"}>
     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
   </BaseIcon>
 );
 
 export const DeleteIcon = (props: IconProps) => (
-  <BaseIcon
-    {...props}
-    defaultSize={14}
-    aria-label={props["aria-label"] ?? "Delete"}
-  >
+  <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "Delete"}>
     <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
   </BaseIcon>
 );
 
 export const DragIcon = (props: IconProps) => (
-  <BaseIcon
-    {...props}
-    defaultSize={14}
-    aria-label={props["aria-label"] ?? "Drag to reorder"}
-  >
+  <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "Drag to reorder"}>
     <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
   </BaseIcon>
 );
 
 export const MoreIcon = (props: IconProps) => (
-  <BaseIcon
-    {...props}
-    defaultSize={14}
-    aria-label={props["aria-label"] ?? "More options"}
-  >
+  <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "More options"}>
     <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
   </BaseIcon>
 );
@@ -209,6 +187,12 @@ export const UploadIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const ImageIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Image"}>
+    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+  </BaseIcon>
+);
+
 export const CheckIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Check"}>
     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
@@ -236,6 +220,12 @@ export const LoaderIcon = (props: IconProps) => (
 export const DatabaseIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Storage"}>
     <path d="M12,3C7.58,3 4,4.79 4,7C4,9.21 7.58,11 12,11C16.42,11 20,9.21 20,7C20,4.79 16.42,3 12,3M4,9V12C4,14.21 7.58,16 12,16C16.42,16 20,14.21 20,12V9C20,11.21 16.42,13 12,13C7.58,13 4,11.21 4,9M4,14V17C4,19.21 7.58,21 12,21C16.42,21 20,19.21 20,17V14C20,16.21 16.42,18 12,18C7.58,18 4,16.21 4,14Z" />
+  </BaseIcon>
+);
+
+export const HeadphonesIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Headphones"}>
+    <path d="M12 3C7.03 3 3 7.03 3 12v7c0 1.1.9 2 2 2h2v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-2v8h2c1.1 0 2-.9 2-2v-7c0-4.97-4.03-9-9-9z" />
   </BaseIcon>
 );
 
@@ -333,11 +323,13 @@ export const IconRegistry = {
   settings: SettingsIcon,
   info: InfoIcon,
   upload: UploadIcon,
+  image: ImageIcon,
   check: CheckIcon,
   x: XIcon,
   alertTriangle: AlertTriangleIcon,
   loader: LoaderIcon,
   database: DatabaseIcon,
+  headphones: HeadphonesIcon,
 
   // Brand
   freqhole: FreqholeIcon,
@@ -417,11 +409,13 @@ export const IconNames = {
   settings: "settings",
   info: "info",
   upload: "upload",
+  image: "image",
   check: "check",
   x: "x",
   alertTriangle: "alertTriangle",
   loader: "loader",
   database: "database",
+  headphones: "headphones",
 
   // Brand
   freqhole: "freqhole",
@@ -462,7 +456,7 @@ export const IconButton = (
     onClick?: () => void;
     disabled?: boolean;
     variant?: "default" | "ghost" | "outline";
-  },
+  }
 ) => {
   const baseClasses =
     "inline-flex items-center justify-center rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2";

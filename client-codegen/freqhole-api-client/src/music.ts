@@ -1165,6 +1165,107 @@ export function uploadMusic(
   );
 }
 
+// --- listen session wrappers ---
+
+export function createListenSession(
+  baseUrl: string,
+  params: s.CreateListenSessionRequest,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "create_listen_session",
+    routes.music.create_listen_session.resp,
+    routes.music.create_listen_session.req,
+    routes.music.create_listen_session.method,
+    routes.music.create_listen_session.path,
+    params,
+    apiKey,
+  );
+}
+
+export function getListenSession(
+  baseUrl: string,
+  id: string,
+  apiKey?: string,
+) {
+  const path = routes.music.get_listen_session.path.replace("{id}", id);
+  return call(
+    baseUrl,
+    "music",
+    "get_listen_session",
+    routes.music.get_listen_session.resp,
+    routes.music.get_listen_session.req,
+    routes.music.get_listen_session.method,
+    path,
+    undefined,
+    apiKey,
+  );
+}
+
+export function updateListenSessionProgress(
+  baseUrl: string,
+  id: string,
+  params: s.UpdateListenSessionProgressRequest,
+  apiKey?: string,
+) {
+  // path interpolation happens before body validation strips unknown keys,
+  // so we need to interpolate {id} manually in the path
+  const path = routes.music.update_listen_session_progress.path.replace("{id}", id);
+  return call(
+    baseUrl,
+    "music",
+    "update_listen_session_progress",
+    routes.music.update_listen_session_progress.resp,
+    routes.music.update_listen_session_progress.req,
+    routes.music.update_listen_session_progress.method,
+    path,
+    params,
+    apiKey,
+  );
+}
+
+export function updateListenSessionStatus(
+  baseUrl: string,
+  id: string,
+  status: string,
+  apiKey?: string,
+) {
+  const path = routes.music.update_listen_session_status.path
+    .replace("{id}", id)
+    .replace("{status}", status);
+  return call(
+    baseUrl,
+    "music",
+    "update_listen_session_status",
+    routes.music.update_listen_session_status.resp,
+    routes.music.update_listen_session_status.req,
+    routes.music.update_listen_session_status.method,
+    path,
+    undefined,
+    apiKey,
+  );
+}
+
+export function listListenSessions(
+  baseUrl: string,
+  params: s.ListListenSessionsRequest,
+  apiKey?: string,
+) {
+  return call(
+    baseUrl,
+    "music",
+    "list_listen_sessions",
+    routes.music.list_listen_sessions.resp,
+    routes.music.list_listen_sessions.req,
+    routes.music.list_listen_sessions.method,
+    routes.music.list_listen_sessions.path,
+    params,
+    apiKey,
+  );
+}
+
 // note: for blobs and uploads, see utils module for additional helpers
 // - utils.getBlobUrl(baseUrl, blobId) - get streaming url for <audio src={...}>
 // - utils.getBlobMetadataUrl(baseUrl, blobId) - get metadata endpoint url

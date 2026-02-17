@@ -4,6 +4,7 @@ import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
+import { getSongDisplayImages } from "../../utils/images";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -341,7 +342,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     >
                       {/* thumbnail with index overlay */}
                       <MediaThumbnail
-                        images={song()?.images}
+                        images={song() ? getSongDisplayImages(song()!) : undefined}
                         index={itemIndex}
                         hideIndex={isRowHovered()}
                         onPlayClick={() => handleSongDoubleClick(itemIndex)}

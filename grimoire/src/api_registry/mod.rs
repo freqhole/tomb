@@ -141,10 +141,12 @@ pub mod type_registry {
 
     // analytics types
     use crate::music::analytics::{
-        FeedItem, FeedItemType, FeedRequest, FeedResponse, ListeningHistoryItem,
-        ListeningHistoryRequest, ListeningHistoryResponse, OverviewStats, PlayAnalytics,
-        RecordPlayRequest, SessionSong, SessionSummary, SongAnalyticsRequest, TopAlbum,
-        TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong, TopSongsRequest, UserStats,
+        CreateListenSessionRequest, FeedItem, FeedItemType, FeedRequest, FeedResponse,
+        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
+        ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
+        OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
+        SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
+        TopSongsRequest, UpdateListenSessionProgressRequest, UserStats,
     };
 
     // musicbrainz types
@@ -329,6 +331,28 @@ pub mod type_registry {
 
         gen.add_schema::<UserStats>("UserStats");
         registered.insert("UserStats".to_string());
+
+        // listen session types
+        gen.add_schema::<ListenSession>("ListenSession");
+        registered.insert("ListenSession".to_string());
+
+        gen.add_schema::<ListenSessionType>("ListenSessionType");
+        registered.insert("ListenSessionType".to_string());
+
+        gen.add_schema::<ListenSessionStatus>("ListenSessionStatus");
+        registered.insert("ListenSessionStatus".to_string());
+
+        gen.add_schema::<CreateListenSessionRequest>("CreateListenSessionRequest");
+        registered.insert("CreateListenSessionRequest".to_string());
+
+        gen.add_schema::<UpdateListenSessionProgressRequest>("UpdateListenSessionProgressRequest");
+        registered.insert("UpdateListenSessionProgressRequest".to_string());
+
+        gen.add_schema::<ListListenSessionsRequest>("ListListenSessionsRequest");
+        registered.insert("ListListenSessionsRequest".to_string());
+
+        gen.add_schema::<ListListenSessionsResponse>("ListListenSessionsResponse");
+        registered.insert("ListListenSessionsResponse".to_string());
 
         // musicbrainz types
         gen.add_schema::<SearchReleasesRequest>("SearchReleasesRequest");

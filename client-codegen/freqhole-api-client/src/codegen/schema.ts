@@ -372,6 +372,16 @@ export const CreateJobRequestSchema = z.object({
 });
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
 
+export const CreateListenSessionRequestSchema = z.object({
+  session_type: z.string(),
+  entity_id: z.string().nullable(),
+  label: z.string(),
+  song_ids: z.array(z.string()),
+  total_songs: z.number(),
+  total_duration_ms: z.number()
+});
+export type CreateListenSessionRequest = z.infer<typeof CreateListenSessionRequestSchema>;
+
 export const CreatePlaylistRequestSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
@@ -720,10 +730,11 @@ export type FavoriteSongResult = z.infer<typeof FavoriteSongResultSchema>;
 
 export const FeedItemSchema = z.object({
   id: z.string(),
-  feed_type: z.union([z.literal('RecentListen'), z.literal('RecentFavorite'), z.literal('RecentAlbum')]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
   song_id: z.string().nullable(),
   album_id: z.string().nullable(),
   artist_id: z.string().nullable(),
+  playlist_id: z.string().nullable(),
   title: z.string(),
   subtitle: z.string().nullable(),
   images: z.array(z.object({
@@ -734,11 +745,27 @@ export const FeedItemSchema = z.object({
   created_at: z.number(),
   user_id: z.string().nullable(),
   username: z.string().nullable(),
-  play_count: z.number().nullable()
+  play_count: z.number().nullable(),
+  rating: z.number().nullable(),
+  target_type: z.string().nullable(),
+  session_id: z.string().nullable(),
+  session_type: z.string().nullable(),
+  session_status: z.string().nullable(),
+  progress_percent: z.number().nullable(),
+  songs_completed: z.number().nullable(),
+  total_songs: z.number().nullable(),
+  artist_name: z.string().nullable(),
+  album_title: z.string().nullable(),
+  genre: z.string().nullable(),
+  year: z.number().nullable(),
+  song_count: z.number().nullable(),
+  total_duration_ms: z.number().nullable(),
+  description: z.string().nullable(),
+  tags: z.array(z.string()).nullable()
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
-export const FeedItemTypeSchema = z.union([z.literal('RecentListen'), z.literal('RecentFavorite'), z.literal('RecentAlbum')]);
+export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]);
 export type FeedItemType = z.infer<typeof FeedItemTypeSchema>;
 
 export const FeedRequestSchema = z.object({
@@ -750,10 +777,11 @@ export type FeedRequest = z.infer<typeof FeedRequestSchema>;
 export const FeedResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
-  feed_type: z.union([z.literal('RecentListen'), z.literal('RecentFavorite'), z.literal('RecentAlbum')]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
   song_id: z.string().nullable(),
   album_id: z.string().nullable(),
   artist_id: z.string().nullable(),
+  playlist_id: z.string().nullable(),
   title: z.string(),
   subtitle: z.string().nullable(),
   images: z.array(z.object({
@@ -764,7 +792,23 @@ export const FeedResponseSchema = z.object({
   created_at: z.number(),
   user_id: z.string().nullable(),
   username: z.string().nullable(),
-  play_count: z.number().nullable()
+  play_count: z.number().nullable(),
+  rating: z.number().nullable(),
+  target_type: z.string().nullable(),
+  session_id: z.string().nullable(),
+  session_type: z.string().nullable(),
+  session_status: z.string().nullable(),
+  progress_percent: z.number().nullable(),
+  songs_completed: z.number().nullable(),
+  total_songs: z.number().nullable(),
+  artist_name: z.string().nullable(),
+  album_title: z.string().nullable(),
+  genre: z.string().nullable(),
+  year: z.number().nullable(),
+  song_count: z.number().nullable(),
+  total_duration_ms: z.number().nullable(),
+  description: z.string().nullable(),
+  tags: z.array(z.string()).nullable()
 })),
   total: z.number()
 });
@@ -968,6 +1012,65 @@ export const ListJobsRequestSchema = z.object({
   offset: z.number().nullable()
 });
 export type ListJobsRequest = z.infer<typeof ListJobsRequestSchema>;
+
+export const ListListenSessionsRequestSchema = z.object({
+  user_id: z.string().nullable(),
+  status: z.string().nullable(),
+  limit: z.number().nullable(),
+  offset: z.number().nullable()
+});
+export type ListListenSessionsRequest = z.infer<typeof ListListenSessionsRequestSchema>;
+
+export const ListListenSessionsResponseSchema = z.object({
+  items: z.array(z.object({
+  id: z.string(),
+  user_id: z.string(),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")]),
+  entity_id: z.string().nullable(),
+  label: z.string(),
+  song_ids: z.array(z.string()),
+  total_songs: z.number(),
+  songs_completed: z.number(),
+  total_duration_ms: z.number(),
+  listened_duration_ms: z.number(),
+  current_song_index: z.number(),
+  current_song_position_ms: z.number(),
+  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
+  created_at: z.number(),
+  updated_at: z.number(),
+  username: z.string().nullable(),
+  progress_percent: z.number().nullable()
+})),
+  total: z.number()
+});
+export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
+
+export const ListenSessionSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")]),
+  entity_id: z.string().nullable(),
+  label: z.string(),
+  song_ids: z.array(z.string()),
+  total_songs: z.number(),
+  songs_completed: z.number(),
+  total_duration_ms: z.number(),
+  listened_duration_ms: z.number(),
+  current_song_index: z.number(),
+  current_song_position_ms: z.number(),
+  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
+  created_at: z.number(),
+  updated_at: z.number(),
+  username: z.string().nullable(),
+  progress_percent: z.number().nullable()
+});
+export type ListenSession = z.infer<typeof ListenSessionSchema>;
+
+export const ListenSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
+export type ListenSessionStatus = z.infer<typeof ListenSessionStatusSchema>;
+
+export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")]);
+export type ListenSessionType = z.infer<typeof ListenSessionTypeSchema>;
 
 export const ListeningHistoryItemSchema = z.object({
   id: z.string(),
@@ -2380,6 +2483,14 @@ export const UpdateArtistRequestSchema = z.object({
   updated_by: z.string().nullable()
 });
 export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
+
+export const UpdateListenSessionProgressRequestSchema = z.object({
+  songs_completed: z.number(),
+  listened_duration_ms: z.number(),
+  current_song_index: z.number(),
+  current_song_position_ms: z.number()
+});
+export type UpdateListenSessionProgressRequest = z.infer<typeof UpdateListenSessionProgressRequestSchema>;
 
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),

@@ -1,14 +1,67 @@
 // query hooks for analytics and feed data
-import { createQuery } from "@tanstack/solid-query";
+import { createQuery, createInfiniteQuery } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
 import { getCurrentRemote } from "../data";
+import type { FeedItem, FeedResponse, ImageMetadata } from "../data/types";
 import { queryKeys } from "./queryKeys";
 
-// activity feed query
+// adapt raw API images to app-level ImageMetadata
+function adaptFeedImages(
+  images: Array<{ blob_id: string; is_primary: number; blob_type: string }> | null | undefined,
+  baseUrl: string,
+): ImageMetadata[] | null {
+  if (!images || images.length === 0) return null;
+  return images.map((img) => ({
+    remote_blob_id: img.blob_id,
+    remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
+    is_primary: img.is_primary === 1,
+    blob_type: (img.blob_type as ImageMetadata["blob_type"]) ?? "thumbnail",
+  }));
+}
+
+// adapt a raw API feed response to app-level types
+function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
+  return {
+    items: (data.items ?? []).map((item: any): FeedItem => ({
+      id: item.id,
+      feed_type: item.feed_type,
+      song_id: item.song_id ?? null,
+      album_id: item.album_id ?? null,
+      artist_id: item.artist_id ?? null,
+      playlist_id: item.playlist_id ?? null,
+      title: item.title,
+      subtitle: item.subtitle ?? null,
+      images: adaptFeedImages(item.images, baseUrl),
+      created_at: item.created_at,
+      user_id: item.user_id ?? null,
+      username: item.username ?? null,
+      play_count: item.play_count ?? null,
+      rating: item.rating ?? null,
+      target_type: item.target_type ?? null,
+      session_id: item.session_id ?? null,
+      session_type: item.session_type ?? null,
+      session_status: item.session_status ?? null,
+      progress_percent: item.progress_percent ?? null,
+      songs_completed: item.songs_completed ?? null,
+      total_songs: item.total_songs ?? null,
+      artist_name: item.artist_name ?? null,
+      album_title: item.album_title ?? null,
+      genre: item.genre ?? null,
+      year: item.year ?? null,
+      song_count: item.song_count ?? null,
+      total_duration_ms: item.total_duration_ms ?? null,
+      description: item.description ?? null,
+      tags: item.tags ?? null,
+    })),
+    total: data.total ?? 0,
+  };
+}
+
+// activity feed query (non-paginated, legacy)
 export function useActivityFeedQuery(limit: number = 50) {
   return createQuery(() => ({
     queryKey: queryKeys.analytics.feed(limit),
-    queryFn: async () => {
+    queryFn: async (): Promise<FeedResponse> => {
       const remote = getCurrentRemote();
       if (!remote) return { items: [], total: 0 };
 
@@ -21,12 +74,43 @@ export function useActivityFeedQuery(limit: number = 50) {
         throw new Error("failed to fetch activity feed");
       }
 
-      return result.data;
+      return adaptFeedResponse(result.data, remote.base_url);
     },
     enabled: !!getCurrentRemote(),
-    staleTime: 30_000, // 30 seconds
-    gcTime: 5 * 60_000, // 5 minutes
-    refetchInterval: 60_000, // auto-refresh every 60 seconds
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: 60_000,
+  }));
+}
+
+// infinite scrolling activity feed query
+export function useActivityFeedInfiniteQuery(pageSize: number = 50) {
+  return createInfiniteQuery(() => ({
+    queryKey: queryKeys.analytics.feedInfinite(),
+    queryFn: async ({ pageParam }: { pageParam: number }): Promise<FeedResponse> => {
+      const remote = getCurrentRemote();
+      if (!remote) return { items: [], total: 0 };
+
+      const result = await apiClient.music.activityFeed(remote.base_url, {
+        limit: pageSize,
+        offset: pageParam,
+      });
+
+      if (!result.success) {
+        throw new Error("failed to fetch activity feed");
+      }
+
+      return adaptFeedResponse(result.data, remote.base_url);
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      const totalFetched = allPages.reduce((sum, page) => sum + page.items.length, 0);
+      if (totalFetched >= lastPage.total) return undefined;
+      return totalFetched;
+    },
+    initialPageParam: 0,
+    enabled: !!getCurrentRemote(),
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
   }));
 }
 

@@ -2,7 +2,7 @@
 
 use axum::{
     extract::DefaultBodyLimit, middleware as axum_middleware, routing::get, routing::head,
-    routing::post, Router,
+    routing::post, routing::put, Router,
 };
 use grimoire::api_registry;
 
@@ -219,6 +219,27 @@ pub fn build_router() -> Router<AppState> {
         .route(
             routes["music"]["activity_feed"].path,
             post(music::analytics::feed_handler),
+        )
+        // listen session routes
+        .route(
+            routes["music"]["create_listen_session"].path,
+            post(music::analytics::create_listen_session_handler),
+        )
+        .route(
+            routes["music"]["list_listen_sessions"].path,
+            post(music::analytics::list_listen_sessions_handler),
+        )
+        .route(
+            routes["music"]["get_listen_session"].path,
+            get(music::analytics::get_listen_session_handler),
+        )
+        .route(
+            routes["music"]["update_listen_session_progress"].path,
+            put(music::analytics::update_listen_session_progress_handler),
+        )
+        .route(
+            routes["music"]["update_listen_session_status"].path,
+            put(music::analytics::update_listen_session_status_handler),
         )
         // tags routes
         .route(

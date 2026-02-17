@@ -111,6 +111,7 @@ export const queryKeys = {
   analytics: {
     all: () => ["analytics", getDataSourceKey()] as const,
     feed: (limit?: number) => [...queryKeys.analytics.all(), "feed", limit] as const,
+    feedInfinite: () => [...queryKeys.analytics.all(), "feedInfinite"] as const,
     topSongs: (limit?: number, period?: string) =>
       [...queryKeys.analytics.all(), "topSongs", limit, period] as const,
     topAlbums: (limit?: number, period?: string) =>
