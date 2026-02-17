@@ -5,6 +5,7 @@
 import { createSignal } from "solid-js";
 import { updateHistoryProgress } from "./queueHistory";
 import { recordServerProgress, markServerSongCompleted } from "./serverSession";
+import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked
 const [activeHistoryEntryId, setActiveHistoryEntryId] = createSignal<string | null>(null);
@@ -18,7 +19,7 @@ let currentSongPosition = 0;
 let completedSongs = new Set<number>(); // track completed song indices
 let flushIntervalId: ReturnType<typeof setInterval> | null = null;
 
-const FLUSH_INTERVAL_MS = 5000; // flush to IDB every 5 seconds
+const FLUSH_INTERVAL_MS = 30_000; // flush to IDB every 30 seconds
 
 // start tracking a history entry (called when playQueue/addToQueue sets songs)
 export function startTracking(historyEntryId: string): void {
@@ -92,7 +93,12 @@ export function stopTracking(): void {
 
 // called on every timeupdate from the player (~250ms intervals)
 // delta is the time elapsed since last update
-export function recordTimeProgress(delta: number, songIndex: number, songPosition: number): void {
+export function recordTimeProgress(
+  delta: number,
+  songIndex: number,
+  songPosition: number,
+  currentSong: Song | null,
+): void {
   if (!activeHistoryEntryId()) return;
 
   accumulatedSeconds += delta;
@@ -100,14 +106,15 @@ export function recordTimeProgress(delta: number, songIndex: number, songPositio
   currentSongPosition = songPosition;
 
   // also update server session progress (converts seconds to ms)
-  recordServerProgress(delta * 1000, songIndex, songPosition * 1000);
+  // routes to the correct remote session based on the song's remote_server_id
+  recordServerProgress(delta * 1000, songIndex, songPosition * 1000, currentSong);
 }
 
 // mark a song as completed (>90% listened)
-export function markSongCompleted(songIndex: number): void {
+export function markSongCompleted(songIndex: number, currentSong: Song | null = null): void {
   if (!activeHistoryEntryId()) return;
   completedSongs.add(songIndex);
-  markServerSongCompleted(songIndex);
+  markServerSongCompleted(songIndex, currentSong);
 }
 
 // get current accumulated progress (for UI without waiting for flush)

@@ -245,12 +245,20 @@ export function FeedView() {
         });
 
         // resume the server session tracking
-        await resumeServerSession(session.id, {
-          listened_duration_ms: session.listened_duration_ms,
-          songs_completed: session.songs_completed,
-          current_song_index: session.current_song_index,
-          current_song_position_ms: session.current_song_position_ms,
-        });
+        const remote = getCurrentRemote();
+        if (remote) {
+          await resumeServerSession(
+            session.id,
+            {
+              listened_duration_ms: session.listened_duration_ms,
+              songs_completed: session.songs_completed,
+              current_song_index: session.current_song_index,
+              current_song_position_ms: session.current_song_position_ms,
+            },
+            remote.remote_id,
+            remote.base_url
+          );
+        }
 
         toast.info("resumed session");
       } else {

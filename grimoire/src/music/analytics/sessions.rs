@@ -6,6 +6,7 @@
 use crate::database;
 use crate::GrimoireResponse;
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
@@ -153,6 +154,45 @@ pub struct ListListenSessionsResponse {
     pub total: i64,
 }
 
+/// filter song_ids to only those that actually exist in the songs table.
+/// this prevents clients from sending song IDs from other servers or invalid IDs.
+/// uses json_each() so the query works with a single bind parameter and the query! macro.
+async fn validate_song_ids(pool: &SqlitePool, song_ids: &[String]) -> Vec<String> {
+    if song_ids.is_empty() {
+        return vec![];
+    }
+
+    let song_ids_json = serde_json::to_string(song_ids).unwrap_or_else(|_| "[]".to_string());
+
+    let valid_ids: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar!(
+        r#"
+        SELECT s.id as "id!"
+        FROM songz s
+        INNER JOIN json_each(?) je ON s.id = je.value
+        "#,
+        song_ids_json,
+    )
+    .fetch_all(pool)
+    .await;
+
+    match valid_ids {
+        Ok(ids) => {
+            // preserve original ordering
+            let valid_set: std::collections::HashSet<String> = ids.into_iter().collect();
+            song_ids
+                .iter()
+                .filter(|id| valid_set.contains(id.as_str()))
+                .cloned()
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("failed to validate song_ids: {e}");
+            // on error, keep the original IDs rather than losing data
+            song_ids.to_vec()
+        }
+    }
+}
+
 /// create a new listen session
 pub async fn create_listen_session(
     user_id: &str,
@@ -168,8 +208,16 @@ pub async fn create_listen_session(
     let session_type = &req.session_type;
     let entity_id = req.entity_id.as_deref();
     let label = &req.label;
-    let song_ids_json = serde_json::to_string(&req.song_ids).unwrap_or_else(|_| "[]".to_string());
-    let total_songs = req.total_songs;
+
+    // validate song_ids — only keep IDs that exist on this server
+    let validated_song_ids = validate_song_ids(&pool, &req.song_ids).await;
+    if validated_song_ids.is_empty() {
+        return GrimoireResponse::failure("no valid song IDs found on this server", vec![]);
+    }
+
+    let song_ids_json =
+        serde_json::to_string(&validated_song_ids).unwrap_or_else(|_| "[]".to_string());
+    let total_songs = validated_song_ids.len() as i64;
     let total_duration_ms = req.total_duration_ms;
 
     let result = sqlx::query!(
@@ -197,7 +245,7 @@ pub async fn create_listen_session(
                 session_type: ListenSessionType::from_str(session_type),
                 entity_id: req.entity_id.clone(),
                 label: label.clone(),
-                song_ids: req.song_ids.clone(),
+                song_ids: validated_song_ids,
                 total_songs,
                 songs_completed: 0,
                 total_duration_ms,
@@ -321,7 +369,11 @@ pub async fn update_listen_session_songs(
         }
     };
 
-    let song_ids_json = serde_json::to_string(&req.song_ids).unwrap_or_else(|_| "[]".to_string());
+    // validate song_ids — only keep IDs that exist on this server
+    let validated_song_ids = validate_song_ids(&pool, &req.song_ids).await;
+    let song_ids_json =
+        serde_json::to_string(&validated_song_ids).unwrap_or_else(|_| "[]".to_string());
+    let validated_total_songs = validated_song_ids.len() as i64;
 
     let result = sqlx::query!(
         r#"
@@ -335,7 +387,7 @@ pub async fn update_listen_session_songs(
         "#,
         song_ids_json,
         req.label,
-        req.total_songs,
+        validated_total_songs,
         req.total_duration_ms,
         session_id,
         user_id,

@@ -57,6 +57,9 @@ export interface AnalyticsEvent {
     song_id?: string;
     session_id?: string;
     event_data?: Record<string, unknown>;
+    // routing: which remote this event should be sent to
+    target_remote_id?: string;
+    target_base_url?: string;
   };
   status: AnalyticsEventStatus;
   retry_count: number;

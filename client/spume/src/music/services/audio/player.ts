@@ -66,7 +66,8 @@ function initAudio(): HTMLAudioElement {
         const songIdx = current_sha256
           ? queue.findIndex((s) => s.sha256 === current_sha256)
           : 0;
-        recordTimeProgress(delta, songIdx, ct);
+        const currentSong = queue[songIdx] ?? null;
+        recordTimeProgress(delta, songIdx, ct, currentSong);
       }
     }
     lastTimeUpdateValue = ct;
@@ -84,14 +85,24 @@ function initAudio(): HTMLAudioElement {
         const songIdx = current_sha256
           ? queue.findIndex((s) => s.sha256 === current_sha256)
           : 0;
-        markSongCompleted(songIdx);
+        const currentSong = queue.find((s) => s.sha256 === current_sha256) ?? null;
+        markSongCompleted(songIdx, currentSong);
 
         // queue a play_complete analytics event
-        const currentSong = queue.find((s) => s.sha256 === current_sha256);
         if (currentSong) {
+          let targetBaseUrl: string | undefined;
+          try {
+            if (currentSong.source_url) {
+              targetBaseUrl = new URL(currentSong.source_url).origin;
+            }
+          } catch {
+            // non-parseable URL, skip base_url routing
+          }
           void queueAnalyticsEvent("play_complete", {
             media_blob_id: currentSong.sha256,
             song_id: currentSong.id,
+            target_remote_id: currentSong.remote_server_id ?? undefined,
+            target_base_url: targetBaseUrl,
           });
         }
       }

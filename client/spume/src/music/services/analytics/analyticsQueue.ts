@@ -1,5 +1,6 @@
 // analytics event queue — offline-first analytics sync to server
-// events are queued locally in IDB, synced FIFO with per-event retry logic
+// events are queued locally in IDB, synced FIFO with per-event retry logic.
+// each event carries its target remote info so events route to the correct server.
 
 import * as apiClient from "freqhole-api-client";
 import { createSignal } from "solid-js";
@@ -10,6 +11,8 @@ import {
   type AnalyticsEventType,
 } from "../../../app/services/storage/types";
 import { getCurrentRemote } from "../../data";
+import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { getSessionIdForRemote } from "../queue/serverSession";
 
 const MAX_RETRIES = 5;
 const SYNC_INTERVAL_MS = 30_000; // try syncing every 30 seconds
@@ -22,13 +25,23 @@ export { pendingEventCount };
 let syncIntervalId: ReturnType<typeof setInterval> | null = null;
 let isSyncing = false;
 
-// queue a new analytics event (stored locally, synced later)
+// queue a new analytics event (stored locally, synced later).
+// captures the target remote from the payload so it syncs to the correct server.
 export async function queueAnalyticsEvent(
   type: AnalyticsEventType,
   payload: AnalyticsEvent["payload"],
 ): Promise<void> {
   try {
     const db = await initAppDB();
+
+    // attach session_id for the target remote if one is active
+    const remoteId = payload.target_remote_id;
+    if (remoteId && !payload.session_id) {
+      const sessionId = getSessionIdForRemote(remoteId);
+      if (sessionId) {
+        payload.session_id = sessionId;
+      }
+    }
 
     const event: AnalyticsEvent = {
       id: crypto.randomUUID(),
@@ -70,12 +83,10 @@ export function stopAnalyticsSync(): void {
   }
 }
 
-// sync pending events to server (FIFO order)
+// sync pending events to server (FIFO order).
+// routes each event to its target remote, falling back to the current remote.
 async function syncEvents(): Promise<void> {
   if (isSyncing) return;
-
-  const remote = getCurrentRemote();
-  if (!remote) return; // can't sync without a remote
 
   isSyncing = true;
 
@@ -89,8 +100,33 @@ async function syncEvents(): Promise<void> {
       .filter((e) => e.retry_count < e.max_retries)
       .sort((a, b) => a.created_at - b.created_at);
 
+    // resolve base URLs: events with target_remote_id go to that remote,
+    // events without go to the currently active remote
+    const fallbackRemote = getCurrentRemote();
+
     for (const event of syncable) {
-      await syncSingleEvent(db, event, remote.base_url);
+      let baseUrl: string | null = null;
+
+      if (event.payload.target_base_url) {
+        // use the stored base_url directly
+        baseUrl = event.payload.target_base_url;
+      } else if (event.payload.target_remote_id) {
+        // resolve the remote by id
+        const remote = await getRemoteById(event.payload.target_remote_id);
+        baseUrl = remote?.base_url ?? null;
+      }
+
+      // fall back to current remote
+      if (!baseUrl) {
+        baseUrl = fallbackRemote?.base_url ?? null;
+      }
+
+      if (!baseUrl) {
+        // no remote to send to — skip this event for now
+        continue;
+      }
+
+      await syncSingleEvent(db, event, baseUrl);
     }
 
     // cleanup: remove sent events older than 24 hours
