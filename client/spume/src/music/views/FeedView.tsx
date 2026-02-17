@@ -20,7 +20,8 @@ import { playQueue, addToQueue } from "../services/queue/queue";
 import { resumeServerSession } from "../services/queue/serverSession";
 import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
-import { showImageCarousel } from "../modals";
+import { showImageCarousel, showSongEditor, showAlbumEditor, showArtistEditor } from "../modals";
+import { showPlaylistSelector } from "../hooks/playlistSelectorState";
 import { useQueryClient } from "@tanstack/solid-query";
 import { queryKeys } from "../queries/queryKeys";
 
@@ -354,17 +355,11 @@ export function FeedView() {
     }
   };
 
-  // handle image/thumb click — for new_image, play/navigate instead; otherwise open carousel
+  // handle image/thumb click — open carousel if images available, otherwise play
   const handleImageClick = async (item: FeedItem) => {
     if (item.feed_type === "new_image") {
-      // for new_image, image click navigates to the entity
-      if (item.album_id) {
-        navigate(routes.album(item.album_id));
-      } else if (item.artist_id) {
-        navigate(routes.artist(item.artist_id));
-      } else if (item.playlist_id) {
-        navigate(routes.playlist(item.playlist_id));
-      }
+      // for new_image, thumbnail click opens carousel (matches carousel icon on hover)
+      await handleImageCarousel(item);
       return;
     }
 
@@ -410,6 +405,43 @@ export function FeedView() {
           await playPlaylistById(item.playlist_id, item.title);
         }
         break;
+    }
+  };
+
+  // add item to queue (shared between context menu and quick-action button)
+  const handleAddToQueue = async (item: FeedItem) => {
+    try {
+      if (item.song_id) {
+        const dataSource = getDataSource();
+        const song = await dataSource.getSongById(item.song_id);
+        if (song) {
+          await addToQueue([song], {
+            source: { type: "song", label: item.title },
+          });
+        }
+      } else if (item.album_id) {
+        const dataSource = getDataSource();
+        if (dataSource.getAlbumSongs) {
+          const response = await dataSource.getAlbumSongs(item.album_id);
+          if (response.items.length > 0) {
+            await addToQueue(response.items, {
+              source: { type: "album", label: item.title, entity_id: item.album_id },
+            });
+          }
+        }
+      } else if (item.playlist_id) {
+        const dataSource = getDataSource();
+        if (dataSource.getPlaylistSongs) {
+          const response = await dataSource.getPlaylistSongs(item.playlist_id);
+          if (response.items.length > 0) {
+            await addToQueue(response.items, {
+              source: { type: "playlist", label: item.title, entity_id: item.playlist_id },
+            });
+          }
+        }
+      }
+    } catch {
+      toast.error("failed to add to queue");
     }
   };
 
@@ -503,42 +535,61 @@ export function FeedView() {
       actions.push({
         label: "add to queue",
         icon: IconNames.queue,
+        onClick: () => void handleAddToQueue(item),
+      });
+    }
+
+    // add to playlist (for items with a song)
+    if (item.song_id) {
+      actions.push({
+        label: "add to playlist...",
+        icon: IconNames.playlist,
+        onClick: () => {
+          showPlaylistSelector([item.song_id!]);
+        },
+      });
+    } else if (item.album_id) {
+      actions.push({
+        label: "add to playlist...",
+        icon: IconNames.playlist,
         onClick: async () => {
-          try {
-            if (item.song_id) {
-              const dataSource = getDataSource();
-              const song = await dataSource.getSongById(item.song_id);
-              if (song) {
-                await addToQueue([song], {
-                  source: { type: "song", label: item.title },
-                });
-              }
-            } else if (item.album_id) {
-              const dataSource = getDataSource();
-              if (dataSource.getAlbumSongs) {
-                const response = await dataSource.getAlbumSongs(item.album_id);
-                if (response.items.length > 0) {
-                  await addToQueue(response.items, {
-                    source: { type: "album", label: item.title, entity_id: item.album_id },
-                  });
-                }
-              }
-            } else if (item.playlist_id) {
-              const dataSource = getDataSource();
-              if (dataSource.getPlaylistSongs) {
-                const response = await dataSource.getPlaylistSongs(item.playlist_id);
-                if (response.items.length > 0) {
-                  await addToQueue(response.items, {
-                    source: { type: "playlist", label: item.title, entity_id: item.playlist_id },
-                  });
-                }
-              }
+          const dataSource = getDataSource();
+          if (dataSource.getAlbumSongs) {
+            const response = await dataSource.getAlbumSongs(item.album_id!);
+            if (response.items.length > 0) {
+              showPlaylistSelector(response.items.map((s) => s.id));
             }
-          } catch {
-            toast.error("failed to add to queue");
           }
         },
       });
+    }
+
+    // edit info actions
+    const editActions: MenuAction[] = [];
+    if (item.song_id) {
+      editActions.push({
+        label: "edit song info...",
+        icon: IconNames.edit,
+        onClick: () => showSongEditor({ songId: item.song_id! }),
+      });
+    }
+    if (item.album_id) {
+      editActions.push({
+        label: "edit album info...",
+        icon: IconNames.edit,
+        onClick: () => showAlbumEditor({ albumId: item.album_id! }),
+      });
+    }
+    if (item.artist_id && !item.song_id && !item.album_id) {
+      editActions.push({
+        label: "edit artist info...",
+        icon: IconNames.edit,
+        onClick: () => showArtistEditor({ artistId: item.artist_id! }),
+      });
+    }
+    if (editActions.length > 0) {
+      actions.push({ type: "separator" });
+      actions.push(...editActions);
     }
 
     // navigation actions
@@ -579,16 +630,9 @@ export function FeedView() {
   let feedListRef: HTMLDivElement | undefined;
   const [showBackToTop, setShowBackToTop] = createSignal(false);
 
-  // track scroll to show/hide back-to-top button
+  // track scroll to show/hide back-to-top button (2x window height threshold)
   const handleScroll = (scrollTop: number) => {
-    setShowBackToTop(scrollTop > 400);
-  };
-
-  const handleRefresh = () => {
-    // scroll to top of the feed list's scroll container
-    const scrollEl = feedListRef?.querySelector(".overflow-auto") as HTMLElement | null;
-    scrollEl?.scrollTo({ top: 0, behavior: "smooth" });
-    void feedQuery.refetch();
+    setShowBackToTop(scrollTop > window.innerHeight * 2);
   };
 
   const handleBackToTop = () => {
@@ -661,22 +705,13 @@ export function FeedView() {
                 scrollPaddingTop={72}
                 onItemClick={handleItemClick}
                 onImageClick={handleImageClick}
+                onAddToQueue={handleAddToQueue}
                 getContextMenuActions={getContextMenuActions}
                 onNearEnd={loadMore}
                 isFetchingMore={feedQuery.isFetchingNextPage}
                 scrollKey="feed-view"
                 onScroll={handleScroll}
               />
-
-              {/* fixed refresh button — centered in feed column, just below nav */}
-              <div
-                class="fixed z-50"
-                style={{ top: "12px", left: "50%", transform: "translateX(-50%)" }}
-              >
-                <Button variant="primary" onClick={handleRefresh}>
-                  refresh feed
-                </Button>
-              </div>
 
               {/* back to top button */}
               <div

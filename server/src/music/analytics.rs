@@ -188,7 +188,7 @@ inventory::submit! {
 
 /// get combined activity feed
 pub async fn feed_handler(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<FeedRequest>,
 ) -> Result<Json<FeedResponse>, ApiError> {
     let limit = req.limit.unwrap_or(50);
@@ -199,6 +199,7 @@ pub async fn feed_handler(
         offset,
         req.feed_types.as_deref(),
         req.user_id.as_deref(),
+        Some(&user.user_id),
     )
     .await;
 
@@ -359,8 +360,7 @@ pub async fn delete_listen_session_handler(
     Extension(user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
-    let response =
-        delete_listen_session(&id, &user.user_id, user.role.is_admin()).await;
+    let response = delete_listen_session(&id, &user.user_id, user.role.is_admin()).await;
 
     if response.success {
         Ok(Json(EmptyResponse::ok()))

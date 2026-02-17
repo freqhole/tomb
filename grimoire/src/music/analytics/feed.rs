@@ -93,6 +93,8 @@ pub struct FeedItem {
     pub album_title: Option<String>,
     /// primary genre name
     pub genre: Option<String>,
+    /// genre id (for linking to genre detail)
+    pub genre_id: Option<String>,
     /// release year
     pub year: Option<i64>,
     /// number of tracks (for albums/playlists)
@@ -103,6 +105,8 @@ pub struct FeedItem {
     pub description: Option<String>,
     /// tags (for albums)
     pub tags: Option<Vec<String>>,
+    /// whether the primary entity is favorited by the viewer
+    pub is_favorite: bool,
 }
 
 /// column identifiers for feed_query_view (type-safe sea_query references)
@@ -158,6 +162,8 @@ enum FeedView {
     AlbumTitle,
     #[iden = "genre"]
     Genre,
+    #[iden = "genre_id"]
+    GenreId,
     #[iden = "year"]
     Year,
     #[iden = "song_count"]
@@ -212,6 +218,7 @@ pub async fn get_combined_feed(
     offset: i64,
     feed_types: Option<&[FeedItemType]>,
     user_id: Option<&str>,
+    viewer_user_id: Option<&str>,
 ) -> GrimoireResponse<(Vec<FeedItem>, i64)> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -289,12 +296,27 @@ pub async fn get_combined_feed(
         .column(FeedView::ArtistName)
         .column(FeedView::AlbumTitle)
         .column(FeedView::Genre)
+        .column(FeedView::GenreId)
         .column(FeedView::Year)
         .column(FeedView::SongCount)
         .column(FeedView::TotalDurationMs)
         .column(FeedView::Description)
         .column(FeedView::Tags)
         .from(FeedView::Table);
+
+    // add is_favorite correlated subquery if viewer is authenticated
+    if let Some(vid) = viewer_user_id {
+        let vid_val: sea_query::Value = vid.to_string().into();
+        data_query.expr_as(
+            Expr::cust_with_values(
+                "COALESCE((SELECT 1 FROM user_favoritez uf WHERE uf.user_id = ? AND uf.target_id = COALESCE(song_id, album_id, playlist_id, artist_id) AND uf.target_type = CASE WHEN song_id IS NOT NULL THEN 'song' WHEN album_id IS NOT NULL THEN 'album' WHEN playlist_id IS NOT NULL THEN 'playlist' WHEN artist_id IS NOT NULL THEN 'artist' END LIMIT 1), 0)",
+                [vid_val],
+            ),
+            sea_query::Alias::new("is_favorite"),
+        );
+    } else {
+        data_query.expr_as(Expr::cust("0"), sea_query::Alias::new("is_favorite"));
+    }
 
     apply_filters(&mut data_query);
 
@@ -350,11 +372,13 @@ struct RawFeedRow {
     artist_name: Option<String>,
     album_title: Option<String>,
     genre: Option<String>,
+    genre_id: Option<String>,
     year: Option<i64>,
     song_count: Option<i64>,
     total_duration_ms: Option<i64>,
     description: Option<String>,
     tags: Option<String>,
+    is_favorite: i32,
 }
 
 impl RawFeedRow {
@@ -404,11 +428,13 @@ impl RawFeedRow {
             artist_name: self.artist_name,
             album_title: self.album_title,
             genre: self.genre,
+            genre_id: self.genre_id,
             year: self.year,
             song_count: self.song_count,
             total_duration_ms: self.total_duration_ms,
             description: self.description,
             tags,
+            is_favorite: self.is_favorite != 0,
         }
     }
 }
@@ -420,7 +446,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // requires database setup with test data
     async fn test_get_combined_feed() {
-        let response = get_combined_feed(20, 0, None, None).await;
+        let response = get_combined_feed(20, 0, None, None, None).await;
         assert!(response.success);
         let (items, total) = response.data.unwrap();
         assert!(total >= 0);
@@ -431,7 +457,7 @@ mod tests {
     #[ignore]
     async fn test_get_combined_feed_filtered_by_type() {
         let types = vec![FeedItemType::RecentAlbum];
-        let response = get_combined_feed(10, 0, Some(&types), None).await;
+        let response = get_combined_feed(10, 0, Some(&types), None, None).await;
         assert!(response.success);
         let (items, _total) = response.data.unwrap();
         for item in &items {
@@ -442,7 +468,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_get_combined_feed_filtered_by_user() {
-        let response = get_combined_feed(10, 0, None, Some("nonexistent-user")).await;
+        let response = get_combined_feed(10, 0, None, Some("nonexistent-user"), None).await;
         assert!(response.success);
         let (items, total) = response.data.unwrap();
         assert_eq!(total, 0);

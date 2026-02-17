@@ -455,11 +455,13 @@ export interface FeedItem {
   artist_name: string | null;
   album_title: string | null;
   genre: string | null;
+  genre_id: string | null;
   year: number | null;
   song_count: number | null;
   total_duration_ms: number | null;
   description: string | null;
   tags: string[] | null;
+  is_favorite: boolean;
 }
 
 // paginated feed response

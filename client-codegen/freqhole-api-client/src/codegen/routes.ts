@@ -3,6 +3,10 @@ import * as s from './schema';
 import { z } from 'zod';
 
 export const routes = {
+  app: {
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
+  },
   music: {
     set_rating: { method: 'POST', path: '/api/ratings/set', req: s.SetRatingRequestSchema, resp: s.SetRatingResponseSchema },
     remove_rating: { method: 'POST', path: '/api/ratings/remove', req: s.RemoveRatingRequestSchema, resp: s.RemoveRatingResponseSchema },
@@ -83,9 +87,5 @@ export const routes = {
     regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema },
     redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any() },
     logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
-  },
-  app: {
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
   },
 };

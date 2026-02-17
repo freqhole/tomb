@@ -229,6 +229,18 @@ export const HeadphonesIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const CarouselIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Image carousel"}>
+    {/* merry-go-round: conical top, center pole, platform, hanging elements */}
+    <path d="M12 2L4 10h16L12 2z" />
+    <rect x="11" y="10" width="2" height="10" />
+    <rect x="4" y="20" width="16" height="2" rx="1" />
+    <rect x="6" y="12" width="2" height="5" rx="1" />
+    <rect x="16" y="12" width="2" height="5" rx="1" />
+    <rect x="11" y="12" width="2" height="4" rx="1" />
+  </BaseIcon>
+);
+
 // Freqhole Brand Icon
 export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   <svg
@@ -330,6 +342,7 @@ export const IconRegistry = {
   loader: LoaderIcon,
   database: DatabaseIcon,
   headphones: HeadphonesIcon,
+  carousel: CarouselIcon,
 
   // Brand
   freqhole: FreqholeIcon,
@@ -416,6 +429,7 @@ export const IconNames = {
   loader: "loader",
   database: "database",
   headphones: "headphones",
+  carousel: "carousel",
 
   // Brand
   freqhole: "freqhole",

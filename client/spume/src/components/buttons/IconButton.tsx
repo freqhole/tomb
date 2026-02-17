@@ -1,10 +1,9 @@
 import type { JSX } from "solid-js";
 import { splitProps } from "solid-js";
-import { solidColors } from "../../../design-system/colors";
+import { solidColors } from "../../design-system/colors";
 import { Icon, type IconName } from "../icons/registry";
 
-export interface IconButtonProps
-  extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface IconButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   icon: IconName;
   variant?: "default" | "ghost" | "outline" | "accent" | "danger";
   size?: "sm" | "default";
@@ -15,13 +14,7 @@ export interface IconButtonProps
 
 // icon button with consistent styling and variants
 export function IconButton(props: IconButtonProps) {
-  const [local, rest] = splitProps(props, [
-    "icon",
-    "variant",
-    "size",
-    "iconSize",
-    "class",
-  ]);
+  const [local, rest] = splitProps(props, ["icon", "variant", "size", "iconSize", "class"]);
 
   const variant = () => local.variant || "ghost";
   const size = () => local.size || "md";
@@ -67,9 +60,7 @@ export function IconButton(props: IconButtonProps) {
   };
 
   const disabledClasses = () =>
-    rest.disabled
-      ? "opacity-50 cursor-not-allowed pointer-events-none"
-      : "cursor-pointer";
+    rest.disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer";
 
   return (
     <button

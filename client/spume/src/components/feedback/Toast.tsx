@@ -1,7 +1,7 @@
 import { Toast as KobalteToast, toaster } from "@kobalte/core/toast";
 import { Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
-import { solidColors } from "../../../design-system/colors";
+import { solidColors } from "../../design-system/colors";
 import { Icon } from "../icons/registry";
 
 export type ToastVariant = "success" | "error" | "warning" | "info";
@@ -73,11 +73,7 @@ function ToastItem(props: ToastProps) {
       >
         {/* icon */}
         <div class="flex-shrink-0 pt-0.5">
-          <Icon
-            name={variantConfig().icon}
-            size={20}
-            color={variantConfig().colors.text}
-          />
+          <Icon name={variantConfig().icon} size={20} color={variantConfig().colors.text} />
         </div>
 
         {/* content */}
@@ -87,9 +83,7 @@ function ToastItem(props: ToastProps) {
               {props.title}
             </KobalteToast.Title>
           </Show>
-          <KobalteToast.Description class="text-sm">
-            {props.message}
-          </KobalteToast.Description>
+          <KobalteToast.Description class="text-sm">{props.message}</KobalteToast.Description>
         </div>
 
         {/* close button */}

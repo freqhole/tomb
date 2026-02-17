@@ -8,6 +8,11 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { formatLongDuration } from "../../utils/formatDuration";
+import { entityColors } from "../../design-system/colors";
+import { useNavigate } from "@solidjs/router";
+import { routes } from "../../music/utils/routing";
+import { FavoriteToggle } from "../../utils/FavoriteToggle";
+import type { FavoriteTarget } from "../../music/queries/favorites";
 
 const ROW_HEIGHT = 100;
 const IMAGE_SIZE = ROW_HEIGHT - 12; // 6px padding top + bottom
@@ -35,19 +40,19 @@ function timeAgo(timestamp: number): string {
 function feedTypeInfo(type: FeedItemType): { color: string; icon: IconName } {
   switch (type) {
     case "recent_listen":
-      return { color: "var(--color-accent-500)", icon: "play" };
+      return { color: entityColors.song, icon: "play" };
     case "recent_favorite":
-      return { color: "#ef4444", icon: "favorite" };
+      return { color: entityColors.favorite, icon: "favorite" };
     case "recent_album":
-      return { color: "#22c55e", icon: "album" };
+      return { color: entityColors.album, icon: "album" };
     case "recent_rating":
-      return { color: "#f59e0b", icon: "star" };
+      return { color: entityColors.rating, icon: "star" };
     case "recent_playlist":
-      return { color: "#8b5cf6", icon: "playlist" };
+      return { color: entityColors.playlist, icon: "playlist" };
     case "listen_session":
-      return { color: "#06b6d4", icon: "headphones" };
+      return { color: entityColors.session, icon: "headphones" };
     case "new_image":
-      return { color: "#ec4899", icon: "image" };
+      return { color: entityColors.image, icon: "image" };
     default:
       return { color: "var(--color-text-muted)", icon: "music" };
   }
@@ -71,6 +76,7 @@ export interface VirtualFeedListProps {
   scrollPaddingTop?: number;
   onItemClick?: (item: FeedItem) => void;
   onImageClick?: (item: FeedItem) => void;
+  onAddToQueue?: (item: FeedItem) => void;
   getContextMenuActions?: (item: FeedItem) => MenuAction[];
   onNearEnd?: () => void;
   isFetchingMore?: boolean;
@@ -157,6 +163,7 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
                 item={item}
                 onClick={() => props.onItemClick?.(item)}
                 onImageClick={() => props.onImageClick?.(item)}
+                onAddToQueue={props.onAddToQueue ? () => props.onAddToQueue!(item) : undefined}
               />
             );
 
@@ -193,7 +200,13 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
 }
 
 // individual feed row
-function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () => void }) {
+function FeedRow(props: {
+  item: FeedItem;
+  onClick: () => void;
+  onImageClick: () => void;
+  onAddToQueue?: () => void;
+}) {
+  const navigate = useNavigate();
   const [isRowHovered, setIsRowHovered] = createSignal(false);
   const [isThumbHovered, setIsThumbHovered] = createSignal(false);
 
@@ -252,11 +265,10 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
     return parts.join(" \u00b7 ");
   });
 
-  // build metadata line — genre, year, tracks, duration, tags
+  // build metadata line — year, tracks, duration (genre is rendered separately as a badge)
   const metaParts = createMemo(() => {
     const parts: string[] = [];
     const item = props.item;
-    if (item.genre) parts.push(item.genre);
     if (item.year) parts.push(String(item.year));
     if (item.song_count != null && item.song_count > 0) {
       parts.push(`${item.song_count} ${item.song_count === 1 ? "track" : "tracks"}`);
@@ -272,6 +284,22 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
     e.stopPropagation();
     e.preventDefault();
     props.onImageClick();
+  };
+
+  // determine favorite target from feed item (priority: song > album > playlist > artist)
+  const favoriteTarget = createMemo((): { type: FavoriteTarget; id: string } | null => {
+    const item = props.item;
+    if (item.song_id) return { type: "song", id: item.song_id };
+    if (item.album_id) return { type: "album", id: item.album_id };
+    if (item.playlist_id) return { type: "playlist", id: item.playlist_id };
+    if (item.artist_id) return { type: "artist", id: item.artist_id };
+    return null;
+  });
+
+  // handle queue button click
+  const handleQueueClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    props.onAddToQueue?.();
   };
 
   return (
@@ -307,12 +335,16 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
             <Icon name={typeInfo().icon} size={32} color={typeInfo().color} />
           </div>
 
-          {/* play button — visible only when THUMB is hovered (and row is hovered) */}
+          {/* hover icon — carousel for new_image (opens gallery), play for everything else */}
           <div
             class="absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity"
             style={{ opacity: isThumbHovered() && isRowHovered() ? "1" : "0" }}
           >
-            <Icon name="play" size={36} color={typeInfo().color} />
+            <Icon
+              name={props.item.feed_type === "new_image" ? "carousel" : "play"}
+              size={36}
+              color={typeInfo().color}
+            />
           </div>
         </Show>
       </div>
@@ -326,13 +358,13 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
           </Show>
           <Show when={actionText().verb}>
             <Show when={actionText().verb === "\u2665"} fallback={<span>{actionText().verb}</span>}>
-              <Icon name="favorite" size={14} color="#ef4444" />
+              <Icon name="favorite" size={14} color={entityColors.favorite} />
             </Show>
           </Show>
           <span>{actionText().entity}</span>
           <Show when={props.item.rating != null}>
             <span class="ml-1 flex items-center gap-0.5">
-              <Icon name="star" size={11} color="#f59e0b" />
+              <Icon name="star" size={11} color={entityColors.rating} />
               {props.item.rating}/5
             </span>
           </Show>
@@ -360,14 +392,35 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
           />
         </Show>
 
-        {/* line 4: metadata — genre, year, tracks, duration, tags (non-session items only) */}
+        {/* line 4: metadata — genre badge, year, tracks, duration, tags (non-session items only) */}
         <Show
           when={
             !isSession() &&
-            (metaParts().length > 0 || (props.item.tags && props.item.tags.length > 0))
+            (props.item.genre ||
+              metaParts().length > 0 ||
+              (props.item.tags && props.item.tags.length > 0))
           }
         >
           <div class="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] overflow-hidden">
+            <Show when={props.item.genre}>
+              <span
+                class="px-1.5 py-px rounded-full flex-shrink-0 cursor-pointer hover:brightness-125 transition-all"
+                style={{
+                  background: `color-mix(in srgb, ${entityColors.genre} 20%, transparent)`,
+                  color: entityColors.genre,
+                  "font-size": "10px",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (props.item.genre_id) {
+                    navigate(routes.genre(props.item.genre_id));
+                  }
+                }}
+                title={`go to ${props.item.genre}`}
+              >
+                {props.item.genre}
+              </span>
+            </Show>
             <Show when={metaParts().length > 0}>
               <MarqueeText
                 text={metaParts().join(" \u00b7 ")}
@@ -379,7 +432,7 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
               <For each={props.item.tags!.slice(0, 3)}>
                 {(tag) => (
                   <span class="px-1 py-px rounded bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] flex-shrink-0">
-                    {tag}
+                    #{tag}
                   </span>
                 )}
               </For>
@@ -397,7 +450,8 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
               />
             </div>
             <span class="text-[10px] text-[var(--color-text-muted)] flex-shrink-0 tabular-nums">
-              {props.item.songs_completed}/{props.item.total_songs} &middot;{" "}
+              {props.item.songs_completed}/{props.item.total_songs}
+              {(props.item.total_songs ?? 0) > 1 ? ` tracks \u00b7 ` : ` \u00b7 `}
               {Math.round(progressPercent())}%
             </span>
           </div>
@@ -406,8 +460,10 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
         {/* session status */}
         <Show when={isSession() && props.item.session_status && !hasProgress()}>
           <div class="text-[11px] text-[var(--color-text-muted)]">
-            {props.item.session_status} &middot; {props.item.songs_completed}/
-            {props.item.total_songs} songs
+            {props.item.session_status}
+            {(props.item.total_songs ?? 0) > 1 ? (
+              <> &middot; {props.item.total_songs} tracks</>
+            ) : null}
           </div>
         </Show>
 
@@ -425,7 +481,7 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
         </Show>
       </div>
 
-      {/* right side: timestamp */}
+      {/* right side: timestamp + actions */}
       <div class="flex flex-col items-end flex-shrink-0 gap-1 py-3 justify-start">
         <span class="text-[11px] text-[var(--color-text-muted)]">{timeAgo(createdAt())}</span>
         <Show when={props.item.play_count && props.item.play_count > 1}>
@@ -433,6 +489,38 @@ function FeedRow(props: { item: FeedItem; onClick: () => void; onImageClick: () 
             {props.item.play_count} plays
           </span>
         </Show>
+        {/* favorite + queue actions — visible on hover */}
+        <div
+          class="flex items-center gap-1 transition-opacity"
+          classList={{ "opacity-0": !isRowHovered(), "opacity-100": isRowHovered() }}
+        >
+          <Show when={favoriteTarget()}>
+            {(target) => (
+              <div onClick={(e) => e.stopPropagation()}>
+                <FavoriteToggle
+                  targetType={target().type}
+                  targetId={target().id}
+                  isFavorite={props.item.is_favorite}
+                  size="sm"
+                />
+              </div>
+            )}
+          </Show>
+          <Show
+            when={
+              props.onAddToQueue &&
+              (props.item.song_id || props.item.album_id || props.item.playlist_id)
+            }
+          >
+            <button
+              class="w-5 h-5 flex items-center justify-center rounded-full text-[var(--color-text-muted)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 transition-colors"
+              onClick={handleQueueClick}
+              title="add to queue"
+            >
+              <Icon name="add" size={14} />
+            </button>
+          </Show>
+        </div>
       </div>
     </div>
   );

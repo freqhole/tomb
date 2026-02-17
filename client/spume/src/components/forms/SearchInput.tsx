@@ -340,7 +340,7 @@ export function SearchInput(props: SearchInputProps) {
               max-h-80
               overflow-hidden
               shadow-lg
-              z-50
+              z-[1002]
               min-w-[400px]
               max-w-[600px]
               w-max

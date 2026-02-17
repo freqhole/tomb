@@ -349,7 +349,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
         }
         AnalyticsAction::RecentListens { limit, offset } => {
             let types = vec![FeedItemType::RecentListen];
-            let response = get_combined_feed(limit, offset, Some(&types), None).await;
+            let response = get_combined_feed(limit, offset, Some(&types), None, None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
@@ -370,7 +370,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
         }
         AnalyticsAction::RecentFavorites { limit, offset } => {
             let types = vec![FeedItemType::RecentFavorite];
-            let response = get_combined_feed(limit, offset, Some(&types), None).await;
+            let response = get_combined_feed(limit, offset, Some(&types), None, None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
@@ -391,7 +391,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
         }
         AnalyticsAction::RecentAlbums { limit, offset } => {
             let types = vec![FeedItemType::RecentAlbum];
-            let response = get_combined_feed(limit, offset, Some(&types), None).await;
+            let response = get_combined_feed(limit, offset, Some(&types), None, None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }
@@ -411,7 +411,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             )
         }
         AnalyticsAction::Feed { limit, offset } => {
-            let response = get_combined_feed(limit, offset, None, None).await;
+            let response = get_combined_feed(limit, offset, None, None, None).await;
             if !response.success {
                 return CommandOutput::failure(response.message, response.errors, ());
             }

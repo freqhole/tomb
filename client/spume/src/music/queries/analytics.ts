@@ -47,11 +47,13 @@ function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
       artist_name: item.artist_name ?? null,
       album_title: item.album_title ?? null,
       genre: item.genre ?? null,
+      genre_id: item.genre_id ?? null,
       year: item.year ?? null,
       song_count: item.song_count ?? null,
       total_duration_ms: item.total_duration_ms ?? null,
       description: item.description ?? null,
       tags: item.tags ?? null,
+      is_favorite: item.is_favorite ?? false,
     })),
     total: data.total ?? 0,
   };

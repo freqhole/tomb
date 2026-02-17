@@ -1,20 +1,10 @@
 import type { JSX, ParentComponent } from "solid-js";
 import { splitProps } from "solid-js";
-import {
-  solidColors,
-  type SolidColorVariant,
-} from "../../../design-system/colors";
+import { solidColors, type SolidColorVariant } from "../../design-system/colors";
 import { Icon, type IconName } from "../icons/registry";
 
 export interface BadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
-  variant?:
-    | "default"
-    | "accent"
-    | "success"
-    | "warning"
-    | "error"
-    | "info"
-    | "outline";
+  variant?: "default" | "accent" | "success" | "warning" | "error" | "info" | "outline";
   size?: "sm" | "default";
   icon?: IconName;
   removable?: boolean;
@@ -80,13 +70,8 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
   };
 
   return (
-    <span
-      class={`${variantClasses()} ${sizeClasses()} ${local.class || ""}`}
-      {...rest}
-    >
-      {local.icon && (
-        <Icon name={local.icon} size={iconSize()} color="currentColor" />
-      )}
+    <span class={`${variantClasses()} ${sizeClasses()} ${local.class || ""}`} {...rest}>
+      {local.icon && <Icon name={local.icon} size={iconSize()} color="currentColor" />}
       <span>{local.children}</span>
       {local.removable && (
         <button

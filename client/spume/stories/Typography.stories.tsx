@@ -1,12 +1,6 @@
 import { For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import {
-  BodyText,
-  Caption,
-  Heading,
-  Label,
-  Monospace,
-} from "../design-system/typography";
+import { BodyText, Caption, Heading, Label, Monospace } from "../src/design-system/typography";
 import { mockAlbums, mockArtists } from "./mockData";
 
 const meta = {
@@ -75,36 +69,36 @@ export const BodyTextSizes: Story = {
       <div>
         <div class="caption mb-2">body large - 18px / relaxed</div>
         <p class="body-large text-[var(--color-text-primary)] max-w-2xl">
-          in music, a phrase is a unit of musical meter that has a complete
-          musical sense of its own, built from figures, motifs, and cells, and
-          combining to form melodies, periods and larger sections.
+          in music, a phrase is a unit of musical meter that has a complete musical sense of its
+          own, built from figures, motifs, and cells, and combining to form melodies, periods and
+          larger sections.
         </p>
       </div>
 
       <div>
         <div class="caption mb-2">body base - 16px / normal (default)</div>
         <p class="body-base text-[var(--color-text-primary)] max-w-2xl">
-          in music, a phrase is a unit of musical meter that has a complete
-          musical sense of its own, built from figures, motifs, and cells, and
-          combining to form melodies, periods and larger sections.
+          in music, a phrase is a unit of musical meter that has a complete musical sense of its
+          own, built from figures, motifs, and cells, and combining to form melodies, periods and
+          larger sections.
         </p>
       </div>
 
       <div>
         <div class="caption mb-2">body small - 14px / normal</div>
         <p class="body-small text-[var(--color-text-primary)] max-w-2xl">
-          in music, a phrase is a unit of musical meter that has a complete
-          musical sense of its own, built from figures, motifs, and cells, and
-          combining to form melodies, periods and larger sections.
+          in music, a phrase is a unit of musical meter that has a complete musical sense of its
+          own, built from figures, motifs, and cells, and combining to form melodies, periods and
+          larger sections.
         </p>
       </div>
 
       <div>
         <div class="caption mb-2">body xs - 12px / normal</div>
         <p class="body-xs text-[var(--color-text-primary)] max-w-2xl">
-          in music, a phrase is a unit of musical meter that has a complete
-          musical sense of its own, built from figures, motifs, and cells, and
-          combining to form melodies, periods and larger sections.
+          in music, a phrase is a unit of musical meter that has a complete musical sense of its
+          own, built from figures, motifs, and cells, and combining to form melodies, periods and
+          larger sections.
         </p>
       </div>
     </div>
@@ -117,23 +111,18 @@ export const SpecializedText: Story = {
     <div class="p-8 space-y-6 bg-[var(--color-bg-primary)]">
       <div>
         <div class="caption mb-2">label - uppercase / medium / wide</div>
-        <div class="label text-[var(--color-text-secondary)]">
-          track information
-        </div>
+        <div class="label text-[var(--color-text-secondary)]">track information</div>
       </div>
 
       <div>
         <div class="caption mb-2">caption - 12px / tertiary color</div>
-        <div class="caption">
-          this is caption text used for supplementary information
-        </div>
+        <div class="caption">this is caption text used for supplementary information</div>
       </div>
 
       <div>
         <div class="caption mb-2">monospace - code / data / timestamps</div>
         <div class="monospace text-[var(--color-text-primary)]">
-          const formatDuration = (seconds: number) =&gt;
-          `$&#123;seconds&#125;s`;
+          const formatDuration = (seconds: number) =&gt; `$&#123;seconds&#125;s`;
         </div>
       </div>
 
@@ -308,30 +297,23 @@ export const TypeScale: Story = {
 export const RealWorldExample: Story = {
   render: () => (
     <div class="p-8 max-w-3xl bg-[var(--color-bg-primary)]">
-      <h2 class="heading-2 text-[var(--color-text-primary)] mb-2">
-        {mockAlbums[0].title}
-      </h2>
+      <h2 class="heading-2 text-[var(--color-text-primary)] mb-2">{mockAlbums[0].title}</h2>
       <p class="body-small text-[var(--color-text-tertiary)] mb-6">
         {mockArtists[0].name} • {mockAlbums[0].year} • progressive rock
       </p>
 
       <div class="space-y-4">
         <div>
-          <h3 class="heading-5 text-[var(--color-text-primary)] mb-2">
-            about this album
-          </h3>
+          <h3 class="heading-5 text-[var(--color-text-primary)] mb-2">about this album</h3>
           <p class="body-base text-[var(--color-text-secondary)] leading-relaxed">
-            {mockAlbums[0].title} is a landmark studio album by{" "}
-            {mockArtists[0].name}, released in {mockAlbums[0].year}. the album
-            is known for its philosophical and introspective lyrics, complex
-            musical arrangements, and innovative use of studio effects.
+            {mockAlbums[0].title} is a landmark studio album by {mockArtists[0].name}, released in{" "}
+            {mockAlbums[0].year}. the album is known for its philosophical and introspective lyrics,
+            complex musical arrangements, and innovative use of studio effects.
           </p>
         </div>
 
         <div>
-          <div class="label text-[var(--color-text-secondary)] mb-3">
-            track listing
-          </div>
+          <div class="label text-[var(--color-text-secondary)] mb-3">track listing</div>
           <div class="space-y-2">
             <div class="flex justify-between items-center body-small text-[var(--color-text-primary)]">
               <span>1. speak to me</span>
@@ -404,17 +386,13 @@ export const TypographyComponents: Story = {
         <Caption class="mb-4">specialized components</Caption>
         <div class="space-y-3">
           <div>
-            <Label class="text-[var(--color-text-secondary)]">
-              section label
-            </Label>
+            <Label class="text-[var(--color-text-secondary)]">section label</Label>
           </div>
           <div>
             <Caption>caption text for supplementary information</Caption>
           </div>
           <div>
-            <Monospace class="text-[var(--color-text-primary)]">
-              const duration = "3:45";
-            </Monospace>
+            <Monospace class="text-[var(--color-text-primary)]">const duration = "3:45";</Monospace>
           </div>
         </div>
       </div>
@@ -429,9 +407,8 @@ export const TypographyComponents: Story = {
             {mockArtists[0].name} • {mockAlbums[0].title} • {mockAlbums[0].year}
           </Caption>
           <BodyText size="base" class="text-[var(--color-text-secondary)] mb-4">
-            the opening track sets the stage with a collage of sounds, including
-            a heartbeat, cash register, and spoken voices that introduce themes
-            explored throughout the album.
+            the opening track sets the stage with a collage of sounds, including a heartbeat, cash
+            register, and spoken voices that introduce themes explored throughout the album.
           </BodyText>
           <div class="flex gap-4 items-center">
             <Label class="text-[var(--color-text-secondary)]">duration</Label>

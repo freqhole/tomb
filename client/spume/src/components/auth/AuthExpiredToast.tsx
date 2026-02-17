@@ -2,7 +2,7 @@
 // displays a persistent warning with a "sign in" button to trigger re-auth
 
 import { Toast as KobalteToast } from "@kobalte/core/toast";
-import { solidColors } from "../../../design-system/colors";
+import { solidColors } from "../../design-system/colors";
 import { Icon } from "../icons/registry";
 
 interface AuthExpiredToastProps {

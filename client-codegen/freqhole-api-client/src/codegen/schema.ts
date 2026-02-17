@@ -757,11 +757,13 @@ export const FeedItemSchema = z.object({
   artist_name: z.string().nullable(),
   album_title: z.string().nullable(),
   genre: z.string().nullable(),
+  genre_id: z.string().nullable(),
   year: z.number().nullable(),
   song_count: z.number().nullable(),
   total_duration_ms: z.number().nullable(),
   description: z.string().nullable(),
-  tags: z.array(z.string()).nullable()
+  tags: z.array(z.string()).nullable(),
+  is_favorite: z.boolean()
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
@@ -806,11 +808,13 @@ export const FeedResponseSchema = z.object({
   artist_name: z.string().nullable(),
   album_title: z.string().nullable(),
   genre: z.string().nullable(),
+  genre_id: z.string().nullable(),
   year: z.number().nullable(),
   song_count: z.number().nullable(),
   total_duration_ms: z.number().nullable(),
   description: z.string().nullable(),
-  tags: z.array(z.string()).nullable()
+  tags: z.array(z.string()).nullable(),
+  is_favorite: z.boolean()
 })),
   total: z.number()
 });

@@ -38,8 +38,9 @@ SELECT
     NULL as total_songs,
     (SELECT a.name FROM artist_songz asz3 JOIN artistz a ON a.id = asz3.artist_id WHERE asz3.song_id = uf.target_id LIMIT 1) as artist_name,
     (SELECT alb.title FROM album_songz als2 JOIN albumz alb ON alb.id = als2.album_id WHERE als2.song_id = uf.target_id LIMIT 1) as album_title,
-    NULL as genre,
-    NULL as year,
+    (SELECT g.name FROM album_songz als3 JOIN album_genrez ag ON ag.album_id = als3.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als3.song_id = uf.target_id LIMIT 1) as genre,
+    (SELECT g.id FROM album_songz als4 JOIN album_genrez ag ON ag.album_id = als4.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als4.song_id = uf.target_id LIMIT 1) as genre_id,
+    (SELECT CAST(SUBSTR(alb2.release_date, 1, 4) AS INTEGER) FROM album_songz als5 JOIN albumz alb2 ON alb2.id = als5.album_id WHERE als5.song_id = uf.target_id LIMIT 1) as year,
     NULL as song_count,
     NULL as total_duration_ms,
     NULL as description,
@@ -81,6 +82,7 @@ SELECT
     (SELECT a.name FROM artist_albumz aa3 JOIN artistz a ON a.id = aa3.artist_id WHERE aa3.album_id = alb.id LIMIT 1) as artist_name,
     alb.title as album_title,
     (SELECT g.name FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = alb.id LIMIT 1) as genre,
+    (SELECT g.id FROM album_genrez ag2 JOIN genrez g ON g.id = ag2.genre_id WHERE ag2.album_id = alb.id LIMIT 1) as genre_id,
     CAST(SUBSTR(alb.release_date, 1, 4) AS INTEGER) as year,
     alb.song_count as song_count,
     alb.total_duration as total_duration_ms,
@@ -154,8 +156,21 @@ SELECT
         WHEN ur.target_type = 'album' THEN (SELECT alb.title FROM albumz alb WHERE alb.id = ur.target_id)
         ELSE NULL
     END as album_title,
-    NULL as genre,
-    NULL as year,
+    CASE
+        WHEN ur.target_type = 'song' THEN (SELECT g.name FROM album_songz als JOIN album_genrez ag ON ag.album_id = als.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als.song_id = ur.target_id LIMIT 1)
+        WHEN ur.target_type = 'album' THEN (SELECT g.name FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = ur.target_id LIMIT 1)
+        ELSE NULL
+    END as genre,
+    CASE
+        WHEN ur.target_type = 'song' THEN (SELECT g.id FROM album_songz als JOIN album_genrez ag ON ag.album_id = als.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als.song_id = ur.target_id LIMIT 1)
+        WHEN ur.target_type = 'album' THEN (SELECT g.id FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = ur.target_id LIMIT 1)
+        ELSE NULL
+    END as genre_id,
+    CASE
+        WHEN ur.target_type = 'song' THEN (SELECT CAST(SUBSTR(alb.release_date, 1, 4) AS INTEGER) FROM album_songz als JOIN albumz alb ON alb.id = als.album_id WHERE als.song_id = ur.target_id LIMIT 1)
+        WHEN ur.target_type = 'album' THEN (SELECT CAST(SUBSTR(alb.release_date, 1, 4) AS INTEGER) FROM albumz alb WHERE alb.id = ur.target_id)
+        ELSE NULL
+    END as year,
     NULL as song_count,
     NULL as total_duration_ms,
     NULL as description,
@@ -195,6 +210,7 @@ SELECT
     NULL as artist_name,
     NULL as album_title,
     NULL as genre,
+    NULL as genre_id,
     NULL as year,
     (SELECT COUNT(*) FROM playlist_songz ps WHERE ps.playlist_id = p.id) as song_count,
     (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps2 JOIN songz s ON s.id = ps2.song_id WHERE ps2.playlist_id = p.id) as total_duration_ms,
@@ -266,6 +282,7 @@ SELECT
         ELSE NULL
     END as album_title,
     NULL as genre,
+    NULL as genre_id,
     NULL as year,
     NULL as song_count,
     ls.total_duration_ms as total_duration_ms,
@@ -309,6 +326,7 @@ SELECT
     artist_name,
     NULL as album_title,
     NULL as genre,
+    NULL as genre_id,
     NULL as year,
     NULL as song_count,
     NULL as total_duration_ms,

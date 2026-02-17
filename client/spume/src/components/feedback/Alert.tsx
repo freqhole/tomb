@@ -1,9 +1,6 @@
 import type { JSX, ParentComponent } from "solid-js";
 import { Show, splitProps } from "solid-js";
-import {
-  translucentColors,
-  type TranslucentColorVariant,
-} from "../../../design-system/colors";
+import { translucentColors, type TranslucentColorVariant } from "../../design-system/colors";
 import { Icon, type IconName } from "../icons/registry";
 
 export interface AlertProps extends JSX.HTMLAttributes<HTMLDivElement> {

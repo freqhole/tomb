@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { solidColors } from "../design-system/colors";
+import { solidColors } from "../src/design-system/colors";
 import { Badge } from "../src/components/badges/Badge";
 import { Button } from "../src/components/buttons/Button";
 import { Alert } from "../src/components/feedback/Alert";
@@ -19,13 +19,9 @@ export const AllVariants: Story = {
   render: () => (
     <div class="p-8 bg-[var(--color-bg-primary)]">
       <div class="max-w-2xl space-y-4">
-        <Alert variant="success">
-          your changes have been saved successfully
-        </Alert>
+        <Alert variant="success">your changes have been saved successfully</Alert>
 
-        <Alert variant="info">
-          this is some helpful information you might want to know
-        </Alert>
+        <Alert variant="info">this is some helpful information you might want to know</Alert>
 
         <Alert variant="warning">
           your session will expire in 5 minutes. please save your work
@@ -53,8 +49,7 @@ export const WithTitles: Story = {
         </Alert>
 
         <Alert variant="warning" title="heads up">
-          some metadata fields are missing. consider filling them out for better
-          organization
+          some metadata fields are missing. consider filling them out for better organization
         </Alert>
 
         <Alert variant="error" title="upload failed">
@@ -77,42 +72,25 @@ export const Dismissible: Story = {
       <div class="p-8 bg-[var(--color-bg-primary)]">
         <div class="max-w-2xl space-y-4">
           {showSuccess() && (
-            <Alert
-              variant="success"
-              title="songs imported"
-              onClose={() => setShowSuccess(false)}
-            >
+            <Alert variant="success" title="songs imported" onClose={() => setShowSuccess(false)}>
               successfully imported 12 songs to your library
             </Alert>
           )}
 
           {showInfo() && (
-            <Alert
-              variant="info"
-              title="new feature"
-              onClose={() => setShowInfo(false)}
-            >
+            <Alert variant="info" title="new feature" onClose={() => setShowInfo(false)}>
               you can now search by lyrics in addition to song metadata
             </Alert>
           )}
 
           {showWarning() && (
-            <Alert
-              variant="warning"
-              title="storage warning"
-              onClose={() => setShowWarning(false)}
-            >
-              you're using 80% of your storage quota. consider upgrading your
-              plan
+            <Alert variant="warning" title="storage warning" onClose={() => setShowWarning(false)}>
+              you're using 80% of your storage quota. consider upgrading your plan
             </Alert>
           )}
 
           {showError() && (
-            <Alert
-              variant="error"
-              title="connection error"
-              onClose={() => setShowError(false)}
-            >
+            <Alert variant="error" title="connection error" onClose={() => setShowError(false)}>
               unable to sync with server. check your internet connection
             </Alert>
           )}
@@ -206,9 +184,7 @@ export const InlineValidation: Story = {
       <div class="p-8 bg-[var(--color-bg-primary)]">
         <div class="max-w-md space-y-4">
           <div>
-            <label class="label text-[var(--color-text-secondary)] block mb-2">
-              email address
-            </label>
+            <label class="label text-[var(--color-text-secondary)] block mb-2">email address</label>
             <input
               type="email"
               value={email()}
@@ -242,9 +218,7 @@ export const InlineValidation: Story = {
 // form submission feedback
 export const FormFeedback: Story = {
   render: () => {
-    const [status, setStatus] = createSignal<
-      "idle" | "loading" | "success" | "error"
-    >("idle");
+    const [status, setStatus] = createSignal<"idle" | "loading" | "success" | "error">("idle");
     const [errorMessage, setErrorMessage] = createSignal("");
 
     const handleSubmit = () => {
@@ -265,9 +239,7 @@ export const FormFeedback: Story = {
     return (
       <div class="p-8 bg-[var(--color-bg-primary)]">
         <div class="max-w-2xl">
-          <h2 class="heading-5 text-[var(--color-text-primary)] mb-6">
-            edit song metadata
-          </h2>
+          <h2 class="heading-5 text-[var(--color-text-primary)] mb-6">edit song metadata</h2>
 
           <div class="space-y-4">
             {status() === "loading" && (
@@ -277,21 +249,13 @@ export const FormFeedback: Story = {
             )}
 
             {status() === "success" && (
-              <Alert
-                variant="success"
-                title="changes saved"
-                onClose={() => setStatus("idle")}
-              >
+              <Alert variant="success" title="changes saved" onClose={() => setStatus("idle")}>
                 your song metadata has been updated successfully
               </Alert>
             )}
 
             {status() === "error" && (
-              <Alert
-                variant="error"
-                title="failed to save"
-                onClose={() => setStatus("idle")}
-              >
+              <Alert variant="error" title="failed to save" onClose={() => setStatus("idle")}>
                 {errorMessage()}
               </Alert>
             )}
@@ -310,11 +274,7 @@ export const FormFeedback: Story = {
             </div>
 
             <div class="flex gap-2">
-              <Button
-                variant="primary"
-                onClick={handleSubmit}
-                disabled={status() === "loading"}
-              >
+              <Button variant="primary" onClick={handleSubmit} disabled={status() === "loading"}>
                 {status() === "loading" ? "saving..." : "save changes"}
               </Button>
               <Button
@@ -342,13 +302,11 @@ export const UploadStatus: Story = {
         </Alert>
 
         <Alert variant="warning" icon="alertTriangle" title="duplicate found">
-          "bohemian rhapsody.mp3" already exists in your library. would you like
-          to replace it?
+          "bohemian rhapsody.mp3" already exists in your library. would you like to replace it?
         </Alert>
 
         <Alert variant="success" icon="check" title="upload complete">
-          successfully uploaded 3 songs. 2 new songs added, 1 skipped
-          (duplicate)
+          successfully uploaded 3 songs. 2 new songs added, 1 skipped (duplicate)
         </Alert>
 
         <Alert variant="error" icon="x" title="upload failed">
@@ -401,9 +359,7 @@ export const StackedAlerts: Story = {
           ))}
 
           {alerts().length === 0 && (
-            <div class="text-center py-8 text-[var(--color-text-tertiary)]">
-              no alerts
-            </div>
+            <div class="text-center py-8 text-[var(--color-text-tertiary)]">no alerts</div>
           )}
         </div>
       </div>
@@ -463,8 +419,7 @@ export const SolidVsTranslucent: Story = {
             translucent alerts (default)
           </h3>
           <p class="body-small text-[var(--color-text-secondary)] mb-4">
-            translucent backgrounds with white text - used for inline messages
-            and notifications
+            translucent backgrounds with white text - used for inline messages and notifications
           </p>
           <div class="space-y-3">
             <Alert variant="success" title="success">
@@ -487,8 +442,8 @@ export const SolidVsTranslucent: Story = {
             solid badges (for comparison)
           </h3>
           <p class="body-small text-[var(--color-text-secondary)] mb-4">
-            solid backgrounds with appropriate text colors -
-            success/warning/info use black text, error uses white text
+            solid backgrounds with appropriate text colors - success/warning/info use black text,
+            error uses white text
           </p>
           <div class="flex gap-3 flex-wrap">
             <Badge variant="success">success badge</Badge>
@@ -499,28 +454,21 @@ export const SolidVsTranslucent: Story = {
         </div>
 
         <div class="border border-[var(--color-border-default)] rounded-lg p-6 bg-[var(--color-bg-secondary)]">
-          <h4 class="heading-6 text-[var(--color-text-primary)] mb-3">
-            color usage guide
-          </h4>
+          <h4 class="heading-6 text-[var(--color-text-primary)] mb-3">color usage guide</h4>
           <div class="space-y-2 body-small text-[var(--color-text-secondary)]">
             <p>
-              <strong class="text-[var(--color-text-primary)]">
-                translucent (alerts):
-              </strong>{" "}
-              all variants use white text because translucent colors on black
-              backgrounds need high contrast
+              <strong class="text-[var(--color-text-primary)]">translucent (alerts):</strong> all
+              variants use white text because translucent colors on black backgrounds need high
+              contrast
             </p>
             <p>
-              <strong class="text-[var(--color-text-primary)]">
-                solid (badges/buttons):
-              </strong>{" "}
-              success/warning/info use black text on bright backgrounds,
-              error/accent use white text on dark backgrounds
+              <strong class="text-[var(--color-text-primary)]">solid (badges/buttons):</strong>{" "}
+              success/warning/info use black text on bright backgrounds, error/accent use white text
+              on dark backgrounds
             </p>
             <p class="caption text-[var(--color-text-tertiary)] pt-2">
-              these pairings are defined in{" "}
-              <code class="monospace">design-system/colors.ts</code> to prevent
-              bugs
+              these pairings are defined in <code class="monospace">design-system/colors.ts</code>{" "}
+              to prevent bugs
             </p>
           </div>
         </div>

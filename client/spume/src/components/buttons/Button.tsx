@@ -1,8 +1,7 @@
 import { JSX, splitProps } from "solid-js";
-import { solidColors } from "../../../design-system/colors";
+import { solidColors } from "../../design-system/colors";
 
-export interface ButtonProps
-  extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   /** visual style variant */
   variant?: "primary" | "secondary" | "ghost" | "danger";
   /** size variant */
@@ -14,13 +13,7 @@ export interface ButtonProps
 }
 
 export function Button(props: ButtonProps) {
-  const [local, others] = splitProps(props, [
-    "variant",
-    "size",
-    "fullWidth",
-    "class",
-    "children",
-  ]);
+  const [local, others] = splitProps(props, ["variant", "size", "fullWidth", "class", "children"]);
 
   const variant = () => local.variant || "primary";
   const size = () => local.size || "md";

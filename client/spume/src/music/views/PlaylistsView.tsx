@@ -993,7 +993,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                 </Button>
                               </Show>
                               <IconButton
-                                icon="library"
+                                icon="carousel"
                                 size="default"
                                 onClick={handleOpenImageCarousel}
                                 aria-label="view all images"
@@ -1108,7 +1108,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                             </Button>
                           </Show>
                           <IconButton
-                            icon="library"
+                            icon="carousel"
                             size="default"
                             onClick={handleOpenImageCarousel}
                             aria-label="view all images"
