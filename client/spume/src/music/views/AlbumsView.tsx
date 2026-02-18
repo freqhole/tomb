@@ -2,6 +2,7 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useHistoryState } from "../../utils/historyState";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
@@ -67,12 +68,15 @@ export function AlbumsView(props: AlbumsViewProps) {
   // track query changes to force grid reset
   const [isResetting, setIsResetting] = createSignal(false);
 
-  // sorting state
-  const [sortField, setSortField] = createSignal<AlbumSortField>("added_at");
-  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
+  // sorting state (persisted in browser history)
+  const [sortField, setSortField] = useHistoryState<AlbumSortField>("albums.sortField", "added_at");
+  const [sortDirection, setSortDirection] = useHistoryState<"asc" | "desc">(
+    "albums.sortDirection",
+    "desc"
+  );
 
-  // tag filtering state
-  const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+  // tag filtering state (persisted in browser history)
+  const [tagFilters, setTagFilters] = useHistoryState<TagFilter[]>("albums.tagFilters", []);
 
   // fetch available tags
   const tagsQuery = useTagsQuery();

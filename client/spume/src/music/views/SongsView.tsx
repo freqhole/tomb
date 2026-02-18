@@ -4,6 +4,7 @@ import { useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useHistoryState } from "../../utils/historyState";
 import { Button } from "../../components/buttons/Button";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import {
@@ -78,12 +79,15 @@ export function SongsView(props: SongsViewProps) {
     )
   );
 
-  // sorting state
-  const [sortField, setSortField] = createSignal<SongSortField>("added_at");
-  const [sortDirection, setSortDirection] = createSignal<SortDirection>("desc");
+  // sorting state (persisted in browser history)
+  const [sortField, setSortField] = useHistoryState<SongSortField>("songs.sortField", "added_at");
+  const [sortDirection, setSortDirection] = useHistoryState<SortDirection>(
+    "songs.sortDirection",
+    "desc"
+  );
 
-  // tag filtering state
-  const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+  // tag filtering state (persisted in browser history)
+  const [tagFilters, setTagFilters] = useHistoryState<TagFilter[]>("songs.tagFilters", []);
 
   // track query/filter changes to force list reset
   const [isResetting, setIsResetting] = createSignal(false);

@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useHistoryState } from "../../utils/historyState";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
 import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
@@ -51,8 +52,11 @@ export function GenresView(props: GenresViewProps) {
   );
 
   const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(initialGenreId);
-  const [sortBy, setSortBy] = createSignal("name");
-  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
+  const [sortBy, setSortBy] = useHistoryState("genres.sortBy", "name");
+  const [sortDirection, setSortDirection] = useHistoryState<"asc" | "desc">(
+    "genres.sortDirection",
+    "asc"
+  );
 
   // store scrollToIndex function from virtualizer
   const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);

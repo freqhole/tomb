@@ -7,6 +7,7 @@ import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
+import { useHistoryState } from "../../utils/historyState";
 import { getCurrentRemote, getCurrentUserId, getDataSource } from "../data";
 import type { FeedItem } from "../data/types";
 import {
@@ -35,9 +36,12 @@ export function FeedView() {
   const queryClient = useQueryClient();
   const remote = getCurrentRemote();
 
-  // filter state
-  const [feedTypeFilters, setFeedTypeFilters] = createSignal<FeedTypeFilter[]>([]);
-  const [myItemsOnly, setMyItemsOnly] = createSignal(false);
+  // filter state (persisted in browser history)
+  const [feedTypeFilters, setFeedTypeFilters] = useHistoryState<FeedTypeFilter[]>(
+    "feed.typeFilters",
+    []
+  );
+  const [myItemsOnly, setMyItemsOnly] = useHistoryState("feed.myItemsOnly", false);
 
   // derived filter accessors for the query
   const feedTypesForQuery = () => {

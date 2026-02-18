@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useHistoryState } from "../../utils/historyState";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
@@ -58,8 +59,11 @@ export function ArtistsView(props: ArtistsViewProps) {
   );
 
   const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(initialArtistId);
-  const [sortBy, setSortBy] = createSignal("name");
-  const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("asc");
+  const [sortBy, setSortBy] = useHistoryState("artists.sortBy", "name");
+  const [sortDirection, setSortDirection] = useHistoryState<"asc" | "desc">(
+    "artists.sortDirection",
+    "asc"
+  );
   const [currentLetter, setCurrentLetter] = createSignal<string | null>(null);
   const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
   const [isLocalClick, setIsLocalClick] = createSignal(false);
