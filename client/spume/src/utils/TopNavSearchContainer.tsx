@@ -1,7 +1,9 @@
 import { Component, createSignal } from "solid-js";
 import { TopNavSearch, TopNavSearchProps } from "../components/navigation/TopNavSearch";
 import { useSearchSuggestions } from "../music/queries/search";
+import { getCurrentRemote } from "../music/data";
 import type { SearchSuggestion as SearchInputSuggestion } from "../components/forms/SearchInput";
+import type { ImageMetadata } from "../music/services/storage/types";
 
 type TopNavSearchContainerProps = Omit<
   TopNavSearchProps,
@@ -32,6 +34,8 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
   // map API suggestions to SearchInputSuggestion format
   const suggestions = (): SearchInputSuggestion[] => {
     const data = suggestionsQuery.data?.pages?.flatMap((p) => p.suggestions) || [];
+    const remote = getCurrentRemote();
+    const baseUrl = remote?.base_url || "";
 
     return data.map((s) => {
       return {
@@ -39,7 +43,7 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
         text: s.display,
         category: s.suggestion_type || "unknown",
         highlight: s.highlight,
-        count: s.count > 0 ? s.count : undefined,
+        images: parseMetadataImages(s.metadata, baseUrl),
         isFavorite: s.is_favorite,
         data: s,
       };
@@ -57,3 +61,19 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
     />
   );
 };
+
+// parse the images JSON string from suggestion metadata into ImageMetadata[]
+function parseMetadataImages(metadata: any, baseUrl: string): ImageMetadata[] | undefined {
+  if (!metadata?.images) return undefined;
+  try {
+    const raw = typeof metadata.images === "string" ? JSON.parse(metadata.images) : metadata.images;
+    if (!Array.isArray(raw) || raw.length === 0) return undefined;
+    return raw.map((img: any) => ({
+      remote_url: `${baseUrl}/api/blobs/${img.media_blob_id}`,
+      is_primary: !!img.is_primary,
+      blob_type: "thumbnail" as const,
+    }));
+  } catch {
+    return undefined;
+  }
+}

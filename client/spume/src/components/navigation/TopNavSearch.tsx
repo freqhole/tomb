@@ -1,40 +1,31 @@
-// top nav search component with suggestions and navigation
-// uses hover-to-preview + click-to-lock pattern matching sort/tag controls
+// top nav search — expands on hover/click, shows suggestions, navigates on selection
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
-import type { SearchSuggestion } from "../../music/data/types";
+import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue } from "../../music/services/queue/queue";
-import { routes } from "../../music/utils/routing";
+import { routes, matchRoute } from "../../music/utils/routing";
 import { Icon } from "../icons/registry";
-import type { SearchSuggestion as SearchInputSuggestion } from "../forms/SearchInput";
+import type { SearchSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
 
 export interface TopNavSearchProps {
-  /** placeholder text */
   placeholder?: string;
-  /** callback when search is collapsed */
   onCollapse?: () => void;
-  /** callback for navigation - if not provided, navigation is disabled */
   onNavigate?: (path: string) => void;
-  /** current pathname for filtering logic */
   currentPath?: string;
-  /** search suggestions - if not provided, suggestions are disabled */
-  suggestions?: SearchInputSuggestion[];
-  /** callback when search value changes - parent should fetch suggestions */
+  suggestions?: SearchSuggestion[];
   onSearchChange?: (value: string) => void;
-  /** whether more suggestions are available */
   hasMoreSuggestions?: boolean;
-  /** whether suggestions are loading */
   isLoadingSuggestions?: boolean;
-  /** callback to load more suggestions */
   onLoadMoreSuggestions?: () => void;
-  /** callback when expanded state changes */
   onExpandedChange?: (expanded: boolean) => void;
-  /** whether the parent nav is being hovered — collapse when this goes false (unless locked) */
+  /** whether the parent nav is being hovered */
   navHovered?: boolean;
 }
 
-// top nav search with suggestions and navigation (presentational)
+// filterable route keys — used for the "press return to filter X" hint
+const FILTERABLE_KEYS = new Set(["songs", "albums", "artists", "playlists", "genres"]);
+
 export function TopNavSearch(props: TopNavSearchProps) {
   const [searchValue, setSearchValue] = createSignal("");
   const [isExpanded, setIsExpanded] = createSignal(false);
@@ -42,153 +33,246 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [isFocused, setIsFocused] = createSignal(false);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
   let inputRef: HTMLInputElement | undefined;
-  let preventReopen = false;
-  let closeTimeout: ReturnType<typeof setTimeout> | undefined;
+  let collapseTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // whether search should stay open (has value, is focused, or is locked)
   const shouldStayOpen = () => searchValue().length > 0 || isFocused() || isLocked();
 
-  // collapse search and clear state
+  // which filterable view are we on (if any)?
+  const currentRouteKey = createMemo(() => matchRoute(props.currentPath || ""));
+  const filterableView = createMemo(() => {
+    const key = currentRouteKey();
+    return key && FILTERABLE_KEYS.has(key) ? key : null;
+  });
+
+  // hint message — focused + filterable route, nothing else
+  const hintMessage = createMemo(() => {
+    const view = filterableView();
+    if (!view || !isFocused()) return null;
+    return `press return to filter ${view}`;
+  });
+
+  // initialize search value from ?q= query param (e.g., on page reload)
+  createEffect(
+    on(
+      () => props.currentPath,
+      (path) => {
+        if (!path) return;
+        const qMatch = path.match(/[?&]q=([^&]*)/);
+        const q = qMatch ? decodeURIComponent(qMatch[1]) : "";
+        if (q && !searchValue()) {
+          setSearchValue(q);
+          props.onSearchChange?.(q);
+          setIsExpanded(true);
+          setIsLocked(true);
+        }
+      },
+      { defer: false }
+    )
+  );
+
+  // --- expand / collapse ---
+
   const collapse = () => {
     setIsExpanded(false);
     setIsLocked(false);
     setIsFocused(false);
     setSuggestionsOpen(false);
-    handleClear();
+    setSearchValue("");
+    props.onSearchChange?.("");
+    clearFilterQueryParam();
     props.onCollapse?.();
   };
 
-  // notify parent when expanded state changes
-  createEffect(() => {
-    props.onExpandedChange?.(isExpanded());
-  });
+  createEffect(() => props.onExpandedChange?.(isExpanded()));
 
-  // get current filterable view name
-  const currentFilterableView = createMemo(() => {
-    const pathname = props.currentPath || "";
-    const filterableRoutes = ["songs", "albums", "artists", "playlists", "genres"];
-    return filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
-  });
-
-  // cmd+k keyboard shortcut to focus search
-  createEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setIsExpanded(true);
-        setIsLocked(true);
-        setTimeout(() => inputRef?.focus(), 0);
-      }
-    };
-
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", handleGlobalKeyDown));
-  });
-
-  // use suggestions from props
-  const suggestions = () => props.suggestions || [];
-
-  // create hint message for enter key action
-  const enterHintMessage = createMemo(() => {
-    const view = currentFilterableView();
-    if (!view || !searchValue() || searchValue().length < 2) return null;
-    return `press enter to filter ${view}`;
-  });
-
-  // handle loading more suggestions
-  const handleEndReached = () => {
-    if (props.hasMoreSuggestions && !props.isLoadingSuggestions) {
-      props.onLoadMoreSuggestions?.();
-    }
-  };
-
-  const handleInputChange = (value: string) => {
-    setSearchValue(value);
-    props.onSearchChange?.(value);
-    if (value && !isExpanded()) {
-      setIsExpanded(true);
-    }
-    if (value.length >= 2) {
-      setSuggestionsOpen(true);
-    } else {
-      setSuggestionsOpen(false);
-    }
-  };
-
-  // hover handlers - expand on enter; collapse is handled by nav-level mouse leave
-  const handleMouseEnter = () => {
-    clearTimeout(closeTimeout);
-    if (!isExpanded()) setIsExpanded(true);
-  };
-
-  // react to nav hover state — collapse when mouse leaves the entire nav
+  // collapse when nav is no longer hovered (unless locked/focused/has value)
   createEffect(
     on(
       () => props.navHovered,
-      (hovered, prevHovered) => {
-        // only act when going from hovered to not-hovered
-        if (prevHovered && !hovered && !shouldStayOpen()) {
-          closeTimeout = setTimeout(() => {
-            if (!shouldStayOpen()) {
-              setIsExpanded(false);
-            }
+      (hovered, prev) => {
+        if (prev && !hovered && !shouldStayOpen()) {
+          collapseTimer = setTimeout(() => {
+            if (!shouldStayOpen()) setIsExpanded(false);
           }, 150);
         }
       }
     )
   );
 
-  // click-lock toggle on the search icon button
+  onCleanup(() => clearTimeout(collapseTimer));
+
+  const handleMouseEnter = () => {
+    clearTimeout(collapseTimer);
+    if (!isExpanded()) setIsExpanded(true);
+  };
+
   const handleIconClick = () => {
     if (isExpanded() && isLocked()) {
-      // already locked and open — clear and collapse
       collapse();
     } else {
-      // lock open and focus
       setIsExpanded(true);
       setIsLocked(true);
-      setTimeout(() => inputRef?.focus(), 0);
+      requestAnimationFrame(() => inputRef?.focus());
     }
   };
+
+  // --- cmd+k and / shortcuts ---
+  createEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setIsExpanded(true);
+        setIsLocked(true);
+        requestAnimationFrame(() => inputRef?.focus());
+      }
+      // "/" opens search unless user is typing in an input/textarea
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable)
+          return;
+        e.preventDefault();
+        setIsExpanded(true);
+        setIsLocked(true);
+        requestAnimationFrame(() => inputRef?.focus());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  // --- input / keyboard ---
+
+  const handleInputChange = (value: string) => {
+    setSearchValue(value);
+    props.onSearchChange?.(value);
+    if (value && !isExpanded()) setIsExpanded(true);
+    setSuggestionsOpen(value.length >= 2);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      // "enter" with no highlighted suggestion → filter current view
+      setSuggestionsOpen(false);
+      submitFilter();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      if (searchValue()) {
+        // first escape: clear text but keep input expanded/focused
+        setSearchValue("");
+        props.onSearchChange?.("");
+        setSuggestionsOpen(false);
+        clearFilterQueryParam();
+      } else {
+        // second escape (or no text): collapse everything
+        collapse();
+        inputRef?.blur();
+      }
+    }
+  };
+
+  const handleFocus = () => {
+    setIsFocused(true);
+    // reopen suggestions if there's a query (results may still be cached from previous search)
+    if (searchValue().length >= 2 || (props.suggestions?.length ?? 0) > 0) {
+      setSuggestionsOpen(true);
+    }
+  };
+
+  const handleBlur = (e: FocusEvent) => {
+    setIsFocused(false);
+    const related = e.relatedTarget as HTMLElement | null;
+    if (related?.closest('[role="listbox"]')) return;
+    setSuggestionsOpen(false);
+    if (!isLocked() && !searchValue()) {
+      collapseTimer = setTimeout(() => {
+        if (!isFocused() && !isLocked() && !searchValue()) setIsExpanded(false);
+      }, 150);
+    }
+  };
+
+  // --- clear / filter ---
 
   const handleClear = () => {
     setSearchValue("");
     props.onSearchChange?.("");
-    // if on a filterable view with query param, clear it
+    clearFilterQueryParam();
+  };
+
+  const clearFilterQueryParam = () => {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
-    const hasQueryParams = fullPath.includes("?");
-    const filterableRoutes = ["songs", "albums", "artists", "playlists", "genres"];
-    const currentRoute = filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
-    if (currentRoute && hasQueryParams) {
+    const key = matchRoute(fullPath);
+    if (fullPath.includes("?") && key && FILTERABLE_KEYS.has(key)) {
       props.onNavigate?.(pathname);
     }
   };
 
-  const handleThumbnailClick = async (suggestion: SearchSuggestion) => {
-    const dataSource = getDataSource();
+  const submitFilter = () => {
+    const q = searchValue();
+    if (q.length < 2) return;
+    const fullPath = props.currentPath || "";
+    const pathname = fullPath.split("?")[0];
+    const key = matchRoute(fullPath);
+    if (key && FILTERABLE_KEYS.has(key)) {
+      props.onNavigate?.(`${pathname}?q=${encodeURIComponent(q)}`);
+    }
+  };
 
+  // --- selection (row click or keyboard Enter on highlighted item) ---
+
+  const handleSelect = (suggestion: SearchSuggestion) => {
+    if (!suggestion?.data) return;
+
+    const s = suggestion.data as APISuggestion;
+    const meta = s.metadata as any;
+
+    // navigate based on type
+    switch (s.suggestion_type) {
+      case "song":
+        if (meta?.album_id) props.onNavigate?.(routes.album(meta.album_id));
+        break;
+      case "artist":
+        props.onNavigate?.(routes.artist(s.entity_id));
+        break;
+      case "album":
+        props.onNavigate?.(routes.album(s.entity_id));
+        break;
+      case "genre":
+        props.onNavigate?.(routes.genre(s.entity_id));
+        break;
+      case "playlist":
+        props.onNavigate?.(routes.playlist(s.entity_id));
+        break;
+    }
+
+    // close dropdown and clear focus so hint doesn't linger
+    setSuggestionsOpen(false);
+    setIsFocused(false);
+  };
+
+  // --- play actions (thumbnail click) ---
+
+  const handlePlay = async (suggestion: APISuggestion) => {
+    const dataSource = getDataSource();
     try {
       switch (suggestion.suggestion_type) {
         case "song":
-          await handlePlaySong(suggestion.entity_id);
+          await playSong(suggestion.entity_id);
           break;
-
         case "album": {
-          const albumSongs = await dataSource.getAlbumSongs?.(suggestion.entity_id);
-          if (albumSongs && albumSongs.items.length > 0) {
-            await addToQueue(albumSongs.items, {
+          const songs = await dataSource.getAlbumSongs?.(suggestion.entity_id);
+          if (songs?.items.length) {
+            await addToQueue(songs.items, {
               startPlaying: true,
               source: { type: "album", label: suggestion.display, entity_id: suggestion.entity_id },
             });
           }
           break;
         }
-
         case "playlist": {
-          const playlistSongs = await dataSource.getPlaylistSongs?.(suggestion.entity_id);
-          if (playlistSongs && playlistSongs.items.length > 0) {
-            await addToQueue(playlistSongs.items, {
+          const songs = await dataSource.getPlaylistSongs?.(suggestion.entity_id);
+          if (songs?.items.length) {
+            await addToQueue(songs.items, {
               startPlaying: true,
               source: {
                 type: "playlist",
@@ -200,143 +284,45 @@ export function TopNavSearch(props: TopNavSearchProps) {
           break;
         }
       }
-    } catch (error) {
-      console.error("failed to play:", error);
+    } catch (err) {
+      console.error("failed to play:", err);
     }
-
-    // collapse search after playing
-    collapse();
+    // don't collapse — keep suggestions open so user can keep browsing
   };
 
-  const handleSelect = (suggestion: SearchInputSuggestion) => {
-    if (!suggestion || !suggestion.data) {
-      return;
-    }
-
-    // collapse search BEFORE navigation to prevent blur handler from interfering
-    setSearchValue("");
-    setIsExpanded(false);
-    setIsLocked(false);
-    setSuggestionsOpen(false);
-
-    const s = suggestion.data as SearchSuggestion;
-    const meta = s.metadata as any;
-
-    // delay navigation to let state changes complete
-    setTimeout(() => {
-      switch (s.suggestion_type) {
-        case "song":
-          if (meta?.album_id) {
-            props.onNavigate?.(routes.album(meta.album_id));
-          }
-          break;
-
-        case "artist":
-          props.onNavigate?.(routes.artist(s.entity_id));
-          break;
-
-        case "album":
-          props.onNavigate?.(routes.album(s.entity_id));
-          break;
-
-        case "genre":
-          props.onNavigate?.(routes.genre(s.entity_id));
-          break;
-
-        case "playlist":
-          props.onNavigate?.(routes.playlist(s.entity_id));
-          break;
-
-        default:
-          break;
-      }
-    }, 0);
-  };
-
-  const handleSearchSubmit = () => {
-    const query = searchValue();
-    if (query.length < 2) return;
-
-    const fullPath = props.currentPath || "";
-    const pathname = fullPath.split("?")[0];
-    const filterableRoutes = ["songs", "albums", "artists", "playlists", "genres"];
-    const currentRoute = filterableRoutes.find((route) => pathname.endsWith(`/${route}`));
-
-    if (currentRoute) {
-      props.onNavigate?.(`${pathname}?q=${encodeURIComponent(query)}`);
-    }
-  };
-
-  const handlePlaySong = async (songId: string) => {
-    const remote = getCurrentRemote();
-    if (!remote) return;
-
-    try {
-      const dataSource = getDataSource();
-      const song = await dataSource.getSongById(songId);
-
-      if (!song) {
-        console.error("song not found:", songId);
-        return;
-      }
-
+  const playSong = async (songId: string) => {
+    if (!getCurrentRemote()) return;
+    const song = await getDataSource().getSongById(songId);
+    if (song) {
       await addToQueue([song], { startPlaying: true, source: { type: "song", label: song.title } });
-    } catch (error) {
-      console.error("failed to play song:", error);
     }
   };
 
-  // handle keydown: enter submits, esc clears then collapses
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
-      preventReopen = true;
-      setSuggestionsOpen(false);
-      handleSearchSubmit();
+  // --- infinite scroll ---
 
-      setTimeout(() => {
-        preventReopen = false;
-      }, 100);
-    } else if (e.key === "Escape") {
-      if (searchValue()) {
-        // first esc: clear text
-        handleClear();
-      } else {
-        // second esc (no text): collapse and blur
-        collapse();
-        inputRef?.blur();
-      }
+  const handleEndReached = () => {
+    if (props.hasMoreSuggestions && !props.isLoadingSuggestions) {
+      props.onLoadMoreSuggestions?.();
     }
   };
 
-  // handle focus to show suggestions
-  const handleFocus = () => {
-    setIsFocused(true);
-    if (preventReopen) return;
-    if (searchValue().length >= 2) {
-      setSuggestionsOpen(true);
-    }
+  // attach play callbacks to suggestions before passing to SearchInput
+  const suggestionsWithPlay = (): SearchSuggestion[] => {
+    return (props.suggestions || []).map((s) => {
+      const apiSuggestion = s.data as APISuggestion | undefined;
+      const canPlay =
+        apiSuggestion &&
+        (apiSuggestion.suggestion_type === "song" ||
+          apiSuggestion.suggestion_type === "album" ||
+          apiSuggestion.suggestion_type === "playlist");
+      return {
+        ...s,
+        onPlay: canPlay ? () => handlePlay(apiSuggestion) : undefined,
+      };
+    });
   };
 
-  // handle blur - collapse if nothing keeps it open
-  const handleBlur = (e: FocusEvent) => {
-    setIsFocused(false);
-
-    // don't process blur if clicking on a suggestion
-    const relatedTarget = e.relatedTarget as HTMLElement | null;
-    if (relatedTarget?.closest('[role="listbox"]')) return;
-
-    setSuggestionsOpen(false);
-
-    // if not locked and no value, collapse after a short delay
-    // (delay lets click events on the icon button fire first)
-    if (!isLocked() && !searchValue()) {
-      closeTimeout = setTimeout(() => {
-        if (!isFocused() && !isLocked() && !searchValue()) {
-          setIsExpanded(false);
-        }
-      }, 150);
-    }
-  };
+  // --- render ---
 
   return (
     <div class="relative flex items-center" onMouseEnter={handleMouseEnter}>
@@ -347,10 +333,11 @@ export function TopNavSearch(props: TopNavSearchProps) {
           "text-white/60 hover:text-white": !isExpanded(),
         }}
         onClick={handleIconClick}
-        title="search"
+        title="search (⌘K)"
       >
         <Icon name="search" size={16} />
       </button>
+
       <div
         class="overflow-hidden transition-all duration-200 ease-in-out"
         style={{
@@ -360,22 +347,22 @@ export function TopNavSearch(props: TopNavSearchProps) {
       >
         <div class="ml-2">
           <SearchInput
-            ref={inputRef}
+            ref={(el) => (inputRef = el)}
             placeholder={props.placeholder || "search songs, artists, albums..."}
+            value={searchValue()}
             loading={props.isLoadingSuggestions}
-            suggestions={suggestions()}
+            suggestions={suggestionsWithPlay()}
             open={suggestionsOpen()}
             onOpenChange={setSuggestionsOpen}
             onInputChange={handleInputChange}
             onSelect={handleSelect}
-            onClear={handleClear}
             onFocus={handleFocus}
             onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
             onEndReached={handleEndReached}
             loadingMore={props.isLoadingSuggestions}
-            hintMessage={enterHintMessage()}
-            onHintClick={handleSearchSubmit}
-            onBlur={handleBlur}
+            hintMessage={hintMessage()}
+            onHintClick={submitFilter}
             class="w-64"
             variant="filled"
           />

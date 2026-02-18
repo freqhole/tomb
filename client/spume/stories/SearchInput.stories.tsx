@@ -1,9 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import {
-  SearchInput,
-  SearchSuggestion,
-} from "../src/components/forms/SearchInput";
+import { SearchInput, SearchSuggestion } from "../src/components/forms/SearchInput";
 import { mockAlbums, mockArtists, mockGenres, mockSongs } from "./mockData";
 
 const meta = {
@@ -46,9 +43,7 @@ const artistSuggestions: SearchSuggestion[] = mockArtists
 
 const radioheadArtist = mockArtists.find((a) => a.name === "Radiohead");
 const radioheadAlbum = mockAlbums.find((a) => a.artist === "Radiohead");
-const radioheadSongs = mockSongs
-  .filter((s) => s.artist === "Radiohead")
-  .slice(0, 2);
+const radioheadSongs = mockSongs.filter((s) => s.artist === "Radiohead").slice(0, 2);
 const altRockGenre = mockGenres.find((g) => g.name === "alternative rock");
 
 const mixedSuggestions: SearchSuggestion[] = [
@@ -59,7 +54,6 @@ const mixedSuggestions: SearchSuggestion[] = [
           id: radioheadArtist.id,
           text: radioheadArtist.name,
           category: "artist" as const,
-          count: radioheadArtist.songCount,
         },
       ]
     : []),
@@ -69,7 +63,6 @@ const mixedSuggestions: SearchSuggestion[] = [
           id: radioheadAlbum.id,
           text: radioheadAlbum.title,
           category: "album" as const,
-          count: radioheadAlbum.trackCount,
         },
       ]
     : []),
@@ -84,7 +77,6 @@ const mixedSuggestions: SearchSuggestion[] = [
           id: altRockGenre.id,
           text: altRockGenre.name,
           category: "genre" as const,
-          count: altRockGenre.songCount,
         },
       ]
     : []),
@@ -98,7 +90,6 @@ const highlightedSuggestions: SearchSuggestion[] = [
           text: radioheadArtist.name,
           highlight: "<mark>Radio</mark>head",
           category: "artist" as const,
-          count: radioheadArtist.songCount,
         },
       ]
     : []),
@@ -109,7 +100,6 @@ const highlightedSuggestions: SearchSuggestion[] = [
           text: radioheadAlbum.title,
           highlight: radioheadAlbum.title.replace(/comp/i, "<mark>Comp</mark>"),
           category: "album" as const,
-          count: radioheadAlbum.trackCount,
         },
       ]
     : []),
@@ -127,8 +117,7 @@ export const RealWorldExample: Story = {
     const [query, setQuery] = createSignal("");
     const [loading, setLoading] = createSignal(false);
     const [suggestions, setSuggestions] = createSignal<SearchSuggestion[]>([]);
-    const [selectedItem, setSelectedItem] =
-      createSignal<SearchSuggestion | null>(null);
+    const [selectedItem, setSelectedItem] = createSignal<SearchSuggestion | null>(null);
 
     const handleClear = () => {
       setQuery("");
@@ -137,9 +126,7 @@ export const RealWorldExample: Story = {
     };
 
     // simulate API call
-    const searchAPI = async (
-      searchQuery: string,
-    ): Promise<SearchSuggestion[]> => {
+    const searchAPI = async (searchQuery: string): Promise<SearchSuggestion[]> => {
       // simulate network delay
       await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -150,13 +137,11 @@ export const RealWorldExample: Story = {
           id: a.id,
           text: a.name,
           category: "artist" as const,
-          count: a.songCount,
         })),
         ...mockAlbums.slice(0, 3).map((a) => ({
           id: a.id,
           text: a.title,
           category: "album" as const,
-          count: a.trackCount,
         })),
         ...mockSongs.slice(0, 4).map((s) => ({
           id: s.id,
@@ -167,13 +152,10 @@ export const RealWorldExample: Story = {
           id: g.id,
           text: g.name,
           category: "genre" as const,
-          count: g.songCount,
         })),
       ];
 
-      return allResults.filter((r) =>
-        r.text.toLowerCase().includes(searchQuery.toLowerCase()),
-      );
+      return allResults.filter((r) => r.text.toLowerCase().includes(searchQuery.toLowerCase()));
     };
 
     const handleInputChange = async (value: string) => {
@@ -207,35 +189,21 @@ export const RealWorldExample: Story = {
     return (
       <div class="space-y-4">
         <SearchInput
-          label="search freqhole"
           placeholder="search songs, artists, albums, genres..."
           loading={loading()}
           suggestions={suggestions()}
           onInputChange={handleInputChange}
           onSelect={handleSelect}
-          onClear={handleClear}
           variant="filled"
-          hint="results update as you type"
         />
 
         {selectedItem() && (
           <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
-            <div class="caption text-[var(--color-text-muted)] mb-1">
-              selected:
-            </div>
+            <div class="caption text-[var(--color-text-muted)] mb-1">selected:</div>
             <div class="body-sm">
-              <span class="text-[var(--color-accent-500)]">
-                {selectedItem()!.category}
-              </span>
+              <span class="text-[var(--color-accent-500)]">{selectedItem()!.category}</span>
               {" → "}
-              <span class="text-[var(--color-text-primary)]">
-                {selectedItem()!.text}
-              </span>
-              {selectedItem()!.count && (
-                <span class="text-[var(--color-text-muted)] ml-2">
-                  ({selectedItem()!.count} items)
-                </span>
-              )}
+              <span class="text-[var(--color-text-primary)]">{selectedItem()!.text}</span>
             </div>
           </div>
         )}
@@ -254,16 +222,13 @@ export const Default: Story = {
 // with label and hint
 export const WithLabel: Story = {
   args: {
-    label: "search library",
     placeholder: "artist, album, or song",
-    hint: "type at least 2 characters to see suggestions",
   },
 };
 
 // filled variant
 export const FilledVariant: Story = {
   args: {
-    label: "search",
     placeholder: "search music...",
     variant: "filled",
   },
@@ -281,7 +246,7 @@ export const WithSuggestions: Story = {
       // simulate filtering
       if (value.length >= 2) {
         const filtered = artistSuggestions.filter((s) =>
-          s.text.toLowerCase().includes(value.toLowerCase()),
+          s.text.toLowerCase().includes(value.toLowerCase())
         );
         setSuggestions(filtered);
       } else {
@@ -303,12 +268,10 @@ export const WithSuggestions: Story = {
 
     return (
       <SearchInput
-        label="search artists"
         placeholder="type to search..."
         suggestions={suggestions()}
         onInputChange={handleInputChange}
         onSelect={handleSelect}
-        onClear={handleClear}
       />
     );
   },
@@ -347,13 +310,11 @@ export const Loading: Story = {
 
     return (
       <SearchInput
-        label="search with loading"
         placeholder="type to trigger loading..."
         loading={loading()}
         suggestions={suggestions()}
         onInputChange={handleInputChange}
         onSelect={(s) => s && console.log("selected:", s)}
-        onClear={handleClear}
       />
     );
   },
@@ -366,13 +327,10 @@ export const MixedCategories: Story = {
 
     return (
       <SearchInput
-        label="search everything"
         placeholder="search songs, artists, albums..."
         suggestions={query().length >= 2 ? mixedSuggestions : []}
         onInputChange={setQuery}
         onSelect={(s) => s && console.log("selected:", s)}
-        onClear={() => setQuery("")}
-        hint="suggestions grouped by category"
       />
     );
   },
@@ -385,13 +343,10 @@ export const WithHighlighting: Story = {
 
     return (
       <SearchInput
-        label="search with highlights"
         placeholder="type to see highlighted matches..."
         suggestions={query().length >= 2 ? highlightedSuggestions : []}
         onInputChange={setQuery}
         onSelect={(s) => s && console.log("selected:", s)}
-        onClear={() => setQuery("")}
-        hint="matching characters are highlighted"
       />
     );
   },
@@ -400,16 +355,14 @@ export const WithHighlighting: Story = {
 // with counts
 export const WithCounts: Story = {
   args: {
-    label: "search with result counts",
     placeholder: "type to search...",
-    suggestions: mixedSuggestions.filter((s) => s.count !== undefined),
+    suggestions: mixedSuggestions,
   },
 };
 
 // disabled state
 export const Disabled: Story = {
   args: {
-    label: "disabled search",
     placeholder: "search music...",
     disabled: true,
   },
@@ -435,14 +388,11 @@ export const CustomDebounce: Story = {
     return (
       <div class="space-y-4">
         <SearchInput
-          label="slow debounce (1000ms)"
           placeholder="type fast to see debouncing..."
           debounceMs={1000}
           suggestions={query().length >= 2 ? artistSuggestions : []}
           onInputChange={handleInputChange}
           onSelect={(s) => s && console.log("selected:", s)}
-          onClear={handleClear}
-          hint={`debounced callbacks: ${callCount()}`}
         />
       </div>
     );
@@ -456,13 +406,10 @@ export const NoResults: Story = {
 
     return (
       <SearchInput
-        label="search with no results"
         placeholder="type anything..."
         suggestions={[]}
         onInputChange={setQuery}
         onSelect={(s) => s && console.log("selected:", s)}
-        onClear={() => setQuery("")}
-        hint="type to see empty state"
       />
     );
   },
@@ -472,15 +419,9 @@ export const NoResults: Story = {
 export const MultipleInstances: Story = {
   render: () => (
     <div class="space-y-6">
-      <SearchInput
-        label="search artists"
-        placeholder="artist name..."
-        suggestions={artistSuggestions}
-        variant="default"
-      />
+      <SearchInput placeholder="artist name..." suggestions={artistSuggestions} variant="default" />
 
       <SearchInput
-        label="search songs"
         placeholder="song title..."
         suggestions={mixedSuggestions.filter((s) => s.category === "song")}
         variant="filled"

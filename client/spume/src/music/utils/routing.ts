@@ -50,3 +50,22 @@ export const routes = {
   settingsStorage: () => "/settings/storage",
   remotes: () => buildRoute("/remotes"),
 };
+
+/** parameterless view route keys */
+const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "search", "remotes"] as const;
+
+export type RouteKey = (typeof VIEW_KEYS)[number] | "settings";
+
+/**
+ * match a path to a known route key
+ * returns the route key (e.g., "songs", "albums", "feed") or null if no match.
+ * strips query params before matching. uses exact equality against routes.
+ */
+export function matchRoute(path: string): RouteKey | null {
+  const pathname = path.split("?")[0].replace(/\/+$/, "");
+  for (const key of VIEW_KEYS) {
+    if (pathname === routes[key]().replace(/\/+$/, "")) return key;
+  }
+  if (pathname.startsWith("/settings")) return "settings";
+  return null;
+}

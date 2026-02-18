@@ -1,374 +1,374 @@
-import { Search } from "@kobalte/core/search";
-import { createSignal, For, Show, splitProps, type JSX } from "solid-js";
+// search input with dropdown suggestions
+// plain input + custom dropdown — no kobalte, no pointer-drift bugs
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { MediaThumbnail } from "../media/MediaThumbnail";
+import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
-
-type Ref<T> = T | ((el: T) => void);
+import { Icon } from "../icons/registry";
 
 export interface SearchSuggestion {
-  /** unique identifier for the suggestion */
   id: string;
-  /** text to display in the suggestion */
   text: string;
-  /** optional category grouping (e.g., "artists", "songs", "albums") */
   category?: string;
-  /** optional highlighted version of text with <mark> tags */
   highlight?: string;
-  /** optional count to display next to suggestion */
-  count?: number;
-  /** optional thumbnail image url */
-  thumbnailUrl?: string;
-  /** optional images array */
   images?: ImageMetadata[];
-  /** whether this suggestion is disabled */
-  disabled?: boolean;
-  /** whether this suggestion is favorited */
   isFavorite?: boolean;
+  /** play action for thumbnail click */
+  onPlay?: () => void;
   /** original data passed through for selection */
   data?: any;
-  /** callback when thumbnail is clicked (for play action) */
-  onThumbnailClick?: () => void;
 }
 
 export interface SearchInputProps {
-  /** label for the search input */
-  label?: string;
-  /** placeholder text */
   placeholder?: string;
-  /** hint text below input */
-  hint?: string;
-  /** array of suggestions to display */
   suggestions?: SearchSuggestion[];
-  /** whether suggestions are loading */
   loading?: boolean;
-  /** callback when input value changes */
+  /** called when the user types (already debounced internally) */
   onInputChange?: (value: string) => void;
-  /** callback when a suggestion is selected */
+  /** called when a suggestion row is clicked */
   onSelect?: (suggestion: SearchSuggestion) => void;
-  /** callback when clear button is clicked */
-  onClear?: () => void;
-  /** callback when user scrolls near end (for infinite scroll) */
+  /** called when user scrolls near the bottom */
   onEndReached?: () => void;
-  /** whether more items are being loaded */
   loadingMore?: boolean;
-  /** callback when input loses focus */
   onBlur?: (event: FocusEvent) => void;
-  /** callback when input gains focus */
   onFocus?: () => void;
-  /** callback when key is pressed */
   onKeyDown?: (event: KeyboardEvent) => void;
-  /** controlled open state for suggestions dropdown */
+  /** controlled open state */
   open?: boolean;
-  /** callback when open state changes */
   onOpenChange?: (open: boolean) => void;
-  /** debounce time in milliseconds for input changes (default: 300) */
+  /** debounce ms for input changes (default: 300) */
   debounceMs?: number;
-  /** whether the input is disabled */
   disabled?: boolean;
-  /** additional classes for the container */
   class?: string;
-  /** variant style */
   variant?: "default" | "filled";
-  /** hint message to show at top of suggestions (e.g., "press enter to...") */
+  ref?: HTMLInputElement | ((el: HTMLInputElement) => void);
+  /** controlled input value */
+  value?: string;
+  /** hint text shown between input and flyout (e.g., "press return to filter songs") */
   hintMessage?: string | null;
-  /** callback when hint message is clicked */
   onHintClick?: () => void;
-  /** ref to the input element */
-  ref?: Ref<HTMLInputElement>;
 }
 
-// get display name for category
-function getCategoryDisplayName(category: string) {
-  const categoryNames: Record<string, string> = {
-    word: "search suggestions",
-    title: "songs",
-    song: "songs",
-    artist: "artists",
-    album: "albums",
-    genre: "genres",
-    playlist: "playlists",
-    general: "suggestions",
-    all: "mixed results",
-  };
-  return categoryNames[category] || category;
-}
-
-// render text with <mark> highlights
-function HighlightedText(props: { text: string; highlight?: string }) {
-  const parts = () => {
-    const textToRender = props.highlight || props.text;
-
-    if (!textToRender || !textToRender.includes("<mark>")) {
-      return [props.text];
-    }
-
-    // split by <mark> tags
-    return textToRender.split(/(<mark>.*?<\/mark>)/g);
-  };
-
-  return (
-    <span>
-      <For each={parts()}>
-        {(part) => {
-          if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
-            const content = part.slice(6, -7); // remove <mark></mark>
-            return <span class="text-[var(--color-accent-500)] font-medium">{content}</span>;
-          }
-          return part;
-        }}
-      </For>
-    </span>
-  );
-}
-
-// search input component with autocomplete using kobalte primitives
 export function SearchInput(props: SearchInputProps) {
-  const [local, rest] = splitProps(props, [
-    "label",
-    "placeholder",
-    "hint",
-    "suggestions",
-    "loading",
-    "onInputChange",
-    "onSelect",
-    "onClear",
-    "onBlur",
-    "onFocus",
-    "onKeyDown",
-    "open",
-    "onOpenChange",
-    "debounceMs",
-    "disabled",
-    "class",
-    "variant",
-    "onEndReached",
-    "loadingMore",
-    "hintMessage",
-    "onHintClick",
-    "ref",
-  ]);
+  const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
+  const [isHoveringDropdown, setIsHoveringDropdown] = createSignal(false);
+  const [showLoadingMore, setShowLoadingMore] = createSignal(false);
+  let listRef: HTMLDivElement | undefined;
+  let inputEl: HTMLInputElement | undefined;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let loadingMoreTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const variant = () => local.variant || "default";
-  const suggestions = () => local.suggestions || [];
+  const suggestions = () => props.suggestions || [];
+  const isOpen = () => props.open ?? false;
+  const variant = () => props.variant || "default";
 
-  // track input text to show/hide clear button
-  const [inputText, setInputText] = createSignal("");
-  let inputRef: HTMLInputElement | undefined;
+  // reset hover state when dropdown closes (portal unmount won't fire mouseleave)
+  createEffect(() => {
+    if (!isOpen()) setIsHoveringDropdown(false);
+  });
 
-  // track if thumbnail was clicked to prevent row navigation
-  let thumbnailClicked = false;
+  // reset highlight when suggestions change
+  createEffect(
+    on(
+      () => suggestions().length,
+      () => setHighlightedIndex(-1)
+    )
+  );
 
-  // handle scroll for infinite loading
+  // scroll highlighted item into view
+  createEffect(() => {
+    const idx = highlightedIndex();
+    if (idx < 0 || !listRef) return;
+    const item = listRef.querySelector(`[data-index="${idx}"]`) as HTMLElement;
+    item?.scrollIntoView({ block: "nearest" });
+  });
+
+  // position for hint + dropdown portal
+  const [inputRect, setInputRect] = createSignal({ bottom: 0, left: 0, width: 0 });
+
+  const updateInputRect = () => {
+    if (!inputEl) return;
+    const rect = inputEl.getBoundingClientRect();
+    setInputRect({ bottom: rect.bottom, left: rect.left, width: rect.width });
+  };
+
+  // re-measure whenever the portal becomes active
+  createEffect(() => {
+    const needsPortal = isOpen() || !!props.hintMessage;
+    if (needsPortal) updateInputRect();
+  });
+
+  // constant offset so the flyout is always scooted below the hint area
+  const hintHeight = 22;
+
+  const handleInput = (e: Event) => {
+    const value = (e.target as HTMLInputElement).value;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      props.onInputChange?.(value);
+    }, props.debounceMs ?? 300);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    const items = suggestions();
+    if (isOpen() && items.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightedIndex((i) => (i < items.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightedIndex((i) => (i > 0 ? i - 1 : items.length - 1));
+        return;
+      }
+      if (e.key === "Enter" && highlightedIndex() >= 0) {
+        e.preventDefault();
+        const item = items[highlightedIndex()];
+        if (item) {
+          props.onSelect?.(item);
+          setHighlightedIndex(-1);
+        }
+        return;
+      }
+    }
+    // forward all other keys (including Enter with no highlight) to parent
+    props.onKeyDown?.(e);
+  };
+
+  const handleFocus = () => {
+    props.onFocus?.();
+    // re-measure after parent expand animation (200ms transition)
+    updateInputRect();
+    setTimeout(updateInputRect, 220);
+  };
+
+  const handleBlur = (e: FocusEvent) => {
+    // if the user clicked inside the dropdown, don't fire blur
+    if (isHoveringDropdown()) return;
+    props.onBlur?.(e);
+  };
+
+  // infinite scroll
   const handleScroll = (e: Event) => {
-    const target = e.target as HTMLElement;
-    const { scrollTop, scrollHeight, clientHeight } = target;
-    // trigger when within 100px of bottom
-    if (scrollTop + clientHeight >= scrollHeight - 100) {
-      local.onEndReached?.();
+    const el = e.target as HTMLElement;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+      props.onEndReached?.();
     }
   };
+
+  // delay showing "loading more" indicator by 1 second
+  createEffect(() => {
+    if (props.loadingMore) {
+      loadingMoreTimer = setTimeout(() => setShowLoadingMore(true), 1000);
+    } else {
+      clearTimeout(loadingMoreTimer);
+      setShowLoadingMore(false);
+    }
+  });
+
+  onCleanup(() => {
+    clearTimeout(debounceTimer);
+    clearTimeout(loadingMoreTimer);
+  });
 
   const variantClasses = () => {
     const base = "w-full rounded border transition-colors";
-    const disabled = local.disabled
-      ? "opacity-50 cursor-not-allowed bg-[var(--color-bg-tertiary)]"
-      : "";
-
-    switch (variant()) {
-      case "filled":
-        return `${base} bg-[var(--color-bg-tertiary)] border-transparent focus:bg-[var(--color-bg-primary)] focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 ${disabled}`;
-      default:
-        return `${base} bg-[var(--color-bg-primary)] border-[var(--color-border-default)] focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 ${disabled}`;
+    if (props.disabled)
+      return `${base} opacity-50 cursor-not-allowed bg-[var(--color-bg-tertiary)]`;
+    if (variant() === "filled") {
+      return `${base} bg-[var(--color-bg-tertiary)] border-transparent focus:bg-[var(--color-bg-primary)] focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50`;
     }
+    return `${base} bg-[var(--color-bg-primary)] border-[var(--color-border-default)] focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50`;
   };
 
   return (
-    <div class={`space-y-1 ${local.class || ""}`}>
-      <Search<SearchSuggestion>
-        open={local.open}
-        onOpenChange={local.onOpenChange}
-        options={suggestions()}
-        optionValue="id"
-        optionLabel="text"
-        optionDisabled="disabled"
-        placeholder={local.placeholder}
-        onInputChange={(value) => {
-          setInputText(value);
-          local.onInputChange?.(value);
+    <div class={`relative ${props.class || ""}`}>
+      <input
+        ref={(el) => {
+          inputEl = el;
+          if (typeof props.ref === "function") props.ref(el);
         }}
-        onChange={(value) => {
-          // don't navigate if thumbnail was clicked (play action)
-          if (value && !thumbnailClicked) {
-            local.onSelect?.(value);
-          }
-          // reset flag for next interaction
-          thumbnailClicked = false;
-        }}
-        debounceOptionsMillisecond={local.debounceMs ?? 300}
-        disabled={local.disabled}
-        triggerMode="input"
-        multiple={false}
-        itemComponent={(itemProps) => {
-          const [isHovering, setIsHovering] = createSignal(false);
+        type="text"
+        value={props.value ?? ""}
+        placeholder={props.placeholder}
+        disabled={props.disabled}
+        onInput={handleInput}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        class={`${variantClasses()} px-3 py-2 text-sm h-10 text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none`}
+        role="combobox"
+        aria-expanded={isOpen()}
+        aria-autocomplete="list"
+        aria-controls="search-listbox"
+        autocomplete="off"
+      />
 
-          return (
-            <Search.Item
-              item={itemProps.item}
-              class="outline-none"
-              onPointerDown={(e) => {
-                // check if click was on thumbnail during capture phase
-                const target = e.target as HTMLElement;
-                const clickedThumbnail = target.closest('[data-thumbnail="true"]');
+      {/* portal: hint + flyout rendered outside overflow-hidden parents */}
+      <Show when={props.hintMessage || (isOpen() && (suggestions().length > 0 || props.loading))}>
+        <Portal>
+          {/* backdrop — only when flyout is open */}
+          <Show when={isOpen() && (suggestions().length > 0 || props.loading)}>
+            <div
+              class="fixed inset-0 bg-black/10 z-[1001]"
+              onClick={() => props.onOpenChange?.(false)}
+            />
+          </Show>
 
-                if (clickedThumbnail) {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  thumbnailClicked = true;
-                  // call the thumbnail click handler immediately
-                  setTimeout(() => {
-                    itemProps.item.rawValue.onThumbnailClick?.();
-                  }, 0);
-                }
+          {/* hint text below input */}
+          <Show when={props.hintMessage}>
+            <div
+              class="text-xs text-[var(--color-text-secondary)] bg-[var(--color-bg-elevated)] px-2 py-0.5 cursor-pointer hover:text-[var(--color-text-primary)] transition-colors truncate whitespace-nowrap"
+              style={{
+                position: "fixed",
+                top: `${inputRect().bottom + 2}px`,
+                left: `${inputRect().left}px`,
+                width: `${inputRect().width}px`,
+                "z-index": "1003",
               }}
+              onClick={() => props.onHintClick?.()}
+            >
+              {props.hintMessage}
+            </div>
+          </Show>
+
+          {/* suggestions flyout */}
+          <Show when={isOpen() && (suggestions().length > 0 || props.loading)}>
+            <div
+              class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg overflow-hidden"
+              style={{
+                position: "fixed",
+                top: `${inputRect().bottom + 4 + hintHeight}px`,
+                left: `${inputRect().left}px`,
+                "min-width": "400px",
+                "max-width": "600px",
+                "z-index": "1002",
+              }}
+              onMouseEnter={() => setIsHoveringDropdown(true)}
+              onMouseLeave={() => setIsHoveringDropdown(false)}
             >
               <div
-                class="
-                  px-4 py-2 cursor-pointer text-sm transition-all
-                  data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)]
-                  data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed
-                  hover:bg-[var(--color-bg-hover)]
-                  text-[var(--color-text-primary)]
-                "
-                onMouseEnter={() => setIsHovering(true)}
-                onMouseLeave={() => setIsHovering(false)}
+                ref={listRef}
+                id="search-listbox"
+                role="listbox"
+                class="max-h-80 overflow-y-auto"
+                onScroll={handleScroll}
               >
-                <div class="flex items-center gap-3">
-                  {/* thumbnail with play on click */}
-                  <div data-thumbnail="true" class="cursor-pointer">
-                    <MediaThumbnail
-                      images={itemProps.item.rawValue.images}
-                      thumbnailUrl={itemProps.item.rawValue.thumbnailUrl}
-                      size={40}
-                      hideIndex={
-                        !itemProps.item.rawValue.count || itemProps.item.rawValue.count <= 1
-                      }
-                      indexText={
-                        itemProps.item.rawValue.count && itemProps.item.rawValue.count > 1
-                          ? `${itemProps.item.rawValue.count}`
-                          : undefined
-                      }
-                      enablePlayClick={false}
-                      showPlayIcon={!!itemProps.item.rawValue.onThumbnailClick}
+                <For each={suggestions()}>
+                  {(item, index) => (
+                    <SuggestionRow
+                      suggestion={item}
+                      highlighted={highlightedIndex() === index()}
+                      index={index()}
+                      onClick={() => {
+                        props.onSelect?.(item);
+                        setHighlightedIndex(-1);
+                      }}
+                      onHover={() => setHighlightedIndex(index())}
                     />
-                  </div>
+                  )}
+                </For>
+              </div>
 
-                  {/* text content with marquee */}
-                  <div class="flex-1 min-w-0">
-                    <Search.ItemLabel class="block">
-                      <HighlightedMarqueeText
-                        text={itemProps.item.rawValue.text}
-                        highlight={itemProps.item.rawValue.highlight}
-                        isHovering={isHovering()}
-                      />
-                    </Search.ItemLabel>
-                  </div>
-
-                  {/* favorite heart - only show when item is favorited */}
-                  <Show when={itemProps.item.rawValue.isFavorite === true}>
-                    <FavoriteHeart
-                      isFavorite={true}
-                      readonly={true}
-                      size="sm"
-                      class="flex-shrink-0"
-                    />
-                  </Show>
-
-                  {/* category badge */}
-                  <Show when={itemProps.item.rawValue.category}>
-                    <div class="px-2 py-1 rounded bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] text-xs font-medium flex-shrink-0">
-                      {itemProps.item.rawValue.category}
-                    </div>
-                  </Show>
+              <Show when={showLoadingMore()}>
+                <div class="px-4 py-2 text-center text-sm text-[var(--color-text-secondary)]">
+                  loading more...
                 </div>
-              </div>
-            </Search.Item>
-          );
+              </Show>
+
+              <Show when={!props.loading && suggestions().length === 0}>
+                <div class="px-4 py-3 text-sm text-[var(--color-text-tertiary)] text-center">
+                  no suggestions found
+                </div>
+              </Show>
+            </div>
+          </Show>
+        </Portal>
+      </Show>
+    </div>
+  );
+}
+
+// individual suggestion row
+function SuggestionRow(props: {
+  suggestion: SearchSuggestion;
+  highlighted: boolean;
+  index: number;
+  onClick: () => void;
+  onHover: () => void;
+}) {
+  const [imageHovered, setImageHovered] = createSignal(false);
+  const hasPlayAction = () => !!props.suggestion.onPlay;
+
+  return (
+    <div
+      data-index={props.index}
+      role="option"
+      aria-selected={props.highlighted}
+      class="flex items-center gap-3 px-4 py-2 cursor-pointer text-sm transition-colors"
+      classList={{
+        "bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]": props.highlighted,
+        "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]": !props.highlighted,
+      }}
+      onMouseEnter={props.onHover}
+      onClick={(e) => {
+        // don't navigate if user clicked the play image
+        if ((e.target as HTMLElement).closest("[data-play-target]")) return;
+        props.onClick();
+      }}
+    >
+      {/* image with play overlay on hover */}
+      <div
+        class="relative flex-shrink-0 rounded overflow-hidden"
+        data-play-target={hasPlayAction() ? "" : undefined}
+        onMouseEnter={() => setImageHovered(true)}
+        onMouseLeave={() => setImageHovered(false)}
+        onClick={(e) => {
+          if (hasPlayAction()) {
+            e.stopPropagation();
+            props.suggestion.onPlay?.();
+          }
         }}
-        {...rest}
       >
-        <Show when={local.label}>
-          <Search.Label class="label text-[var(--color-text-secondary)] block mb-1">
-            {local.label}
-          </Search.Label>
+        <MediaImage
+          images={props.suggestion.images}
+          alt={props.suggestion.text}
+          size="xs"
+          domainType={
+            (props.suggestion.category as "song" | "album" | "artist" | "genre" | "playlist") ||
+            undefined
+          }
+        />
+        <Show when={hasPlayAction() && imageHovered()}>
+          <div class="absolute inset-0 bg-black/50 flex items-center justify-center rounded z-40">
+            <Icon name="play" size={14} className="text-white" />
+          </div>
         </Show>
+      </div>
 
-        <Search.Control class="relative">
-          {(api) => (
-            <Search.Input
-              ref={(el) => {
-                inputRef = el;
-                if (typeof local.ref === "function") {
-                  local.ref(el);
-                }
-              }}
-              onFocus={() => local.onFocus?.()}
-              onBlur={(e) => local.onBlur?.(e)}
-              onKeyDown={(e) => local.onKeyDown?.(e)}
-              class={`
-                ${variantClasses()}
-                px-3 py-2 text-sm h-10
-                text-[var(--color-text-primary)]
-                placeholder:text-[var(--color-text-muted)]
-                focus:outline-none
-              `}
-            />
-          )}
-        </Search.Control>
+      {/* text with highlights + marquee */}
+      <div class="flex-1 min-w-0">
+        <HighlightedMarqueeText
+          text={props.suggestion.text}
+          highlight={props.suggestion.highlight}
+          isHovering={props.highlighted}
+        />
+      </div>
 
-        <Show when={local.hint}>
-          <Search.Description class="caption">{local.hint}</Search.Description>
-        </Show>
+      {/* favorite heart */}
+      <Show when={props.suggestion.isFavorite}>
+        <FavoriteHeart isFavorite={true} readonly={true} size="sm" class="flex-shrink-0" />
+      </Show>
 
-        <Search.Portal>
-          <Search.Content
-            class="
-              bg-[var(--color-bg-elevated)]
-              border border-[var(--color-border-default)]
-              rounded
-              max-h-80
-              overflow-hidden
-              shadow-lg
-              z-[1002]
-              min-w-[400px]
-              max-w-[600px]
-              w-max
-            "
-          >
-            <Show when={local.hintMessage}>
-              <div
-                class="px-4 py-2 text-xs text-[var(--color-text-secondary)] border-b border-[var(--color-border-default)] cursor-pointer hover:bg-[var(--color-bg-hover)]"
-                onClick={() => local.onHintClick?.()}
-              >
-                {local.hintMessage}
-              </div>
-            </Show>
-
-            <Search.Listbox class="max-h-80 overflow-y-auto" onScroll={handleScroll} />
-
-            <Show when={local.loadingMore}>
-              <div class="px-4 py-2 text-center text-sm text-[var(--color-text-secondary)]">
-                loading more...
-              </div>
-            </Show>
-
-            <Search.NoResult class="px-4 py-3 text-sm text-[var(--color-text-tertiary)] text-center">
-              no suggestions found
-            </Search.NoResult>
-          </Search.Content>
-        </Search.Portal>
-      </Search>
+      {/* category badge */}
+      <Show when={props.suggestion.category}>
+        <div class="px-2 py-1 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]">
+          {props.suggestion.category}
+        </div>
+      </Show>
     </div>
   );
 }
