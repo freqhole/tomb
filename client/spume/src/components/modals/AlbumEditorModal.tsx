@@ -205,37 +205,33 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     setInitialData(data);
   };
 
-  // initialize form data when album loads or when albumId changes
+  // initialize form data, images, and entity URLs when album loads or when albumId changes
+  // guarded by loadedAlbumId to prevent refetchOnWindowFocus from wiping unsaved edits
   createEffect(() => {
     const album = albumQuery.data;
     const songs = songsQuery.data?.items;
     // reinitialize if this is a different album or first load
     if (album && songs && songs.length > 0 && loadedAlbumId() !== props.albumId) {
       syncFormFromData(album, songs);
+
+      // sync images
+      if (album.images) {
+        setImages(album.images);
+      }
+
+      // sync entity URLs
+      if (album.urls) {
+        const mapped = album.urls.map((u) => ({
+          id: u.id || undefined,
+          name: u.name || undefined,
+          url: u.url,
+        }));
+        setEntityUrls(mapped);
+        setInitialEntityUrls(mapped);
+      }
+
       setLoadedAlbumId(props.albumId);
       setMergeTargetAlbumId(undefined);
-    }
-  });
-
-  // sync images when album data updates (separate from form init to allow refresh)
-  createEffect(() => {
-    const album = albumQuery.data;
-    if (album?.images) {
-      setImages(album.images);
-    }
-  });
-
-  // sync entity URLs when album data updates
-  createEffect(() => {
-    const album = albumQuery.data;
-    if (album?.urls) {
-      const mapped = album.urls.map((u) => ({
-        id: u.id || undefined,
-        name: u.name || undefined,
-        url: u.url,
-      }));
-      setEntityUrls(mapped);
-      setInitialEntityUrls(mapped);
     }
   });
 

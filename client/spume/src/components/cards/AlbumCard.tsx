@@ -121,11 +121,12 @@ export function AlbumCard(props: AlbumCardProps) {
             (props.album.tags && props.album.tags.length > 0)
           }
         >
-          <div class="flex flex-wrap gap-1 mt-2 min-h-[20px] max-h-[48px] overflow-y-clip pb-1">
+          <div class="flex flex-wrap gap-1 mt-2 min-h-[20px] max-h-[48px] overflow-clip pb-1">
             <For each={props.album.genres}>
               {(genre) => (
                 <a
                   class="text-xs px-1.5 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-accent-500)] hover:text-[var(--color-text-on-accent)] transition-colors cursor-pointer flex-shrink-0"
+                  title={genre.name}
                   onClick={(e) => {
                     e.stopPropagation();
                     props.onGenreClick?.(genre);

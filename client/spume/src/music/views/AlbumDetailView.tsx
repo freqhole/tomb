@@ -23,6 +23,7 @@ import { getAlbumById } from "../services/storage/db";
 import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
+import { EntityLinks } from "../../components/media/EntityLinks";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -283,6 +284,12 @@ export function AlbumDetailView() {
                     </div>
                   </Show>
 
+                  {/* entity links */}
+                  <EntityLinks
+                    urls={albumQuery.data?.urls}
+                    class="justify-center md:justify-start mt-1"
+                  />
+
                   {/* play button, edit button, and favorite toggle */}
                   <div class="mt-3 md:mt-4 flex items-center justify-center md:justify-start gap-2 md:gap-3">
                     <Button variant="primary" onClick={handlePlayAlbum}>
@@ -322,7 +329,7 @@ export function AlbumDetailView() {
                 {/* album artwork */}
                 <ContextMenu actions={albumContextMenuActions()}>
                   <div
-                    class="w-32 h-32 md:w-64 md:h-64 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
+                    class="relative group w-32 h-32 md:w-64 md:h-64 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
                     title="view album images"
                     onClick={handleAlbumImageClick}
                   >
@@ -333,6 +340,13 @@ export function AlbumDetailView() {
                       class="w-full h-full object-cover"
                       domainType="album"
                     />
+                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <Icon
+                        name={IconNames.carousel}
+                        size={32}
+                        className="text-white drop-shadow-lg"
+                      />
+                    </div>
                   </div>
                 </ContextMenu>
               </div>

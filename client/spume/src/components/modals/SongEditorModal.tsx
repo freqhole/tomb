@@ -107,16 +107,18 @@ export function SongEditorModal(props: SongEditorModalProps) {
       if (song.lyrics && song.lyrics.trim().length > 0) {
         setLyricsExpanded(true);
       }
+
+      // initialize images
+      if (song.images) {
+        setSongImages(song.images);
+      }
     }
   });
 
-  // sync song images when song data updates (separate from form init to allow refresh)
-  createEffect(() => {
-    const song = songQuery.data;
-    if (song?.images) {
-      setSongImages(song.images);
-    }
-  });
+  // note: song images are intentionally NOT synced on every refetch here.
+  // they are initialized inside the guarded loadedSongId effect above
+  // to prevent refetchOnWindowFocus from wiping unsaved state.
+  // images are refreshed explicitly after upload/delete operations.
   // register modal in stack for esc key handling
   onMount(() => {
     const modalId = `song-${props.songId}`;

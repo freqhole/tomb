@@ -57,7 +57,8 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     message: string;
   } | null>(null);
 
-  // initialize form data when artist loads or when artistId changes
+  // initialize form data, images, and entity URLs when artist loads or when artistId changes
+  // guarded by loadedArtistId to prevent refetchOnWindowFocus from wiping unsaved edits
   createEffect(() => {
     const artist = artistQuery.data;
     // reinitialize if this is a different artist or first load
@@ -69,29 +70,24 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       };
       setFormData(data);
       setInitialData(data);
+
+      // sync images
+      if (artist.images) {
+        setImages(artist.images);
+      }
+
+      // sync entity URLs
+      if (artist.urls) {
+        const mapped = artist.urls.map((u) => ({
+          id: u.id || undefined,
+          name: u.name || undefined,
+          url: u.url,
+        }));
+        setEntityUrls(mapped);
+        setInitialEntityUrls(mapped);
+      }
+
       setLoadedArtistId(props.artistId);
-    }
-  });
-
-  // sync images when artist data updates (separate from form init to allow refresh)
-  createEffect(() => {
-    const artist = artistQuery.data;
-    if (artist?.images) {
-      setImages(artist.images);
-    }
-  });
-
-  // sync entity URLs when artist data updates
-  createEffect(() => {
-    const artist = artistQuery.data;
-    if (artist?.urls) {
-      const mapped = artist.urls.map((u) => ({
-        id: u.id || undefined,
-        name: u.name || undefined,
-        url: u.url,
-      }));
-      setEntityUrls(mapped);
-      setInitialEntityUrls(mapped);
     }
   });
 

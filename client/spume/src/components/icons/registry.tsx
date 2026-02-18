@@ -241,6 +241,38 @@ export const CarouselIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const ExternalLinkIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "External link"}>
+    <path
+      d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <polyline
+      points="15 3 21 3 21 9"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <line
+      x1="10"
+      y1="14"
+      x2="21"
+      y2="3"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </BaseIcon>
+);
+
 // Freqhole Brand Icon
 export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   <svg
@@ -343,6 +375,7 @@ export const IconRegistry = {
   database: DatabaseIcon,
   headphones: HeadphonesIcon,
   carousel: CarouselIcon,
+  externalLink: ExternalLinkIcon,
 
   // Brand
   freqhole: FreqholeIcon,
@@ -430,6 +463,7 @@ export const IconNames = {
   database: "database",
   headphones: "headphones",
   carousel: "carousel",
+  externalLink: "externalLink",
 
   // Brand
   freqhole: "freqhole",

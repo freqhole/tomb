@@ -17,6 +17,7 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
+import { EntityLinks } from "../media/EntityLinks";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -26,6 +27,7 @@ export interface ArtistDetailPanelArtist {
   album_count: number;
   total_duration: number;
   images?: ImageMetadata[];
+  urls?: Array<{ id?: string; name?: string; url: string }> | null;
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -216,7 +218,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             {/* artist avatar */}
             <ContextMenu actions={artistContextMenuActions()}>
               <div
-                class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                class="relative group w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
                 onClick={props.onImageClick}
               >
                 <Show
@@ -233,6 +235,15 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     class="w-full h-full object-cover"
                     domainType="artist"
                   />
+                </Show>
+                <Show when={hasArtistImages()}>
+                  <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-full">
+                    <Icon
+                      name={IconNames.carousel}
+                      size={28}
+                      className="text-white drop-shadow-lg"
+                    />
+                  </div>
                 </Show>
               </div>
             </ContextMenu>
@@ -279,6 +290,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   </div>
                 </Show>
               </div>
+
+              {/* entity links */}
+              <EntityLinks urls={props.artist.urls} />
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="flex items-center gap-2">
@@ -341,7 +355,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             {/* artist avatar */}
             <ContextMenu actions={artistContextMenuActions()}>
               <div
-                class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                class="relative group w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
                 onClick={props.onImageClick}
               >
                 <Show
@@ -358,6 +372,15 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     class="w-full h-full object-cover"
                     domainType="artist"
                   />
+                </Show>
+                <Show when={hasArtistImages()}>
+                  <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-full">
+                    <Icon
+                      name={IconNames.carousel}
+                      size={28}
+                      className="text-white drop-shadow-lg"
+                    />
+                  </div>
                 </Show>
               </div>
             </ContextMenu>
@@ -404,6 +427,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   </div>
                 </Show>
               </div>
+
+              {/* entity links */}
+              <EntityLinks urls={props.artist.urls} class="justify-center" />
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="mt-2 flex items-center justify-center flex-wrap gap-2">

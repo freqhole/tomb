@@ -1,5 +1,5 @@
 import { Show, type JSX } from "solid-js";
-import { Icon } from "../icons/registry";
+import { Icon, IconNames } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
@@ -143,7 +143,7 @@ export function PlayerBar(props: PlayerBarProps) {
         <div class="flex items-center gap-2 flex-1 min-h-0">
           {/* thumbnail */}
           <div
-            class={`w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
+            class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
             onClick={() => props.onImageClick?.()}
           >
             <MediaImage
@@ -154,6 +154,11 @@ export function PlayerBar(props: PlayerBarProps) {
               domainType="song"
               class="w-10 h-10 rounded object-cover"
             />
+            <Show when={props.onImageClick && props.song}>
+              <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
+                <Icon name={IconNames.carousel} size={16} className="text-white drop-shadow-lg" />
+              </div>
+            </Show>
           </div>
 
           {/* favorite button */}
@@ -286,7 +291,7 @@ export function PlayerBar(props: PlayerBarProps) {
         <div class="flex items-center gap-4 flex-1 min-w-0">
           {/* thumbnail */}
           <div
-            class={`w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+            class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
             onClick={() => props.onImageClick?.()}
           >
             <MediaImage
@@ -297,6 +302,11 @@ export function PlayerBar(props: PlayerBarProps) {
               domainType="song"
               class="w-12 h-12 rounded object-cover"
             />
+            <Show when={props.onImageClick && props.song}>
+              <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
+                <Icon name={IconNames.carousel} size={20} className="text-white drop-shadow-lg" />
+              </div>
+            </Show>
           </div>
 
           {/* favorite button */}

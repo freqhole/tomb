@@ -190,7 +190,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show when={props.collection.subtitle}>
           <MarqueeText
             text={props.collection.subtitle!}
-            class={`text-[var(--color-text-muted)] ${sizeClasses().subtitle} group-hover:text-[var(--color-text-primary)] transition-colors`}
+            class={`text-[var(--color-text-primary)]/75 ${sizeClasses().subtitle} group-hover:text-[var(--color-text-primary)] transition-colors`}
             isHovering={isCardHovering}
           />
         </Show>
@@ -205,14 +205,14 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         >
           <MarqueeText
             text={`by ${props.collection.artist}`}
-            class={`text-[var(--color-text-tertiary)] ${sizeClasses().subtitle} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+            class={`text-[var(--color-text-primary)]/75 ${sizeClasses().subtitle} group-hover:text-[var(--color-text-secondary)] transition-colors`}
             isHovering={isCardHovering}
           />
         </Show>
 
         {/* metadata row */}
         <div
-          class={`text-[var(--color-text-tertiary)] ${sizeClasses().meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+          class={`text-[var(--color-text-tertiary)]/65 ${sizeClasses().meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
         >
           <div class="flex items-center gap-2 flex-wrap">
             {/* year */}
@@ -244,7 +244,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         <Show when={props.showGenres && props.collection.genres}>
           <MarqueeText
             text={props.collection.genres!}
-            class={`${sizeClasses().meta} text-[var(--color-text-tertiary)} group-hover:text-[var(--color-text-muted)] transition-colors bg-black/50 px-1 py-0.5 rounded`}
+            class={`${sizeClasses().meta} text-[var(--color-text-tertiary)]/50 group-hover:text-[var(--color-text-primary)] transition-colors bg-black/50 px-1 py-0.5 rounded`}
             isHovering={isCardHovering}
           />
         </Show>
@@ -253,7 +253,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           <div class="w-full overflow-hidden">
             <MarqueeText
               text={props.collection.tags!.join(" • ")}
-              class={`${sizeClasses().meta} text-[var(--color-text-tertiary)] group-hover:text-[var(--color-accent-500)] transition-colors bg-[var(--color-accent-500)]/10 px-1 py-0.5 rounded`}
+              class={`${sizeClasses().meta} text-[var(--color-text-tertiary)]/50 group-hover:text-[var(--color-primary)] transition-colors bg-[var(--color-accent-500)]/10 px-1 py-0.5 rounded`}
               isHovering={isCardHovering}
             />
           </div>
