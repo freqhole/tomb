@@ -831,6 +831,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     duration?: number | null;
     bpm?: number | null;
     lyrics?: string | null;
+    track_artist?: string | null;
     entity_urls?: Array<{ id?: string; name?: string | null; url: string }>;
     user_id?: string | null;
     updated_by?: string | null;
@@ -850,6 +851,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       duration: params.duration,
       bpm: params.bpm,
       lyrics: params.lyrics,
+      track_artist: params.track_artist,
       genre: params.genre,
       entity_urls: params.entity_urls,
       user_id: params.user_id,

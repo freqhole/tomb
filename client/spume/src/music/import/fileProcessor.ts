@@ -4,14 +4,14 @@ import {
   getFileExtension,
   isOPFSSupported,
   writeAudioToOPFS,
-} from "../opfs/helpers";
+} from "../services/opfs/helpers";
 import {
   getOrCreateAlbum,
   getOrCreateArtist,
   getOrCreateGenre,
   getSongsByAlbumId,
-} from "../storage/db";
-import type { NewSong, Song } from "../storage/types";
+} from "../services/storage/db";
+import type { NewSong, Song } from "../services/storage/types";
 
 export interface AudioMetadata {
   title: string;

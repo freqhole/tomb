@@ -433,10 +433,16 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         isPrimary: false,
       });
 
-      const success = await pollJobUntilComplete(remote.base_url, job_id);
-      if (!success) {
+      const pollResult = await pollJobUntilComplete(remote.base_url, job_id);
+      if (pollResult === "failed") {
         toast.error("image processing failed");
         return;
+      }
+      if (pollResult === "timeout") {
+        toast.info("image processing taking a long time — check back later", {
+          title: "processing queued",
+        });
+        // still mark as imported since the job was created and may complete later
       }
 
       // mark as imported

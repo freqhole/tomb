@@ -885,6 +885,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     duration?: number | null;
     bpm?: number | null;
     lyrics?: string | null;
+    track_artist?: string | null;
     user_id?: string | null;
     updated_by?: string | null;
   }): Promise<void> {
@@ -977,6 +978,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       year: params.year,
       bpm: params.bpm,
       lyrics: params.lyrics,
+      track_artist: params.track_artist,
     };
     
     // filter out null/undefined values

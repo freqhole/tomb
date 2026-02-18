@@ -11,7 +11,19 @@ import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
-import { getDataSource, initializeDataSource, useRemoteSource } from "../music/data";
+import {
+  getDataSource,
+  getCurrentRemote,
+  initializeDataSource,
+  useRemoteSource,
+} from "../music/data";
+import {
+  importMusicFiles,
+  uploadFilesToRemote,
+  fetchUrlsOnRemote,
+  getUploadJobs,
+  clearCompletedJobs,
+} from "../music/import";
 import {
   hideAlbumEditor,
   hideArtistEditor,
@@ -39,14 +51,12 @@ import { getAllRemotes } from "./services/remotes/remoteManager";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
-import { importMusicFiles } from "./services/fileImport";
 import { initAppDB } from "./services/storage/db";
 
 export function App() {
   const queryClient = useQueryClient();
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
-  const [isProcessing, setIsProcessing] = createSignal(false);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
@@ -92,26 +102,50 @@ export function App() {
     cleanupCacheNetworkHandlers();
   });
 
+  // callback for when any remote job completes — invalidate song queries
+  const onRemoteJobComplete = () => {
+    setHasSongs(true);
+    queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+  };
+
   const handleFilesSelected = async (files: FileList) => {
-    setIsProcessing(true);
-    try {
-      const result = await importMusicFiles(files);
-      if (result.addedCount > 0) {
-        setHasSongs(true);
-        // invalidate songs query to show new songs
-        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+    const remote = getCurrentRemote();
+
+    if (remote) {
+      // remote upload: fire-and-forget, jobs are tracked reactively
+      await uploadFilesToRemote(files, onRemoteJobComplete);
+    } else {
+      // local import: process files into IndexedDB/OPFS
+      try {
+        const result = await importMusicFiles(files);
+        if (result.addedCount > 0) {
+          setHasSongs(true);
+          queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+        }
+        closeAddMusic();
+      } catch (error) {
+        console.error("failed to process files:", error);
+        toast.error("failed to import files", { title: "import error" });
       }
-      closeAddMusic();
-    } catch (error) {
-      console.error("failed to process files:", error);
-    } finally {
-      setIsProcessing(false);
     }
   };
 
-  const handleUrlsSubmitted = (urls: string[]) => {
-    console.log("urls submitted:", urls);
-    // TODO: download and add to library
+  const handleUrlsSubmitted = async (urls: string[]) => {
+    const remote = getCurrentRemote();
+
+    if (!remote) {
+      toast.warning("url downloads are only supported with a remote server", {
+        title: "not supported",
+      });
+      return;
+    }
+
+    // fire-and-forget, jobs are tracked reactively
+    await fetchUrlsOnRemote(urls, onRemoteJobComplete);
+  };
+
+  const handleCloseAddMusic = () => {
+    clearCompletedJobs();
     closeAddMusic();
   };
 
@@ -154,9 +188,11 @@ export function App() {
 
       <AddMusicModal
         isOpen={isAddMusicOpen()}
-        onClose={() => closeAddMusic()}
+        onClose={handleCloseAddMusic}
         onFilesSelected={handleFilesSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
+        remoteName={getCurrentRemote()?.name}
+        uploadJobs={getUploadJobs()}
       />
 
       <AddRemoteModal

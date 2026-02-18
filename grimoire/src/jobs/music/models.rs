@@ -22,6 +22,9 @@ pub struct ProcessFileParams {
     pub extract_metadata: bool,
     pub generate_thumbnail: bool,
     pub generate_waveform: bool,
+    /// original fetch URL (set when this file came from a FetchMedia job)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 /// results from directory scan jobs

@@ -73,6 +73,7 @@ export interface Song {
   // denormalized for quick access (no lookups needed for display/playback)
   artist_name: string;
   album_title: string;
+  album_type?: string; // "album", "single", "compilation" — from joined album data
   images?: ImageMetadata[]; // song images (constructed by data source)
   urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
 

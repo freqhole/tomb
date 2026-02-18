@@ -409,6 +409,7 @@ interface UpdateSongsMutationParams {
   duration?: number;
   bpm?: number;
   lyrics?: string;
+  track_artist?: string | null;
   entity_urls?: Array<{ id?: string; name?: string | null; url: string }>;
   user_id?: string;
   updated_by?: string;

@@ -1,9 +1,9 @@
-// file import service - handles adding music files to library
-import { processMusicFiles } from "../../music/services/metadata/fileProcessor";
+// local import service - handles adding music files to the local IndexedDB/OPFS library
+import { processMusicFiles } from "./fileProcessor";
 import {
   createSong,
   getSongBySha256,
-} from "../../music/services/storage/db";
+} from "../services/storage/db";
 import { computeSHA256 } from "../../utils/hash";
 
 export interface ImportResult {
@@ -11,7 +11,7 @@ export interface ImportResult {
   skippedCount: number;
 }
 
-// import music files from file picker
+// import music files from file picker into local library
 export async function importMusicFiles(files: FileList): Promise<ImportResult> {
   const fileArray = Array.from(files);
   let addedCount = 0;
@@ -42,12 +42,12 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     try {
       await createSong(songData);
       addedCount++;
-      console.log(`✓ added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
+      console.log(`added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
     } catch (error) {
       // handle constraint error (duplicate sha256 from race condition or stale index)
       if (error instanceof Error && error.name === 'ConstraintError') {
         console.warn(
-          `⚠ skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`,
+          `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`,
         );
         console.warn('this suggests getSongBySha256 did not find the existing song - possible stale index');
         skippedCount++;

@@ -36,6 +36,7 @@ interface FormData {
   lyrics: string;
   artist_name: string;
   album_title: string;
+  track_artist: string;
 }
 
 export function SongEditorModal(props: SongEditorModalProps) {
@@ -51,6 +52,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
     lyrics: "",
     artist_name: "",
     album_title: "",
+    track_artist: "",
   });
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
@@ -84,6 +86,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
         lyrics: song.lyrics || "",
         artist_name: song.artist_name,
         album_title: song.album_title,
+        track_artist: song.track_artist || "",
       };
       setFormData(data);
       setInitialData(data);
@@ -155,6 +158,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       current.lyrics !== initial.lyrics ||
       current.artist_name !== initial.artist_name ||
       current.album_title !== initial.album_title ||
+      current.track_artist !== initial.track_artist ||
       urlsChanged()
     );
   });
@@ -174,6 +178,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (current.disc_number !== initial.disc_number) updates.disc_number = current.disc_number;
     if (current.bpm !== initial.bpm) updates.bpm = current.bpm;
     if (current.lyrics !== initial.lyrics) updates.lyrics = current.lyrics;
+    if (current.track_artist !== initial.track_artist)
+      updates.track_artist = current.track_artist || null;
     if (current.artist_name !== initial.artist_name) {
       // prefer artist_id when available (from autocomplete selection)
       if (artistId()) updates.artist_id = artistId();
@@ -311,9 +317,17 @@ export function SongEditorModal(props: SongEditorModalProps) {
       const remote = getCurrentRemote();
       if (remote?.base_url) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const success = await pollJobUntilComplete(remote.base_url, job_id);
-        if (!success) {
+        const pollResult = await pollJobUntilComplete(remote.base_url, job_id);
+        if (pollResult === "failed") {
           toast.error("image processing failed");
+          setProcessingJob(null);
+          setImagePreview(null);
+          return;
+        }
+        if (pollResult === "timeout") {
+          toast.info("image processing taking a long time — check back later", {
+            title: "processing queued",
+          });
           setProcessingJob(null);
           setImagePreview(null);
           return;
@@ -540,6 +554,34 @@ export function SongEditorModal(props: SongEditorModalProps) {
                       </button>
                     </Show>
                   </div>
+
+                  {/* track artist (only for compilation albums) */}
+                  <Show when={songQuery.data?.album_type === "compilation"}>
+                    <div class="flex items-center gap-2">
+                      <div class="flex-1">
+                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
+                          track artist
+                        </label>
+                        <TextInput
+                          value={formData().track_artist}
+                          oninput={(e) => handleFieldChange("track_artist", e.currentTarget.value)}
+                          placeholder="per-track artist (for compilations)"
+                        />
+                      </div>
+                      <Show
+                        when={
+                          initialData() && formData().track_artist !== initialData()!.track_artist
+                        }
+                      >
+                        <button
+                          onClick={() => handleReset("track_artist")}
+                          class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                        >
+                          reset
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
 
                   {/* album */}
                   <div class="flex items-center gap-2">

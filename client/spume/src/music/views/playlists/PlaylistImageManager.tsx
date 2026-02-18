@@ -55,9 +55,15 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
       // poll for job completion if remote
       const remote = getCurrentRemote();
       if (remote?.base_url && job_id) {
-        const success = await pollJobUntilComplete(remote.base_url, job_id);
-        if (!success) {
+        const pollResult = await pollJobUntilComplete(remote.base_url, job_id);
+        if (pollResult === "failed") {
           toast.error("image processing failed");
+          return;
+        }
+        if (pollResult === "timeout") {
+          toast.info("image processing taking a long time — check back later", {
+            title: "processing queued",
+          });
           return;
         }
       }

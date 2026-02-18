@@ -610,7 +610,11 @@ export function AppLayout(props: AppLayoutProps) {
                   id: currentSongData()!.id,
                   sha256: currentSongData()!.sha256,
                   title: currentSongData()!.title,
-                  artist: currentSongData()!.artist_name,
+                  artist:
+                    currentSongData()!.album_type === "compilation" &&
+                    currentSongData()!.track_artist?.trim()
+                      ? currentSongData()!.track_artist!
+                      : currentSongData()!.artist_name,
                   album: currentSongData()!.album_title,
                   images: currentSongData()!.images,
                   album_images: currentSongData()!.album_images,

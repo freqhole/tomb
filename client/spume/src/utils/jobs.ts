@@ -10,18 +10,22 @@ function isSuccess<T>(result: {
   return result.success === true;
 }
 
+/** result of polling a job to completion */
+export type PollResult = "completed" | "failed" | "timeout";
+
 /**
  * poll for job completion
  * @param baseUrl - remote base URL
  * @param jobId - job ID to poll
  * @param timeoutMs - timeout in milliseconds (default: 10000)
- * @returns true if job completed successfully, false if failed/cancelled/timeout
+ * @returns "completed" if job finished, "failed" if job failed/cancelled or server error,
+ *          "timeout" if polling hit its time limit (job may still be processing on server)
  */
 export async function pollJobUntilComplete(
   baseUrl: string,
   jobId: string,
   timeoutMs: number = 10000,
-): Promise<boolean> {
+): Promise<PollResult> {
   const startTime = Date.now();
   const pollInterval = 500; // check every 500ms
 
@@ -32,7 +36,7 @@ export async function pollJobUntilComplete(
 
     if (!isSuccess(jobResult)) {
       console.error("failed to get job status:", jobResult.error);
-      return false;
+      return "failed";
     }
 
     // type guard ensures jobResult.data exists after success check
@@ -40,16 +44,16 @@ export async function pollJobUntilComplete(
     const status = jobData.status;
 
     if (status === "Completed") {
-      return true;
+      return "completed";
     } else if (status === "Failed" || status === "Cancelled") {
       console.error("job failed or was cancelled:", jobData.error_message);
-      return false;
+      return "failed";
     }
 
     // wait before polling again
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 
-  console.warn("job polling timed out");
-  return false;
+  console.warn("job polling timed out — job may still complete on server");
+  return "timeout";
 }

@@ -371,6 +371,7 @@ export interface MusicDataSource {
     duration?: number | null;
     bpm?: number | null;
     lyrics?: string | null;
+    track_artist?: string | null;
     user_id?: string | null;
     updated_by?: string | null;
   }): Promise<void>;

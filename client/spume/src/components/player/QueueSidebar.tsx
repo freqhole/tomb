@@ -366,7 +366,11 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
                           <MarqueeText
-                            text={song()?.artist_name || ""}
+                            text={
+                              song()?.album_type === "compilation" && song()?.track_artist?.trim()
+                                ? song()!.track_artist!
+                                : song()?.artist_name || ""
+                            }
                             isHovering={() => isRowHovered() || isCurrentlyPlaying()}
                           />
                         </p>

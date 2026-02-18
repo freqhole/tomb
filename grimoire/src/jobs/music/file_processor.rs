@@ -8,6 +8,7 @@ use crate::blob_data;
 use crate::config;
 use crate::database;
 use crate::jobs::models::{Job, JobError};
+use crate::music::crud::create_or_update;
 use crate::music::scanner;
 use crate::GrimoireResponse;
 use serde_json::Value;
@@ -124,10 +125,33 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             } => {
                 song_id = Some(import_result.song_id);
                 artist_id = import_result.artist_id;
-                album_id = import_result.album_id;
+                album_id = import_result.album_id.clone();
                 metadata_extracted = import_result.metadata_extracted;
                 time_metadata = step_start.elapsed();
                 debug!("metadata extracted successfully");
+
+                // if this file came from a fetch job, add the source URL to the album
+                if let (Some(source_url), Some(aid)) = (&params.source_url, &import_result.album_id)
+                {
+                    match create_or_update::add_entity_url(
+                        "album",
+                        aid,
+                        Some("source".to_string()),
+                        source_url,
+                    )
+                    .await
+                    {
+                        Ok(Some(url_id)) => {
+                            debug!("added source URL to album {}: {}", aid, url_id);
+                        }
+                        Ok(None) => {
+                            debug!("source URL already exists for album {}", aid);
+                        }
+                        Err(e) => {
+                            warn!("failed to add source URL to album {}: {}", aid, e);
+                        }
+                    }
+                }
             }
             response => {
                 let error_msg = if !response.errors.is_empty() {

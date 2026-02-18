@@ -464,9 +464,16 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       const remote = getCurrentRemote();
       if (remote?.base_url) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const success = await pollJobUntilComplete(remote.base_url, job_id);
-        if (!success) {
+        const pollResult = await pollJobUntilComplete(remote.base_url, job_id);
+        if (pollResult === "failed") {
           toast.error("image processing failed");
+          setProcessingJob(null);
+          return;
+        }
+        if (pollResult === "timeout") {
+          toast.info("image processing taking a long time — check back later", {
+            title: "processing queued",
+          });
           setProcessingJob(null);
           return;
         }

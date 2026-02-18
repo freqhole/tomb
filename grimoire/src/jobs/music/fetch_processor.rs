@@ -77,6 +77,7 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
             extract_metadata: true,
             generate_thumbnail: true,
             generate_waveform: true,
+            source_url: Some(params.url.clone()),
         };
 
         let job_request = CreateJobRequest {

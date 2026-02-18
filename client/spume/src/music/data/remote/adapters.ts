@@ -12,7 +12,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'bpm' | 'track_artist' | 'lyrics' | 'metadata'
   | 'created_at' | 'updated_at'
   // denormalized display fields
-  | 'artist_name' | 'album_title'
+  | 'artist_name' | 'album_title' | 'album_type'
   | 'album_added_at' | 'album_primary_genre_id' | 'album_primary_genre_name'
   // images and urls
   | 'images' | 'urls'
@@ -55,6 +55,7 @@ export interface ApiSongQueryItem {
   album?: {
     id: string;
     title: string;
+    album_type?: string;
     release_date?: string;
     genres?: {id: string; name: string}[];
     images?: Array<{
@@ -121,6 +122,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     // denormalized fields
     artist_name: artist?.name || "unknown artist",
     album_title: album?.title || "unknown album",
+    album_type: album?.album_type || undefined,
     album_added_at: song.created_at, // use song's created_at as proxy
     album_primary_genre_id: item.genre?.id || null,
     album_primary_genre_name: album?.genres?.[0]?.name || item.genre?.name || null,

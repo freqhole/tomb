@@ -6,7 +6,9 @@
 use crate::config::get_config;
 use crate::database;
 use crate::error::GrimoireResult;
-use crate::jobs::{create_job, get_scanned_directory_paths, CreateJobRequest, JobType, ProcessFileParams};
+use crate::jobs::{
+    create_job, get_scanned_directory_paths, CreateJobRequest, JobType, ProcessFileParams,
+};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -42,8 +44,8 @@ pub async fn scan_directory_and_create_jobs(
     };
 
     // canonicalize the root path we're scanning (for comparison)
-    let root_path = std::fs::canonicalize(path.trim_end_matches('/'))
-        .unwrap_or_else(|_| PathBuf::from(path));
+    let root_path =
+        std::fs::canonicalize(path.trim_end_matches('/')).unwrap_or_else(|_| PathBuf::from(path));
 
     let dirs_to_skip = if skip_tracked_subdirs && !tracked_dirs.is_empty() {
         let count = tracked_dirs.len();
@@ -181,6 +183,7 @@ pub async fn scan_directory_and_create_jobs(
             extract_metadata: true,
             generate_thumbnail: true,
             generate_waveform: true,
+            source_url: None,
         };
 
         let job_request = CreateJobRequest {
