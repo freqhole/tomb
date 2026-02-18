@@ -45,7 +45,8 @@ export const routes = {
   playlist: (playlistId: string) => buildRoute(`/playlists/${playlistId}`),
   genre: (genreId: string) => buildRoute(`/genres/${genreId}`),
 
-  // settings & admin
-  settings: () => buildRoute("/settings"),
+  // settings & admin (top-level, not context-aware)
+  settings: () => "/settings",
+  settingsStorage: () => "/settings/storage",
   remotes: () => buildRoute("/remotes"),
 };

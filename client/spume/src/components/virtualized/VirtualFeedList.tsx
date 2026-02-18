@@ -365,9 +365,14 @@ function FeedRow(props: {
             name={props.item.feed_type === "new_image" ? "carousel" : "play"}
             size={isResumable() ? 28 : 36}
             color={typeInfo().color}
+            className="bg-black/75 rounded-full"
+            title={props.item.feed_type === "new_image" ? "view images" : "play"}
           />
           <Show when={isResumable()}>
-            <span class="text-[10px] font-medium mt-0.5" style={{ color: typeInfo().color }}>
+            <span
+              class="text-xs font-medium mt-0.5 p-1 bg-black/75 rounded"
+              style={{ color: typeInfo().color }}
+            >
               resume
             </span>
           </Show>
@@ -379,7 +384,7 @@ function FeedRow(props: {
         {/* line 1: action text — "edward ♥ a song" or "new album" */}
         <div class="flex items-center gap-1 text-sm" style={{ color: typeInfo().color }}>
           <Show when={actionText().user}>
-            <span class="font-medium">{actionText().user}</span>
+            <span class="font-bold">{actionText().user}</span>
           </Show>
           <Show when={actionText().verb}>
             <Show when={actionText().verb === "\u2665"} fallback={<span>{actionText().verb}</span>}>

@@ -461,12 +461,13 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const entry = () => props.historyEntries[virtualItem.index];
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
                   const isArtist = () => entry().type === "artist";
-                  const hasProgress = () => (entry().listened_seconds || 0) > 0;
                   const progressPercent = () => {
                     const total = entry().total_seconds || 0;
                     if (total === 0) return 0;
                     return Math.min(100, ((entry().listened_seconds || 0) / total) * 100);
                   };
+                  const hasProgress = () =>
+                    (entry().listened_seconds || 0) > 0 && progressPercent() < 100;
 
                   const historyRow = (
                     <div
@@ -525,11 +526,18 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           {entry().label}
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
-                          {entry().type} &middot; {entry().song_count}{" "}
-                          {entry().song_count === 1 ? "song" : "songs"}
-                          <Show when={hasProgress()}>
-                            {" "}
-                            &middot; {Math.round(progressPercent())}%
+                          {entry().type} &middot;{" "}
+                          <Show
+                            when={hasProgress()}
+                            fallback={
+                              <>
+                                {entry().song_count} {entry().song_count === 1 ? "song" : "songs"}
+                              </>
+                            }
+                          >
+                            {entry().songs_completed}/{entry().song_count}{" "}
+                            {entry().song_count === 1 ? "song" : "songs"} &middot;{" "}
+                            {Math.round(progressPercent())}%
                           </Show>
                         </p>
 

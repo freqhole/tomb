@@ -97,14 +97,13 @@ export type FeedItemTypeFilter =
   | "listen_session"
   | "new_image";
 
-// all available feed type filter values
+// all available feed type filter values (listen_session first, recent_listen removed)
 export const ALL_FEED_TYPES: FeedItemTypeFilter[] = [
-  "recent_listen",
+  "listen_session",
   "recent_favorite",
   "recent_album",
   "recent_rating",
   "recent_playlist",
-  "listen_session",
   "new_image",
 ];
 
@@ -115,7 +114,7 @@ export const FEED_TYPE_LABELS: Record<FeedItemTypeFilter, string> = {
   recent_album: "albums",
   recent_rating: "ratings",
   recent_playlist: "playlists",
-  listen_session: "sessions",
+  listen_session: "listening sessions",
   new_image: "images",
 };
 

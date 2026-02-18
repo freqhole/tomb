@@ -1,9 +1,10 @@
 // listen progress tracking service
 // tracks which history entry is "active" and accumulates listened time
-// persists progress to IDB every ~5 seconds during playback
+// persists progress to IDB every ~30 seconds during playback
 
 import { createSignal } from "solid-js";
-import { updateHistoryProgress } from "./queueHistory";
+import { appState } from "../../../app/services/storage/db";
+import { queueHistory, updateHistoryProgress } from "./queueHistory";
 import { recordServerProgress, markServerSongCompleted } from "./serverSession";
 import type { Song } from "../storage/types";
 
@@ -148,4 +149,36 @@ async function flushProgress(): Promise<void> {
   } catch (error) {
     console.error("failed to flush listen progress:", error);
   }
+}
+
+// reconnect progress tracking after a page reload
+// matches the persisted queue in appState to the most recent history entry
+// and resumes in-memory tracking so timeupdate events continue to accumulate
+export function reconnectProgressTracking(): void {
+  // already tracking — nothing to do
+  if (activeHistoryEntryId()) return;
+
+  const state = appState();
+  if (!state || !state.queue.length || !state.current_sha256) return;
+
+  const history = queueHistory();
+  if (!history.length) return;
+
+  // find the most recent history entry whose songs match the current queue
+  // compare by sha256 list since that's the unique song identifier
+  const queueHashes = state.queue.map((s) => s.sha256);
+  const entry = history.find((h) => {
+    if (h.songs.length !== queueHashes.length) return false;
+    return h.songs.every((s, i) => s.sha256 === queueHashes[i]);
+  });
+
+  if (!entry) return;
+
+  // resume tracking with the entry's persisted progress
+  resumeTracking(entry.id, {
+    listened_seconds: entry.listened_seconds,
+    songs_completed: entry.songs_completed,
+    current_song_index: entry.current_song_index,
+    current_song_position: entry.current_song_position,
+  });
 }

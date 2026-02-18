@@ -9,6 +9,7 @@ import { ViewSelector, type ViewOption } from "./ViewSelector";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { Badge } from "../badges/Badge";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { routes } from "../../music/utils/routing";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -441,7 +442,7 @@ export function TopNav(props: TopNavProps) {
                           >
                             <button
                               class="w-full flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-xs text-left transition-colors border-none cursor-pointer"
-                              onClick={() => props.onNavigate?.("/settings/storage")}
+                              onClick={() => props.onNavigate?.(routes.settingsStorage())}
                             >
                               <Icon name="database" size={14} />
                               <div class="flex flex-col">

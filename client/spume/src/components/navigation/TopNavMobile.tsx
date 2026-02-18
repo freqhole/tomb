@@ -3,6 +3,7 @@ import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getPageInfo } from "../../app/services/pageInfo";
+import { routes } from "../../music/utils/routing";
 
 // re-export shared types
 export type { NavMenuItem, NavMenuSection, RecentPlaylist } from "./TopNav";
@@ -407,7 +408,9 @@ export function TopNavMobile(props: TopNavMobileProps) {
               <div class="p-3">
                 <button
                   class="w-full flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs text-left transition-colors cursor-pointer"
-                  onClick={() => handleMenuItemClick(() => props.onNavigate?.("/settings/storage"))}
+                  onClick={() =>
+                    handleMenuItemClick(() => props.onNavigate?.(routes.settingsStorage()))
+                  }
                 >
                   <Icon name="database" size={14} color="white" />
                   <div class="flex flex-col">

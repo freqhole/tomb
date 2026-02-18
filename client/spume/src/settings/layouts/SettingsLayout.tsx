@@ -1,6 +1,7 @@
 // settings layout - wrapper for all settings pages with navigation
 import { JSX, Show, For } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
+import { routes } from "../../music/utils/routing";
 
 interface SettingsNavItem {
   path: string;
@@ -25,7 +26,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
       <div class="lg:hidden border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <div class="p-4">
           <A
-            href="/"
+            href={routes.songs()}
             class="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
           >
             ← back
@@ -55,7 +56,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
         <aside class="hidden lg:block w-64 min-h-screen border-r border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
           <div class="p-4 border-b border-[var(--color-border-subtle)]">
             <A
-              href="/"
+              href={routes.songs()}
               class="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
             >
               ← back to library

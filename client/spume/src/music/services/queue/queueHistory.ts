@@ -172,11 +172,14 @@ export async function updateHistoryEntrySongs(
     const entry = await db.get(STORE_QUEUE_HISTORY, id);
     if (!entry) return;
 
+    // only recompute label when the entry didn't come from a named entity
+    // (e.g. genre, artist, album, playlist keep their original label)
+    const shouldKeepLabel = !!entry.entity_id;
     const updated: QueueHistoryEntry = {
       ...entry,
       songs: unwrapSongs(songs),
       song_count: songs.length,
-      label: computeSmartLabel(songs),
+      label: shouldKeepLabel ? entry.label : computeSmartLabel(songs),
       total_seconds: songs.reduce((sum, s) => sum + (s.duration_seconds || 0), 0),
     };
 

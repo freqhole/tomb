@@ -5,6 +5,7 @@ export interface IconProps {
   color?: string;
   className?: string;
   "aria-label"?: string;
+  title?: string;
 }
 
 export type IconComponent = (props: IconProps) => any;

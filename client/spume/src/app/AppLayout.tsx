@@ -67,6 +67,7 @@ import {
 } from "../music/services/queue/queueHistory";
 import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
+import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
 
 // responsive breakpoint
 const NARROW_BREAKPOINT = 768;
@@ -108,7 +109,10 @@ export function AppLayout(props: AppLayoutProps) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
 
     // load queue history from idb
-    loadQueueHistory();
+    await loadQueueHistory();
+
+    // reconnect progress tracking if there's an active queue from a previous page load
+    reconnectProgressTracking();
 
     // start analytics sync loop
     startAnalyticsSync();
