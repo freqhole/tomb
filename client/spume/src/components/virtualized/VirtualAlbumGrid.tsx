@@ -161,13 +161,19 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     rowVirtualizer.measure();
   });
 
+  // only apply scroll padding on wide viewports (narrow has its own fixed nav)
+  const scrollPad = () =>
+    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
+      ? props.scrollPaddingTop
+      : 0;
+
   return (
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
       style={{
         height: `${props.height || 600}px`,
-        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+        "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
       }}
     >
       {/* virtual grid container */}

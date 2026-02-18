@@ -130,13 +130,19 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
     }
   };
 
+  // only apply scroll padding on wide viewports (narrow has its own fixed nav)
+  const scrollPad = () =>
+    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
+      ? props.scrollPaddingTop
+      : 0;
+
   return (
     <div
       ref={scrollContainerRef!}
       class="overflow-auto"
       style={{
         height: `${props.height}px`,
-        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+        "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
       }}
       onScroll={() => {
         checkNearEnd();
@@ -316,7 +322,7 @@ function FeedRow(props: {
 
   return (
     <div
-      class="w-full h-full flex items-stretch gap-3 px-4 text-left transition-colors hover:bg-[var(--color-accent-500)]/5 cursor-pointer"
+      class="w-full h-full flex items-stretch gap-2 md:gap-3 px-2 md:px-4 text-left transition-colors hover:bg-[var(--color-accent-500)]/5 cursor-pointer"
       onClick={() => props.onClick()}
       onMouseEnter={() => setIsRowHovered(true)}
       onMouseLeave={() => setIsRowHovered(false)}
@@ -392,7 +398,7 @@ function FeedRow(props: {
       {/* content area */}
       <div class="flex-1 min-w-0 py-3 flex flex-col justify-center gap-0.5">
         {/* line 1: action text — "edward ♥ a song" or "new album" */}
-        <div class="flex items-center gap-1 text-sm" style={{ color: typeInfo().color }}>
+        <div class="flex items-center gap-1 text-xs md:text-sm" style={{ color: typeInfo().color }}>
           <Show when={actionText().user}>
             <span class="font-bold">{actionText().user}</span>
           </Show>
@@ -414,7 +420,7 @@ function FeedRow(props: {
         <Show when={props.item.title}>
           <MarqueeText
             text={props.item.title}
-            class="text-base font-medium text-[var(--color-text-primary)] leading-tight"
+            class="text-sm md:text-base font-medium text-[var(--color-text-primary)] leading-tight"
             isHovering={isRowHovered}
           />
         </Show>
@@ -427,7 +433,7 @@ function FeedRow(props: {
                 ? [artistAlbumLine(), metaParts().join(" \u00b7 ")].filter(Boolean).join(" \u00b7 ")
                 : artistAlbumLine()
             }
-            class="text-sm text-[var(--color-text-secondary)]"
+            class="text-xs md:text-sm text-[var(--color-text-secondary)]"
             isHovering={isRowHovered}
           />
         </Show>
@@ -529,10 +535,10 @@ function FeedRow(props: {
             {props.item.play_count} plays
           </span>
         </Show>
-        {/* favorite + queue actions — visible on hover */}
+        {/* favorite + queue actions — always visible on narrow, hover-only on desktop */}
         <div
-          class="flex items-center gap-1 transition-opacity"
-          classList={{ "opacity-0": !isRowHovered(), "opacity-100": isRowHovered() }}
+          class="flex items-center gap-1 transition-opacity md:opacity-0"
+          classList={{ "md:!opacity-100": isRowHovered() }}
         >
           <Show when={favoriteTarget()}>
             {(target) => (
