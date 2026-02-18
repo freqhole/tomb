@@ -10,7 +10,7 @@ import { createSignal, type Accessor, type Setter } from "solid-js";
 /**
  * read a value from the current history state under the `viewState` namespace
  */
-function readHistoryValue<T>(key: string): T | undefined {
+export function readHistoryValue<T>(key: string): T | undefined {
   try {
     const viewState = window.history.state?.viewState;
     if (viewState && key in viewState) {
@@ -25,7 +25,7 @@ function readHistoryValue<T>(key: string): T | undefined {
 /**
  * write a value into history state under the `viewState` namespace via replaceState
  */
-function writeHistoryValue<T>(key: string, value: T): void {
+export function writeHistoryValue<T>(key: string, value: T): void {
   try {
     const currentState = window.history.state || {};
     const viewState = currentState.viewState || {};

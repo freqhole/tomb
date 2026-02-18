@@ -1,6 +1,7 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
 import type { FavoriteTarget } from "../../music/queries/favorites";
+import { getPlayingIndicatorClasses, getPlayingTextClasses } from "../../design-system/colors";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
@@ -49,6 +50,8 @@ export interface SongRowProps {
   onFavoriteToggle?: (isFavorite: boolean) => void;
   /** callback after rating change */
   onRatingChange?: (rating: number) => void;
+  /** whether this row is highlighted (e.g. from search navigation) — more prominent than isSelected */
+  isHighlighted?: boolean;
 }
 
 export function SongRow(props: SongRowProps): JSX.Element {
@@ -57,7 +60,13 @@ export function SongRow(props: SongRowProps): JSX.Element {
       onClick={() => props.onClick?.()}
       onDblClick={() => props.onDoubleClick?.()}
       class={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer group ${
-        props.isSelected ? "bg-[var(--color-bg-elevated)]" : "hover:bg-[var(--color-bg-elevated)]"
+        props.isHighlighted
+          ? "bg-[var(--color-accent-primary)]/15 ring-1 ring-[var(--color-accent-primary)]/30"
+          : props.isPlaying
+            ? getPlayingIndicatorClasses(true)
+            : props.isSelected
+              ? "bg-[var(--color-bg-elevated)]"
+              : "hover:bg-[var(--color-bg-elevated)]"
       } ${props.class || ""}`}
     >
       {/* thumbnail with track number overlay or simple track number */}
@@ -102,11 +111,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
 
       {/* song title */}
       <div class="flex-1 min-w-0">
-        <div
-          class={`${
-            props.isPlaying ? "text-[var(--color-accent)]" : "text-[var(--color-text-primary)]"
-          }`}
-        >
+        <div class={getPlayingTextClasses(!!props.isPlaying)}>
           <MarqueeText text={props.title} hoverOnly={true} />
         </div>
       </div>

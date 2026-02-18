@@ -1,8 +1,10 @@
 // album detail view - shows album info and songs list
 import { useNavigate, useParams } from "@solidjs/router";
-import { createMemo, For, Show } from "solid-js";
+import { createEffect, createMemo, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
+import { appState } from "../../app/services/storage/db";
 import { playQueue } from "../services/queue/queue";
+import { highlightedSongId } from "../state/highlightedSong";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
@@ -361,23 +363,37 @@ export function AlbumDetailView() {
                           ? `${song.disc_number}-${song.track_number}`
                           : song.track_number;
 
+                      const isHighlighted = () => highlightedSongId() === song.id;
+                      const isPlaying = () => appState()?.current_sha256 === song.sha256;
+                      let rowEl!: HTMLDivElement;
+
+                      createEffect(() => {
+                        if (isHighlighted()) {
+                          rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }
+                      });
+
                       return (
-                        <SongRow
-                          title={song.title}
-                          trackNumber={trackDisplay}
-                          duration={formatDuration(song.duration_seconds)}
-                          onDoubleClick={() => handleSongDoubleClick(song)}
-                          showPlayOnHover={true}
-                          contextMenuActions={getSongContextMenuActions(song)}
-                          isFavorite={song.is_favorite}
-                          rating={song.user_rating}
-                          onRatingChange={(rating) => handleSongRatingChange(song.id, rating)}
-                          onFavoriteToggle={(isFavorite) =>
-                            handleSongFavoriteToggle(song.id, isFavorite)
-                          }
-                          songId={song.id}
-                          sha256={song.sha256}
-                        />
+                        <div ref={rowEl}>
+                          <SongRow
+                            title={song.title}
+                            trackNumber={trackDisplay}
+                            duration={formatDuration(song.duration_seconds)}
+                            isPlaying={isPlaying()}
+                            onDoubleClick={() => handleSongDoubleClick(song)}
+                            showPlayOnHover={true}
+                            contextMenuActions={getSongContextMenuActions(song)}
+                            isFavorite={song.is_favorite}
+                            isHighlighted={isHighlighted()}
+                            rating={song.user_rating}
+                            onRatingChange={(rating) => handleSongRatingChange(song.id, rating)}
+                            onFavoriteToggle={(isFavorite) =>
+                              handleSongFavoriteToggle(song.id, isFavorite)
+                            }
+                            songId={song.id}
+                            sha256={song.sha256}
+                          />
+                        </div>
                       );
                     }}
                   </For>

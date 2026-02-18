@@ -4,6 +4,7 @@ import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue } from "../../music/services/queue/queue";
 import { routes, matchRoute } from "../../music/utils/routing";
+import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
 import type { SearchSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
@@ -229,7 +230,10 @@ export function TopNavSearch(props: TopNavSearchProps) {
     // navigate based on type
     switch (s.suggestion_type) {
       case "song":
-        if (meta?.album_id) props.onNavigate?.(routes.album(meta.album_id));
+        if (meta?.album_id) {
+          setHighlightedSongId(s.entity_id);
+          props.onNavigate?.(routes.album(meta.album_id));
+        }
         break;
       case "artist":
         props.onNavigate?.(routes.artist(s.entity_id));
