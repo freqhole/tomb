@@ -14,7 +14,7 @@ import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
-import { pushModal, popModal } from "../../music/modals";
+import { pushModal, popModal } from "../../music/hooks/modals";
 import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
 import { error as errorLog } from "../../utils/logger";
 

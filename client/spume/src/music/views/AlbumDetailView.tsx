@@ -13,7 +13,7 @@ import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { getCurrentRemote, getDataSource } from "../data";
-import { showAlbumEditor, showImageCarousel } from "../modals";
+import { showAlbumEditor, showImageCarousel } from "../hooks/modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";

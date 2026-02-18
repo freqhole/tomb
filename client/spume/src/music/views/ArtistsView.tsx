@@ -11,7 +11,7 @@ import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
-import { showArtistEditor, showImageCarousel } from "../modals";
+import { showArtistEditor, showImageCarousel } from "../hooks/modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";

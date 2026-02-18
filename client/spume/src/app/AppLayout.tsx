@@ -56,7 +56,7 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import { showImageCarousel } from "../music/modals";
+import { showImageCarousel } from "../music/hooks/modals";
 import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import {

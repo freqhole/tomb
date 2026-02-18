@@ -19,7 +19,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
-import { pushModal, popModal } from "../../music/modals";
+import { pushModal, popModal } from "../../music/hooks/modals";
 import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 

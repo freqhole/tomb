@@ -2,7 +2,7 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
-import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/modals";
+import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/hooks/modals";
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
 import { queryKeys } from "../../music/queries/queryKeys";
@@ -460,7 +460,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
         >
           <TabList class="px-4">
             <Tab id="info" label="info" />
-            <Tab id="images" label="images" badge={(songImages().length + albumImages().length) || undefined} />
+            <Tab
+              id="images"
+              label="images"
+              badge={songImages().length + albumImages().length || undefined}
+            />
             <Tab id="metadata" label="metadata" />
           </TabList>
 
@@ -735,10 +739,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
             {/* album images - read-only context */}
             <Show when={albumImages().length > 0}>
-              <EntityImages
-                title="album images"
-                images={albumImages()}
-              />
+              <EntityImages title="album images" images={albumImages()} />
             </Show>
           </TabPanel>
           {/* metadata tab - raw JSON display */}

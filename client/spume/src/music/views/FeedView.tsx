@@ -20,7 +20,12 @@ import { playQueue, addToQueue } from "../services/queue/queue";
 import { resumeServerSession } from "../services/queue/serverSession";
 import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
-import { showImageCarousel, showSongEditor, showAlbumEditor, showArtistEditor } from "../modals";
+import {
+  showImageCarousel,
+  showSongEditor,
+  showAlbumEditor,
+  showArtistEditor,
+} from "../hooks/modals";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
 import { useQueryClient } from "@tanstack/solid-query";
 import { queryKeys } from "../queries/queryKeys";

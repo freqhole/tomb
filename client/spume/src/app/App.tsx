@@ -24,7 +24,7 @@ import {
   useSongEditorState,
   useImageCarouselState,
   useTagSelectorState,
-} from "../music/modals";
+} from "../music/hooks/modals";
 import { queryKeys } from "../music/queries/queryKeys";
 import { addToQueue } from "../music/services/queue/queue";
 import {

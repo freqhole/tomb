@@ -8,10 +8,10 @@ import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { queryClient } from "../../queryClient";
 import { confirm } from "../../app/services/confirmState";
 import { showPlaylistSelector } from "./playlistSelectorState";
-import { showTagSelector } from "../modals";
+import { showTagSelector } from "./modals";
 import { getDataSource } from "../data";
 import type { Song } from "../data/types";
-import { showAlbumEditor, showArtistEditor, showSongEditor } from "../modals";
+import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
 import {
   useToggleFavoriteMutation,
   type FavoriteTarget,
