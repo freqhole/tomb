@@ -24,6 +24,9 @@ import {
   useSongEditorState,
   useImageCarouselState,
   useTagSelectorState,
+  useAddMusicState,
+  openAddMusic,
+  closeAddMusic,
 } from "../music/hooks/modals";
 import { queryKeys } from "../music/queries/queryKeys";
 import { addToQueue } from "../music/services/queue/queue";
@@ -41,7 +44,7 @@ import { initAppDB } from "./services/storage/db";
 
 export function App() {
   const queryClient = useQueryClient();
-  const [isAddMusicOpen, setIsAddMusicOpen] = createSignal(false);
+  const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [isProcessing, setIsProcessing] = createSignal(false);
   const [hasSongs, setHasSongs] = createSignal(false);
@@ -98,7 +101,7 @@ export function App() {
         // invalidate songs query to show new songs
         queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
       }
-      setIsAddMusicOpen(false);
+      closeAddMusic();
     } catch (error) {
       console.error("failed to process files:", error);
     } finally {
@@ -109,7 +112,7 @@ export function App() {
   const handleUrlsSubmitted = (urls: string[]) => {
     console.log("urls submitted:", urls);
     // TODO: download and add to library
-    setIsAddMusicOpen(false);
+    closeAddMusic();
   };
 
   const handleSongDoubleClick = async (song: Song) => {
@@ -134,7 +137,7 @@ export function App() {
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
-                onAddMusic={() => setIsAddMusicOpen(true)}
+                onAddMusic={() => openAddMusic()}
                 onAddRemote={() => setIsAddRemoteOpen(true)}
               />
             </div>
@@ -142,7 +145,7 @@ export function App() {
         >
           <HashRouter>
             {routes({
-              onAddMusic: () => setIsAddMusicOpen(true),
+              onAddMusic: () => openAddMusic(),
               onSongDoubleClick: handleSongDoubleClick,
             })}
           </HashRouter>
@@ -151,7 +154,7 @@ export function App() {
 
       <AddMusicModal
         isOpen={isAddMusicOpen()}
-        onClose={() => setIsAddMusicOpen(false)}
+        onClose={() => closeAddMusic()}
         onFilesSelected={handleFilesSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
       />

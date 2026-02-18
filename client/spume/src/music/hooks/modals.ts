@@ -160,3 +160,18 @@ export function hideTagSelector() {
 export function useTagSelectorState() {
   return tagSelectorState;
 }
+
+// add music modal
+const [addMusicOpen, setAddMusicOpen] = createSignal(false);
+
+export function openAddMusic() {
+  setAddMusicOpen(true);
+}
+
+export function closeAddMusic() {
+  setAddMusicOpen(false);
+}
+
+export function useAddMusicState() {
+  return addMusicOpen;
+}

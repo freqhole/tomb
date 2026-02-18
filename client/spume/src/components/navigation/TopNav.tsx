@@ -99,6 +99,8 @@ export interface TopNavProps {
   pageCount?: number;
   /** view options for the view selector flyout */
   viewOptions?: ViewOption[];
+  /** callback for add music action */
+  onAddMusic?: () => void;
   /** additional classes */
   class?: string;
 }
@@ -118,6 +120,7 @@ export function TopNav(props: TopNavProps) {
   const [tagLocked, setTagLocked] = createSignal(false);
   const [feedFilterOpen, setFeedFilterOpen] = createSignal(false);
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
+  const [navHovered, setNavHovered] = createSignal(false);
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -187,11 +190,14 @@ export function TopNav(props: TopNavProps) {
     return Math.round((props.storageUsage / props.storageQuota) * 100);
   };
 
-  // get current remote image url
-  const currentRemoteImage = () => {
+  // get current remote for image + url
+  const currentRemote = () => {
     if (!props.remotes || !props.currentSourceName) return null;
-    const remote = props.remotes.find((r) => r.name === props.currentSourceName);
-    return remote?.imageUrl;
+    return props.remotes.find((r) => r.name === props.currentSourceName) ?? null;
+  };
+  const currentRemoteImage = () => {
+    const r = currentRemote();
+    return r?.imageUrl ?? null;
   };
 
   return (
@@ -216,6 +222,7 @@ export function TopNav(props: TopNavProps) {
           onViewAllPlaylists={props.onViewAllPlaylists}
           onCreatePlaylist={props.onCreatePlaylist}
           onNavigate={props.onNavigate}
+          onAddMusic={props.onAddMusic}
         />
       </Show>
 
@@ -230,17 +237,30 @@ export function TopNav(props: TopNavProps) {
             !isNarrow(),
         }}
         style={{ height: isNarrow() ? "var(--nav-height, 56px)" : "auto" }}
+        onMouseEnter={() => setNavHovered(true)}
+        onMouseLeave={() => setNavHovered(false)}
       >
         <div class="flex items-center gap-3">
           {/* mobile menu trigger - only rendered on narrow */}
           <Show when={isNarrow()}>
             <button
-              class="p-2 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
+              class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
               classList={{ "bg-white/10": mobileMenuOpen() }}
               aria-label="menu"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen())}
             >
-              <Icon name="freqhole" size={24} color="var(--color-accent-500)" />
+              <Show
+                when={currentRemote()}
+                fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
+              >
+                {(remote) => (
+                  <MediaImage
+                    imageUrl={remote().imageUrl ? `${remote().url}${remote().imageUrl}` : null}
+                    alt=""
+                    class="w-7 h-7 rounded object-cover flex-shrink-0"
+                  />
+                )}
+              </Show>
             </button>
           </Show>
 
@@ -249,10 +269,21 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav>
               <KobalteNav.Menu>
                 <KobalteNav.Trigger
-                  class="p-2 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
+                  class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
                   aria-label="menu"
                 >
-                  <Icon name="freqhole" size={24} color="var(--color-accent-500)" />
+                  <Show
+                    when={currentRemote()}
+                    fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
+                  >
+                    {(remote) => (
+                      <MediaImage
+                        imageUrl={remote().imageUrl ? `${remote().url}${remote().imageUrl}` : null}
+                        alt=""
+                        class="w-7 h-7 rounded object-cover flex-shrink-0"
+                      />
+                    )}
+                  </Show>
                 </KobalteNav.Trigger>
 
                 <KobalteNav.Portal>
@@ -260,28 +291,38 @@ export function TopNav(props: TopNavProps) {
                     <div class="grid grid-cols-2 gap-6 min-w-[560px] max-h-[70vh]">
                       {/* column 1: brand info + source management */}
                       <div class="flex flex-col p-6">
-                        <div class="space-y-3 mb-6">
-                          <div>
-                            <h3 class="text-lg font-bold m-0">
-                              <span>freqh</span>
-                              <Icon
-                                name="freqhole"
-                                size={24}
-                                color="var(--color-accent-500)"
-                                className="inline"
-                              />
-                              <span>le</span>
-                            </h3>
-                            <Show when={props.brandTagline}>
-                              <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
-                                {props.brandTagline}
-                              </p>
+                        <div class="flex items-start justify-between mb-6">
+                          <div class="space-y-3">
+                            <div>
+                              <h3 class="text-lg font-bold m-0">
+                                <span>freqh</span>
+                                <Icon
+                                  name="freqhole"
+                                  size={24}
+                                  color="var(--color-accent-500)"
+                                  className="inline"
+                                />
+                                <span>le</span>
+                              </h3>
+                              <Show when={props.brandTagline}>
+                                <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
+                                  {props.brandTagline}
+                                </p>
+                              </Show>
+                            </div>
+                            <Show when={props.version}>
+                              <div class="px-2 py-1 bg-[var(--color-bg-tertiary)] rounded text-xs text-[var(--color-text-muted)] inline-block">
+                                {props.version}
+                              </div>
                             </Show>
                           </div>
-                          <Show when={props.version}>
-                            <div class="px-2 py-1 bg-[var(--color-bg-tertiary)] rounded text-xs text-[var(--color-text-muted)] inline-block">
-                              {props.version}
-                            </div>
+                          <Show when={props.onAddMusic}>
+                            <button
+                              class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
+                              onClick={() => props.onAddMusic?.()}
+                            >
+                              add music
+                            </button>
                           </Show>
                         </div>
 
@@ -423,31 +464,30 @@ export function TopNav(props: TopNavProps) {
                           recent playlists
                         </h4>
                         <KobalteNav.Group>
-                          <div class="flex-1 space-y-1 overflow-y-auto min-h-0">
+                          <div class="flex-1 space-y-0.5 overflow-y-auto min-h-0">
                             <Show when={props.recentPlaylists?.length}>
                               <For each={props.recentPlaylists}>
                                 {(playlist) => (
                                   <KobalteNav.Item
-                                    class="w-full px-3 py-2 hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10"
+                                    class="w-full hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10 flex items-center gap-2 px-2 py-1"
+                                    style={{ "min-height": "0", height: "auto" }}
                                     closeOnSelect={true}
                                     onSelect={playlist.onClick}
                                   >
-                                    <div class="flex items-center gap-2">
-                                      <MediaImage
-                                        images={playlist.images}
-                                        imageUrl={playlist.thumbnailUrl || null}
-                                        blobId={playlist.thumbnailBlobId}
-                                        alt=""
-                                        class="w-10 h-10 object-cover rounded flex-shrink-0"
-                                        domainType="playlist"
-                                      />
-                                      <div class="flex-1 min-w-0">
-                                        <div class="text-sm text-[var(--color-text-primary)] truncate">
-                                          {playlist.name}
-                                        </div>
-                                        <div class="text-xs text-[var(--color-text-tertiary)]">
-                                          {formatRelativeTime(playlist.updatedAt)}
-                                        </div>
+                                    <MediaImage
+                                      images={playlist.images}
+                                      imageUrl={playlist.thumbnailUrl || null}
+                                      blobId={playlist.thumbnailBlobId}
+                                      alt=""
+                                      class="w-8 h-8 object-cover rounded flex-shrink-0"
+                                      domainType="playlist"
+                                    />
+                                    <div class="flex-1 min-w-0">
+                                      <div class="text-sm text-[var(--color-text-primary)] truncate">
+                                        {playlist.name}
+                                      </div>
+                                      <div class="text-xs text-[var(--color-text-tertiary)]">
+                                        {formatRelativeTime(playlist.updatedAt)}
                                       </div>
                                     </div>
                                   </KobalteNav.Item>
@@ -510,6 +550,7 @@ export function TopNav(props: TopNavProps) {
                   onNavigate={props.onNavigate}
                   currentPath={props.currentPath}
                   onExpandedChange={setSearchExpanded}
+                  navHovered={navHovered()}
                 />
               }
             >

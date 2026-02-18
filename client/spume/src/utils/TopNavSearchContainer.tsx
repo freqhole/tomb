@@ -13,17 +13,17 @@ type TopNavSearchContainerProps = Omit<
 > & {
   /** callback when search expanded state changes */
   onExpandedChange?: (expanded: boolean) => void;
+  /** whether the parent nav is being hovered */
+  navHovered?: boolean;
 };
 
 /**
  * smart wrapper around TopNavSearch that provides search suggestions
  * using tanstack-query hooks
  */
-export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (
-  props
-) => {
+export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (props) => {
   const [searchInput, setSearchInput] = createSignal("");
-  
+
   const suggestionsQuery = useSearchSuggestions({
     field: () => "all",
     partial: searchInput,
@@ -52,9 +52,7 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (
       suggestions={suggestions()}
       onSearchChange={(value) => setSearchInput(value)}
       hasMoreSuggestions={suggestionsQuery.hasNextPage}
-      isLoadingSuggestions={
-        suggestionsQuery.isFetching || suggestionsQuery.isFetchingNextPage
-      }
+      isLoadingSuggestions={suggestionsQuery.isFetching || suggestionsQuery.isFetchingNextPage}
       onLoadMoreSuggestions={() => suggestionsQuery.fetchNextPage()}
     />
   );

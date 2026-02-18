@@ -52,6 +52,8 @@ export interface TopNavMobileProps {
   onCreatePlaylist?: () => void;
   /** callback for navigation (optional) */
   onNavigate?: (path: string) => void;
+  /** callback for add music action */
+  onAddMusic?: () => void;
 }
 
 /** format bytes to human readable */
@@ -113,26 +115,36 @@ export function TopNavMobile(props: TopNavMobileProps) {
           <div class="flex flex-col gap-0">
             {/* section 1: brand info + source management */}
             <div class="flex flex-col p-3">
-              <div class="space-y-2 mb-4">
-                <div>
-                  <h3 class="text-lg font-bold m-0">
-                    <span>freqh</span>
-                    <Icon
-                      name="freqhole"
-                      size={24}
-                      color="var(--color-accent-500)"
-                      className="inline"
-                    />
-                    <span>le</span>
-                  </h3>
-                  <Show when={props.brandTagline}>
-                    <p class="text-xs text-white/50 m-0 mt-1">{props.brandTagline}</p>
+              <div class="flex items-start justify-between mb-4">
+                <div class="space-y-2">
+                  <div>
+                    <h3 class="text-lg font-bold m-0">
+                      <span>freqh</span>
+                      <Icon
+                        name="freqhole"
+                        size={24}
+                        color="var(--color-accent-500)"
+                        className="inline"
+                      />
+                      <span>le</span>
+                    </h3>
+                    <Show when={props.brandTagline}>
+                      <p class="text-xs text-white/50 m-0 mt-1">{props.brandTagline}</p>
+                    </Show>
+                  </div>
+                  <Show when={props.version}>
+                    <div class="px-2 py-1 bg-white/10 rounded text-xs text-white/50 inline-block">
+                      {props.version}
+                    </div>
                   </Show>
                 </div>
-                <Show when={props.version}>
-                  <div class="px-2 py-1 bg-white/10 rounded text-xs text-white/50 inline-block">
-                    {props.version}
-                  </div>
+                <Show when={props.onAddMusic}>
+                  <button
+                    class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
+                    onClick={() => handleMenuItemClick(() => props.onAddMusic?.())}
+                  >
+                    add music
+                  </button>
                 </Show>
               </div>
 

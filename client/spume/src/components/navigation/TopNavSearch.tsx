@@ -1,6 +1,6 @@
 // top nav search component with suggestions and navigation
 // uses hover-to-preview + click-to-lock pattern matching sort/tag controls
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion } from "../../music/data/types";
 import { addToQueue } from "../../music/services/queue/queue";
@@ -30,6 +30,8 @@ export interface TopNavSearchProps {
   onLoadMoreSuggestions?: () => void;
   /** callback when expanded state changes */
   onExpandedChange?: (expanded: boolean) => void;
+  /** whether the parent nav is being hovered — collapse when this goes false (unless locked) */
+  navHovered?: boolean;
 }
 
 // top nav search with suggestions and navigation (presentational)
@@ -113,20 +115,28 @@ export function TopNavSearch(props: TopNavSearchProps) {
     }
   };
 
-  // hover handlers - expand on enter, collapse on leave unless locked/focused/has value
+  // hover handlers - expand on enter; collapse is handled by nav-level mouse leave
   const handleMouseEnter = () => {
     clearTimeout(closeTimeout);
     if (!isExpanded()) setIsExpanded(true);
   };
 
-  const handleMouseLeave = () => {
-    if (shouldStayOpen()) return;
-    closeTimeout = setTimeout(() => {
-      if (!shouldStayOpen()) {
-        setIsExpanded(false);
+  // react to nav hover state — collapse when mouse leaves the entire nav
+  createEffect(
+    on(
+      () => props.navHovered,
+      (hovered, prevHovered) => {
+        // only act when going from hovered to not-hovered
+        if (prevHovered && !hovered && !shouldStayOpen()) {
+          closeTimeout = setTimeout(() => {
+            if (!shouldStayOpen()) {
+              setIsExpanded(false);
+            }
+          }, 150);
+        }
       }
-    }, 150);
-  };
+    )
+  );
 
   // click-lock toggle on the search icon button
   const handleIconClick = () => {
@@ -329,11 +339,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   };
 
   return (
-    <div
-      class="relative flex items-center"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
+    <div class="relative flex items-center" onMouseEnter={handleMouseEnter}>
       <button
         class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0"
         classList={{
