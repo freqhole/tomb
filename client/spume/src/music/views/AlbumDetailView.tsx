@@ -1,6 +1,6 @@
 // album detail view - shows album info and songs list
 import { useNavigate, useParams } from "@solidjs/router";
-import { createEffect, createMemo, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
 import { playQueue } from "../services/queue/queue";
@@ -224,6 +224,16 @@ export function AlbumDetailView() {
     });
   };
 
+  // genres/tags overflow state (collapse to 2 lines on narrow screens)
+  const [tagsExpanded, setTagsExpanded] = createSignal(false);
+  const [tagsOverflowing, setTagsOverflowing] = createSignal(false);
+
+  // reset when album changes
+  createEffect(() => {
+    params.id;
+    setTagsExpanded(false);
+  });
+
   return (
     <DetailViewWrapper pageTitle="album" pageCount={songs().length} onBack={buildRoute("/albums")}>
       <div class="flex flex-col h-full">
@@ -231,69 +241,86 @@ export function AlbumDetailView() {
           {(info) => (
             <>
               {/* header with album info - responsive layout */}
-              <div class="flex flex-col justify-between md:flex-row gap-4 md:gap-6 p-4 md:p-6">
+              <div class="flex flex justify-between px-1 md:gap-6 md:p-6">
                 {/* album info */}
-                <div class="flex flex-col justify-center gap-1 min-w-0 text-center md:mt-[50px] md:gap-2 md:text-left">
+                <div class="flex flex-col justify-center min-w-0 md:mt-[50px] md:gap-2 md:text-left">
                   <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)] truncate">
                     {info().title}
                   </h1>
-                  <div class="flex flex-wrap items-center justify-center md:justify-start gap-x-2 gap-y-1 text-sm md:text-xl text-[var(--color-text-secondary)]">
+                  <div class="flex flex-col md:flex-row md:flex-wrap md:items-center gap-y-0.5 md:gap-x-2 md:gap-y-1 md:text-xl text-[var(--color-text-secondary)]">
                     <button
                       onClick={handleArtistClick}
-                      class="hover:text-[var(--color-text-primary)] hover:underline"
+                      class="hover:text-[var(--color-text-primary)] hover:underline text-left"
                     >
                       {songs()[0]?.artist_name || "unknown artist"}
                     </button>
-                    {info().year && (
-                      <>
-                        <span>•</span>
-                        <span>{info().year}</span>
-                      </>
-                    )}
-                    <span>•</span>
-                    <span>
-                      {songs().length} {songs().length === 1 ? "song" : "songs"}
-                    </span>
-                    <span>•</span>
-                    <span>{formatLongDuration(totalDuration())}</span>
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      {info().year && <span>{info().year}</span>}
+                      <span>•</span>
+                      <span>
+                        {songs().length} {songs().length === 1 ? "song" : "songs"}
+                      </span>
+                      <span>•</span>
+                      <span>{formatLongDuration(totalDuration())}</span>
+                    </div>
                   </div>
 
-                  {/* genres and tags */}
+                  {/* genres, tags, and links — collapsed to 2 lines on narrow screens */}
                   <Show
                     when={
                       (songs()[0]?.album_genres?.length ?? 0) > 0 ||
-                      (songs()[0]?.album_tags?.length ?? 0) > 0
+                      (songs()[0]?.album_tags?.length ?? 0) > 0 ||
+                      (albumQuery.data?.urls?.length ?? 0) > 0
                     }
                   >
-                    <div class="flex flex-wrap gap-1.5 justify-center md:justify-start mt-1">
-                      <For each={songs()[0]?.album_genres ?? []}>
-                        {(genre) => (
-                          <button
-                            class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
-                            onClick={() => navigate(buildRoute(`/genres/${genre.id}`))}
-                          >
-                            {genre.name}
-                          </button>
-                        )}
-                      </For>
-                      <For each={songs()[0]?.album_tags ?? []}>
-                        {(tag) => (
-                          <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
-                            #{tag}
-                          </span>
-                        )}
-                      </For>
+                    <div class="mt-1">
+                      <div
+                        ref={(el) => {
+                          const check = () => {
+                            if (!tagsExpanded()) {
+                              setTagsOverflowing(el.scrollHeight > el.clientHeight);
+                            }
+                          };
+                          requestAnimationFrame(check);
+                          const obs = new ResizeObserver(check);
+                          obs.observe(el);
+                        }}
+                        class={`flex flex-wrap gap-1.5 md:justify-start ${
+                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden md:max-h-none" : ""
+                        }`}
+                      >
+                        <For each={songs()[0]?.album_genres ?? []}>
+                          {(genre) => (
+                            <button
+                              class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
+                              onClick={() => navigate(buildRoute(`/genres/${genre.id}`))}
+                            >
+                              {genre.name}
+                            </button>
+                          )}
+                        </For>
+                        <For each={songs()[0]?.album_tags ?? []}>
+                          {(tag) => (
+                            <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                              #{tag}
+                            </span>
+                          )}
+                        </For>
+                        <EntityLinks urls={albumQuery.data?.urls} />
+                      </div>
+                      <Show when={tagsOverflowing() || tagsExpanded()}>
+                        <button
+                          onClick={() => setTagsExpanded((v) => !v)}
+                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] md:hidden"
+                        >
+                          {tagsExpanded() ? "see less" : "see more"}
+                        </button>
+                      </Show>
                     </div>
                   </Show>
 
-                  {/* entity links */}
-                  <EntityLinks
-                    urls={albumQuery.data?.urls}
-                    class="justify-center md:justify-start mt-1"
-                  />
-
                   {/* play button, edit button, and favorite toggle */}
-                  <div class="mt-3 md:mt-4 flex items-center justify-center md:justify-start gap-2 md:gap-3">
+                  <div class="mt-0 md:mt-4 flex items-center md:justify-start gap-2 md:gap-3">
                     <Button variant="primary" onClick={handlePlayAlbum}>
                       <span class="hidden md:inline">play album</span>
                       <span class="md:hidden">play</span>

@@ -93,19 +93,6 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
 
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>
-      {/* back button for narrow viewports */}
-      <Show when={shouldShowBackButton()}>
-        <div class="flex-shrink-0 p-2 md:hidden">
-          <button
-            onClick={handleBack}
-            class="flex items-center gap-1 px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-lg transition-colors"
-          >
-            <Icon name="chevronLeft" size={18} />
-            <span>back</span>
-          </button>
-        </div>
-      </Show>
-
       {/* main content */}
       <div class="flex-1 overflow-hidden">{props.children}</div>
     </div>
