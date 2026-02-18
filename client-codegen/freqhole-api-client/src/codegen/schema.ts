@@ -763,7 +763,12 @@ export const FeedItemSchema = z.object({
   total_duration_ms: z.number().nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()).nullable(),
-  is_favorite: z.boolean()
+  is_favorite: z.boolean(),
+  collage_images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullable()
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
@@ -814,7 +819,12 @@ export const FeedResponseSchema = z.object({
   total_duration_ms: z.number().nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()).nullable(),
-  is_favorite: z.boolean()
+  is_favorite: z.boolean(),
+  collage_images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullable()
 })),
   total: z.number()
 });

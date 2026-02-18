@@ -463,6 +463,8 @@ export interface FeedItem {
   description: string | null;
   tags: string[] | null;
   is_favorite: boolean;
+  // collage images for multi-album listen sessions (up to 4 distinct album covers)
+  collage_images: ImageMetadata[] | null;
 }
 
 // paginated feed response

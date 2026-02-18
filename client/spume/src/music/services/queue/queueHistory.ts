@@ -9,6 +9,7 @@ import {
 } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
 import { computeSmartLabel } from "./smartLabel";
+import { pickBestEntryImage } from "../../../utils/images";
 
 const MAX_HISTORY_ENTRIES = 1000;
 
@@ -67,12 +68,9 @@ export async function addHistoryEntry(
   try {
     const db = await initAppDB();
 
-    // pick the first available image from the songs for the thumbnail
-    const firstImage =
-      source.image ??
-      songs[0]?.images?.[0] ??
-      songs[0]?.album_images?.[0] ??
-      undefined;
+    // pick the best available image — prefers non-waveform, checks album images,
+    // scans across multiple songs
+    const bestImage = pickBestEntryImage(songs, source.image);
 
     const entry: QueueHistoryEntry = {
       id: generateId(),
@@ -82,7 +80,7 @@ export async function addHistoryEntry(
       song_count: songs.length,
       songs: unwrapSongs(songs),
       queued_at: Date.now(),
-      image: firstImage ? { ...firstImage } : undefined,
+      image: bestImage ? { ...bestImage } : undefined,
       // progress tracking — use resume state if provided, otherwise defaults
       listened_seconds: resumeProgress?.listened_seconds ?? 0,
       total_seconds: songs.reduce((sum, s) => sum + (s.duration_seconds || 0), 0),

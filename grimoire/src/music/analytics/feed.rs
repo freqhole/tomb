@@ -9,6 +9,8 @@
 //! - listen sessions (from listen_sessionz)
 
 use crate::database;
+use crate::media_blobz::BlobType;
+use crate::music::crud::ImageMetadata;
 use crate::GrimoireResponse;
 use sea_query::{Expr, Iden, Order, Query, SqliteQueryBuilder};
 use serde::{Deserialize, Serialize};
@@ -61,7 +63,7 @@ pub struct FeedItem {
     /// subtitle (artist name, album name, etc.)
     pub subtitle: Option<String>,
     /// images for this item
-    pub images: Option<Vec<crate::music::crud::ImageMetadata>>,
+    pub images: Option<Vec<ImageMetadata>>,
     /// when this activity occurred (unix timestamp)
     pub created_at: i64,
     /// user who performed the action (nullable for system actions)
@@ -107,6 +109,8 @@ pub struct FeedItem {
     pub tags: Option<Vec<String>>,
     /// whether the primary entity is favorited by the viewer
     pub is_favorite: bool,
+    /// collage images for multi-album/artist listen sessions (up to 4 distinct album covers)
+    pub collage_images: Option<Vec<ImageMetadata>>,
 }
 
 /// column identifiers for feed_query_view (type-safe sea_query references)
@@ -340,9 +344,74 @@ pub async fn get_combined_feed(
         }
     };
 
-    let items: Vec<FeedItem> = rows.into_iter().map(|row| row.into_feed_item()).collect();
+    let mut items: Vec<FeedItem> = rows.into_iter().map(|row| row.into_feed_item()).collect();
+
+    // enrich listen session items with collage images (distinct album covers from session songs)
+    enrich_session_collage_images(&pool, &mut items).await;
 
     GrimoireResponse::success("combined feed retrieved", (items, total_count))
+}
+
+/// enrich listen session feed items with collage images
+///
+/// for each listen session in the feed, looks up distinct album cover images
+/// from the session's songs. returns up to 4 distinct album covers per session
+/// (non-waveform, preferring primary images). only sets collage_images when
+/// there are 2+ distinct album covers available.
+async fn enrich_session_collage_images(pool: &sqlx::SqlitePool, items: &mut [FeedItem]) {
+    for item in items.iter_mut() {
+        if item.feed_type != FeedItemType::ListenSession {
+            continue;
+        }
+        let sid = match &item.session_id {
+            Some(s) => s.clone(),
+            None => continue,
+        };
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                ai.media_blob_id as "blob_id!: String",
+                ai.is_primary as "is_primary!: i32",
+                mb.blob_type as "blob_type!: String"
+            FROM listen_sessionz ls,
+                 json_each(ls.song_ids) je
+            JOIN album_songz als ON als.song_id = je.value
+            JOIN album_imagez ai ON ai.album_id = als.album_id
+            JOIN media_blobz mb ON ai.media_blob_id = mb.id
+            WHERE ls.id = ?
+              AND mb.blob_type NOT IN ('waveform')
+            GROUP BY als.album_id
+            ORDER BY ai.is_primary DESC
+            LIMIT 4
+            "#,
+            sid
+        )
+        .fetch_all(pool)
+        .await;
+
+        match rows {
+            Ok(r) if r.len() >= 2 => {
+                item.collage_images = Some(
+                    r.into_iter()
+                        .map(|row| ImageMetadata {
+                            blob_id: row.blob_id,
+                            is_primary: row.is_primary,
+                            blob_type: row.blob_type.parse().unwrap_or(BlobType::Thumbnail),
+                        })
+                        .collect(),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "failed to fetch collage images for session {}: {:?}",
+                    sid,
+                    e
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 /// raw row struct for deserializing from feed_query_view
@@ -394,9 +463,9 @@ impl RawFeedRow {
             _ => FeedItemType::RecentListen,
         };
 
-        let images = self.images.and_then(|json_str| {
-            serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
-        });
+        let images = self
+            .images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
 
         let tags = self
             .tags
@@ -435,6 +504,7 @@ impl RawFeedRow {
             description: self.description,
             tags,
             is_favorite: self.is_favorite != 0,
+            collage_images: None, // populated by post-processing in get_combined_feed
         }
     }
 }

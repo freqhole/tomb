@@ -14,10 +14,6 @@ export const routes = {
     redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any() },
     logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any() },
   },
-  app: {
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
-  },
   music: {
     set_rating: { method: 'POST', path: '/api/ratings/set', req: s.SetRatingRequestSchema, resp: s.SetRatingResponseSchema },
     remove_rating: { method: 'POST', path: '/api/ratings/remove', req: s.RemoveRatingRequestSchema, resp: s.RemoveRatingResponseSchema },
@@ -88,5 +84,9 @@ export const routes = {
     upload_image: { method: 'POST', path: '/api/upload/image', req: null, resp: s.ImageUploadResponseSchema },
     delete_image: { method: 'POST', path: '/api/music/images/delete', req: s.DeleteImageRequestSchema, resp: s.EmptyResponseSchema },
     set_primary_image: { method: 'POST', path: '/api/music/images/set-primary', req: s.SetPrimaryImageRequestSchema, resp: s.EmptyResponseSchema },
+  },
+  app: {
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema },
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema },
   },
 };

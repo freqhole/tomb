@@ -5,6 +5,7 @@ import { createMemo, createSignal, onCleanup, onMount, Show, For } from "solid-j
 import type { FeedItem, FeedItemType } from "../../music/data/types";
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
+import { ImageCollageGrid } from "../media/ImageCollageGrid";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { formatLongDuration } from "../../utils/formatDuration";
@@ -213,7 +214,9 @@ function FeedRow(props: {
 
   const typeInfo = () => feedTypeInfo(props.item.feed_type);
   const images = () => props.item.images;
-  const hasImages = () => !!(images() && images()!.length > 0);
+  const collageImages = () => props.item.collage_images;
+  const hasCollage = () => !!(collageImages() && collageImages()!.length >= 2);
+  const hasImages = () => hasCollage() || !!(images() && images()!.length > 0);
   const createdAt = () =>
     typeof props.item.created_at === "number"
       ? props.item.created_at * 1000
@@ -341,7 +344,14 @@ function FeedRow(props: {
             </div>
           }
         >
-          <MediaThumbnail images={images()} size={IMAGE_SIZE} hideIndex showPlayIcon={false} />
+          <Show
+            when={hasCollage()}
+            fallback={
+              <MediaThumbnail images={images()} size={IMAGE_SIZE} hideIndex showPlayIcon={false} />
+            }
+          >
+            <ImageCollageGrid images={collageImages()!} size={IMAGE_SIZE} />
+          </Show>
 
           {/* feed type icon overlay — visible by default, hidden when ROW is hovered */}
           <div
