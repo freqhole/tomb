@@ -218,7 +218,7 @@
     // Server image (optional)
     // Used by remote clients to display server icon/logo
     // Image is served publicly at /api/hello/image (no auth required)
-    "image_path": "/Users/edward/src/github/freqhole/tomb/assets/freqhole.png",
+    "image_path": "/Users/edward/src/github/freqhole/tomb/assets/freqhole-dev.png",
 
     // Start job processor in the server (default: false)
     // When enabled, server spawns a background task to process jobs
