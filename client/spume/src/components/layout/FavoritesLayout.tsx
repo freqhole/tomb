@@ -1,7 +1,6 @@
-// favorites layout - presentational component for displaying favorites grid
-import { createSignal, For, Match, Show, Switch, onMount, onCleanup } from "solid-js";
+// favorites layout - presentational component for displaying favorites with toggle filters
+import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js";
 import { Icon } from "../icons/registry";
-import { MediaImage } from "../media/MediaImage";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { SongCard } from "../cards/SongCard";
@@ -19,7 +18,11 @@ import type {
 } from "../../music/data/types";
 import { useScrollRestore } from "../../utils/scrollRestore";
 
-export type FavoriteType = "all" | "songs" | "albums" | "artists" | "playlists";
+// individual filter types (no "all" — toggles are additive)
+export type FavoriteFilterType = "songs" | "albums" | "artists" | "playlists";
+
+// keep backward compat export
+export type FavoriteType = FavoriteFilterType;
 
 export type FavoriteItem =
   | (Song & { type: "song" })
@@ -32,10 +35,10 @@ export interface FavoritesLayoutProps {
   favorites: FavoriteItem[];
   /** whether data is loading */
   isLoading?: boolean;
-  /** initial filter type */
-  initialFilter?: FavoriteType;
+  /** container height in pixels (full window minus player bar) */
+  height: number;
   /** callback when filter changes */
-  onFilterChange?: (filter: FavoriteType) => void;
+  onFilterChange?: (activeFilters: Set<FavoriteFilterType>) => void;
   /** song card callbacks */
   onSongClick?: (song: Song) => void;
   onSongPlay?: (song: Song) => void;
@@ -62,8 +65,14 @@ export interface FavoritesLayoutProps {
   onGenreClick?: (genre: GenreRef) => void;
 }
 
+// all filter types
+const ALL_FILTERS: FavoriteFilterType[] = ["songs", "albums", "artists", "playlists"];
+
 export function FavoritesLayout(props: FavoritesLayoutProps) {
-  const [filterType, setFilterType] = createSignal<FavoriteType>(props.initialFilter || "all");
+  // all toggles start on
+  const [activeFilters, setActiveFilters] = createSignal<Set<FavoriteFilterType>>(
+    new Set(ALL_FILTERS)
+  );
   let scrollContainerRef: HTMLDivElement | undefined;
 
   // scroll restoration
@@ -81,53 +90,72 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     }
   });
 
-  const handleFilterChange = (type: FavoriteType) => {
-    setFilterType(type);
-    props.onFilterChange?.(type);
+  const toggleFilter = (type: FavoriteFilterType) => {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        // don't allow toggling off the last active filter
+        if (next.size <= 1) return prev;
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      props.onFilterChange?.(next);
+      return next;
+    });
   };
 
-  // filter favorites based on selected type and sort by timestamp
-  const filteredFavorites = () => {
-    const filter = filterType();
-    let items = props.favorites;
+  // is only songs toggled on?
+  const isSongsOnly = createMemo(() => {
+    const filters = activeFilters();
+    return filters.size === 1 && filters.has("songs");
+  });
 
-    // filter by type if not "all"
-    if (filter !== "all") {
-      // map plural filter to singular type
-      const typeMap: Record<string, string> = {
-        songs: "song",
-        albums: "album",
-        artists: "artist",
-        playlists: "playlist",
-      };
-      const targetType = typeMap[filter] || filter;
-      items = items.filter((fav) => fav.type === targetType);
-    }
-
-    // return items as-is (already sorted by parent)
-    return items;
+  // type map for filtering
+  const typeMap: Record<FavoriteFilterType, string> = {
+    songs: "song",
+    albums: "album",
+    artists: "artist",
+    playlists: "playlist",
   };
 
-  // count by type for tab badges
-  const counts = () => {
+  // filter favorites based on active toggles
+  const filteredFavorites = createMemo(() => {
+    const filters = activeFilters();
+    // if all are active, no filtering needed
+    if (filters.size === ALL_FILTERS.length) return props.favorites;
+    return props.favorites.filter((fav) => {
+      for (const filter of filters) {
+        if (fav.type === typeMap[filter]) return true;
+      }
+      return false;
+    });
+  });
+
+  // count by type for toggle badges
+  const counts = createMemo(() => {
     const songs = props.favorites.filter((f) => f.type === "song").length;
     const albums = props.favorites.filter((f) => f.type === "album").length;
     const artists = props.favorites.filter((f) => f.type === "artist").length;
     const playlists = props.favorites.filter((f) => f.type === "playlist").length;
-    return { songs, albums, artists, playlists, all: props.favorites.length };
-  };
+    return { songs, albums, artists, playlists };
+  });
 
-  // render tab button
-  const TabButton = (buttonProps: { type: FavoriteType; label: string; count: number }) => {
-    const isActive = () => filterType() === buttonProps.type;
+  // render toggle button
+  const ToggleButton = (buttonProps: {
+    type: FavoriteFilterType;
+    label: string;
+    count: number;
+  }) => {
+    const isActive = () => activeFilters().has(buttonProps.type);
     return (
       <button
         class={`px-2 py-1.5 md:px-4 md:py-2 text-sm md:text-base rounded-lg transition-all ${
           isActive()
             ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
-            : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-primary)]"
+            : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
         }`}
-        onClick={() => handleFilterChange(buttonProps.type)}
+        onClick={() => toggleFilter(buttonProps.type)}
       >
         {buttonProps.label}
         <Show when={buttonProps.count > 0}>
@@ -143,30 +171,102 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     );
   };
 
-  return (
-    <div class="h-full flex flex-col">
-      {/* header with tabs */}
-      <div class="py-2 md:p-6">
-        {/* filter tabs */}
-        <div class="md:ml-[250px] flex md:justify-end center gap-2 overflow-x-auto md:overflow-x-visible md:flex-wrap scrollbar-hide">
-          <TabButton type="all" label="all" count={counts().all} />
-          <TabButton type="songs" label="songs" count={counts().songs} />
-          <TabButton type="albums" label="albums" count={counts().albums} />
-          <TabButton type="artists" label="artists" count={counts().artists} />
-          <TabButton type="playlists" label="playlists" count={counts().playlists} />
-        </div>
-      </div>
+  // render a single favorite card (used in the mixed grid)
+  const renderFavoriteCard = (item: FavoriteItem) => {
+    switch (item.type) {
+      case "song": {
+        const song = item as Song & { type: "song" };
+        const card = (
+          <SongCard
+            song={song}
+            onClick={props.onSongClick}
+            onPlay={props.onSongPlay}
+            onFavoriteToggle={props.onSongFavoriteToggle}
+            onArtistClick={props.onArtistNavigate}
+            onAlbumClick={props.onAlbumNavigate}
+          />
+        );
+        return props.getSongContextMenuActions ? (
+          <ContextMenu actions={props.getSongContextMenuActions(song)}>{card}</ContextMenu>
+        ) : (
+          card
+        );
+      }
+      case "album": {
+        const album = item as AlbumSummary & { type: "album" };
+        const card = (
+          <AlbumCard
+            album={album}
+            onClick={props.onAlbumClick}
+            onPlay={props.onAlbumPlay}
+            onFavoriteToggle={props.onAlbumFavoriteToggle}
+            onArtistClick={props.onArtistNavigate}
+            onGenreClick={props.onGenreClick}
+          />
+        );
+        return props.getAlbumContextMenuActions ? (
+          <ContextMenu actions={props.getAlbumContextMenuActions(album)}>{card}</ContextMenu>
+        ) : (
+          card
+        );
+      }
+      case "artist": {
+        const artist = item as ArtistSummary & { type: "artist" };
+        const card = (
+          <ArtistCard
+            artist={artist}
+            onClick={props.onArtistClick}
+            onPlay={props.onArtistPlay}
+            onFavoriteToggle={props.onArtistFavoriteToggle}
+            onGenreClick={props.onGenreClick}
+          />
+        );
+        return props.getArtistContextMenuActions ? (
+          <ContextMenu actions={props.getArtistContextMenuActions(artist)}>{card}</ContextMenu>
+        ) : (
+          card
+        );
+      }
+      case "playlist": {
+        const playlist = item as PlaylistSummary & { type: "playlist" };
+        const card = (
+          <PlaylistCard
+            playlist={playlist}
+            onClick={props.onPlaylistClick}
+            onPlay={props.onPlaylistPlay}
+            onFavoriteToggle={props.onPlaylistFavoriteToggle}
+          />
+        );
+        return props.getPlaylistContextMenuActions ? (
+          <ContextMenu actions={props.getPlaylistContextMenuActions(playlist)}>{card}</ContextMenu>
+        ) : (
+          card
+        );
+      }
+    }
+  };
 
-      {/* content area */}
-      <div
-        ref={scrollContainerRef!}
-        class="flex-1 overflow-y-auto py-6"
-        onScroll={(e) => saveScroll(e.currentTarget)}
-      >
+  return (
+    <div
+      style={{ height: `${props.height}px` }}
+      class="overflow-y-auto"
+      ref={scrollContainerRef!}
+      onScroll={(e) => saveScroll(e.currentTarget)}
+    >
+      <div class="px-4 md:px-6 pb-6">
+        {/* filter toggles */}
+        <div class="flex gap-2 overflow-x-auto md:overflow-x-visible md:flex-wrap scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-end">
+          <ToggleButton type="songs" label="songs" count={counts().songs} />
+          <ToggleButton type="albums" label="albums" count={counts().albums} />
+          <ToggleButton type="artists" label="artists" count={counts().artists} />
+          <ToggleButton type="playlists" label="playlists" count={counts().playlists} />
+        </div>
+
+        {/* content */}
         <Show
           when={!props.isLoading && filteredFavorites().length > 0}
           fallback={
-            <div class="flex flex-col items-center justify-center h-full text-center">
+            <div class="flex flex-col items-center justify-center py-32 text-center">
               <Show
                 when={props.isLoading}
                 fallback={
@@ -184,236 +284,66 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             </div>
           }
         >
-          {/* render based on filter type */}
-          <Switch>
-            <Match when={filterType() === "all"}>
+          {/* song rows view when only songs toggled, otherwise card grid */}
+          <Show
+            when={isSongsOnly()}
+            fallback={
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites()}>
-                  {(item) => (
-                    <Switch>
-                      <Match when={item.type === "song"}>
-                        {(() => {
-                          const song = item as Song & { type: "song" };
-                          const card = (
-                            <SongCard
-                              song={song}
-                              onClick={props.onSongClick}
-                              onPlay={props.onSongPlay}
-                              onFavoriteToggle={props.onSongFavoriteToggle}
-                              onArtistClick={props.onArtistNavigate}
-                              onAlbumClick={props.onAlbumNavigate}
-                            />
-                          );
-                          return props.getSongContextMenuActions ? (
-                            <ContextMenu actions={props.getSongContextMenuActions(song)}>
-                              {card}
-                            </ContextMenu>
-                          ) : (
-                            card
-                          );
-                        })()}
-                      </Match>
-                      <Match when={item.type === "album"}>
-                        {(() => {
-                          const album = item as AlbumSummary & { type: "album" };
-                          const card = (
-                            <AlbumCard
-                              album={album}
-                              onClick={props.onAlbumClick}
-                              onPlay={props.onAlbumPlay}
-                              onFavoriteToggle={props.onAlbumFavoriteToggle}
-                              onArtistClick={props.onArtistNavigate}
-                              onGenreClick={props.onGenreClick}
-                            />
-                          );
-                          return props.getAlbumContextMenuActions ? (
-                            <ContextMenu actions={props.getAlbumContextMenuActions(album)}>
-                              {card}
-                            </ContextMenu>
-                          ) : (
-                            card
-                          );
-                        })()}
-                      </Match>
-                      <Match when={item.type === "artist"}>
-                        {(() => {
-                          const artist = item as ArtistSummary & { type: "artist" };
-                          const card = (
-                            <ArtistCard
-                              artist={artist}
-                              onClick={props.onArtistClick}
-                              onPlay={props.onArtistPlay}
-                              onFavoriteToggle={props.onArtistFavoriteToggle}
-                              onGenreClick={props.onGenreClick}
-                            />
-                          );
-                          return props.getArtistContextMenuActions ? (
-                            <ContextMenu actions={props.getArtistContextMenuActions(artist)}>
-                              {card}
-                            </ContextMenu>
-                          ) : (
-                            card
-                          );
-                        })()}
-                      </Match>
-                      <Match when={item.type === "playlist"}>
-                        {(() => {
-                          const playlist = item as PlaylistSummary & { type: "playlist" };
-                          const card = (
-                            <PlaylistCard
-                              playlist={playlist}
-                              onClick={props.onPlaylistClick}
-                              onPlay={props.onPlaylistPlay}
-                              onFavoriteToggle={props.onPlaylistFavoriteToggle}
-                            />
-                          );
-                          return props.getPlaylistContextMenuActions ? (
-                            <ContextMenu actions={props.getPlaylistContextMenuActions(playlist)}>
-                              {card}
-                            </ContextMenu>
-                          ) : (
-                            card
-                          );
-                        })()}
-                      </Match>
-                    </Switch>
-                  )}
-                </For>
+                <For each={filteredFavorites()}>{(item) => renderFavoriteCard(item)}</For>
               </div>
-            </Match>
-
-            <Match when={filterType() === "songs"}>
-              <div class="space-y-1">
-                <For each={filteredFavorites() as (Song & { type: "song" })[]}>
-                  {(song) => {
-                    const subtitle = [song.artist_name, song.album_title]
-                      .filter(Boolean)
-                      .join(" • ");
-                    const duration_display = formatDuration(song.duration_seconds);
-                    const row = (
-                      <div
-                        class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
-                        onDblClick={() => {
+            }
+          >
+            <div class="space-y-1">
+              <For each={filteredFavorites() as (Song & { type: "song" })[]}>
+                {(song) => {
+                  const subtitle = [song.artist_name, song.album_title]
+                    .filter(Boolean)
+                    .join(" \u2022 ");
+                  const duration_display = formatDuration(song.duration_seconds);
+                  const row = (
+                    <div
+                      class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer"
+                      onDblClick={() => {
+                        props.onSongPlay?.(song);
+                      }}
+                    >
+                      <MediaThumbnail
+                        images={song.images?.length ? song.images : song.album_images}
+                        onPlayClick={() => {
                           props.onSongPlay?.(song);
                         }}
-                      >
-                        <MediaThumbnail
-                          images={song.images?.length ? song.images : song.album_images}
-                          onPlayClick={() => {
-                            props.onSongPlay?.(song);
-                          }}
-                          size={48}
-                          class="flex-shrink-0"
-                        />
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[var(--color-text-primary)] font-medium truncate">
-                            {song.title}
+                        size={48}
+                        class="flex-shrink-0"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <div class="text-[var(--color-text-primary)] font-medium truncate">
+                          {song.title}
+                        </div>
+                        <Show when={subtitle}>
+                          <div class="text-sm text-[var(--color-text-secondary)] truncate">
+                            {subtitle}
                           </div>
-                          <Show when={subtitle}>
-                            <div class="text-sm text-[var(--color-text-secondary)] truncate">
-                              {subtitle}
-                            </div>
-                          </Show>
-                        </div>
-                        <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">
-                          {duration_display}
-                        </div>
-                        <FavoriteHeart
-                          isFavorite={song.is_favorite ?? false}
-                          onToggle={(isFavorite) =>
-                            props.onSongFavoriteToggle?.(song.id, isFavorite)
-                          }
-                          size="sm"
-                        />
+                        </Show>
                       </div>
-                    );
-                    return props.getSongContextMenuActions ? (
-                      <ContextMenu actions={props.getSongContextMenuActions(song)}>
-                        {row}
-                      </ContextMenu>
-                    ) : (
-                      row
-                    );
-                  }}
-                </For>
-              </div>
-            </Match>
-
-            <Match when={filterType() === "albums"}>
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites() as (AlbumSummary & { type: "album" })[]}>
-                  {(album) => {
-                    const card = (
-                      <AlbumCard
-                        album={album}
-                        onClick={props.onAlbumClick}
-                        onPlay={props.onAlbumPlay}
-                        onFavoriteToggle={props.onAlbumFavoriteToggle}
-                        onArtistClick={props.onArtistNavigate}
-                        onGenreClick={props.onGenreClick}
+                      <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">
+                        {duration_display}
+                      </div>
+                      <FavoriteHeart
+                        isFavorite={song.is_favorite ?? false}
+                        onToggle={(isFavorite) => props.onSongFavoriteToggle?.(song.id, isFavorite)}
+                        size="sm"
                       />
-                    );
-                    return props.getAlbumContextMenuActions ? (
-                      <ContextMenu actions={props.getAlbumContextMenuActions(album)}>
-                        {card}
-                      </ContextMenu>
-                    ) : (
-                      card
-                    );
-                  }}
-                </For>
-              </div>
-            </Match>
-
-            <Match when={filterType() === "artists"}>
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites() as (ArtistSummary & { type: "artist" })[]}>
-                  {(artist) => {
-                    const card = (
-                      <ArtistCard
-                        artist={artist}
-                        onClick={props.onArtistClick}
-                        onPlay={props.onArtistPlay}
-                        onFavoriteToggle={props.onArtistFavoriteToggle}
-                        onGenreClick={props.onGenreClick}
-                      />
-                    );
-                    return props.getArtistContextMenuActions ? (
-                      <ContextMenu actions={props.getArtistContextMenuActions(artist)}>
-                        {card}
-                      </ContextMenu>
-                    ) : (
-                      card
-                    );
-                  }}
-                </For>
-              </div>
-            </Match>
-
-            <Match when={filterType() === "playlists"}>
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-                <For each={filteredFavorites() as (PlaylistSummary & { type: "playlist" })[]}>
-                  {(playlist) => {
-                    const card = (
-                      <PlaylistCard
-                        playlist={playlist}
-                        onClick={props.onPlaylistClick}
-                        onPlay={props.onPlaylistPlay}
-                        onFavoriteToggle={props.onPlaylistFavoriteToggle}
-                      />
-                    );
-                    return props.getPlaylistContextMenuActions ? (
-                      <ContextMenu actions={props.getPlaylistContextMenuActions(playlist)}>
-                        {card}
-                      </ContextMenu>
-                    ) : (
-                      card
-                    );
-                  }}
-                </For>
-              </div>
-            </Match>
-          </Switch>
+                    </div>
+                  );
+                  return props.getSongContextMenuActions ? (
+                    <ContextMenu actions={props.getSongContextMenuActions(song)}>{row}</ContextMenu>
+                  ) : (
+                    row
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
         </Show>
       </div>
     </div>

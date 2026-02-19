@@ -28,6 +28,7 @@ export const Default: Story = {
     return (
       <FavoritesLayout
         favorites={favorites()}
+        height={window.innerHeight}
         onSongClick={(song) => console.log("song click:", song)}
         onSongPlay={(song) => console.log("song play:", song)}
         onSongFavoriteToggle={(songId, isFavorite) => {
@@ -72,6 +73,7 @@ export const Loading: Story = {
   args: {
     favorites: [],
     isLoading: true,
+    height: 600,
   },
 };
 
@@ -79,5 +81,6 @@ export const Empty: Story = {
   args: {
     favorites: [],
     isLoading: false,
+    height: 600,
   },
 };

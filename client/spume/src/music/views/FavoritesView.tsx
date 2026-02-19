@@ -1,6 +1,6 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, on, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
@@ -8,6 +8,7 @@ import {
 import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { getDataSource } from "../data";
+import { appState } from "../../app/services/storage/db";
 import type {
   FavoriteItem,
   Song,
@@ -33,6 +34,34 @@ export interface FavoritesViewProps {
 export function FavoritesView(props: FavoritesViewProps) {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
+
+  // responsive height — full window minus player bar
+  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const [containerHeight, setContainerHeight] = createSignal(
+    window.innerHeight - playerBarHeight()
+  );
+
+  onMount(() => {
+    let resizeTimeout: number | undefined;
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(() => {
+        setContainerHeight(window.innerHeight - playerBarHeight());
+      }, 100);
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
+  });
+
+  // update on player bar visibility change
+  createEffect(
+    on(
+      () => playerBarHeight(),
+      () => {
+        setContainerHeight(window.innerHeight - playerBarHeight());
+      }
+    )
+  );
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({
@@ -297,6 +326,7 @@ export function FavoritesView(props: FavoritesViewProps) {
     <FavoritesLayout
       favorites={allFavorites()}
       isLoading={favoritesQuery.isLoading}
+      height={containerHeight()}
       onSongClick={handleSongClick}
       onSongPlay={handleSongDoubleClick}
       getSongContextMenuActions={getSongContextMenuActions}
