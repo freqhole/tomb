@@ -5,6 +5,7 @@ import { TextArea } from "../forms/TextArea";
 import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
+import type { LocalImportProgress } from "../../music/import";
 
 export interface AddMusicModalProps {
   /** whether modal is open */
@@ -19,6 +20,8 @@ export interface AddMusicModalProps {
   remoteName?: string;
   /** tracked upload/fetch jobs to display */
   uploadJobs?: UploadJob[];
+  /** local import progress */
+  localImportProgress?: LocalImportProgress;
   /** additional classes */
   class?: string;
 }
@@ -70,6 +73,36 @@ export function AddMusicModal(props: AddMusicModalProps) {
   );
   const hasJobs = createMemo(() => (props.uploadJobs ?? []).length > 0);
 
+  // local import progress helpers
+  const localProgress = () => props.localImportProgress;
+  const isLocalImporting = () => {
+    const p = localProgress();
+    return p != null && p.phase !== "idle";
+  };
+  const localProgressPercent = () => {
+    const p = localProgress();
+    if (!p || p.total === 0) return 0;
+    return Math.round((p.current / p.total) * 100);
+  };
+  const localPhaseLabel = () => {
+    const p = localProgress();
+    if (!p) return "";
+    switch (p.phase) {
+      case "hashing":
+        return `hashing ${p.current} of ${p.total}`;
+      case "processing":
+        return "extracting metadata...";
+      case "saving":
+        return `saving ${p.current} of ${p.total}`;
+      case "done":
+        return `done — added ${p.addedCount}${p.skippedCount > 0 ? `, skipped ${p.skippedCount} duplicate${p.skippedCount !== 1 ? "s" : ""}` : ""}`;
+      case "error":
+        return p.errorMessage ?? "import failed";
+      default:
+        return "";
+    }
+  };
+
   return (
     <Show when={props.isOpen}>
       {/* overlay */}
@@ -85,7 +118,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
           {/* modal header */}
           <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
             <h2 class="heading-5 text-[var(--color-text-primary)]">
-              add music{props.remoteName ? ` to ${props.remoteName}` : ""}
+              add music to {props.remoteName || "local library"}
             </h2>
             <IconButton
               icon="close"
@@ -173,6 +206,78 @@ export function AddMusicModal(props: AddMusicModalProps) {
               </div>
             </Tabs>
           </div>
+
+          {/* local import progress section */}
+          <Show when={isLocalImporting()}>
+            <div class="border-t border-[var(--color-border-default)] px-4 py-3">
+              <div class="flex items-center gap-2 mb-2">
+                <Show
+                  when={localProgress()?.phase !== "done" && localProgress()?.phase !== "error"}
+                  fallback={
+                    <Show
+                      when={localProgress()?.phase === "done"}
+                      fallback={
+                        <div class="flex items-center gap-1.5">
+                          <Icon name="close" size={14} color="var(--color-error)" />
+                          <span class="body-xs text-red-400">{localPhaseLabel()}</span>
+                        </div>
+                      }
+                    >
+                      <div class="flex items-center gap-1.5">
+                        <Icon name="check" size={14} color="var(--color-success)" />
+                        <span class="body-xs text-[var(--color-text-secondary)]">
+                          {localPhaseLabel()}
+                        </span>
+                      </div>
+                    </Show>
+                  }
+                >
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
+                    <span class="body-xs text-[var(--color-text-secondary)]">
+                      {localPhaseLabel()}
+                    </span>
+                  </div>
+                </Show>
+              </div>
+
+              {/* progress bar */}
+              <Show
+                when={
+                  localProgress()?.phase !== "done" &&
+                  localProgress()?.phase !== "error" &&
+                  localProgress()?.phase !== "processing"
+                }
+              >
+                <div class="h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden mb-2">
+                  <div
+                    class="h-full bg-[var(--color-accent-500)] rounded-full transition-all duration-300"
+                    style={{ width: `${localProgressPercent()}%` }}
+                  />
+                </div>
+              </Show>
+
+              {/* processing phase gets indeterminate bar */}
+              <Show when={localProgress()?.phase === "processing"}>
+                <div class="h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden mb-2">
+                  <div class="h-full w-1/3 bg-[var(--color-accent-500)] rounded-full animate-[indeterminate_1.5s_ease-in-out_infinite]" />
+                </div>
+              </Show>
+
+              {/* current file name */}
+              <Show when={localProgress()?.currentFile && localProgress()?.phase !== "done"}>
+                <p class="body-xs text-[var(--color-text-tertiary)] truncate">
+                  {localProgress()?.currentFile}
+                </p>
+              </Show>
+
+              <Show when={localProgress()?.phase !== "done" && localProgress()?.phase !== "error"}>
+                <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
+                  you can close this modal or add more files
+                </p>
+              </Show>
+            </div>
+          </Show>
 
           {/* upload progress section - always visible at bottom regardless of tab */}
           <Show when={hasJobs()}>

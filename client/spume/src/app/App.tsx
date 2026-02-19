@@ -19,6 +19,8 @@ import {
 } from "../music/data";
 import {
   importMusicFiles,
+  getLocalImportProgress,
+  clearLocalImportProgress,
   uploadFilesToRemote,
   fetchUrlsOnRemote,
   getUploadJobs,
@@ -116,13 +118,15 @@ export function App() {
       await uploadFilesToRemote(files, onRemoteJobComplete);
     } else {
       // local import: process files into IndexedDB/OPFS
+      // progress is tracked reactively via getLocalImportProgress()
       try {
         const result = await importMusicFiles(files);
         if (result.addedCount > 0) {
           setHasSongs(true);
           queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+          queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+          queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
         }
-        closeAddMusic();
       } catch (error) {
         console.error("failed to process files:", error);
         toast.error("failed to import files", { title: "import error" });
@@ -146,6 +150,7 @@ export function App() {
 
   const handleCloseAddMusic = () => {
     clearCompletedJobs();
+    clearLocalImportProgress();
     closeAddMusic();
   };
 
@@ -193,6 +198,7 @@ export function App() {
         onUrlsSubmitted={handleUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
         uploadJobs={getUploadJobs()}
+        localImportProgress={getLocalImportProgress()}
       />
 
       <AddRemoteModal

@@ -1,5 +1,12 @@
 // music import module - local and remote import services
-export { importMusicFiles, type ImportResult } from "./localImport";
+export {
+  importMusicFiles,
+  getLocalImportProgress,
+  clearLocalImportProgress,
+  type ImportResult,
+  type LocalImportProgress,
+  type LocalImportPhase,
+} from "./localImport";
 export {
   uploadFilesToRemote,
   fetchUrlsOnRemote,
