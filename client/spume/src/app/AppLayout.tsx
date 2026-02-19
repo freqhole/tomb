@@ -99,14 +99,20 @@ export function AppLayout(props: AppLayoutProps) {
   // fetch recent playlists (contextual to current data source)
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
+  // resize handler for narrow viewport detection (hoisted so cleanup can reference it)
+  const handleResize = () => {
+    setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+  };
+
+  // register cleanups in synchronous component body so solid can track them
+  onCleanup(() => {
+    stopAnalyticsSync();
+    window.removeEventListener("resize", handleResize);
+  });
+
   // load remotes and storage info on mount
   onMount(async () => {
-    // handle resize for narrow viewport detection
-    const handleResize = () => {
-      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
-    };
     window.addEventListener("resize", handleResize);
-    onCleanup(() => window.removeEventListener("resize", handleResize));
 
     // load queue history from idb
     await loadQueueHistory();
@@ -116,7 +122,6 @@ export function AppLayout(props: AppLayoutProps) {
 
     // start analytics sync loop
     startAnalyticsSync();
-    onCleanup(() => stopAnalyticsSync());
 
     try {
       const allRemotes = await getAllRemotes();
