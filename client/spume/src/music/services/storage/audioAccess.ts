@@ -151,3 +151,54 @@ export function cleanupAllAudioURLs(): void {
   }
   activeBlobURLs.clear();
 }
+
+// re-create a blob URL from underlying storage (OPFS or API Cache)
+// used when iOS revokes blob URLs after PWA suspension
+export async function refreshBlobURL(song: Song): Promise<string | null> {
+  console.log(`refreshing blob URL for song: ${song.title} (source: ${song.source_type})`);
+
+  // cleanup old blob URL if exists
+  if (activeBlobURLs.has(song.sha256)) {
+    const oldURL = activeBlobURLs.get(song.sha256)!;
+    URL.revokeObjectURL(oldURL);
+    activeBlobURLs.delete(song.sha256);
+  }
+
+  // local/downloaded: re-read from OPFS
+  if (song.source_type === "local" || song.source_type === "downloaded") {
+    if (!song.opfs_path) {
+      console.error(`cannot refresh: song has no opfs path: ${song.sha256}`);
+      return null;
+    }
+    try {
+      const file = await readAudioFromOPFS(song.opfs_path);
+      const url = URL.createObjectURL(file);
+      activeBlobURLs.set(song.sha256, url);
+      console.log(`refreshed blob URL from OPFS: ${song.sha256}`);
+      return url;
+    } catch (error) {
+      console.error(`failed to refresh from OPFS:`, error);
+      return null;
+    }
+  }
+
+  // remote: try API Cache first
+  if (song.source_type === "remote" && song.source_url) {
+    const cachedResponse = await getCachedBlob(song.source_url);
+    if (cachedResponse) {
+      const blob = await cachedResponse.blob();
+      const url = URL.createObjectURL(blob);
+      activeBlobURLs.set(song.sha256, url);
+      console.log(`refreshed blob URL from API Cache: ${song.sha256}`);
+      return url;
+    }
+    // not in cache - fall back to remote URL (browser will handle it)
+    console.log(`not in cache, falling back to remote URL: ${song.source_url}`);
+    directURLSongs.set(song.sha256, song.source_url);
+    addToDirectURLSet(song.sha256);
+    return song.source_url;
+  }
+
+  console.error(`cannot refresh: unsupported source type: ${song.source_type}`);
+  return null;
+}

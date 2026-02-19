@@ -110,7 +110,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
         {/* menu panel - slides from top, full width */}
         <div
           class="absolute top-[var(--nav-height,56px)] left-0 right-0 bg-black/95 backdrop-blur-sm overflow-y-auto animate-in slide-in-from-top duration-200"
-          style={{ "max-height": "calc(100vh - var(--player-height) - var(--nav-height, 56px))" }}
+          style={{ "max-height": "calc(100dvh - var(--nav-height, 56px))" }}
         >
           {/* mobile menu content */}
           <div class="flex flex-col gap-0">

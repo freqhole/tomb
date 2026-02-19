@@ -451,11 +451,6 @@ function FeedRow(props: {
             <Show when={props.item.genre}>
               <span
                 class="px-1.5 py-px rounded-full flex-shrink-0 cursor-pointer hover:brightness-125 transition-all"
-                style={{
-                  background: `color-mix(in srgb, ${entityColors.genre} 20%, transparent)`,
-                  color: entityColors.genre,
-                  "font-size": "10px",
-                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (props.item.genre_id) {

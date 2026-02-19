@@ -1,6 +1,7 @@
 // feed view — single infinite scrolling list of all activity events
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { useViewportHeight } from "../../utils/viewport";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { Button } from "../../components/buttons/Button";
 import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
@@ -84,32 +85,11 @@ export function FeedView() {
     return pages.length > 0 ? pages[0].total : 0;
   });
 
-  // responsive list height
+  // responsive list height — reactive to safari toolbar changes
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const [listHeight, setListHeight] = createSignal(window.innerHeight - playerBarHeight());
-
-  onMount(() => {
-    let resizeTimeout: number | undefined;
-    const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(() => {
-        setListHeight(window.innerHeight - playerBarHeight());
-      }, 100);
-    };
-    window.addEventListener("resize", handleResize);
-    onCleanup(() => {
-      clearTimeout(resizeTimeout);
-      window.removeEventListener("resize", handleResize);
-    });
-  });
-
-  // update list height when player bar changes
-  createEffect(
-    on(
-      () => playerBarHeight(),
-      () => setListHeight(window.innerHeight - playerBarHeight())
-    )
-  );
+  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
 
   // set page info with feed filter controls
   createEffect(
@@ -664,7 +644,7 @@ export function FeedView() {
 
   // track scroll to show/hide back-to-top button (2x window height threshold)
   const handleScroll = (scrollTop: number) => {
-    setShowBackToTop(scrollTop > window.innerHeight * 2);
+    setShowBackToTop(scrollTop > viewportHeight() * 2);
   };
 
   const handleBackToTop = () => {

@@ -2,9 +2,58 @@
 
 import type { ImageMetadata } from "../music/services/storage/types";
 
+// extended type to handle IDB data that may have 'type' instead of 'blob_type'
+// (some IndexedDB data stores use 'type' instead of 'blob_type')
+type ImageDataWithTypeFallback = ImageMetadata & { type?: string };
+
 // filter out waveform images from a list
 function nonWaveform(imgs?: ImageMetadata[]): ImageMetadata[] {
   return (imgs || []).filter((img) => img.blob_type !== "waveform");
+}
+
+/**
+ * pick the best single image from an array of images.
+ * handles both ImageMetadata (blob_type) and raw IDB data (type).
+ * 
+ * priority order:
+ * 1. primary thumbnail
+ * 2. any thumbnail
+ * 3. primary original
+ * 4. any original  
+ * 5. waveform (last resort before returning null)
+ * 6. first available image
+ */
+export function pickBestImage(images?: ImageMetadata[] | null): ImageMetadata | null {
+  if (!images || images.length === 0) return null;
+
+  // spread to unwrap SolidJS store proxies, cast to handle IDB type fallback
+  const arr = [...images] as ImageDataWithTypeFallback[];
+  if (arr.length === 0) return null;
+
+  const getType = (img: ImageDataWithTypeFallback) => img.blob_type || img.type;
+
+  // 1. primary thumbnail
+  const primaryThumb = arr.find((img) => img.is_primary && getType(img) === "thumbnail");
+  if (primaryThumb) return primaryThumb;
+
+  // 2. any thumbnail
+  const anyThumb = arr.find((img) => getType(img) === "thumbnail");
+  if (anyThumb) return anyThumb;
+
+  // 3. primary original (non-waveform)
+  const primaryOriginal = arr.find((img) => img.is_primary && getType(img) === "original");
+  if (primaryOriginal) return primaryOriginal;
+
+  // 4. any original
+  const anyOriginal = arr.find((img) => getType(img) === "original");
+  if (anyOriginal) return anyOriginal;
+
+  // 5. waveform as last resort (still better than nothing)
+  const waveform = arr.find((img) => getType(img) === "waveform");
+  if (waveform) return waveform;
+
+  // 6. absolute fallback - first image regardless of type
+  return arr[0] || null;
 }
 
 // get the best display images for a song, falling back to album images.

@@ -61,6 +61,12 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   // scroll restoration using browser history state
   const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "item-list");
 
+  // only apply scroll padding on wide viewports (narrow has its own fixed nav)
+  const scrollPad = () =>
+    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
+      ? props.scrollPaddingTop
+      : 0;
+
   // stable count accessor - only updates when length actually changes
   const count = createMemo(() => props.items.length);
 
@@ -176,7 +182,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
       style={{
         height: heightStyle(),
-        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+        "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
       }}
       onScroll={handleScroll}
     >

@@ -1,5 +1,5 @@
 // playlists view - displays playlists in two-column layout with detail panel
-import { useLocation, useNavigate, useParams, useSearchParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import {
   createEffect,
@@ -14,14 +14,12 @@ import {
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { useViewportHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
 import { Badge } from "../../components/badges/Badge";
-import { ConfirmDialog } from "../../components/dialogs/ConfirmDialog";
 import { ImageCarouselModal } from "../../components/modals/ImageCarouselModal";
 import { toast } from "../../components/feedback/Toast";
-import { Icon, IconNames } from "../../components/icons/registry";
-import MediaImage from "../../components/media/MediaImage";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MarqueeText } from "../../components/text/MarqueeText";
@@ -31,13 +29,10 @@ import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
 import { formatHumanDuration } from "../../utils/formatDuration";
-import { generateUUID } from "../../utils/uuid";
-import { pollJobUntilComplete } from "../../utils/jobs";
 import { buildRoute } from "../utils/routing";
 import { getCurrentRemote, getDataSource } from "../data";
 import type { Song } from "../data/types";
 import {
-  useDeletePlaylistMutation,
   usePlaylistSongsQuery,
   usePlaylistsQuery,
   useReorderPlaylistSongsMutation,
@@ -45,7 +40,7 @@ import {
 } from "../queries/playlists";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
-import { storeBlob, getBlobObjectURL } from "../services/storage/blobs";
+import { getBlobObjectURL } from "../services/storage/blobs";
 import {
   checkIfPlaylistNeedsSync,
   downloadPlaylist,
@@ -58,9 +53,8 @@ import { getPlaylistById, initMusicDB } from "../services/storage/db";
 import { convertToLocalPlaylist, isEditablePlaylist } from "../services/storage/playlists";
 import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
-import { PlaylistImageManager } from "./playlists/PlaylistImageManager";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
-import { debug } from "../../utils/logger";
+import { debug, error as errorLog } from "../../utils/logger";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -68,15 +62,6 @@ export interface PlaylistsViewProps {
 
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
-
-// type guard helper for SafeParseResult
-function isSuccess<T>(result: {
-  success: boolean;
-  data?: T;
-  error?: any;
-}): result is { success: true; data: T } {
-  return result.success === true;
-}
 
 export function PlaylistsView(props: PlaylistsViewProps) {
   const params = useParams<{ id?: string }>();
@@ -94,6 +79,21 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
+
+  // reactive viewport height for safari toolbar handling
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56; // height of top navigation bar
+  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const listHeight = () => {
+    const vh = viewportHeight();
+    const pb = playerBarHeight();
+    const result = vh - NAV_HEIGHT - pb;
+    console.log(
+      `[PlaylistsView] listHeight=${result}px (viewport=${vh}, nav=${NAV_HEIGHT}, playerBar=${pb})`
+    );
+    return result;
+  };
+
   // track whether detail is showing on narrow (for back navigation)
   // initialize to true if we have an initial ID and are on a narrow screen
   const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
@@ -103,9 +103,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<string | null>(
     initialPlaylistId
   );
-  const [search, setSearch] = createSignal<string>();
-  const [lastClickedId, setLastClickedId] = createSignal<string | null>(null);
-  const [clickTimeout, setClickTimeout] = createSignal<number | null>(null);
   const [editMode, setEditMode] = createSignal(false);
   const [showImageCarousel, setShowImageCarousel] = createSignal(false);
   const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
@@ -247,12 +244,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     return pages.flatMap((page) => page.items);
   });
 
-  const totalCount = createMemo(() => {
-    const pages = playlistsQuery.data?.pages;
-    if (!pages || pages.length === 0) return 0;
-    return pages[0].total;
-  });
-
   // update page info for TopNav (mobile displays "playlists (N)")
   createEffect(() => {
     const count = playlists().length;
@@ -391,13 +382,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const handlePlaylistsLoadMore = () => {
     if (playlistsQuery.hasNextPage && !playlistsQuery.isFetchingNextPage) {
       playlistsQuery.fetchNextPage();
-    }
-  };
-
-  // fetch more songs when scrolling near end
-  const handleSongsLoadMore = () => {
-    if (playlistSongsQuery.hasNextPage && !playlistSongsQuery.isFetchingNextPage) {
-      playlistSongsQuery.fetchNextPage();
     }
   };
 
@@ -601,10 +585,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         songIds: [draggedId],
         newPosition,
       });
-
-      console.log(`moved song from position ${draggedIndex + 1} to ${newPosition}`);
     } catch (error) {
-      console.error("failed to reorder songs:", error);
+      errorLog("failed to reorder songs:", error);
     } finally {
       setDraggedSongId(null);
       setDropTargetIndex(null);
@@ -618,7 +600,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
     const remote = getCurrentRemote();
     if (!remote) {
-      console.error("no remote source - download only works with remote playlists");
+      errorLog("no remote source - download only works with remote playlists");
       return;
     }
 
@@ -630,7 +612,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         setDownloadProgress(progress);
       });
 
-      console.log("playlist downloaded successfully");
+      debug("playlist downloaded successfully");
       // refresh sync status
       const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id);
       setSyncStatus(newSyncStatus);
@@ -644,7 +626,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         title: "saved to local",
       });
     } catch (error) {
-      console.error("failed to download playlist:", error);
+      errorLog("failed to download playlist:", error);
       setDownloadProgress({
         stage: "error",
         totalSongs: 0,
@@ -676,7 +658,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const db = await initMusicDB();
     const localPlaylist = await getPlaylistById(status.localPlaylistId);
     if (!localPlaylist) {
-      console.error("local playlist not found:", status.localPlaylistId);
+      errorLog("local playlist not found:", status.localPlaylistId);
       return;
     }
 
@@ -688,7 +670,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         setDownloadProgress(progress);
       });
 
-      console.log("playlist synced successfully");
+      debug("playlist synced successfully");
       // refresh sync status
       const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id);
       setSyncStatus(newSyncStatus);
@@ -701,7 +683,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         title: "updates synced",
       });
     } catch (error) {
-      console.error("failed to sync playlist:", error);
+      errorLog("failed to sync playlist:", error);
       setDownloadProgress({
         stage: "error",
         totalSongs: 0,
@@ -726,7 +708,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       const db = await initMusicDB();
       await convertToLocalPlaylist(db, playlist.playlist_id);
 
-      console.log("converted to local playlist");
+      debug("converted to local playlist");
       // refresh playlist data
       setFullPlaylist(null);
       await getPlaylistById(playlist.playlist_id).then((p) => {
@@ -737,7 +719,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         title: "converted to local playlist",
       });
     } catch (error) {
-      console.error("failed to convert to local playlist:", error);
+      errorLog("failed to convert to local playlist:", error);
 
       toast.error(error instanceof Error ? error.message : "conversion failed", {
         title: "conversion failed",
@@ -775,7 +757,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         });
       }
     } catch (error) {
-      console.error("failed to create playlist:", error);
+      errorLog("failed to create playlist:", error);
       toast.error(error instanceof Error ? error.message : "failed to create playlist", {
         title: "creation failed",
       });
@@ -809,8 +791,29 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     setEditMode(false);
   };
 
+  // debug: log actual rendered heights
+  let containerRef: HTMLDivElement | undefined;
+  onMount(() => {
+    setTimeout(() => {
+      if (containerRef) {
+        const rect = containerRef.getBoundingClientRect();
+        const parentRect = containerRef.parentElement?.getBoundingClientRect();
+        console.log("[PlaylistsView] rendered heights:", {
+          containerHeight: rect.height,
+          containerTop: rect.top,
+          containerBottom: rect.bottom,
+          parentHeight: parentRect?.height,
+          parentTop: parentRect?.top,
+          viewportHeight: viewportHeight(),
+          listHeightCalc: listHeight(),
+          windowHeight: window.innerHeight,
+        });
+      }
+    }, 500);
+  });
+
   return (
-    <div class="flex flex-col h-full">
+    <div ref={containerRef} class="flex flex-col" style={{ height: `${listHeight()}px` }}>
       {/* two-column layout */}
       <div class="flex-1 overflow-hidden">
         <Show
@@ -849,6 +852,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                         items={playlistListItems()}
                         selectedId={selectedPlaylistId()}
                         scrollPaddingTop={100}
+                        height={listHeight() - (isNarrow() ? 68 : 0)}
                         onItemClick={handlePlaylistClick}
                         onVirtualizerReady={(scrollFn) => {
                           setScrollToIndex(() => scrollFn);
@@ -1195,12 +1199,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               <div class="space-y-1">
                                 <For each={playlistSongs()}>
                                   {(song, index) => {
-                                    debug("[PlaylistsView] song data:", {
-                                      id: song.id,
-                                      title: song.title,
-                                      is_favorite: song.is_favorite,
-                                      sha256: song.sha256,
-                                    });
                                     const contextMenuActions = useSongContextMenu(song, {
                                       showPlayActions: true,
                                       showRemoveFromPlaylist: true,

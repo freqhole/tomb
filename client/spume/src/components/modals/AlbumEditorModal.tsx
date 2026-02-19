@@ -578,7 +578,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       class="fixed inset-0 bg-black/50 flex items-center justify-center"
       classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
     >
-      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90vh] md:h-[85vh] overflow-hidden flex flex-col">
+      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90dvh] md:h-[85dvh] overflow-hidden flex flex-col">
         {/* header */}
         <div class="flex items-center justify-between p-6">
           <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit album</h2>

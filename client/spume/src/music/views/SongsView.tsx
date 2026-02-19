@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
+import { useViewportHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import {
@@ -47,37 +48,23 @@ export function SongsView(props: SongsViewProps) {
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
 
-  // responsive list height — window minus player bar
+  // responsive list height — reactive to safari toolbar changes
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const [listHeight, setListHeight] = createSignal(window.innerHeight - playerBarHeight());
+  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
 
   onMount(() => {
-    let resizeTimeout: number | undefined;
     const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(() => {
-        setListHeight(window.innerHeight - playerBarHeight());
-        const narrow = window.innerWidth < NARROW_BREAKPOINT;
-        setIsNarrow(narrow);
-      }, 100);
+      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      setIsNarrow(narrow);
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => {
-      clearTimeout(resizeTimeout);
       window.removeEventListener("resize", handleResize);
       clearPageInfo(); // clear page info when leaving view
     });
   });
-
-  // update list height when player bar visibility changes
-  createEffect(
-    on(
-      () => playerBarHeight(),
-      () => {
-        setListHeight(window.innerHeight - playerBarHeight());
-      }
-    )
-  );
 
   // sorting state (persisted in browser history)
   const [sortField, setSortField] = useHistoryState<SongSortField>("songs.sortField", "added_at");

@@ -420,8 +420,9 @@ export function AppLayout(props: AppLayoutProps) {
 
   return (
     <div
-      class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
+      class="flex flex-col bg-[var(--color-bg-primary)]"
       style={{
+        height: "100dvh",
         "--player-bar-height": (appState()?.queue.length || 0) > 0 ? "80px" : "0px",
       }}
     >

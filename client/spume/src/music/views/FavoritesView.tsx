@@ -1,6 +1,6 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, on, onCleanup, onMount } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
@@ -25,6 +25,7 @@ import {
   usePlaylistContextMenu,
 } from "../hooks/contextMenu";
 import { routes } from "../utils/routing";
+import { useViewportHeight } from "../../utils/viewport";
 
 export interface FavoritesViewProps {
   onAddMusic: () => void;
@@ -35,33 +36,11 @@ export function FavoritesView(props: FavoritesViewProps) {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
 
-  // responsive height — full window minus player bar
+  // responsive height — reactive to safari toolbar changes
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const [containerHeight, setContainerHeight] = createSignal(
-    window.innerHeight - playerBarHeight()
-  );
-
-  onMount(() => {
-    let resizeTimeout: number | undefined;
-    const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(() => {
-        setContainerHeight(window.innerHeight - playerBarHeight());
-      }, 100);
-    };
-    window.addEventListener("resize", handleResize);
-    onCleanup(() => window.removeEventListener("resize", handleResize));
-  });
-
-  // update on player bar visibility change
-  createEffect(
-    on(
-      () => playerBarHeight(),
-      () => {
-        setContainerHeight(window.innerHeight - playerBarHeight());
-      }
-    )
-  );
+  const containerHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({

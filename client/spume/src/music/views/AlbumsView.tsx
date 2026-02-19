@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
+import { useViewportHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
@@ -35,35 +36,17 @@ export function AlbumsView(props: AlbumsViewProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // responsive grid height — window minus player bar
+  // responsive grid height — reactive to safari toolbar changes
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const [gridHeight, setGridHeight] = createSignal(window.innerHeight - playerBarHeight());
+  const gridHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
 
   onMount(() => {
-    let resizeTimeout: number | undefined;
-    const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(() => {
-        setGridHeight(window.innerHeight - playerBarHeight());
-      }, 100);
-    };
-    window.addEventListener("resize", handleResize);
     onCleanup(() => {
-      clearTimeout(resizeTimeout);
-      window.removeEventListener("resize", handleResize);
       clearPageInfo(); // clear page info when leaving view
     });
   });
-
-  // update grid height when player bar visibility changes
-  createEffect(
-    on(
-      () => playerBarHeight(),
-      () => {
-        setGridHeight(window.innerHeight - playerBarHeight());
-      }
-    )
-  );
 
   // track query changes to force grid reset
   const [isResetting, setIsResetting] = createSignal(false);

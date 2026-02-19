@@ -1,7 +1,7 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url, 2) test connection, 3) authenticate, 4) complete
 import * as apiClient from "freqhole-api-client";
-import { createSignal, Match, Show, Switch } from "solid-js";
+import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
@@ -28,6 +28,40 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     image_url?: string | null;
     requiresAuth: boolean;
   } | null>(null);
+
+  // hint: if current origin is a valid remote server that's not already added
+  const [originHint, setOriginHint] = createSignal<string | null>(null);
+
+  // check if current origin could be a remote server when modal opens
+  createEffect(
+    on(
+      () => props.isOpen,
+      async (isOpen) => {
+        if (!isOpen) return;
+
+        const origin = window.location.origin;
+        try {
+          // check if already added
+          const existingRemotes = await getAllRemotes();
+          if (existingRemotes.some((r) => r.base_url === origin)) {
+            setOriginHint(null);
+            return;
+          }
+
+          // try to hit the hello endpoint
+          const helloResult = await apiClient.app.getServerInfo(origin);
+          if (helloResult.success && helloResult.data?.server_id) {
+            setOriginHint(origin);
+          } else {
+            setOriginHint(null);
+          }
+        } catch {
+          // not a valid server, ignore
+          setOriginHint(null);
+        }
+      }
+    )
+  );
 
   // step 1: collect url and test connection
   const handleTestConnection = async () => {
@@ -277,6 +311,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setUrl("");
     setError(null);
     setServerInfo(null);
+    setOriginHint(null);
     props.onClose();
   };
 
@@ -383,6 +418,23 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   <Button type="submit" variant="primary" disabled={isLoading()} class="w-full">
                     test connection
                   </Button>
+
+                  {/* hint: use current origin if it's a valid server */}
+                  <Show when={originHint()}>
+                    <div class="text-center pt-2 border-t border-[var(--color-border-default)]">
+                      <button
+                        type="button"
+                        class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                        onClick={() => {
+                          setUrl(originHint()!);
+                          handleTestConnection();
+                        }}
+                        disabled={isLoading()}
+                      >
+                        use {originHint()}
+                      </button>
+                    </div>
+                  </Show>
                 </form>
               </Match>
 

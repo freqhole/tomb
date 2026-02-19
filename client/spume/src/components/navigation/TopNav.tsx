@@ -296,7 +296,7 @@ export function TopNav(props: TopNavProps) {
 
                 <KobalteNav.Portal>
                   <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out">
-                    <div class="grid grid-cols-2 gap-6 min-w-[560px] max-h-[70vh]">
+                    <div class="grid grid-cols-2 gap-6 min-w-[560px] max-h-[70dvh]">
                       {/* column 1: brand info + source management */}
                       <div class="flex flex-col p-6">
                         <div class="flex items-start justify-between mb-6">

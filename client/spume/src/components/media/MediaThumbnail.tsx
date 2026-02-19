@@ -3,44 +3,13 @@ import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
-
-// extended type to handle IDB data that may have 'type' instead of 'blob_type'
-type ImageData = ImageMetadata & { type?: string };
-
-/**
- * pick the best image from an array of images
- * handles both ImageMetadata (blob_type) and raw IDB data (type)
- */
-function pickBestImage(images?: ImageData[]): ImageData | null {
-  if (!images || images.length === 0) return null;
-
-  // spread to unwrap SolidJS store proxies
-  const arr = [...images];
-  if (arr.length === 0) return null;
-
-  const getType = (img: ImageData) => img.blob_type || img.type;
-
-  // priority: primary thumbnail → any thumbnail → any primary → first non-waveform → waveform (last resort)
-  const primaryThumb = arr.find((img) => img.is_primary && getType(img) === "thumbnail");
-  if (primaryThumb) return primaryThumb;
-
-  const anyThumb = arr.find((img) => getType(img) === "thumbnail");
-  if (anyThumb) return anyThumb;
-
-  const primary = arr.find((img) => img.is_primary && getType(img) !== "waveform");
-  if (primary) return primary;
-
-  const nonWaveform = arr.find((img) => getType(img) !== "waveform");
-  if (nonWaveform) return nonWaveform;
-
-  return arr[0] || null;
-}
+import { pickBestImage } from "../../utils/images";
 
 /**
  * get the URL for an image - handles local_blob_id, remote_url, or legacy thumbnailUrl
  */
 async function resolveImageUrl(
-  image: ImageData | null,
+  image: ImageMetadata | null,
   legacyBlobId?: string | null,
   legacyUrl?: string | null
 ): Promise<string | null> {
@@ -85,7 +54,7 @@ export interface MediaThumbnailProps {
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   // compute initial image URL synchronously to avoid first-render flicker
   const getInitialUrl = (): string | null => {
-    const image = pickBestImage(props.images as ImageData[]);
+    const image = pickBestImage(props.images);
     if (image?.remote_url) return image.remote_url;
     if (props.thumbnailUrl) return props.thumbnailUrl;
     const blobId = image?.local_blob_id || props.thumbnailBlobId;
@@ -97,7 +66,7 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
 
   // resolve image URL when props change (handles async blob lookups)
   createEffect(() => {
-    const image = pickBestImage(props.images as ImageData[]);
+    const image = pickBestImage(props.images);
     resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl).then((url) => {
       if (url !== imageUrl()) setImageUrl(url);
     });

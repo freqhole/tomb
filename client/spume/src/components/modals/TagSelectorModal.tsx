@@ -118,9 +118,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
     if (!name) return;
 
     // check if tag already exists in our list
-    const existing = allTags().find(
-      (t) => t.name.toLowerCase() === name.toLowerCase(),
-    );
+    const existing = allTags().find((t) => t.name.toLowerCase() === name.toLowerCase());
     if (existing) {
       // just select it
       toggleTag(existing.tag_id);
@@ -161,9 +159,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
         .map((t) => t!.name);
 
       // collect tag IDs for tags to remove (filter out temp tags)
-      const tagIdsToRemove = Array.from(changes.remove).filter(
-        (id) => !id.startsWith("temp_"),
-      );
+      const tagIdsToRemove = Array.from(changes.remove).filter((id) => !id.startsWith("temp_"));
 
       // add tags (datasource will find or create)
       if (tagNamesToAdd.length > 0) {
@@ -217,14 +213,12 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       onClick={() => props.onClose()}
     >
       <div
-        class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
+        class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-md max-h-[80dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}
         <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">
-            {modalTitle()}
-          </h2>
+          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{modalTitle()}</h2>
           <button
             onClick={() => props.onClose()}
             class="p-1 hover:bg-[var(--color-bg-hover)] rounded transition-colors"
@@ -244,11 +238,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
               disabled={isLoading()}
             />
             <Show when={searchQuery().trim() && !filteredTags().length}>
-              <Button
-                onClick={addTagByName}
-                disabled={isLoading()}
-                variant="primary"
-              >
+              <Button onClick={addTagByName} disabled={isLoading()} variant="primary">
                 add
               </Button>
             </Show>
@@ -269,14 +259,9 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
               when={filteredTags().length > 0}
               fallback={
                 <div class="text-center py-8 text-[var(--color-text-secondary)]">
-                  <Show
-                    when={searchQuery().trim()}
-                    fallback={<p>no tags yet</p>}
-                  >
+                  <Show when={searchQuery().trim()} fallback={<p>no tags yet</p>}>
                     <p>no tags found</p>
-                    <p class="text-sm mt-2">
-                      click "add" to add "{searchQuery().trim()}"
-                    </p>
+                    <p class="text-sm mt-2">click "add" to add "{searchQuery().trim()}"</p>
                   </Show>
                 </div>
               }
@@ -287,9 +272,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
                     const applied = () => isTagApplied(tag.tag_id);
                     const isPending = () => {
                       const changes = pendingChanges();
-                      return (
-                        changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id)
-                      );
+                      return changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id);
                     };
 
                     return (
@@ -311,11 +294,7 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
                           {tag.name}
                         </span>
                         <Show when={applied()}>
-                          <Icon
-                            name={IconNames.check}
-                            size={16}
-                            color="var(--color-accent-500)"
-                          />
+                          <Icon name={IconNames.check} size={16} color="var(--color-accent-500)" />
                         </Show>
                       </button>
                     );
@@ -331,16 +310,13 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
           <div class="text-sm text-[var(--color-text-secondary)]">
             <Show when={hasPendingChanges()}>
               {pendingChanges().add.size > 0 && (
-                <span class="text-[var(--color-accent-500)]">
-                  +{pendingChanges().add.size}
-                </span>
+                <span class="text-[var(--color-accent-500)]">+{pendingChanges().add.size}</span>
               )}
-              {pendingChanges().add.size > 0 &&
-                pendingChanges().remove.size > 0 && <span> / </span>}
+              {pendingChanges().add.size > 0 && pendingChanges().remove.size > 0 && (
+                <span> / </span>
+              )}
               {pendingChanges().remove.size > 0 && (
-                <span class="text-red-500">
-                  -{pendingChanges().remove.size}
-                </span>
+                <span class="text-red-500">-{pendingChanges().remove.size}</span>
               )}
             </Show>
           </div>

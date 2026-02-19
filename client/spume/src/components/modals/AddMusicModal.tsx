@@ -112,7 +112,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
       >
         {/* modal content */}
         <div
-          class={`max-w-3xl w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg overflow-hidden flex flex-col max-h-[80vh] ${props.class || ""}`}
+          class={`max-w-3xl w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg overflow-hidden flex flex-col max-h-[80dvh] ${props.class || ""}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* modal header */}

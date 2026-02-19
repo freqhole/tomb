@@ -7,12 +7,12 @@ import {
   setQueue,
   setQueueOpen,
 } from "../../../app/services/storage/db";
-import type { QueueSourceContext } from "../../../app/services/storage/types";
+import type { QueueHistoryEntry, QueueSourceContext } from "../../../app/services/storage/types";
 import { evictCachedBlob } from "../cache/blobCache";
-import { playSong, stop } from "../audio/player";
+import { playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
-import { activeHistoryEntryId, startTracking, stopTracking } from "./listenProgress";
+import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
 import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId } from "./serverSession";
 import type { Song } from "../storage/types";
 
@@ -56,7 +56,6 @@ export async function playQueue(
     if (entryId) {
       if (options.resumeProgress) {
         // resume tracking with existing progress state
-        const { resumeTracking } = await import("./listenProgress");
         resumeTracking(entryId, options.resumeProgress);
       } else {
         startTracking(entryId);
@@ -226,7 +225,7 @@ export { setQueueOpen };
 
 // resume a history entry from where it left off
 export async function resumeHistoryEntry(
-  entry: import("../../../app/services/storage/types").QueueHistoryEntry,
+  entry: QueueHistoryEntry,
 ): Promise<void> {
   if (entry.songs.length === 0) return;
 
@@ -243,7 +242,6 @@ export async function resumeHistoryEntry(
 
   // seek to saved position after a brief delay (audio needs to load)
   if (entry.current_song_position > 0) {
-    const { seek } = await import("../audio/player");
     // wait for audio to be ready before seeking
     setTimeout(() => {
       seek(entry.current_song_position);
@@ -251,7 +249,6 @@ export async function resumeHistoryEntry(
   }
 
   // resume progress tracking with existing state
-  const { resumeTracking } = await import("./listenProgress");
   resumeTracking(entry.id, {
     listened_seconds: entry.listened_seconds || 0,
     songs_completed: entry.songs_completed || 0,

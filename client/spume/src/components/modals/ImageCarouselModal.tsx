@@ -106,7 +106,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
             src={props.images[currentIndex()]}
             alt={`image ${currentIndex() + 1}`}
             class="max-w-full max-h-full object-contain"
-            style={{ "max-height": "calc(100vh - 8rem)" }}
+            style={{ "max-height": "calc(100dvh - 8rem)" }}
           />
         </div>
 

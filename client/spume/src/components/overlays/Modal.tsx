@@ -106,9 +106,7 @@ export function Modal(props: ModalProps) {
         <Show when={props.title || showCloseButton()}>
           <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
             <Show when={props.title}>
-              <h2 class="heading-5 text-[var(--color-text-primary)]">
-                {props.title}
-              </h2>
+              <h2 class="heading-5 text-[var(--color-text-primary)]">{props.title}</h2>
             </Show>
             <Show when={showCloseButton()}>
               <IconButton
@@ -122,7 +120,7 @@ export function Modal(props: ModalProps) {
         </Show>
 
         {/* content */}
-        <div class="p-6 overflow-y-auto max-h-[70vh]">{props.children}</div>
+        <div class="p-6 overflow-y-auto max-h-[70dvh]">{props.children}</div>
       </div>
     </dialog>
   );

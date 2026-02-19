@@ -7,12 +7,18 @@ import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
 
 const dirname =
-  typeof __dirname !== "undefined"
-    ? __dirname
-    : path.dirname(fileURLToPath(import.meta.url));
+  typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [solidPlugin()],
+  build: {
+    rollupOptions: {
+      output: {
+        // bundle everything into a single JS file (no code splitting)
+        inlineDynamicImports: true,
+      },
+    },
+  },
   test: {
     projects: [
       {

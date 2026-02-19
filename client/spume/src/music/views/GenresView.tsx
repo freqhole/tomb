@@ -5,6 +5,7 @@ import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
+import { useViewportHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
 import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
@@ -33,6 +34,12 @@ export function GenresView(props: GenresViewProps) {
   const navigate = useNavigate();
   const params = useParams<{ genreId?: string }>();
   const [searchParams] = useSearchParams();
+
+  // reactive viewport height for safari toolbar handling
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56;
+  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
 
   // use genre from URL params, fallback to history state
   const initialGenreId =
@@ -398,7 +405,7 @@ export function GenresView(props: GenresViewProps) {
                   }
                 );
               }}
-              height={window.innerHeight - ((appState()?.queue.length || 0) > 0 ? 80 : 0)}
+              height={listHeight()}
             />
           </Show>
         </div>
@@ -461,7 +468,7 @@ export function GenresView(props: GenresViewProps) {
   );
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col" style={{ height: `${listHeight()}px` }}>
       {/* two-column layout - full height, handles its own scrolling */}
       <div class="flex-1 overflow-hidden">
         {isResetting() ? (

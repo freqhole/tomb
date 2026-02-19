@@ -5,6 +5,7 @@ import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
+import { useViewportHeight } from "../../utils/viewport";
 import { ArtistDetailPanel } from "../../components/artists/ArtistDetailPanel";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
@@ -40,6 +41,12 @@ export function ArtistsView(props: ArtistsViewProps) {
   const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
+
+  // reactive viewport height for safari toolbar handling
+  const viewportHeight = useViewportHeight();
+  const NAV_HEIGHT = 56;
+  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
 
   // restore selected artist from URL params or history state on mount
   const initialArtistId =
@@ -635,7 +642,7 @@ export function ArtistsView(props: ArtistsViewProps) {
                 }
               }}
               getContextMenuActions={getContextMenuActions}
-              height={window.innerHeight - ((appState()?.queue.length || 0) > 0 ? 80 : 0)}
+              height={listHeight()}
             />
           </Show>
         </div>
@@ -714,7 +721,7 @@ export function ArtistsView(props: ArtistsViewProps) {
     ) : null;
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col" style={{ height: `${listHeight()}px` }}>
       {/* two-column layout - full height, handles its own scrolling */}
       <div class="flex-1 overflow-hidden">
         {isResetting() ? (
