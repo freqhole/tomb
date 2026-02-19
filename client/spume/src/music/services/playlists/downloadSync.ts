@@ -3,19 +3,22 @@
 
 import * as apiClient from "freqhole-api-client";
 import { generateUUID } from "../../../utils/uuid";
-import { writeAudioToOPFS, writeThumbnailToOPFS } from "../opfs/helpers";
+import { writeAudioToOPFS } from "../opfs/helpers";
 import {
   getOrCreateAlbum,
   getOrCreateArtist,
   initMusicDB,
 } from "../storage/db";
+import { updateAlbum} from "../storage/db/albums";
+import { updateArtist } from "../storage/db/artists";
+import { getOrCreateGenre } from "../storage/db/genres";
 import {
   createSyncedPlaylist,
   getPlaylistByRemoteId,
   updatePlaylistSongs,
   updateSyncedPlaylistETag,
 } from "../storage/playlists";
-import type { Playlist, Song } from "../storage/types";
+import type { GenreRef, ImageMetadata, Playlist, Song } from "../storage/types";
 
 export interface DownloadProgress {
   stage: "fetching" | "downloading" | "complete" | "error";
@@ -30,6 +33,69 @@ export interface SyncCheckResult {
   localEtag: string | null;
   remoteEtag: string | null;
   localPlaylistId: string | null;
+}
+
+/**
+ * convert remote API image array to local ImageMetadata with remote_url references
+ */
+function buildRemoteImages(
+  remoteUrl: string,
+  apiImages: Array<{ blob_id: string; is_primary: number; blob_type?: string }> | null | undefined,
+): ImageMetadata[] {
+  if (!apiImages?.length) return [];
+  return apiImages.map((img) => ({
+    remote_url: `${remoteUrl}/api/blobs/${img.blob_id}`,
+    is_primary: img.is_primary === 1,
+    blob_type: (img.blob_type as ImageMetadata["blob_type"]) || "thumbnail",
+  }));
+}
+
+/**
+ * sync album genres from remote data to local IDB
+ * creates genre records and sets album.genre_id to the primary (first) genre
+ * returns the primary genre id and GenreRef array for denormalization on songs
+ */
+async function syncAlbumGenres(
+  albumId: string,
+  remoteGenres: Array<{ id: string; name: string }> | null | undefined,
+): Promise<{ primaryGenreId: string | null; primaryGenreName: string | null; genreRefs: GenreRef[] }> {
+  if (!remoteGenres?.length) {
+    return { primaryGenreId: null, primaryGenreName: null, genreRefs: [] };
+  }
+
+  const genreRefs: GenreRef[] = [];
+  let primaryGenreId: string | null = null;
+  let primaryGenreName: string | null = null;
+
+  for (const remoteGenre of remoteGenres) {
+    const localGenre = await getOrCreateGenre(remoteGenre.name);
+    genreRefs.push({ id: localGenre.genre_id, name: localGenre.name });
+
+    // first genre is the primary one
+    if (!primaryGenreId) {
+      primaryGenreId = localGenre.genre_id;
+      primaryGenreName = localGenre.name;
+    }
+  }
+
+  // set album.genre_id to the primary genre
+  await updateAlbum(albumId, { genre_id: primaryGenreId });
+
+  return { primaryGenreId, primaryGenreName, genreRefs };
+}
+
+/**
+ * build entity URLs array from remote API data
+ */
+function buildEntityUrls(
+  apiUrls: Array<{ id: string | null; name: string | null; url: string }> | null | undefined,
+): Array<{ id?: string; name?: string; url: string }> | undefined {
+  if (!apiUrls?.length) return undefined;
+  return apiUrls.map((u) => ({
+    ...(u.id ? { id: u.id } : {}),
+    ...(u.name ? { name: u.name } : {}),
+    url: u.url,
+  }));
 }
 
 /**
@@ -64,7 +130,7 @@ export async function downloadPlaylist(
 
       // delete all playlist_songs entries using composite key
       for (const ps of existingSongs) {
-        await db.delete("playlist_songs", [ps.playlist_id, ps.sha256]);
+        await db.delete("playlist_songs", [ps.playlist_id, ps.song_id]);
       }
 
       // delete the playlist
@@ -131,32 +197,8 @@ export async function downloadPlaylist(
       downloadedSongs: 0,
     });
 
-    // download images if present and construct images array
-    let images: Array<{ local_blob_id: string; is_primary: boolean; blob_type: 'thumbnail' | 'waveform' }> = [];
-    if (remotePlaylist.images && remotePlaylist.images.length > 0) {
-      try {
-        for (const image of remotePlaylist.images) {
-          const imageUrl = `${remoteUrl}/api/blobs/${image.blob_id}`;
-          const imageResponse = await fetch(imageUrl, {
-            credentials: "include",
-          });
-
-          if (imageResponse.ok) {
-            const imageBlob = await imageResponse.blob();
-            const localImageId = generateUUID();
-            await writeThumbnailToOPFS(imageBlob, localImageId);
-            images.push({
-              local_blob_id: localImageId,
-              is_primary: image.is_primary === 1,
-              blob_type: image.blob_type as 'thumbnail' | 'waveform',
-            });
-          }
-        }
-      } catch (error) {
-        console.warn("failed to download playlist images:", error);
-        // continue without images
-      }
-    }
+    // build playlist images as remote_url references (no download needed)
+    const playlistImages = buildRemoteImages(remoteUrl, remotePlaylist.images);
 
     // create local playlist
     const localPlaylistId = generateUUID();
@@ -165,7 +207,7 @@ export async function downloadPlaylist(
       title: remotePlaylist.title,
       description: remotePlaylist.description,
       is_public: Boolean(remotePlaylist.is_public),
-      images: images.length > 0 ? images : undefined,
+      images: playlistImages.length > 0 ? playlistImages : undefined,
       source_remote_id: remotePlaylistId,
       source_remote_url: remoteUrl,
       source_etag: etag,
@@ -259,12 +301,50 @@ export async function downloadPlaylist(
         );
         const artistId = artistRecord.artist_id;
 
+        // update artist images and URLs if available and not already set
+        if (artist) {
+          const artistUpdates: Partial<typeof artistRecord> = {};
+          if (artist.images?.length && !artistRecord.images?.length) {
+            artistUpdates.images = buildRemoteImages(remoteUrl, artist.images);
+          }
+          if (artist.urls?.length && !artistRecord.urls?.length) {
+            artistUpdates.urls = buildEntityUrls(artist.urls);
+          }
+          if (Object.keys(artistUpdates).length > 0) {
+            await updateArtist(artistId, artistUpdates);
+          }
+        }
+
         // create or get album using the same helper as file upload
         const albumRecord = await getOrCreateAlbum(
           album?.title || "unknown album",
           artistId,
         );
         const albumId = albumRecord.album_id;
+
+        // update album images and URLs if available and not already set
+        if (album) {
+          const albumUpdates: Partial<typeof albumRecord> = {};
+          if (album.images?.length && !albumRecord.images?.length) {
+            albumUpdates.images = buildRemoteImages(remoteUrl, album.images);
+          }
+          if (album.urls?.length && !albumRecord.urls?.length) {
+            albumUpdates.urls = buildEntityUrls(album.urls);
+          }
+          if (Object.keys(albumUpdates).length > 0) {
+            await updateAlbum(albumId, albumUpdates);
+          }
+        }
+
+        // sync album genres from remote data
+        const { primaryGenreId, primaryGenreName, genreRefs } =
+          await syncAlbumGenres(albumId, album?.genres);
+
+        // build song images from remote
+        const songImages = buildRemoteImages(remoteUrl, song.images);
+
+        // build song entity URLs from remote
+        const songUrls = buildEntityUrls(song.urls);
 
         // create local song entry
         const localSong: Song = {
@@ -287,8 +367,12 @@ export async function downloadPlaylist(
           updated_at: Date.now(),
           artist_name: artist?.name || "unknown artist",
           album_title: album?.title || "unknown album",
+          images: songImages.length > 0 ? songImages : undefined,
+          urls: songUrls,
           album_added_at: Date.now(),
-          album_primary_genre_id: null,
+          album_primary_genre_id: primaryGenreId,
+          album_primary_genre_name: primaryGenreName,
+          album_genres: genreRefs.length > 0 ? genreRefs : undefined,
           source_type: "downloaded" as const,
           opfs_path: opfsPath,
           file_name: `${song.title || "untitled"}.${extension}`,
@@ -423,12 +507,14 @@ export async function syncPlaylist(
     }
     const remotePlaylist = playlistResult.data;
 
-    // update local playlist metadata
+    // update local playlist metadata including images
+    const playlistImages = buildRemoteImages(remoteUrl, remotePlaylist.images);
     const updatedPlaylist: Playlist = {
       ...localPlaylist,
       title: remotePlaylist.title,
       description: remotePlaylist.description,
       is_public: Boolean(remotePlaylist.is_public),
+      images: playlistImages.length > 0 ? playlistImages : localPlaylist.images,
       updated_at: Date.now(),
     };
     await db.put("playlists", updatedPlaylist);
@@ -539,13 +625,64 @@ export async function syncPlaylist(
         // save to OPFS
         const opfsPath = await writeAudioToOPFS(blob, sha256, extension);
 
+        // create or get artist
+        const artistRecord = await getOrCreateArtist(
+          artist?.name || "unknown artist",
+        );
+        const artistId = artistRecord.artist_id;
+
+        // update artist images and URLs if available and not already set
+        if (artist) {
+          const artistUpdates: Partial<typeof artistRecord> = {};
+          if (artist.images?.length && !artistRecord.images?.length) {
+            artistUpdates.images = buildRemoteImages(remoteUrl, artist.images);
+          }
+          if (artist.urls?.length && !artistRecord.urls?.length) {
+            artistUpdates.urls = buildEntityUrls(artist.urls);
+          }
+          if (Object.keys(artistUpdates).length > 0) {
+            await updateArtist(artistId, artistUpdates);
+          }
+        }
+
+        // create or get album
+        const albumRecord = await getOrCreateAlbum(
+          album?.title || "unknown album",
+          artistId,
+        );
+        const albumId = albumRecord.album_id;
+
+        // update album images and URLs if available and not already set
+        if (album) {
+          const albumUpdates: Partial<typeof albumRecord> = {};
+          if (album.images?.length && !albumRecord.images?.length) {
+            albumUpdates.images = buildRemoteImages(remoteUrl, album.images);
+          }
+          if (album.urls?.length && !albumRecord.urls?.length) {
+            albumUpdates.urls = buildEntityUrls(album.urls);
+          }
+          if (Object.keys(albumUpdates).length > 0) {
+            await updateAlbum(albumId, albumUpdates);
+          }
+        }
+
+        // sync album genres from remote data
+        const { primaryGenreId, primaryGenreName, genreRefs } =
+          await syncAlbumGenres(albumId, album?.genres);
+
+        // build song images from remote
+        const songImages = buildRemoteImages(remoteUrl, song.images);
+
+        // build song entity URLs from remote
+        const songUrls = buildEntityUrls(song.urls);
+
         // create local song entry
         const localSong: Song = {
           id: sha256, // for synced files, use sha256 as the id
           sha256,
           title: song.title || "untitled",
-          artist_id: artist?.id || generateUUID(),
-          album_id: album?.id || generateUUID(),
+          artist_id: artistId,
+          album_id: albumId,
           track_number: song.track_number || 0,
           disc_number: song.disc_number || 1,
           duration_seconds: song.duration
@@ -560,8 +697,12 @@ export async function syncPlaylist(
           updated_at: Date.now(),
           artist_name: artist?.name || "unknown artist",
           album_title: album?.title || "unknown album",
+          images: songImages.length > 0 ? songImages : undefined,
+          urls: songUrls,
           album_added_at: Date.now(),
-          album_primary_genre_id: null,
+          album_primary_genre_id: primaryGenreId,
+          album_primary_genre_name: primaryGenreName,
+          album_genres: genreRefs.length > 0 ? genreRefs : undefined,
           source_type: "downloaded" as const,
           opfs_path: opfsPath,
           file_name: `${song.title || "untitled"}.${extension}`,

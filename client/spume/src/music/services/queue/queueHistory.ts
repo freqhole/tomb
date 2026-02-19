@@ -8,6 +8,7 @@ import {
   type QueueSourceContext,
 } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
+import { getCurrentRemote } from "../../data";
 import { computeSmartLabel } from "./smartLabel";
 import { pickBestEntryImage } from "../../../utils/images";
 
@@ -77,6 +78,7 @@ export async function addHistoryEntry(
       type: source.type,
       label: source.label,
       entity_id: source.entity_id,
+      remote_name: getCurrentRemote()?.name || undefined,
       song_count: songs.length,
       songs: unwrapSongs(songs),
       queued_at: Date.now(),

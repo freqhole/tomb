@@ -231,22 +231,26 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
   const handleDelete = async () => {
     const remote = getCurrentRemote();
+    const playlistId = props.playlist?.playlist_id;
+    const playlistTitle = props.playlist?.title;
+    if (!playlistId) return;
+
     setIsDeleting(true);
 
     try {
       if (remote) {
         // delete remote playlist
-        await deletePlaylistMutation.mutateAsync(props.playlist.playlist_id);
+        await deletePlaylistMutation.mutateAsync(playlistId);
       } else {
         // delete local playlist
         const dataSource = getDataSource();
-        await dataSource.deletePlaylist?.(props.playlist.playlist_id);
+        await dataSource.deletePlaylist?.(playlistId);
 
         // invalidate queries
         await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       }
 
-      toast.success(`deleted "${props.playlist.title}"`, {
+      toast.success(`deleted "${playlistTitle}"`, {
         title: "playlist deleted",
       });
 
@@ -316,7 +320,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleDelete}
         title="delete playlist"
-        message={`are you sure you want to delete "${props.playlist.title}"? this action cannot be undone.`}
+        message={`are you sure you want to delete "${props.playlist?.title}"? this action cannot be undone.`}
         confirmText="delete"
         cancelText="cancel"
         variant="danger"

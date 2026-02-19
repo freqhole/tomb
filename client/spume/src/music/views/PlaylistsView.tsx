@@ -636,8 +636,12 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       setSyncStatus(newSyncStatus);
       setDownloadProgress(null);
 
-      toast.success(`downloaded "${playlist.title}"`, {
-        title: "playlist downloaded",
+      // remove local playlist queries from cache so they fetch fresh when switching to local source
+      // (invalidateQueries alone isn't enough because refetchOnMount: false prevents stale queries from refetching on mount)
+      queryClient.removeQueries({ queryKey: ["playlists", "local"] });
+
+      toast.success(`saved "${playlist.title}" to local`, {
+        title: "saved to local",
       });
     } catch (error) {
       console.error("failed to download playlist:", error);
@@ -645,11 +649,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
         stage: "error",
         totalSongs: 0,
         downloadedSongs: 0,
-        error: error instanceof Error ? error.message : "download failed",
+        error: error instanceof Error ? error.message : "save failed",
       });
 
-      toast.error(error instanceof Error ? error.message : "download failed", {
-        title: "download failed",
+      toast.error(error instanceof Error ? error.message : "save failed", {
+        title: "save failed",
       });
     } finally {
       setIsDownloading(false);
@@ -668,11 +672,19 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     const remote = getCurrentRemote();
     if (!remote) return;
 
+    // fetch the LOCAL playlist from IndexedDB — syncPlaylist expects the local record
+    const db = await initMusicDB();
+    const localPlaylist = await getPlaylistById(status.localPlaylistId);
+    if (!localPlaylist) {
+      console.error("local playlist not found:", status.localPlaylistId);
+      return;
+    }
+
     setIsSyncing(true);
     setDownloadProgress(null);
 
     try {
-      await syncPlaylist(remote.base_url, playlist, (progress) => {
+      await syncPlaylist(remote.base_url, localPlaylist, (progress) => {
         setDownloadProgress(progress);
       });
 
@@ -682,8 +694,11 @@ export function PlaylistsView(props: PlaylistsViewProps) {
       setSyncStatus(newSyncStatus);
       setDownloadProgress(null);
 
-      toast.success(`synced "${playlist.title}"`, {
-        title: "playlist synced",
+      // remove local playlist queries from cache so they fetch fresh when switching to local source
+      queryClient.removeQueries({ queryKey: ["playlists", "local"] });
+
+      toast.success(`synced updates for "${playlist.title}"`, {
+        title: "updates synced",
       });
     } catch (error) {
       console.error("failed to sync playlist:", error);
@@ -960,7 +975,9 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                   created {formatRelativeTime(selectedPlaylist()!.created_at)}
                                 </span>
                               </Show>
-                              <Show when={syncStatus() && !syncStatus()?.needsSync}>
+                              <Show
+                                when={syncStatus()?.localPlaylistId && !syncStatus()?.needsSync}
+                              >
                                 <Badge variant="success" size="sm">
                                   <Show when={!isViewingRemote()} fallback="synced">
                                     synced from{" "}
@@ -1005,24 +1022,26 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                               />
                               <Show when={isViewingRemote()}>
                                 <Show
-                                  when={syncStatus()}
+                                  when={syncStatus()?.localPlaylistId}
                                   fallback={
                                     <Button
-                                      variant="secondary"
+                                      variant="ghost"
+                                      class="border border-[var(--color-accent-500)]"
                                       onClick={handleDownloadPlaylist}
                                       disabled={isDownloading()}
                                     >
-                                      {isDownloading() ? "downloading..." : "download playlist"}
+                                      {isDownloading() ? "saving..." : "save to local"}
                                     </Button>
                                   }
                                 >
                                   <Show when={syncStatus()?.needsSync}>
                                     <Button
-                                      variant="secondary"
+                                      variant="ghost"
+                                      class="border border-[var(--color-accent-500)]"
                                       onClick={handleSyncPlaylist}
                                       disabled={isSyncing()}
                                     >
-                                      {isSyncing() ? "syncing..." : "sync playlist"}
+                                      {isSyncing() ? "syncing..." : "sync updates"}
                                     </Button>
                                   </Show>
                                 </Show>
@@ -1120,24 +1139,26 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                           />
                           <Show when={isViewingRemote()}>
                             <Show
-                              when={syncStatus()}
+                              when={syncStatus()?.localPlaylistId}
                               fallback={
                                 <Button
-                                  variant="secondary"
+                                  variant="ghost"
+                                  class="border border-[var(--color-accent-500)]"
                                   onClick={handleDownloadPlaylist}
                                   disabled={isDownloading()}
                                 >
-                                  {isDownloading() ? "downloading..." : "download playlist"}
+                                  {isDownloading() ? "saving..." : "save to local"}
                                 </Button>
                               }
                             >
                               <Show when={syncStatus()?.needsSync}>
                                 <Button
-                                  variant="secondary"
+                                  variant="ghost"
+                                  class="border border-[var(--color-accent-500)]"
                                   onClick={handleSyncPlaylist}
                                   disabled={isSyncing()}
                                 >
-                                  {isSyncing() ? "syncing..." : "sync playlist"}
+                                  {isSyncing() ? "syncing..." : "sync updates"}
                                 </Button>
                               </Show>
                             </Show>
@@ -1201,9 +1222,10 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                                           onDrop={() => handleDrop(index())}
                                           onDoubleClick={() => handleSongDoubleClick(song)}
                                           onPlayClick={() => handleSongDoubleClick(song)}
-                                          images={
-                                            song.images?.length ? song.images : song.album_images
-                                          }
+                                          images={[
+                                            ...(song.images || []),
+                                            ...(song.album_images || []),
+                                          ]}
                                           disabled={!isEditablePlaylist(selectedPlaylist()!)}
                                         >
                                           <DraggableRowSongContent

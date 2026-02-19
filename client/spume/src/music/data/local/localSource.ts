@@ -354,6 +354,35 @@ export class LocalMusicDataSource implements MusicDataSource {
     };
   }
 
+  // genres
+  async getGenres(
+    params?: QueryParams,
+  ): Promise<PaginatedResponse<GenreSummary>> {
+    const limit = params?.limit ?? 50;
+    const offset = params?.offset ?? 0;
+
+    const results = await queryGenres({
+      limit,
+      offset,
+      search: params?.search,
+    });
+
+    const items: GenreSummary[] = results.map((r) => ({
+      genre_id: r.genre.genre_id,
+      name: r.genre.name,
+      album_count: r.album_count,
+      song_count: r.song_count,
+    }));
+
+    return {
+      items,
+      total: items.length,
+      offset,
+      limit,
+      has_more: items.length === limit,
+    };
+  }
+
   async getGenreSongs(
     genreId: string,
     params?: QueryParams,

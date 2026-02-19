@@ -178,7 +178,7 @@ export async function deletePlaylist(
   const index = playlistSongsStore.index("by_playlist_id");
   const songs = await index.getAll(playlistId);
   for (const song of songs) {
-    await playlistSongsStore.delete([song.playlist_id, song.sha256]);
+    await playlistSongsStore.delete([song.playlist_id, song.song_id]);
   }
 
   await tx.done;

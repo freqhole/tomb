@@ -556,9 +556,15 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         </Show>
                       </div>
 
-                      {/* timestamp */}
-                      <div class="text-xs text-[var(--color-text-muted)] ml-2 flex-shrink-0">
-                        {timeAgo(entry().queued_at)}
+                      {/* timestamp + source name */}
+                      <div class="text-xs text-[var(--color-text-muted)] ml-2 flex-shrink-0 text-right min-w-0 max-w-[5rem]">
+                        <div>{timeAgo(entry().queued_at)}</div>
+                        <div class="truncate" title={entry().remote_name || "local"}>
+                          <MarqueeText
+                            text={entry().remote_name || "local"}
+                            isHovering={() => isRowHovered()}
+                          />
+                        </div>
                       </div>
 
                       {/* remove button */}

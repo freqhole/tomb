@@ -24,6 +24,7 @@ export interface QueueHistoryEntry {
   type: QueueHistorySourceType;
   label: string; // display text, e.g. "KMFDM - Angst"
   entity_id?: string; // album_id, artist_id, playlist_id, genre name
+  remote_name?: string; // name of the remote server (null/undefined for local)
   song_count: number; // how many songs were added
   songs: Song[]; // the actual songs (for re-queuing)
   queued_at: number; // timestamp

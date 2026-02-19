@@ -412,7 +412,16 @@ pub async fn add_playlist_image(
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("Image added to playlist", ()),
+        Ok(_) => {
+            // bump updated_at to invalidate etag (trigger handles timestamp)
+            let _ = sqlx::query!(
+                "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+                playlist_id
+            )
+            .execute(&pool)
+            .await;
+            GrimoireResponse::success("Image added to playlist", ())
+        }
         Err(e) => GrimoireResponse::failure(
             "Failed to add image to playlist",
             vec![ErrorDetail::from(e)],
@@ -444,6 +453,13 @@ pub async fn remove_playlist_image(playlist_id: &str, media_blob_id: &str) -> Gr
             if result.rows_affected() == 0 {
                 GrimoireResponse::failure("Image not found for playlist", vec![])
             } else {
+                // bump updated_at to invalidate etag (trigger handles timestamp)
+                let _ = sqlx::query!(
+                    "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+                    playlist_id
+                )
+                .execute(&pool)
+                .await;
                 GrimoireResponse::success("Image removed from playlist", ())
             }
         }
@@ -496,6 +512,13 @@ pub async fn set_primary_playlist_image(
             if result.rows_affected() == 0 {
                 GrimoireResponse::failure("Image not found for playlist", vec![])
             } else {
+                // bump updated_at to invalidate etag (trigger handles timestamp)
+                let _ = sqlx::query!(
+                    "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+                    playlist_id
+                )
+                .execute(&pool)
+                .await;
                 GrimoireResponse::success("Primary image updated", ())
             }
         }
@@ -524,7 +547,16 @@ pub async fn clear_playlist_images(playlist_id: &str) -> GrimoireResponse<()> {
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("All images removed from playlist", ()),
+        Ok(_) => {
+            // bump updated_at to invalidate etag (trigger handles timestamp)
+            let _ = sqlx::query!(
+                "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+                playlist_id
+            )
+            .execute(&pool)
+            .await;
+            GrimoireResponse::success("All images removed from playlist", ())
+        }
         Err(e) => GrimoireResponse::failure(
             "Failed to clear playlist images",
             vec![ErrorDetail::from(e)],
@@ -687,6 +719,14 @@ pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> Gr
         }
     }
 
+    // bump updated_at to invalidate etag (trigger handles timestamp)
+    let _ = sqlx::query!(
+        "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await;
+
     GrimoireResponse::success("Songs added to playlist successfully", ())
 }
 
@@ -763,6 +803,14 @@ pub async fn remove_songs_from_playlist(
     {
         return GrimoireResponse::failure("Failed to reorder songs", vec![ErrorDetail::from(e)]);
     }
+
+    // bump updated_at to invalidate etag (trigger handles timestamp)
+    let _ = sqlx::query!(
+        "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await;
 
     GrimoireResponse::success("Songs removed from playlist successfully", ())
 }
@@ -941,6 +989,14 @@ pub async fn update_songs_position(
             vec![ErrorDetail::from(e)],
         );
     }
+
+    // bump updated_at to invalidate etag (trigger handles timestamp)
+    let _ = sqlx::query!(
+        "UPDATE playlistz SET updated_at = updated_at WHERE id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await;
 
     GrimoireResponse::success("Song positions updated successfully", ())
 }
