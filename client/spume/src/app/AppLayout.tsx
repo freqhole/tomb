@@ -403,8 +403,7 @@ export function AppLayout(props: AppLayoutProps) {
   // build view options for the TopNav view selector
   const viewOptions = (): ViewOption[] => {
     const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-    return [
-      { label: "feed", path: `${prefix}/feed` },
+    const options: ViewOption[] = [
       { label: "songs", path: `${prefix}/songs` },
       { label: "albums", path: `${prefix}/albums` },
       { label: "artists", path: `${prefix}/artists` },
@@ -412,6 +411,11 @@ export function AppLayout(props: AppLayoutProps) {
       { label: "playlists", path: `${prefix}/playlists` },
       { label: "favorites", path: `${prefix}/favorites` },
     ];
+    // feed is only available for remote sources
+    if (!routeContext.isLocal()) {
+      options.unshift({ label: "feed", path: `${prefix}/feed` });
+    }
+    return options;
   };
 
   return (
@@ -463,13 +467,18 @@ export function AppLayout(props: AppLayoutProps) {
         mainNavSections={[
           {
             items: [
-              {
-                label: "feed",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/feed`);
-                },
-              },
+              // feed is only available for remote sources
+              ...(!routeContext.isLocal()
+                ? [
+                    {
+                      label: "feed",
+                      onClick: () => {
+                        const prefix = `/${routeContext.remoteId()}`;
+                        navigate(`${prefix}/feed`);
+                      },
+                    },
+                  ]
+                : []),
               {
                 label: "songs",
                 onClick: () => {

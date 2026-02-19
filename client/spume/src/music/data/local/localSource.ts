@@ -420,14 +420,11 @@ export class LocalMusicDataSource implements MusicDataSource {
     const db = await initMusicDB();
     const allPlaylists = await db.getAll(STORE_PLAYLISTS);
 
-    // filter out deleted playlists
-    const activePlaylists = allPlaylists.filter((p) => !p.deleted_at);
-
     // sort by updated_at desc
-    activePlaylists.sort((a, b) => b.updated_at - a.updated_at);
+    allPlaylists.sort((a, b) => b.updated_at - a.updated_at);
 
     // get song counts and build images array for each playlist
-    const playlistPromises = activePlaylists.map(async (playlist) => {
+    const playlistPromises = allPlaylists.map(async (playlist) => {
       try {
         if (!playlist.playlist_id) {
           console.warn("skipping playlist with missing id:", playlist);
@@ -1319,7 +1316,9 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.field === "all" || params.field === "songs") {
       const songs = await querySongsWithDetails({ limit: 1000 });
       const matchingSongs = songs.filter(s => 
-        s.title?.toLowerCase().includes(partial)
+        s.title?.toLowerCase().includes(partial) ||
+        s.artist_name?.toLowerCase().includes(partial) ||
+        s.album_title?.toLowerCase().includes(partial)
       ).slice(0, 20);
       
       for (const song of matchingSongs) {
@@ -1330,7 +1329,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           count: 1,
           suggestion_type: "song",
           confidence: 1.0,
-          metadata: { artist_name: song.artist_name, album_title: song.album_title },
+          metadata: { artist_name: song.artist_name, album_title: song.album_title, album_id: song.album_id },
           entity_id: song.sha256,
           is_favorite: await checkFavorite("song", song.sha256),
         });
@@ -1359,12 +1358,15 @@ export class LocalMusicDataSource implements MusicDataSource {
       }
     }
 
-    // search albums
+    // search albums (also match on genre names)
     if (params.field === "all" || params.field === "albums") {
       const albumResults = await queryAlbums({ limit: 1000 });
-      const matchingAlbums = albumResults.filter(a => 
-        a.album?.title?.toLowerCase().includes(partial)
-      ).slice(0, 10);
+      const matchingAlbums = albumResults.filter(a => {
+        if (a.album?.title?.toLowerCase().includes(partial)) return true;
+        // also match on genre names
+        if (a.genres?.some(g => g.name?.toLowerCase().includes(partial))) return true;
+        return false;
+      }).slice(0, 10);
       
       for (const result of matchingAlbums) {
         if (result.album) {
@@ -1380,6 +1382,57 @@ export class LocalMusicDataSource implements MusicDataSource {
             is_favorite: await checkFavorite("album", result.album.album_id),
           });
         }
+      }
+    }
+
+    // search genres
+    if (params.field === "all" || params.field === "genres") {
+      const genreResults = await queryGenres({ limit: 1000 });
+      const matchingGenres = genreResults.filter(g =>
+        g.genre.name?.toLowerCase().includes(partial)
+      ).slice(0, 10);
+
+      for (const result of matchingGenres) {
+        suggestions.push({
+          value: result.genre.genre_id,
+          display: result.genre.name,
+          highlight: result.genre.name,
+          count: result.album_count,
+          suggestion_type: "genre",
+          confidence: 1.0,
+          metadata: { album_count: result.album_count, song_count: result.song_count },
+          entity_id: result.genre.genre_id,
+          is_favorite: false,
+        });
+      }
+    }
+
+    // search playlists (match on title and description)
+    if (params.field === "all" || params.field === "playlists") {
+      const db = await initMusicDB();
+      const allPlaylists = await db.getAll(STORE_PLAYLISTS);
+      const matchingPlaylists = allPlaylists.filter((p: Playlist) =>
+        p.title?.toLowerCase().includes(partial) ||
+        p.description?.toLowerCase().includes(partial)
+      ).slice(0, 10);
+
+      for (const playlist of matchingPlaylists) {
+        const playlistSongs = await db.getAllFromIndex(
+          STORE_PLAYLIST_SONGS,
+          "by_playlist_id",
+          playlist.playlist_id,
+        );
+        suggestions.push({
+          value: playlist.playlist_id,
+          display: playlist.title || "untitled playlist",
+          highlight: playlist.title || "untitled playlist",
+          count: playlistSongs.length,
+          suggestion_type: "playlist",
+          confidence: 1.0,
+          metadata: { description: playlist.description, song_count: playlistSongs.length },
+          entity_id: playlist.playlist_id,
+          is_favorite: await checkFavorite("playlist", playlist.playlist_id),
+        });
       }
     }
 
