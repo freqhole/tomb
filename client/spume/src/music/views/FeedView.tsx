@@ -18,10 +18,13 @@ import {
   type FeedItemTypeFilter,
 } from "../queries/analytics";
 import { routes } from "../utils/routing";
-import { playQueue, addToQueue } from "../services/queue/queue";
+import { playQueue, addToQueue, resumeHistoryEntry } from "../services/queue/queue";
 import { resumeServerSession } from "../services/queue/serverSession";
+import { activeHistoryEntryId } from "../services/queue/listenProgress";
+import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
 import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
+import { confirm } from "../../app/services/confirmState";
 import {
   showImageCarousel,
   showSongEditor,
@@ -193,6 +196,26 @@ export function FeedView() {
   const playSession = async (item: FeedItem) => {
     if (!remote || !item.session_id) return;
 
+    // check IDB first for an existing local history entry that matches this server session
+    const existingEntry = queueHistory().find((e) => e.server_session_id === item.session_id);
+
+    if (existingEntry) {
+      // found in local history — fast resume via IDB
+      void resumeHistoryEntry(existingEntry);
+      return;
+    }
+
+    // not in local history — need to fetch from server (slower)
+    const confirmed = await confirm({
+      title: "Resume Session",
+      message:
+        "This session is not in local history and needs to be loaded from the server. This may take a moment.",
+      confirmText: "Load Session",
+      cancelText: "Cancel",
+    });
+
+    if (!confirmed) return;
+
     try {
       // fetch the full session from server
       const sessionResult = await apiClient.music.getListenSession(
@@ -250,8 +273,18 @@ export function FeedView() {
               current_song_position_ms: session.current_song_position_ms,
             },
             remote.remote_id,
-            remote.base_url
+            remote.base_url,
+            {
+              label: session.label,
+              entityId: session.entity_id ?? undefined,
+            }
           );
+
+          // link the new history entry to the resumed server session
+          const entryId = activeHistoryEntryId();
+          if (entryId) {
+            void updateHistoryServerSession(entryId, session.id, remote.remote_id);
+          }
         }
 
         toast.info("resumed session");

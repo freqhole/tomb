@@ -35,6 +35,9 @@ export interface QueueHistoryEntry {
   songs_completed: number; // songs where >90% was listened
   current_song_index: number; // which song we're on (for resume)
   current_song_position: number; // position in current song (for resume)
+  // server session tracking (for reconnection after page reload)
+  server_session_id?: string; // active server-side listen session id
+  server_remote_id?: string; // remote_server_id the session is on
 }
 
 // analytics event — queued locally for offline-first sync to server

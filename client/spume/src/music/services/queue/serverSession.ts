@@ -10,12 +10,18 @@ import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
 import { computeSmartLabel } from "./smartLabel";
 
+import { updateHistoryServerSession } from "./queueHistory";
+
 // --- types ---
 
 interface RemoteSession {
   sessionId: string;
   remoteId: string;
   baseUrl: string;
+  // the original label from the source context (preserved when updating songs)
+  label: string;
+  // entity_id if this session is for a named entity (album, playlist, etc.)
+  entityId?: string;
   // indices into the *full queue* that belong to this remote
   songIndices: number[];
   // accumulated progress state for this remote's session
@@ -77,9 +83,11 @@ function updatePrimarySessionId(): void {
 
 // create server-side listen sessions when playQueue/addToQueue is called.
 // fans out to one session per remote that has songs in the queue.
+// optionally links to a history entry for reconnection after page reload.
 export async function createServerSessions(
   songs: Song[],
   source: QueueSourceContext,
+  historyEntryId?: string,
 ): Promise<Map<string, string>> {
   // stop any previous sessions before creating new ones
   await stopAllServerSessions("paused");
@@ -102,7 +110,7 @@ export async function createServerSessions(
         const result = await apiClient.music.createListenSession(baseUrl, {
           session_type: source.type,
           entity_id: source.entity_id ?? null,
-          label: computeSmartLabel(group.songs),
+          label: source.label,
           song_ids: group.songs.map((s) => s.id || s.sha256),
           total_songs: group.songs.length,
           total_duration_ms: totalDurationMs,
@@ -113,6 +121,8 @@ export async function createServerSessions(
             sessionId: result.data.id,
             remoteId,
             baseUrl,
+            label: source.label,
+            entityId: source.entity_id,
             songIndices: group.indices,
             accumulatedMs: 0,
             completedSongs: new Set(),
@@ -147,6 +157,12 @@ export async function createServerSessions(
     }, SERVER_FLUSH_INTERVAL_MS);
   }
 
+  // link history entry to the primary server session for reconnection
+  if (historyEntryId && created.size > 0) {
+    const [remoteId, sessionId] = created.entries().next().value;
+    void updateHistoryServerSession(historyEntryId, sessionId, remoteId);
+  }
+
   return created;
 }
 
@@ -154,8 +170,9 @@ export async function createServerSessions(
 export async function createServerSession(
   songs: Song[],
   source: QueueSourceContext,
+  historyEntryId?: string,
 ): Promise<string | null> {
-  const created = await createServerSessions(songs, source);
+  const created = await createServerSessions(songs, source, historyEntryId);
   return created.values().next().value ?? null;
 }
 
@@ -300,6 +317,11 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
         (sum, s) => sum + (s.duration_seconds || 0) * 1000,
         0,
       );
+      // preserve original label if session is for a named entity (album, playlist, etc.)
+      // otherwise recompute smart label for dynamic song groups
+      const updatedLabel = session.entityId
+        ? session.label
+        : computeSmartLabel(group.songs);
       promises.push(
         (async () => {
           try {
@@ -308,7 +330,7 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
               session.sessionId,
               {
                 song_ids: group.songs.map((s) => s.id || s.sha256),
-                label: computeSmartLabel(group.songs),
+                label: updatedLabel,
                 total_songs: group.songs.length,
                 total_duration_ms: totalDurationMs,
               },
@@ -380,6 +402,10 @@ export async function resumeServerSession(
   },
   remoteId: string,
   baseUrl: string,
+  sessionContext?: {
+    label: string;
+    entityId?: string;
+  },
 ): Promise<void> {
   // stop any active sessions first
   await stopAllServerSessions("paused");
@@ -389,6 +415,8 @@ export async function resumeServerSession(
     sessionId,
     remoteId,
     baseUrl,
+    label: sessionContext?.label ?? "",
+    entityId: sessionContext?.entityId,
     songIndices: [], // will be populated if updateServerSessionSongs is called
     accumulatedMs: resumeState.listened_duration_ms,
     completedSongs: new Set(),
@@ -425,4 +453,50 @@ export async function resumeServerSession(
 // get the session id for a specific remote (used by analytics to attach session_id)
 export function getSessionIdForRemote(remoteId: string): string | null {
   return remoteSessions.get(remoteId)?.sessionId ?? null;
+}
+
+// reconnect server session after page reload.
+// called from listenProgress.reconnectProgressTracking after finding a matching history entry.
+// uses the stored server_session_id and server_remote_id to resume tracking.
+export async function reconnectServerSession(
+  historyEntry: {
+    server_session_id?: string;
+    server_remote_id?: string;
+    label: string;
+    entity_id?: string;
+    listened_seconds: number;
+    songs_completed: number;
+    current_song_index: number;
+    current_song_position: number;
+  },
+): Promise<void> {
+  // skip if no server session info stored
+  if (!historyEntry.server_session_id || !historyEntry.server_remote_id) return;
+
+  // note: we don't skip if remoteSessions.size > 0 anymore because:
+  // 1. resumeServerSession already calls stopAllServerSessions first
+  // 2. resuming from feed needs to switch from one session to another
+
+  const baseUrl = await resolveRemoteBaseUrl(historyEntry.server_remote_id);
+  if (!baseUrl) {
+    console.warn("could not resolve base url for server session reconnection");
+    return;
+  }
+
+  // resume the server session
+  await resumeServerSession(
+    historyEntry.server_session_id,
+    {
+      listened_duration_ms: historyEntry.listened_seconds * 1000,
+      songs_completed: historyEntry.songs_completed,
+      current_song_index: historyEntry.current_song_index,
+      current_song_position_ms: historyEntry.current_song_position * 1000,
+    },
+    historyEntry.server_remote_id,
+    baseUrl,
+    {
+      label: historyEntry.label,
+      entityId: historyEntry.entity_id,
+    },
+  );
 }

@@ -221,8 +221,23 @@ function FeedRow(props: {
   const typeInfo = () => feedTypeInfo(props.item.feed_type);
   const images = () => props.item.images;
   const collageImages = () => props.item.collage_images;
-  const hasCollage = () => !!(collageImages() && collageImages()!.length >= 2);
-  const hasImages = () => hasCollage() || !!(images() && images()!.length > 0);
+
+  // prefer entity image for playlist/artist/album sessions, fallback to collage for genre/shuffle
+  const shouldShowCollage = createMemo(() => {
+    const collage = collageImages();
+    if (!collage || collage.length < 2) return false;
+    // don't use collage if session has a specific entity type that should show its own image
+    if (props.item.feed_type === "listen_session") {
+      const sessionType = props.item.session_type;
+      // genre and shuffle can use collage, others should use entity image when available
+      if (sessionType === "playlist" || sessionType === "artist" || sessionType === "album") {
+        // use entity image if available
+        return !(images() && images()!.length > 0);
+      }
+    }
+    return true;
+  });
+  const hasImages = () => shouldShowCollage() || !!(images() && images()!.length > 0);
   const createdAt = () =>
     typeof props.item.created_at === "number"
       ? props.item.created_at * 1000
@@ -351,7 +366,7 @@ function FeedRow(props: {
           }
         >
           <Show
-            when={hasCollage()}
+            when={shouldShowCollage()}
             fallback={
               <MediaThumbnail images={images()} size={IMAGE_SIZE} hideIndex showPlayIcon={false} />
             }

@@ -5,7 +5,7 @@
 import { createSignal } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
-import { recordServerProgress, markServerSongCompleted } from "./serverSession";
+import { recordServerProgress, markServerSongCompleted, reconnectServerSession } from "./serverSession";
 import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked
@@ -181,4 +181,18 @@ export function reconnectProgressTracking(): void {
     current_song_index: entry.current_song_index,
     current_song_position: entry.current_song_position,
   });
+
+  // also reconnect server session if the entry has server session info
+  if (entry.server_session_id && entry.server_remote_id) {
+    void reconnectServerSession({
+      server_session_id: entry.server_session_id,
+      server_remote_id: entry.server_remote_id,
+      label: entry.label,
+      entity_id: entry.entity_id,
+      listened_seconds: entry.listened_seconds,
+      songs_completed: entry.songs_completed,
+      current_song_index: entry.current_song_index,
+      current_song_position: entry.current_song_position,
+    });
+  }
 }

@@ -198,6 +198,38 @@ export async function updateHistoryEntrySongs(
   }
 }
 
+// update the server session info on a history entry (called after creating server session)
+export async function updateHistoryServerSession(
+  id: string,
+  serverSessionId: string,
+  serverRemoteId: string,
+): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated: QueueHistoryEntry = {
+      ...entry,
+      server_session_id: serverSessionId,
+      server_remote_id: serverRemoteId,
+    };
+
+    await db.put(STORE_QUEUE_HISTORY, updated);
+
+    // update signal in-place
+    setQueueHistory((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, server_session_id: serverSessionId, server_remote_id: serverRemoteId }
+          : e,
+      ),
+    );
+  } catch (error) {
+    console.error("failed to update history server session:", error);
+  }
+}
+
 // clear all history
 export async function clearQueueHistory(): Promise<void> {
   try {

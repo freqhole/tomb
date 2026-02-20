@@ -64,7 +64,7 @@ export async function playQueue(
     // create server-side listen session (fire and forget)
     // skip when caller will handle session tracking (e.g. resuming an existing session)
     if (!options?.skipServerSession) {
-      void createServerSession(songs, options.source);
+      void createServerSession(songs, options.source, entryId ?? undefined);
     }
   }
 }
@@ -123,18 +123,21 @@ export async function addToQueue(
     if (existingEntryId) {
       // update the active history entry with the full queue
       void updateHistoryEntrySongs(existingEntryId, newQueue);
+      // sync server session: update active session with full queue
+      if (activeServerSessionId()) {
+        void updateServerSessionSongs(newQueue);
+      } else {
+        // no active server session — create new and link to existing history entry
+        void createServerSession(newQueue, options.source, existingEntryId);
+      }
     } else {
       // no active entry — create a new one and start tracking
       const entryId = await addHistoryEntry(newQueue, options.source);
       if (entryId) {
         startTracking(entryId);
       }
-    }
-    // sync server session: update active session with full queue, or create new
-    if (activeServerSessionId()) {
-      void updateServerSessionSongs(newQueue);
-    } else {
-      void createServerSession(newQueue, options.source);
+      // create new server session linked to the new history entry
+      void createServerSession(newQueue, options.source, entryId ?? undefined);
     }
   }
 }
@@ -255,4 +258,19 @@ export async function resumeHistoryEntry(
     current_song_index: resumeIndex,
     current_song_position: entry.current_song_position || 0,
   });
+
+  // reconnect server session if the entry has server session info
+  if (entry.server_session_id && entry.server_remote_id) {
+    const { reconnectServerSession } = await import("./serverSession");
+    void reconnectServerSession({
+      server_session_id: entry.server_session_id,
+      server_remote_id: entry.server_remote_id,
+      label: entry.label,
+      entity_id: entry.entity_id,
+      listened_seconds: entry.listened_seconds || 0,
+      songs_completed: entry.songs_completed || 0,
+      current_song_index: resumeIndex,
+      current_song_position: entry.current_song_position || 0,
+    });
+  }
 }
