@@ -465,6 +465,8 @@ export interface FeedItem {
   is_favorite: boolean;
   // collage images for multi-album listen sessions (up to 4 distinct album covers)
   collage_images: ImageMetadata[] | null;
+  // when the entity was originally created (for playlists - to distinguish create vs update)
+  entity_created_at: number | null;
 }
 
 // paginated feed response

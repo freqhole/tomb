@@ -55,6 +55,7 @@ function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
       tags: item.tags ?? null,
       is_favorite: item.is_favorite ?? false,
       collage_images: adaptFeedImages(item.collage_images, baseUrl),
+      entity_created_at: item.entity_created_at ?? null,
     })),
     total: data.total ?? 0,
   };

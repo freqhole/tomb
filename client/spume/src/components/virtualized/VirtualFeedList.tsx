@@ -273,8 +273,7 @@ function FeedRow(props: {
       case "recent_playlist": {
         // if entity_created_at differs from created_at by more than 5 seconds, it's an update
         const isUpdate =
-          item.entity_created_at != null &&
-          Math.abs(item.created_at - item.entity_created_at) > 5;
+          item.entity_created_at != null && Math.abs(item.created_at - item.entity_created_at) > 5;
         return { user, verb: isUpdate ? "updated" : "created", entity: entity || "a playlist" };
       }
       case "listen_session":
