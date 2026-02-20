@@ -149,6 +149,9 @@ pub async fn start_server(
         .with_secure(use_secure)
         .with_same_site(same_site)
         .with_expiry(session_expiry);
+    // #TODO: nice-to-have for hardening: add .with_signed(key) to sign session cookies
+    // would use tower_sessions::cookie::Key from a config secret
+    // not critical since session IDs are cryptographically random and server-side stored
 
     tracing::info!(
         "[session] configured session layer: secure={}, same_site={:?}, expiry={:?}",
