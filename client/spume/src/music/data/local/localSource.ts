@@ -23,6 +23,7 @@ import {
   getOrCreateGenre,
   getRating,
   getSongById,
+  getSongsByIds as dbGetSongsByIds,
   initMusicDB,
   queryAlbums,
   queryArtists,
@@ -180,6 +181,14 @@ export class LocalMusicDataSource implements MusicDataSource {
       ...song,
       images: buildSongImages(song),
     };
+  }
+
+  async getSongsByIds(ids: string[]): Promise<Song[]> {
+    const songs = await dbGetSongsByIds(ids);
+    return songs.map((song) => ({
+      ...song,
+      images: buildSongImages(song),
+    }));
   }
 
   // albums (optional - aggregate from songs)

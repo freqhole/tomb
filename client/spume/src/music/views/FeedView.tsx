@@ -177,19 +177,10 @@ export function FeedView() {
     }
   };
 
-  // helper: fetch songs by IDs via data source
+  // helper: fetch songs by IDs via data source (batch request)
   const fetchSongsByIds = async (songIds: string[]) => {
     const dataSource = getDataSource();
-    const songs = [];
-    for (const id of songIds) {
-      try {
-        const song = await dataSource.getSongById(id);
-        if (song) songs.push(song);
-      } catch {
-        // skip songs we can't fetch
-      }
-    }
-    return songs;
+    return dataSource.getSongsByIds?.(songIds) ?? [];
   };
 
   // helper: play a session — resume if active/paused, otherwise start fresh

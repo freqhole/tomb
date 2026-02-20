@@ -242,6 +242,7 @@ export interface MusicDataSource {
   // songs
   getSongs(params?: QueryParams): Promise<PaginatedResponse<Song>>;
   getSongById(id: string): Promise<Song | null>;
+  getSongsByIds?(ids: string[]): Promise<Song[]>;
 
   // albums (optional - may aggregate from songs)
   getAlbums?(params?: QueryParams): Promise<PaginatedResponse<AlbumSummary>>;

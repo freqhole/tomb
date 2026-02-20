@@ -125,6 +125,40 @@ export class RemoteMusicDataSource implements MusicDataSource {
     return adaptSongFromAPI(result.data.items[0], this.baseUrl, this.remoteId);
   }
 
+  async getSongsByIds(ids: string[]): Promise<RemoteSong[]> {
+    if (ids.length === 0) return [];
+
+    // batch fetch all songs in a single request using song_ids filter
+    const filters: Record<string, any> = { song_ids: ids };
+    const result = await apiClient.music.querySongs(this.baseUrl, {
+      q: null,
+      search_fields: null,
+      filters,
+      sort_by: null,
+      sort_direction: null,
+      limit: ids.length,
+      offset: null,
+      user_id: null,
+      favorites_only: null,
+      min_rating: null,
+    });
+
+    if (!result.success) {
+      this.checkAuthError(result);
+      return [];
+    }
+
+    // build a map for fast lookup and preserve original order
+    const songMap = new Map<string, RemoteSong>();
+    for (const item of result.data.items) {
+      const song = adaptSongFromAPI(item, this.baseUrl, this.remoteId);
+      songMap.set(song.id, song);
+    }
+
+    // return songs in the same order as the input IDs, filtering out any not found
+    return ids.map((id) => songMap.get(id)).filter((s): s is RemoteSong => s != null);
+  }
+
   // albums
   async getAlbums(
     params?: QueryParams,

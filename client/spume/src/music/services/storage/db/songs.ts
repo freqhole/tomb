@@ -31,6 +31,16 @@ export async function getSongById(songId: string): Promise<Song | undefined> {
   return db.get(STORE_SONGS, songId);
 }
 
+export async function getSongsByIds(songIds: string[]): Promise<Song[]> {
+  if (songIds.length === 0) return [];
+  const db = await initMusicDB();
+  const tx = db.transaction(STORE_SONGS, "readonly");
+  const songs = await Promise.all(songIds.map((id) => tx.store.get(id)));
+  await tx.done;
+  // filter out undefined and preserve order
+  return songs.filter((s): s is Song => s != null);
+}
+
 export async function getSongBySha256(sha256: string): Promise<Song | undefined> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_SONGS).store.index("by_sha256");
