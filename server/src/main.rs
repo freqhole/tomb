@@ -79,7 +79,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("starting freqhole server...");
     tracing::info!("log level: {}", log_level);
 
-    // initialize session store from grimoire (grimoire handles migrations automatically)
+    // initialize database (migrations + views) once at startup
+    grimoire::database::initialize()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to initialize database: {}", e))?;
+
+    // initialize session store from grimoire
     tracing::info!("initializing session store...");
     let session_store = grimoire::sessions::init_session_store()
         .await

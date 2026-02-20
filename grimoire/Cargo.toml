@@ -2,6 +2,7 @@
 name = "grimoire"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "sqlite", "time", "json", "migrate"] }

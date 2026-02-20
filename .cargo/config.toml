@@ -7,6 +7,10 @@
 # Override with SQLX_OFFLINE=false when you want online mode
 # SQLX_OFFLINE = "true"
 
+# Database URL for sqlx compile-time checks and build.rs view creation
+# Uses relative path from workspace root
+DATABASE_URL = { value = "sqlite:data/grimoire.db", relative = true }
+
 [build]
 # Number of parallel jobs, defaults to # of CPUs
 # jobs = 1

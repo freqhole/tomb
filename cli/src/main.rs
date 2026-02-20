@@ -118,6 +118,11 @@ async fn main() -> Result<()> {
     if !matches!(cli.command, Commands::Setup(_)) {
         grimoire::init_config(cli.config.clone())
             .map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
+
+        // initialize database (migrations + views) once at startup
+        grimoire::database::initialize()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?;
     }
 
     // Initialize tracing
