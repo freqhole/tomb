@@ -36,17 +36,27 @@ help:
 # Database commands
 db-reset:
 	@echo "resetting database..."
-	rm -f $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
-	mkdir -p ../data
-	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
-	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
-	@echo "database reset complete!"
+	@DB_PATH=$(shell echo $(DATABASE_URL) | sed 's|sqlite:||'); \
+		BLOB_DB=$$(echo $$DB_PATH | sed 's|\.db$$|-blobdata.db|'); \
+		rm -f "$$DB_PATH" "$$BLOB_DB"
+	$(MAKE) db-migrate
 
 db-migrate:
 	@echo "running migrations..."
 	mkdir -p ../data
 	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
 	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
+	@echo "creating views..."
+	@for view in ../migrations/views/*.sql; do \
+		echo "  applying $${view}..."; \
+		sqlite3 $(shell echo $(DATABASE_URL) | sed 's|sqlite:||') < "$${view}"; \
+	done
+	@echo "creating blob_data database..."
+	@DB_PATH=$(shell echo $(DATABASE_URL) | sed 's|sqlite:||'); \
+		BLOB_DB=$$(echo $$DB_PATH | sed 's|\.db$$|-blobdata.db|'); \
+		touch "$$BLOB_DB"; \
+		sqlite3 "$$BLOB_DB" "CREATE TABLE IF NOT EXISTS blob_data (id TEXT PRIMARY KEY, data BLOB NOT NULL);"
+	@echo "database setup complete!"
 
 db-prepare: db-migrate
 	@echo "preparing sqlx query cache..."

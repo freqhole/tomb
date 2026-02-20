@@ -7,9 +7,8 @@
 # Override with SQLX_OFFLINE=false when you want online mode
 # SQLX_OFFLINE = "true"
 
-# Database URL is now in .env with absolute path
-# .cargo/config.toml's relative=true doesn't work for sqlx-macros proc-macro
-# DATABASE_URL = { value = "sqlite:data/grimoire.db", relative = true }
+# relative path to db for online sqlx compile checks.
+DATABASE_URL = "sqlite:data/grimoire.db"
 
 [build]
 # Number of parallel jobs, defaults to # of CPUs

@@ -39,10 +39,3 @@ FOR EACH ROW
 BEGIN
   UPDATE media_blobz SET updated_at = unixepoch() WHERE id = NEW.id;
 END;
-
--- blob data storage (for inline blob storage like thumbnails)
-CREATE TABLE blob_data (
-  id TEXT PRIMARY KEY,
-  data BLOB NOT NULL,
-  FOREIGN KEY (id) REFERENCES media_blobz(id)
-);

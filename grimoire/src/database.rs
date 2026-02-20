@@ -3,8 +3,8 @@
 //!
 //! startup flow:
 //! 1. server/cli main calls `initialize()` once
-//! 2. initialize() runs migrations + creates views
-//! 3. all other code calls `connect()` which just returns a pool
+//! 2. initialize() runs migrations + creates views + creates blob_data db
+//! 3. all other code calls `connect()` or `connect_blob_data()` which just return pools
 
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -48,6 +48,17 @@ pub async fn initialize() -> GrimoireResult<()> {
             .execute(&pool)
             .await?;
         sqlx::query(views::FEED_QUERY_VIEW).execute(&pool).await?;
+
+        // initialize blob_data database (separate file for raw binary storage)
+        let blob_pool = connect_blob_data().await?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS blob_data (
+                id TEXT PRIMARY KEY,
+                data BLOB NOT NULL
+            )",
+        )
+        .execute(&blob_pool)
+        .await?;
     }
 
     Ok(())
@@ -94,8 +105,32 @@ pub(crate) async fn connect() -> GrimoireResult<SqlitePool> {
     Ok(pool)
 }
 
-// #TODO: so i guess it could be neat to have a standalone blob_data sqlite db file?
-// #[deprecated(note = "Use connect() instead - all data is now in single database")]
-// pub(crate) async fn connect_blob_data() -> GrimoireResult<SqlitePool> {
-//     connect().await
-// }
+/// connect to the blob_data database (separate file for raw binary storage)
+/// does NOT create tables - call initialize() once at startup
+pub(crate) async fn connect_blob_data() -> GrimoireResult<SqlitePool> {
+    let config = get_config();
+    let db_path = config.blob_data_path();
+
+    // create file if it doesn't exist (using mode=rwc)
+    let connection_string = format!("sqlite:{}?mode=rwc", db_path.display());
+    let pool = SqlitePoolOptions::new()
+        .max_connections(config.database.max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(
+            config.database.acquire_timeout_seconds,
+        ))
+        .idle_timeout(std::time::Duration::from_secs(
+            config.database.idle_timeout_seconds,
+        ))
+        .connect(&connection_string)
+        .await?;
+
+    // configure SQLite settings
+    sqlx::query("PRAGMA journal_mode = WAL")
+        .execute(&pool)
+        .await?;
+    sqlx::query("PRAGMA synchronous = NORMAL")
+        .execute(&pool)
+        .await?;
+
+    Ok(pool)
+}

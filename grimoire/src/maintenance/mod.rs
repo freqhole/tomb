@@ -150,6 +150,8 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
                 if let Some(size) = blob.size {
                     bytes_freed += size as u64;
                 }
+                // also delete from blob_data (separate db, no FK)
+                let _ = crate::blob_data::delete_blob_data(&blob.id).await;
                 println!("    ✓ Deleted: {}", blob.id);
             }
             Err(e) => {

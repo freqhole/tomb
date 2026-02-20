@@ -323,6 +323,20 @@ impl GrimoireConfig {
         self.data_dir.join(&self.database.filename)
     }
 
+    /// Get path to blob data SQLite database file
+    /// derives from main database filename: grimoire.db → grimoire-blobdata.db
+    pub fn blob_data_path(&self) -> PathBuf {
+        let stem = std::path::Path::new(&self.database.filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("grimoire");
+        let ext = std::path::Path::new(&self.database.filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("db");
+        self.data_dir.join(format!("{}-blobdata.{}", stem, ext))
+    }
+
     /// Get path to temp directory
     pub fn temp_dir(&self) -> PathBuf {
         self.data_dir.join("tmp")
