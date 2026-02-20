@@ -2,7 +2,7 @@
 
 use crate::error::GrimoireResult;
 use crate::search::helpers::{
-    apply_user_preference_multiplier, calculate_confidence, generate_highlight,
+    apply_user_preference_multiplier, calculate_confidence, generate_highlight, sanitize_fts_query,
 };
 use crate::search::models::{Suggestion, SuggestionType};
 use sqlx::SqlitePool;
@@ -21,14 +21,14 @@ pub async fn get_song_suggestions(
     struct SongSuggestionRow {
         song_id: String,
         song_title: String,
-        images: Option<String>,  // JSON array
+        images: Option<String>, // JSON array
         album_id: Option<String>,
         fts_rank: f64,
         user_rating: Option<i64>,
         is_favorite: i64,
     }
 
-    let match_query = format!("{}*", partial);
+    let match_query = sanitize_fts_query(partial);
     let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query_as!(
@@ -115,14 +115,14 @@ pub async fn get_artist_suggestions(
     struct ArtistSuggestionRow {
         artist_id: String,
         artist_name: String,
-        images: Option<String>,  // JSON array
+        images: Option<String>, // JSON array
         fts_rank: f64,
         song_count: i64,
         user_rating: Option<i64>,
         is_favorite: i64,
     }
 
-    let match_query = format!("{}*", partial);
+    let match_query = sanitize_fts_query(partial);
     let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query_as!(
@@ -210,14 +210,14 @@ pub async fn get_album_suggestions(
     struct AlbumSuggestionRow {
         album_id: String,
         album_title: String,
-        images: Option<String>,  // JSON array
+        images: Option<String>, // JSON array
         fts_rank: f64,
         song_count: i64,
         user_rating: Option<i64>,
         is_favorite: i64,
     }
 
-    let match_query = format!("{}*", partial);
+    let match_query = sanitize_fts_query(partial);
     let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query_as!(
@@ -300,7 +300,7 @@ pub async fn get_genre_suggestions(
     // join to genrez for full details and count associated albums/songs
     // calculate confidence (no user prefs for genres)
 
-    let match_query = format!("{}*", partial);
+    let match_query = sanitize_fts_query(partial);
 
     let rows = sqlx::query!(
         r#"
@@ -356,7 +356,7 @@ pub async fn get_playlist_suggestions(
     // query playlistz_fts with prefix match: `title:partial*`
     // filter by privacy: (is_public = 1 OR created_by = user_id)
 
-    let match_query = format!("{}*", partial);
+    let match_query = sanitize_fts_query(partial);
     let user_id_param = user_id.map(|s| s.to_string());
 
     let rows = sqlx::query!(

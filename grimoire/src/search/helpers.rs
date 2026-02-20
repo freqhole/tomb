@@ -2,6 +2,42 @@
 
 use crate::search::models::{MatchType, Suggestion};
 
+/// sanitize a search query for FTS5.
+/// the unicode61 tokenizer treats punctuation as word separators, so we need to:
+/// 1. replace common separators with spaces
+/// 2. escape FTS5 special syntax characters
+/// 3. join words with prefix wildcards for partial matching
+pub fn sanitize_fts_query(query: &str) -> String {
+    // characters that unicode61 tokenizer treats as separators
+    let separators = [
+        '/', '-', '_', '.', ',', ':', ';', '(', ')', '[', ']', '{', '}', '&', '+',
+    ];
+
+    // replace separators with spaces
+    let mut sanitized = query.to_string();
+    for sep in separators {
+        sanitized = sanitized.replace(sep, " ");
+    }
+
+    // escape FTS5 special characters (quotes, etc.)
+    sanitized = sanitized.replace('"', "\"\"");
+
+    // split into words, filter empty, add prefix wildcard to each
+    let words: Vec<String> = sanitized
+        .split_whitespace()
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("{}*", w))
+        .collect();
+
+    if words.is_empty() {
+        // fallback to original with wildcard if nothing parsed
+        format!("{}*", query)
+    } else {
+        // join with spaces (FTS5 implicit AND)
+        words.join(" ")
+    }
+}
+
 /// determine if suggestion should be included based on confidence threshold
 pub fn should_include_suggestion(suggestion: &Suggestion) -> bool {
     // determine match type from suggestion metadata

@@ -1,6 +1,7 @@
 //! full search query functions with filtering support
 
 use crate::error::GrimoireResult;
+use crate::search::helpers::sanitize_fts_query;
 use crate::search::models::*;
 use sqlx::SqlitePool;
 
@@ -47,6 +48,8 @@ pub async fn search_songs(
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.include).unwrap_or(&vec![])).unwrap();
     let tag_exclude_json =
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
+
+    let sanitized_query = sanitize_fts_query(query);
 
     let rows = sqlx::query_as!(
         SongRow,
@@ -108,7 +111,7 @@ pub async fn search_songs(
         "#,
         user_id_param,
         user_id_param,
-        query,
+        sanitized_query,
         has_tag_include,
         tag_include_json,
         has_tag_exclude,
@@ -193,6 +196,8 @@ pub async fn search_artists(
     let tag_exclude_json =
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
+    let sanitized_query = sanitize_fts_query(query);
+
     let rows = sqlx::query_as!(
         ArtistRow,
         r#"
@@ -251,7 +256,7 @@ pub async fn search_artists(
         "#,
         user_id_param,
         user_id_param,
-        query,
+        sanitized_query,
         has_tag_include,
         tag_include_json,
         has_tag_exclude,
@@ -332,6 +337,8 @@ pub async fn search_albums(
     let tag_exclude_json =
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
+    let sanitized_query = sanitize_fts_query(query);
+
     // note: genre/sub-genre filtering deferred for now
     let rows = sqlx::query_as!(
         AlbumRow,
@@ -386,7 +393,7 @@ pub async fn search_albums(
         "#,
         user_id_param,
         user_id_param,
-        query,
+        sanitized_query,
         has_tag_include,
         tag_include_json,
         has_tag_exclude,
@@ -474,6 +481,8 @@ pub async fn search_genres(
     let tag_exclude_json =
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
+    let sanitized_query = sanitize_fts_query(query);
+
     let rows = sqlx::query_as!(
         GenreRow,
         r#"
@@ -505,7 +514,7 @@ pub async fn search_genres(
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
-        query,
+        sanitized_query,
         has_tag_include,
         tag_include_json,
         has_tag_exclude,
@@ -576,6 +585,8 @@ pub async fn search_playlists(
     let tag_exclude_json =
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
+    let sanitized_query = sanitize_fts_query(query);
+
     let rows = sqlx::query_as!(
         PlaylistRow,
         r#"
@@ -613,7 +624,7 @@ pub async fn search_playlists(
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
-        query,
+        sanitized_query,
         user_id_param,
         has_tag_include,
         tag_include_json,
@@ -667,6 +678,8 @@ pub async fn count_song_results(
     let tag_exclude_json =
         serde_json::to_string(&tag_filter.as_ref().map(|f| &f.exclude).unwrap_or(&vec![])).unwrap();
 
+    let sanitized_query = sanitize_fts_query(query);
+
     let result = sqlx::query!(
         r#"
         SELECT COUNT(DISTINCT song.id) as "count!: i64"
@@ -689,7 +702,7 @@ pub async fn count_song_results(
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         "#,
-        query,
+        sanitized_query,
         has_tag_include,
         tag_include_json,
         has_tag_exclude,
