@@ -270,8 +270,13 @@ function FeedRow(props: {
         return { user: null, verb: "", entity: "new album" };
       case "recent_rating":
         return { user, verb: "rated", entity: entity || "a song" };
-      case "recent_playlist":
-        return { user, verb: "created", entity: entity || "a playlist" };
+      case "recent_playlist": {
+        // if entity_created_at differs from created_at by more than 5 seconds, it's an update
+        const isUpdate =
+          item.entity_created_at != null &&
+          Math.abs(item.created_at - item.entity_created_at) > 5;
+        return { user, verb: isUpdate ? "updated" : "created", entity: entity || "a playlist" };
+      }
       case "listen_session":
         return { user, verb: "had", entity: "a listening session" };
       case "new_image": {

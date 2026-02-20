@@ -41,7 +41,8 @@ SELECT
     NULL as song_count,
     NULL as total_duration_ms,
     NULL as description,
-    NULL as tags
+    NULL as tags,
+    NULL as entity_created_at
 FROM user_favoritez uf
 JOIN songz s ON s.id = uf.target_id
 WHERE uf.target_type = 'song' AND s.deleted_at IS NULL
@@ -84,7 +85,8 @@ SELECT
     alb.song_count as song_count,
     alb.total_duration as total_duration_ms,
     NULL as description,
-    (SELECT json_group_array(t.name) FROM album_tagz at2 JOIN tagz t ON t.id = at2.tag_id WHERE at2.album_id = alb.id) as tags
+    (SELECT json_group_array(t.name) FROM album_tagz at2 JOIN tagz t ON t.id = at2.tag_id WHERE at2.album_id = alb.id) as tags,
+    NULL as entity_created_at
 FROM albumz alb
 WHERE alb.deleted_at IS NULL
 
@@ -171,7 +173,8 @@ SELECT
     NULL as song_count,
     NULL as total_duration_ms,
     NULL as description,
-    NULL as tags
+    NULL as tags,
+    NULL as entity_created_at
 FROM user_ratingz ur
 
 UNION ALL
@@ -212,7 +215,8 @@ SELECT
     (SELECT COUNT(*) FROM playlist_songz ps WHERE ps.playlist_id = p.id) as song_count,
     (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps2 JOIN songz s ON s.id = ps2.song_id WHERE ps2.playlist_id = p.id) as total_duration_ms,
     p.description as description,
-    NULL as tags
+    NULL as tags,
+    p.created_at as entity_created_at
 FROM playlistz p
 WHERE p.deleted_at IS NULL
 
@@ -283,7 +287,8 @@ SELECT
     NULL as song_count,
     ls.total_duration_ms as total_duration_ms,
     NULL as description,
-    NULL as tags
+    NULL as tags,
+    NULL as entity_created_at
 FROM listen_sessionz ls
 
 UNION ALL
@@ -326,7 +331,8 @@ SELECT
     NULL as song_count,
     NULL as total_duration_ms,
     NULL as description,
-    NULL as tags
+    NULL as tags,
+    NULL as entity_created_at
 FROM (
     SELECT
         entity_type,

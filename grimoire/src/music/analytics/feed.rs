@@ -111,6 +111,8 @@ pub struct FeedItem {
     pub is_favorite: bool,
     /// collage images for multi-album/artist listen sessions (up to 4 distinct album covers)
     pub collage_images: Option<Vec<ImageMetadata>>,
+    /// when the entity was originally created (for playlists, to distinguish create vs update)
+    pub entity_created_at: Option<i64>,
 }
 
 /// column identifiers for feed_query_view (type-safe sea_query references)
@@ -178,6 +180,8 @@ enum FeedView {
     Description,
     #[iden = "tags"]
     Tags,
+    #[iden = "entity_created_at"]
+    EntityCreatedAt,
 }
 
 /// helper to bind sea_query values to a sqlx query
@@ -306,6 +310,7 @@ pub async fn get_combined_feed(
         .column(FeedView::TotalDurationMs)
         .column(FeedView::Description)
         .column(FeedView::Tags)
+        .column(FeedView::EntityCreatedAt)
         .from(FeedView::Table);
 
     // add is_favorite correlated subquery if viewer is authenticated
@@ -448,6 +453,7 @@ struct RawFeedRow {
     description: Option<String>,
     tags: Option<String>,
     is_favorite: i32,
+    entity_created_at: Option<i64>,
 }
 
 impl RawFeedRow {
@@ -505,6 +511,7 @@ impl RawFeedRow {
             tags,
             is_favorite: self.is_favorite != 0,
             collage_images: None, // populated by post-processing in get_combined_feed
+            entity_created_at: self.entity_created_at,
         }
     }
 }

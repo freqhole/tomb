@@ -10,7 +10,7 @@ import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
 import { computeSmartLabel } from "./smartLabel";
 
-import { updateHistoryServerSession } from "./queueHistory";
+import { updateHistoryServerSession, clearHistoryServerSession } from "./queueHistory";
 
 // --- types ---
 
@@ -453,6 +453,7 @@ export async function resumeServerSession(
     label: string;
     entityId?: string;
   },
+  historyEntryId?: string,
 ): Promise<void> {
   // stop any active sessions first
   await stopAllServerSessions("paused");
@@ -480,14 +481,34 @@ export async function resumeServerSession(
   updatePrimarySessionId();
 
   // update status to active on the remote
-  try {
-    await apiClient.music.updateListenSessionStatus(
-      baseUrl,
-      sessionId,
-      "active",
+  const statusResult = await apiClient.music.updateListenSessionStatus(
+    baseUrl,
+    sessionId,
+    "active",
+  );
+
+  // check if the session no longer exists on server
+  if (!statusResult.success) {
+    const isSessionNotFound = statusResult.error.issues.some(
+      (issue) =>
+        issue.code === "custom" &&
+        (issue.path.includes("session_not_found") || issue.path.includes("not_found")),
     );
-  } catch (error) {
-    console.error("failed to resume server session:", error);
+
+    if (isSessionNotFound) {
+      console.warn(
+        `server session ${sessionId} not found during resume, cleaning up`,
+      );
+      remoteSessions.delete(remoteId);
+      updatePrimarySessionId();
+      // also clear the stale server session info from the history entry
+      if (historyEntryId) {
+        void clearHistoryServerSession(historyEntryId);
+      }
+      return; // don't start flush interval
+    }
+
+    console.error("failed to resume server session:", statusResult.error);
   }
 
   // start periodic flush
@@ -507,6 +528,7 @@ export function getSessionIdForRemote(remoteId: string): string | null {
 // uses the stored server_session_id and server_remote_id to resume tracking.
 export async function reconnectServerSession(
   historyEntry: {
+    id: string;
     server_session_id?: string;
     server_remote_id?: string;
     label: string;
@@ -545,5 +567,6 @@ export async function reconnectServerSession(
       label: historyEntry.label,
       entityId: historyEntry.entity_id,
     },
+    historyEntry.id,
   );
 }

@@ -185,6 +185,7 @@ export function reconnectProgressTracking(): void {
   // also reconnect server session if the entry has server session info
   if (entry.server_session_id && entry.server_remote_id) {
     void reconnectServerSession({
+      id: entry.id,
       server_session_id: entry.server_session_id,
       server_remote_id: entry.server_remote_id,
       label: entry.label,

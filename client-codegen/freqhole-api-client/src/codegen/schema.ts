@@ -768,7 +768,8 @@ export const FeedItemSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
-})).nullable()
+})).nullable(),
+  entity_created_at: z.number().nullable()
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
@@ -824,7 +825,8 @@ export const FeedResponseSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
-})).nullable()
+})).nullable(),
+  entity_created_at: z.number().nullable()
 })),
   total: z.number()
 });

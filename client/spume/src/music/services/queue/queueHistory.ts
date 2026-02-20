@@ -230,6 +230,34 @@ export async function updateHistoryServerSession(
   }
 }
 
+// clear the server session info from a history entry (called when server session is no longer valid)
+export async function clearHistoryServerSession(id: string): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated: QueueHistoryEntry = {
+      ...entry,
+      server_session_id: undefined,
+      server_remote_id: undefined,
+    };
+
+    await db.put(STORE_QUEUE_HISTORY, updated);
+
+    // update signal in-place
+    setQueueHistory((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, server_session_id: undefined, server_remote_id: undefined }
+          : e,
+      ),
+    );
+  } catch (error) {
+    console.error("failed to clear history server session:", error);
+  }
+}
+
 // clear all history
 export async function clearQueueHistory(): Promise<void> {
   try {
