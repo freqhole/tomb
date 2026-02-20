@@ -16,9 +16,25 @@ use grimoire::music::analytics::{
     TopArtistsRequest, TopSong, TopSongsRequest, UpdateListenSessionProgressRequest,
     UpdateListenSessionSongsRequest,
 };
+use grimoire::response::GrimoireResponse;
 use grimoire::EmptyResponse;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
+
+// helper to map GrimoireResponse errors to appropriate ApiError
+fn map_response_error<T>(response: &GrimoireResponse<T>) -> ApiError {
+    // check for specific error types that should map to 404
+    let is_not_found = response
+        .errors
+        .iter()
+        .any(|e| e.error_type == "session_not_found");
+
+    if is_not_found {
+        ApiError::NotFound
+    } else {
+        ApiError::Internal(response.message.clone())
+    }
+}
 
 /// record a play event
 pub async fn record_play_handler(
@@ -305,7 +321,7 @@ pub async fn update_listen_session_progress_handler(
     if response.success {
         Ok(Json(EmptyResponse::ok()))
     } else {
-        Err(ApiError::Internal(response.message))
+        Err(map_response_error(&response))
     }
 }
 
@@ -331,7 +347,7 @@ pub async fn update_listen_session_songs_handler(
     if response.success {
         Ok(Json(EmptyResponse::ok()))
     } else {
-        Err(ApiError::Internal(response.message))
+        Err(map_response_error(&response))
     }
 }
 
@@ -366,7 +382,7 @@ pub async fn update_listen_session_status_handler(
     if response.success {
         Ok(Json(EmptyResponse::ok()))
     } else {
-        Err(ApiError::Internal(response.message))
+        Err(map_response_error(&response))
     }
 }
 

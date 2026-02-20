@@ -4,6 +4,7 @@
 //! each session represents a single "listening to X" that gets updated as songs are played.
 
 use crate::database;
+use crate::error::ErrorDetail;
 use crate::GrimoireResponse;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -301,7 +302,14 @@ pub async fn update_listen_session_progress(
         Ok(r) if r.rows_affected() > 0 => {
             GrimoireResponse::success_unit("session progress updated")
         }
-        Ok(_) => GrimoireResponse::failure("listen session not found", vec![]),
+        Ok(_) => GrimoireResponse::failure(
+            "listen session not found",
+            vec![ErrorDetail::new(
+                "session_not_found",
+                "Session Not Found",
+                "the listen session does not exist or has been deleted",
+            )],
+        ),
         Err(e) => GrimoireResponse::failure("failed to update session progress", vec![e.into()]),
     }
 }
@@ -335,7 +343,14 @@ pub async fn update_listen_session_status(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => GrimoireResponse::success_unit("session status updated"),
-        Ok(_) => GrimoireResponse::failure("listen session not found", vec![]),
+        Ok(_) => GrimoireResponse::failure(
+            "listen session not found",
+            vec![ErrorDetail::new(
+                "session_not_found",
+                "Session Not Found",
+                "the listen session does not exist or has been deleted",
+            )],
+        ),
         Err(e) => GrimoireResponse::failure("failed to update session status", vec![e.into()]),
     }
 }
@@ -397,7 +412,14 @@ pub async fn update_listen_session_songs(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => GrimoireResponse::success_unit("session songs updated"),
-        Ok(_) => GrimoireResponse::failure("listen session not found or not active", vec![]),
+        Ok(_) => GrimoireResponse::failure(
+            "listen session not found or not active",
+            vec![ErrorDetail::new(
+                "session_not_found",
+                "Session Not Found",
+                "the listen session does not exist, has been deleted, or is not active",
+            )],
+        ),
         Err(e) => GrimoireResponse::failure("failed to update session songs", vec![e.into()]),
     }
 }
@@ -460,7 +482,14 @@ pub async fn get_listen_session(session_id: &str) -> GrimoireResponse<ListenSess
 
             GrimoireResponse::success("listen session found", session)
         }
-        Ok(None) => GrimoireResponse::failure("listen session not found", vec![]),
+        Ok(None) => GrimoireResponse::failure(
+            "listen session not found",
+            vec![ErrorDetail::new(
+                "session_not_found",
+                "Session Not Found",
+                "the listen session does not exist or has been deleted",
+            )],
+        ),
         Err(e) => GrimoireResponse::failure("failed to get listen session", vec![e.into()]),
     }
 }

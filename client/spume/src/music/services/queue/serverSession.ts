@@ -225,19 +225,24 @@ export function markServerSongCompleted(
 
 // flush progress for a single session and mark it completed
 async function flushAndCompleteSession(session: RemoteSession): Promise<void> {
-  await flushSessionProgress(session);
-  try {
-    await apiClient.music.updateListenSessionStatus(
-      session.baseUrl,
-      session.sessionId,
-      "completed",
-    );
-  } catch (error) {
-    console.error(
-      `failed to complete server session on remote ${session.remoteId}:`,
-      error,
-    );
+  const sessionValid = await flushSessionProgress(session);
+
+  // only update status if session still exists on server
+  if (sessionValid) {
+    try {
+      await apiClient.music.updateListenSessionStatus(
+        session.baseUrl,
+        session.sessionId,
+        "completed",
+      );
+    } catch (error) {
+      console.error(
+        `failed to complete server session on remote ${session.remoteId}:`,
+        error,
+      );
+    }
   }
+
   remoteSessions.delete(session.remoteId);
   updatePrimarySessionId();
 
@@ -249,32 +254,68 @@ async function flushAndCompleteSession(session: RemoteSession): Promise<void> {
 }
 
 // flush progress for a single remote session
-async function flushSessionProgress(session: RemoteSession): Promise<void> {
-  try {
-    await apiClient.music.updateListenSessionProgress(
-      session.baseUrl,
-      session.sessionId,
-      {
-        songs_completed: session.completedSongs.size,
-        listened_duration_ms: Math.round(session.accumulatedMs),
-        current_song_index: session.lastSongIndex,
-        current_song_position_ms: Math.round(session.lastSongPositionMs),
-      },
+// returns true if the session is still valid, false if it should be abandoned
+async function flushSessionProgress(session: RemoteSession): Promise<boolean> {
+  const result = await apiClient.music.updateListenSessionProgress(
+    session.baseUrl,
+    session.sessionId,
+    {
+      songs_completed: session.completedSongs.size,
+      listened_duration_ms: Math.round(session.accumulatedMs),
+      current_song_index: session.lastSongIndex,
+      current_song_position_ms: Math.round(session.lastSongPositionMs),
+    },
+  );
+
+  if (!result.success) {
+    // check if session was not found — this means we should stop tracking
+    // server returns "not_found" for 404 responses
+    const isSessionNotFound = result.error.issues.some(
+      (issue) =>
+        issue.code === "custom" &&
+        (issue.path.includes("session_not_found") || issue.path.includes("not_found")),
     );
-  } catch (error) {
+
+    if (isSessionNotFound) {
+      console.warn(
+        `server session ${session.sessionId} not found, stopping tracking`,
+      );
+      return false;
+    }
+
     console.error(
       `failed to flush server session progress on remote ${session.remoteId}:`,
-      error,
+      result.error,
     );
   }
+
+  return true;
 }
 
 // flush progress for all active remote sessions
+// removes any sessions that the server no longer knows about
 async function flushAllServerProgress(): Promise<void> {
-  const promises = Array.from(remoteSessions.values()).map((session) =>
-    flushSessionProgress(session),
+  const sessions = Array.from(remoteSessions.entries());
+  const results = await Promise.all(
+    sessions.map(async ([remoteId, session]) => ({
+      remoteId,
+      valid: await flushSessionProgress(session),
+    })),
   );
-  await Promise.allSettled(promises);
+
+  // remove sessions that are no longer valid on the server
+  for (const { remoteId, valid } of results) {
+    if (!valid) {
+      remoteSessions.delete(remoteId);
+    }
+  }
+
+  // stop interval if no sessions remain
+  if (remoteSessions.size === 0 && serverFlushIntervalId) {
+    clearInterval(serverFlushIntervalId);
+    serverFlushIntervalId = null;
+    setActiveServerSessionId(null);
+  }
 }
 
 // update the song list of all active server sessions.
@@ -294,18 +335,21 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
       // this remote has no songs left — abandon the session
       promises.push(
         (async () => {
-          await flushSessionProgress(session);
-          try {
-            await apiClient.music.updateListenSessionStatus(
-              session.baseUrl,
-              session.sessionId,
-              "abandoned",
-            );
-          } catch (error) {
-            console.error(
-              `failed to abandon server session on remote ${remoteId}:`,
-              error,
-            );
+          const sessionValid = await flushSessionProgress(session);
+          // only update status if session still exists on server
+          if (sessionValid) {
+            try {
+              await apiClient.music.updateListenSessionStatus(
+                session.baseUrl,
+                session.sessionId,
+                "abandoned",
+              );
+            } catch (error) {
+              console.error(
+                `failed to abandon server session on remote ${remoteId}:`,
+                error,
+              );
+            }
           }
           remoteSessions.delete(remoteId);
         })(),
@@ -358,18 +402,21 @@ export async function stopAllServerSessions(
 
   // final flush + status update for all sessions
   const promises = Array.from(remoteSessions.values()).map(async (session) => {
-    await flushSessionProgress(session);
-    try {
-      await apiClient.music.updateListenSessionStatus(
-        session.baseUrl,
-        session.sessionId,
-        status,
-      );
-    } catch (error) {
-      console.error(
-        `failed to update server session status on remote ${session.remoteId}:`,
-        error,
-      );
+    const sessionValid = await flushSessionProgress(session);
+    // only update status if session still exists on server
+    if (sessionValid) {
+      try {
+        await apiClient.music.updateListenSessionStatus(
+          session.baseUrl,
+          session.sessionId,
+          status,
+        );
+      } catch (error) {
+        console.error(
+          `failed to update server session status on remote ${session.remoteId}:`,
+          error,
+        );
+      }
     }
   });
 
