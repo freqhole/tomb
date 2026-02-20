@@ -9,6 +9,7 @@ mod query;
 mod query_favorites;
 mod query_playlists;
 mod update;
+mod user_prefs;
 
 // re-export public types
 pub use models::{

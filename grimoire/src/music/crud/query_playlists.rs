@@ -3,6 +3,7 @@
 use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuilder};
 use std::time::Instant;
 
+use super::user_prefs;
 use crate::database;
 use crate::music::crud::models::{
     EntityUrl, PlaylistQueryResult, PlaylistSongResult, QueryParams, QueryResult, SongQueryResult,
@@ -512,10 +513,16 @@ pub async fn query_playlists(
     };
 
     let user_id_ref = params.user_id.as_deref();
-    let playlists: Vec<PlaylistQueryResult> = rows
+    let mut playlists: Vec<PlaylistQueryResult> = rows
         .into_iter()
         .map(|row| row.to_playlist_query_result(user_id_ref))
         .collect();
+
+    // apply user favorites if user_id provided (playlists don't have ratings)
+    if let Some(uid) = &params.user_id {
+        user_prefs::apply_user_preferences_playlists(&mut playlists, uid).await;
+    }
+
     let playlist_count = playlists.len();
 
     GrimoireResponse::success(
@@ -617,10 +624,16 @@ pub async fn query_playlist_songs(
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let songs: Vec<PlaylistSongResult> = rows
+    let mut songs: Vec<PlaylistSongResult> = rows
         .into_iter()
         .map(|r| r.to_playlist_song_result(user_id_ref))
         .collect();
+
+    // apply user favorites and ratings to the songs
+    if let Some(uid) = &params.user_id {
+        user_prefs::apply_user_preferences_playlist_songs(&mut songs, uid).await;
+    }
+
     let song_count = songs.len();
 
     GrimoireResponse::success(

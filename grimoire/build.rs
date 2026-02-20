@@ -19,7 +19,12 @@ fn main() {
         return;
     };
 
-    let db_path = url.strip_prefix("sqlite:").unwrap_or(&url);
+    // strip sqlite: or sqlite:// prefix to get file path
+    let db_path = url
+        .strip_prefix("sqlite:///")
+        .or_else(|| url.strip_prefix("sqlite://"))
+        .or_else(|| url.strip_prefix("sqlite:"))
+        .unwrap_or(&url);
 
     if !Path::new(db_path).exists() {
         return;

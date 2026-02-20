@@ -3,6 +3,7 @@
 use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuilder};
 use std::time::Instant;
 
+use super::user_prefs;
 use crate::database;
 
 use crate::music::crud::models::{
@@ -907,10 +908,16 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let songs: Vec<SongQueryResult> = rows
+    let mut songs: Vec<SongQueryResult> = rows
         .into_iter()
         .map(|r| r.to_song_query_result(user_id_ref))
         .collect();
+
+    // apply user favorites and ratings if user_id provided
+    if let Some(uid) = &params.user_id {
+        user_prefs::apply_user_preferences_songs(&mut songs, uid).await;
+    }
+
     let song_count = songs.len();
 
     GrimoireResponse::success(
@@ -1003,10 +1010,16 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let albums: Vec<AlbumQueryResult> = rows
+    let mut albums: Vec<AlbumQueryResult> = rows
         .into_iter()
         .map(|r| r.to_album_query_result(user_id_ref))
         .collect();
+
+    // apply user favorites and ratings if user_id provided
+    if let Some(uid) = &params.user_id {
+        user_prefs::apply_user_preferences_albums(&mut albums, uid).await;
+    }
+
     let album_count = albums.len();
 
     GrimoireResponse::success(
@@ -1125,10 +1138,16 @@ pub async fn query_artists(
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let artists: Vec<ArtistQueryResult> = rows
+    let mut artists: Vec<ArtistQueryResult> = rows
         .into_iter()
         .map(|r| r.to_artist_query_result(user_id_ref))
         .collect();
+
+    // apply user favorites and ratings if user_id provided
+    if let Some(uid) = &params.user_id {
+        user_prefs::apply_user_preferences_artists(&mut artists, uid).await;
+    }
+
     let artist_count = artists.len();
 
     GrimoireResponse::success(
@@ -1207,10 +1226,16 @@ pub async fn query_genres(params: QueryParams) -> GrimoireResponse<QueryResult<G
     };
 
     let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let genres: Vec<GenreQueryResult> = rows
+    let mut genres: Vec<GenreQueryResult> = rows
         .into_iter()
         .map(|r| r.to_genre_query_result(user_id_ref))
         .collect();
+
+    // apply user favorites if user_id provided (genres don't have ratings)
+    if let Some(uid) = &params.user_id {
+        user_prefs::apply_user_preferences_genres(&mut genres, uid).await;
+    }
+
     let genre_count = genres.len();
 
     GrimoireResponse::success(
