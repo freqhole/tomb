@@ -1,12 +1,14 @@
 // search input with dropdown suggestions
 // plain input + custom dropdown — no kobalte, no pointer-drift bugs
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 import { Icon } from "../icons/registry";
+
+const NARROW_BREAKPOINT = 768;
 
 export interface SearchSuggestion {
   id: string;
@@ -55,10 +57,20 @@ export function SearchInput(props: SearchInputProps) {
   const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
   const [isHoveringDropdown, setIsHoveringDropdown] = createSignal(false);
   const [showLoadingMore, setShowLoadingMore] = createSignal(false);
+  const [isNarrow, setIsNarrow] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
+  );
   let listRef: HTMLDivElement | undefined;
   let inputEl: HTMLInputElement | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let loadingMoreTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // track viewport width changes for responsive flyout
+  onMount(() => {
+    const handleResize = () => setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
+  });
 
   const suggestions = () => props.suggestions || [];
   const isOpen = () => props.open ?? false;
@@ -225,8 +237,8 @@ export function SearchInput(props: SearchInputProps) {
               style={{
                 position: "fixed",
                 top: `${inputRect().bottom + 2}px`,
-                left: `${inputRect().left}px`,
-                width: `${inputRect().width}px`,
+                left: isNarrow() ? "0" : `${inputRect().left}px`,
+                width: isNarrow() ? "100vw" : `${inputRect().width}px`,
                 "z-index": "1003",
               }}
               onClick={() => props.onHintClick?.()}
@@ -242,9 +254,11 @@ export function SearchInput(props: SearchInputProps) {
               style={{
                 position: "fixed",
                 top: `${inputRect().bottom + 4 + hintHeight}px`,
-                left: `${inputRect().left}px`,
-                "min-width": "400px",
-                "max-width": "600px",
+                left: isNarrow() ? "0" : `${inputRect().left}px`,
+                width: isNarrow() ? "100vw" : undefined,
+                "min-width": isNarrow() ? undefined : "400px",
+                "max-width": isNarrow() ? undefined : "600px",
+                "border-radius": isNarrow() ? "0" : undefined,
                 "z-index": "1002",
               }}
               onMouseEnter={() => setIsHoveringDropdown(true)}
