@@ -29,6 +29,7 @@ import {
   showArtistEditor,
 } from "../hooks/modals";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
+import { setHighlightedSongId } from "../state/highlightedSong";
 import { useQueryClient } from "@tanstack/solid-query";
 import { queryKeys } from "../queries/queryKeys";
 
@@ -161,6 +162,10 @@ export function FeedView() {
       return;
     }
     if (item.album_id) {
+      // if navigating to album for a song, highlight the song
+      if (item.song_id) {
+        setHighlightedSongId(item.song_id);
+      }
       navigate(routes.album(item.album_id));
     } else if (item.artist_id) {
       navigate(routes.artist(item.artist_id));
@@ -610,7 +615,12 @@ export function FeedView() {
       navActions.push({
         label: "go to album",
         icon: IconNames.album,
-        onClick: () => navigate(routes.album(item.album_id!)),
+        onClick: () => {
+          if (item.song_id) {
+            setHighlightedSongId(item.song_id);
+          }
+          navigate(routes.album(item.album_id!));
+        },
       });
     }
 
