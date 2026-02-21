@@ -18,6 +18,7 @@ import {
   markSongCompleted,
   recordTimeProgress,
 } from "../queue/listenProgress";
+import { stopServerSession } from "../queue/serverSession";
 import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySwapToCachedURL } from "../storage/audioAccess";
 import { getBlobObjectURL } from "../storage/blobs";
@@ -646,6 +647,7 @@ export async function playNext(): Promise<void> {
       if (nextIdx >= queue.length - 1) {
         console.error("reached end of queue, no playable songs found");
         markPlaybackEnded();
+        void stopServerSession("completed");
         return;
       }
     }
@@ -674,6 +676,8 @@ async function handleSongEnded(): Promise<void> {
   if (!canGoNext()) {
     // queue has ended - set flag so we know to autoplay when new songs are added
     markPlaybackEnded();
+    // stop server session since queue is complete
+    void stopServerSession("completed");
     return;
   }
 

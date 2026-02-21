@@ -1,11 +1,12 @@
 // listen progress tracking service
 // tracks which history entry is "active" and accumulates listened time
 // persists progress to IDB every ~30 seconds during playback
+// server progress is song-based (via advanceServerProgress)
 
 import { createSignal } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
-import { recordServerProgress, markServerSongCompleted, reconnectServerSession } from "./serverSession";
+import { advanceServerProgress, reconnectServerSession } from "./serverSession";
 import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked
@@ -94,28 +95,40 @@ export function stopTracking(): void {
 
 // called on every timeupdate from the player (~250ms intervals)
 // delta is the time elapsed since last update
+// only tracks local IDB progress - server progress is song-based
 export function recordTimeProgress(
   delta: number,
   songIndex: number,
   songPosition: number,
-  currentSong: Song | null,
+  _currentSong: Song | null,
 ): void {
   if (!activeHistoryEntryId()) return;
 
   accumulatedSeconds += delta;
   currentSongIndex = songIndex;
   currentSongPosition = songPosition;
-
-  // also update server session progress (converts seconds to ms)
-  // routes to the correct remote session based on the song's remote_server_id
-  recordServerProgress(delta * 1000, songIndex, songPosition * 1000, currentSong);
 }
 
-// mark a song as completed (>90% listened)
+// mark a song as completed (>90% listened) or skipped
+// advances server progress (song-based, forward-only)
+// also flushes to IDB immediately and restarts the interval
 export function markSongCompleted(songIndex: number, currentSong: Song | null = null): void {
   if (!activeHistoryEntryId()) return;
   completedSongs.add(songIndex);
-  markServerSongCompleted(songIndex, currentSong);
+  // advance server progress to the next song
+  advanceServerProgress(songIndex, currentSong);
+  // flush to IDB immediately and restart interval
+  void flushAndRestartInterval();
+}
+
+// flush progress to IDB and restart the periodic interval
+async function flushAndRestartInterval(): Promise<void> {
+  await flushProgress();
+  // restart interval so we don't flush again too soon
+  if (flushIntervalId) clearInterval(flushIntervalId);
+  flushIntervalId = setInterval(() => {
+    void flushProgress();
+  }, FLUSH_INTERVAL_MS);
 }
 
 // get current accumulated progress (for UI without waiting for flush)
@@ -190,10 +203,7 @@ export function reconnectProgressTracking(): void {
       server_remote_id: entry.server_remote_id,
       label: entry.label,
       entity_id: entry.entity_id,
-      listened_seconds: entry.listened_seconds,
       songs_completed: entry.songs_completed,
-      current_song_index: entry.current_song_index,
-      current_song_position: entry.current_song_position,
     });
   }
 }

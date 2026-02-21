@@ -268,10 +268,7 @@ export async function resumeHistoryEntry(
       server_remote_id: entry.server_remote_id,
       label: entry.label,
       entity_id: entry.entity_id,
-      listened_seconds: entry.listened_seconds || 0,
       songs_completed: entry.songs_completed || 0,
-      current_song_index: resumeIndex,
-      current_song_position: entry.current_song_position || 0,
     });
   }
 }

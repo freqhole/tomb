@@ -257,12 +257,7 @@ export function FeedView() {
         if (remote) {
           await resumeServerSession(
             session.id,
-            {
-              listened_duration_ms: session.listened_duration_ms,
-              songs_completed: session.songs_completed,
-              current_song_index: session.current_song_index,
-              current_song_position_ms: session.current_song_position_ms,
-            },
+            { progress: session.songs_completed },
             remote.remote_id,
             remote.base_url,
             {

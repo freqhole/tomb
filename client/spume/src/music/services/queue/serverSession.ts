@@ -2,6 +2,11 @@
 // creates per-remote listen sessions when a queue contains songs from multiple servers.
 // each remote gets its own session with only its songs, and progress is routed
 // to the correct remote as each song plays.
+//
+// progress is song-based, not time-based:
+// - progress = highest song index completed or skipped (only moves forward)
+// - sent to server on song completion (>90%) or skip
+// - session auto-completes when progress reaches total_songs
 
 import { createSignal } from "solid-js";
 import * as apiClient from "freqhole-api-client";
@@ -24,11 +29,9 @@ interface RemoteSession {
   entityId?: string;
   // indices into the *full queue* that belong to this remote
   songIndices: number[];
-  // accumulated progress state for this remote's session
-  accumulatedMs: number;
-  completedSongs: Set<number>; // indices into the full queue
-  lastSongIndex: number; // last reported song index (remote-local)
-  lastSongPositionMs: number;
+  // progress: the next song index to play (0 = just started, total = done)
+  // this only moves forward
+  progress: number;
 }
 
 // active server sessions keyed by remote_server_id
@@ -37,10 +40,6 @@ const remoteSessions = new Map<string, RemoteSession>();
 // signal exposing the "primary" active session id (first remote, for backward compat)
 const [activeServerSessionId, setActiveServerSessionId] = createSignal<string | null>(null);
 export { activeServerSessionId };
-
-// flush interval for server progress updates
-let serverFlushIntervalId: ReturnType<typeof setInterval> | null = null;
-const SERVER_FLUSH_INTERVAL_MS = 30_000;
 
 // --- helpers ---
 
@@ -124,10 +123,7 @@ export async function createServerSessions(
             label: source.label,
             entityId: source.entity_id,
             songIndices: group.indices,
-            accumulatedMs: 0,
-            completedSongs: new Set(),
-            lastSongIndex: 0,
-            lastSongPositionMs: 0,
+            progress: 0,
           };
           remoteSessions.set(remoteId, session);
           created.set(remoteId, result.data.id);
@@ -149,14 +145,6 @@ export async function createServerSessions(
   await Promise.allSettled(promises);
   updatePrimarySessionId();
 
-  // start periodic flush if we have any sessions
-  if (remoteSessions.size > 0) {
-    if (serverFlushIntervalId) clearInterval(serverFlushIntervalId);
-    serverFlushIntervalId = setInterval(() => {
-      void flushAllServerProgress();
-    }, SERVER_FLUSH_INTERVAL_MS);
-  }
-
   // link history entry to the primary server session for reconnection
   if (historyEntryId && created.size > 0) {
     const [remoteId, sessionId] = created.entries().next().value;
@@ -176,101 +164,50 @@ export async function createServerSession(
   return created.values().next().value ?? null;
 }
 
-// update server progress for the currently playing song.
-// routes to the correct remote session based on the song's remote_server_id.
-export function recordServerProgress(
-  deltaMs: number,
+// advance server progress when a song is completed (>90%) or skipped.
+// songIndex is the queue index of the song that just finished/was skipped.
+// progress advances to songIndex + 1 (the next song to play).
+// server enforces forward-only with MAX(), so calling with an earlier index is a no-op.
+export function advanceServerProgress(
   songIndex: number,
-  songPositionMs: number,
   currentSong: Song | null,
 ): void {
   if (remoteSessions.size === 0) return;
 
-  // find which remote session owns this song
   const remoteId = currentSong?.remote_server_id;
   if (!remoteId) return; // local song, skip server tracking
 
   const session = remoteSessions.get(remoteId);
   if (!session) return;
 
-  session.accumulatedMs += deltaMs;
   // convert global songIndex to remote-local index
   const localIdx = session.songIndices.indexOf(songIndex);
-  if (localIdx !== -1) {
-    session.lastSongIndex = localIdx;
-  }
-  session.lastSongPositionMs = songPositionMs;
+  if (localIdx === -1) return; // song not in this remote's list
+
+  // advance progress to the next song (localIdx + 1)
+  const newProgress = localIdx + 1;
+
+  // only advance if this is forward progress
+  if (newProgress <= session.progress) return;
+
+  session.progress = newProgress;
+
+  // send progress to server
+  void sendProgress(session);
 }
 
-// mark a song as completed on the appropriate remote session
-export function markServerSongCompleted(
-  songIndex: number,
-  currentSong: Song | null,
-): void {
-  if (remoteSessions.size === 0) return;
-
-  const remoteId = currentSong?.remote_server_id;
-  if (!remoteId) return;
-
-  const session = remoteSessions.get(remoteId);
-  if (!session) return;
-
-  session.completedSongs.add(songIndex);
-
-  // auto-complete this remote's session if all its songs are done
-  if (session.completedSongs.size >= session.songIndices.length) {
-    void flushAndCompleteSession(session);
-  }
-}
-
-// flush progress for a single session and mark it completed
-async function flushAndCompleteSession(session: RemoteSession): Promise<void> {
-  const sessionValid = await flushSessionProgress(session);
-
-  // only update status if session still exists on server
-  if (sessionValid) {
-    try {
-      await apiClient.music.updateListenSessionStatus(
-        session.baseUrl,
-        session.sessionId,
-        "completed",
-      );
-    } catch (error) {
-      console.error(
-        `failed to complete server session on remote ${session.remoteId}:`,
-        error,
-      );
-    }
-  }
-
-  remoteSessions.delete(session.remoteId);
-  updatePrimarySessionId();
-
-  // stop flush interval if no sessions remain
-  if (remoteSessions.size === 0 && serverFlushIntervalId) {
-    clearInterval(serverFlushIntervalId);
-    serverFlushIntervalId = null;
-  }
-}
-
-// flush progress for a single remote session
-// returns true if the session is still valid, false if it should be abandoned
-async function flushSessionProgress(session: RemoteSession): Promise<boolean> {
+// send current progress to server
+// if progress >= total songs, auto-completes the session
+async function sendProgress(session: RemoteSession): Promise<void> {
   const result = await apiClient.music.updateListenSessionProgress(
     session.baseUrl,
     session.sessionId,
-    {
-      songs_completed: session.completedSongs.size,
-      listened_duration_ms: Math.round(session.accumulatedMs),
-      current_song_index: session.lastSongIndex,
-      current_song_position_ms: Math.round(session.lastSongPositionMs),
-    },
+    { progress: session.progress },
   );
 
   if (!result.success) {
-    // check if session was not found — this means we should stop tracking
-    // server returns "not_found" for 404 responses
-    const isSessionNotFound = result.error.issues.some(
+    const error = (result as { success: false; error: { issues: Array<{ code: string; path: string[] }> } }).error;
+    const isSessionNotFound = error.issues.some(
       (issue) =>
         issue.code === "custom" &&
         (issue.path.includes("session_not_found") || issue.path.includes("not_found")),
@@ -280,41 +217,23 @@ async function flushSessionProgress(session: RemoteSession): Promise<boolean> {
       console.warn(
         `server session ${session.sessionId} not found, stopping tracking`,
       );
-      return false;
+      remoteSessions.delete(session.remoteId);
+      updatePrimarySessionId();
+      return;
     }
 
     console.error(
-      `failed to flush server session progress on remote ${session.remoteId}:`,
-      result.error,
+      `failed to update server session progress on remote ${session.remoteId}:`,
+      error,
     );
+    return;
   }
 
-  return true;
-}
-
-// flush progress for all active remote sessions
-// removes any sessions that the server no longer knows about
-async function flushAllServerProgress(): Promise<void> {
-  const sessions = Array.from(remoteSessions.entries());
-  const results = await Promise.all(
-    sessions.map(async ([remoteId, session]) => ({
-      remoteId,
-      valid: await flushSessionProgress(session),
-    })),
-  );
-
-  // remove sessions that are no longer valid on the server
-  for (const { remoteId, valid } of results) {
-    if (!valid) {
-      remoteSessions.delete(remoteId);
-    }
-  }
-
-  // stop interval if no sessions remain
-  if (remoteSessions.size === 0 && serverFlushIntervalId) {
-    clearInterval(serverFlushIntervalId);
-    serverFlushIntervalId = null;
-    setActiveServerSessionId(null);
+  // if we've finished all songs for this remote, clean up locally
+  // (server trigger auto-marks as completed)
+  if (session.progress >= session.songIndices.length) {
+    remoteSessions.delete(session.remoteId);
+    updatePrimarySessionId();
   }
 }
 
@@ -335,21 +254,17 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
       // this remote has no songs left — abandon the session
       promises.push(
         (async () => {
-          const sessionValid = await flushSessionProgress(session);
-          // only update status if session still exists on server
-          if (sessionValid) {
-            try {
-              await apiClient.music.updateListenSessionStatus(
-                session.baseUrl,
-                session.sessionId,
-                "abandoned",
-              );
-            } catch (error) {
-              console.error(
-                `failed to abandon server session on remote ${remoteId}:`,
-                error,
-              );
-            }
+          try {
+            await apiClient.music.updateListenSessionStatus(
+              session.baseUrl,
+              session.sessionId,
+              "abandoned",
+            );
+          } catch (error) {
+            console.error(
+              `failed to abandon server session on remote ${remoteId}:`,
+              error,
+            );
           }
           remoteSessions.delete(remoteId);
         })(),
@@ -400,34 +315,25 @@ export async function stopAllServerSessions(
 ): Promise<void> {
   if (remoteSessions.size === 0) return;
 
-  // final flush + status update for all sessions
+  // status update for all sessions (no flush needed, progress is already sent)
   const promises = Array.from(remoteSessions.values()).map(async (session) => {
-    const sessionValid = await flushSessionProgress(session);
-    // only update status if session still exists on server
-    if (sessionValid) {
-      try {
-        await apiClient.music.updateListenSessionStatus(
-          session.baseUrl,
-          session.sessionId,
-          status,
-        );
-      } catch (error) {
-        console.error(
-          `failed to update server session status on remote ${session.remoteId}:`,
-          error,
-        );
-      }
+    try {
+      await apiClient.music.updateListenSessionStatus(
+        session.baseUrl,
+        session.sessionId,
+        status,
+      );
+    } catch (error) {
+      console.error(
+        `failed to update server session status on remote ${session.remoteId}:`,
+        error,
+      );
     }
   });
 
   await Promise.allSettled(promises);
   remoteSessions.clear();
   setActiveServerSessionId(null);
-
-  if (serverFlushIntervalId) {
-    clearInterval(serverFlushIntervalId);
-    serverFlushIntervalId = null;
-  }
 }
 
 // backward-compat wrapper
@@ -442,10 +348,7 @@ export async function stopServerSession(
 export async function resumeServerSession(
   sessionId: string,
   resumeState: {
-    listened_duration_ms: number;
-    songs_completed: number;
-    current_song_index: number;
-    current_song_position_ms: number;
+    progress: number;
   },
   remoteId: string,
   baseUrl: string,
@@ -466,16 +369,8 @@ export async function resumeServerSession(
     label: sessionContext?.label ?? "",
     entityId: sessionContext?.entityId,
     songIndices: [], // will be populated if updateServerSessionSongs is called
-    accumulatedMs: resumeState.listened_duration_ms,
-    completedSongs: new Set(),
-    lastSongIndex: resumeState.current_song_index,
-    lastSongPositionMs: resumeState.current_song_position_ms,
+    progress: resumeState.progress,
   };
-
-  // populate completed songs set
-  for (let i = 0; i < resumeState.songs_completed; i++) {
-    session.completedSongs.add(i);
-  }
 
   remoteSessions.set(remoteId, session);
   updatePrimarySessionId();
@@ -489,7 +384,8 @@ export async function resumeServerSession(
 
   // check if the session no longer exists on server
   if (!statusResult.success) {
-    const isSessionNotFound = statusResult.error.issues.some(
+    const error = (statusResult as { success: false; error: { issues: Array<{ code: string; path: string[] }> } }).error;
+    const isSessionNotFound = error.issues.some(
       (issue) =>
         issue.code === "custom" &&
         (issue.path.includes("session_not_found") || issue.path.includes("not_found")),
@@ -505,17 +401,11 @@ export async function resumeServerSession(
       if (historyEntryId) {
         void clearHistoryServerSession(historyEntryId);
       }
-      return; // don't start flush interval
+      return;
     }
 
-    console.error("failed to resume server session:", statusResult.error);
+    console.error("failed to resume server session:", error);
   }
-
-  // start periodic flush
-  if (serverFlushIntervalId) clearInterval(serverFlushIntervalId);
-  serverFlushIntervalId = setInterval(() => {
-    void flushAllServerProgress();
-  }, SERVER_FLUSH_INTERVAL_MS);
 }
 
 // get the session id for a specific remote (used by analytics to attach session_id)
@@ -533,18 +423,11 @@ export async function reconnectServerSession(
     server_remote_id?: string;
     label: string;
     entity_id?: string;
-    listened_seconds: number;
     songs_completed: number;
-    current_song_index: number;
-    current_song_position: number;
   },
 ): Promise<void> {
   // skip if no server session info stored
   if (!historyEntry.server_session_id || !historyEntry.server_remote_id) return;
-
-  // note: we don't skip if remoteSessions.size > 0 anymore because:
-  // 1. resumeServerSession already calls stopAllServerSessions first
-  // 2. resuming from feed needs to switch from one session to another
 
   const baseUrl = await resolveRemoteBaseUrl(historyEntry.server_remote_id);
   if (!baseUrl) {
@@ -552,15 +435,10 @@ export async function reconnectServerSession(
     return;
   }
 
-  // resume the server session
+  // resume the server session with progress = songs_completed
   await resumeServerSession(
     historyEntry.server_session_id,
-    {
-      listened_duration_ms: historyEntry.listened_seconds * 1000,
-      songs_completed: historyEntry.songs_completed,
-      current_song_index: historyEntry.current_song_index,
-      current_song_position_ms: historyEntry.current_song_position * 1000,
-    },
+    { progress: historyEntry.songs_completed },
     historyEntry.server_remote_id,
     baseUrl,
     {

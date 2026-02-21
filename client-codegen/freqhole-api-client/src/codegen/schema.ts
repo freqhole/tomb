@@ -2503,10 +2503,7 @@ export const UpdateArtistRequestSchema = z.object({
 export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
 
 export const UpdateListenSessionProgressRequestSchema = z.object({
-  songs_completed: z.number(),
-  listened_duration_ms: z.number(),
-  current_song_index: z.number(),
-  current_song_position_ms: z.number()
+  progress: z.number()
 });
 export type UpdateListenSessionProgressRequest = z.infer<typeof UpdateListenSessionProgressRequestSchema>;
 

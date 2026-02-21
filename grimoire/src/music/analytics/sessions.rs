@@ -130,13 +130,14 @@ pub struct CreateListenSessionRequest {
     pub total_duration_ms: i64,
 }
 
-/// request to update session progress
+/// request to update session progress (song-based, not time-based)
+/// progress is the index of the next song to play (0 = haven't started, total_songs = done)
+/// progress only ever moves forward (server enforces this with MAX)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateListenSessionProgressRequest {
-    pub songs_completed: i64,
-    pub listened_duration_ms: i64,
-    pub current_song_index: i64,
-    pub current_song_position_ms: i64,
+    /// the next song index (after completing/skipping the current song)
+    /// e.g., finishing song 0 means progress = 1
+    pub progress: i64,
 }
 
 /// request to list listen sessions
@@ -265,7 +266,9 @@ pub async fn create_listen_session(
     }
 }
 
-/// update session progress
+/// update session progress (song-based)
+/// progress only moves forward - server enforces this with MAX
+/// when progress >= total_songs, the trigger auto-marks session as completed
 pub async fn update_listen_session_progress(
     session_id: &str,
     user_id: &str,
@@ -278,20 +281,19 @@ pub async fn update_listen_session_progress(
         }
     };
 
+    // progress only moves forward (MAX ensures this)
+    // songs_completed tracks the same value for the auto-complete trigger
+    // current_song_index = progress - 1 (the last song we finished), clamped to 0
     let result = sqlx::query!(
         r#"
         UPDATE listen_sessionz
-        SET songs_completed = ?,
-            listened_duration_ms = ?,
-            current_song_index = ?,
-            current_song_position_ms = ?,
+        SET songs_completed = MAX(songs_completed, ?),
+            current_song_index = MAX(current_song_index, MAX(0, ? - 1)),
             updated_at = unixepoch()
         WHERE id = ? AND user_id = ?
         "#,
-        req.songs_completed,
-        req.listened_duration_ms,
-        req.current_song_index,
-        req.current_song_position_ms,
+        req.progress,
+        req.progress,
         session_id,
         user_id,
     )
