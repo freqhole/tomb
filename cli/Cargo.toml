@@ -14,7 +14,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
-time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
+time = { version = "0.3", features = [
+    "serde",
+    "macros",
+    "formatting",
+    "parsing",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
