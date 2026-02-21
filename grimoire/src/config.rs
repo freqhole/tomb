@@ -57,8 +57,6 @@ pub struct MediaConfig {
     pub supported_audio_formats: Vec<String>,
     /// Download configuration
     pub downloads: DownloadsConfig,
-    /// Predefined genres for categorization
-    pub genres: Vec<GenreMapping>,
     /// Path to ffmpeg binary
     #[serde(default = "default_ffmpeg_path")]
     pub ffmpeg_path: String,
@@ -136,17 +134,6 @@ pub struct DownloadsConfig {
     pub enabled: bool,
     /// Command to use for downloads
     pub ytdlp_command: String,
-}
-
-/// Genre mapping for categorization
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenreMapping {
-    /// Display name
-    pub display: String,
-    /// URL-safe slug
-    pub slug: String,
-    /// List of genre variations that map to this category
-    pub genres: Vec<String>,
 }
 
 /// MusicBrainz integration configuration
@@ -460,7 +447,6 @@ mod tests {
                     enabled: false,
                     ytdlp_command: "yt-dlp".to_string(),
                 },
-                genres: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
                 ffprobe_duration_args: default_ffprobe_duration_args(),
@@ -500,7 +486,6 @@ mod tests {
                     enabled: false,
                     ytdlp_command: "yt-dlp".to_string(),
                 },
-                genres: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
                 ffprobe_duration_args: default_ffprobe_duration_args(),
@@ -538,7 +523,6 @@ mod tests {
                     enabled: false,
                     ytdlp_command: "yt-dlp".to_string(),
                 },
-                genres: vec![],
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
                 ffprobe_duration_args: default_ffprobe_duration_args(),

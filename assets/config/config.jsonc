@@ -53,137 +53,7 @@
     "downloads": {
       "enabled": true,
       "ytdlp_command": "yt-dlp"
-    },
-
-    // Predefined genre mappings for categorizing music
-    // Maps common genre tag variations to standardized categories
-    "genres": [
-      {
-        "display": "Rock",
-        "slug": "rock",
-        "genres": ["rock", "Rock", "Classic rock", "Rock > Alternative", "Rock / Metal", "Rock 'n' Roll", "Rock/Pop", "Rock & Roll", "Slow rock", "General Rock", "Progressive Rock", "Hard Rock", "Grunge", "indi rock"]
-      },
-      {
-        "display": "Alternative",
-        "slug": "alternative",
-        "genres": ["alternative", "Alternative", "Alternative Rock", "AlternRock Alt. Rock", "Alt Rock", "Alternative Metal", "Alternative & Punk", "Indie", "Indie Rock", "Indie > Electronic", "Indie > Post-Rock/Expiremental", "Indie > Shoegaze", "Indie > Singer/Songwriter"]
-      },
-      {
-        "display": "Electronic",
-        "slug": "electronic",
-        "genres": ["electronic", "Electronic", "Electronica", "Electronica & Dance", "Electronica/Dance", "Electronic > Expiremental", "Electronic > Glitch Hop", "Electronic > IDM", "Electronic > Techno", "Électronique et dance", "Elektronická a taneční hudba", "ELEC", "Electro", "Electroclash", "Electro House", "General Electronic", "Eurodance", "techno", "Techno", "Trance", "House", "IDM", "Rave", "synth pop"]
-      },
-      {
-        "display": "Dance / Club",
-        "slug": "dance",
-        "genres": ["Dance", "Dance & DJ", "Club", "Club Dance", "Drum and Bass", "Drum & Bass", "Dubstep", "Trip Hop", "Trip-Hop"]
-      },
-      {
-        "display": "Hip-Hop / Rap",
-        "slug": "hip-hop",
-        "genres": ["hip-hop", "hiphop", "Hip Hop", "Hip-Hop", "Hip Hop/Rap", "General Hip Hop", "General Rap", "Rap", "Rap e Hip-Hop", "Rap & Hip Hop", "Rap & Hip-Hop", "Rap/R&B", "Rap/West Coast", "Hardcore Rap", "New School"]
-      },
-      {
-        "display": "Metal",
-        "slug": "metal",
-        "genres": ["metal", "Metal", "General Metal", "Death metal", "Death Metal", "Heavy Metal", "Metal Alternative Metal", "metalcore", "Metal Industrial Metal", "numetal", "Nu-Metal"]
-      },
-      {
-        "display": "Punk",
-        "slug": "punk",
-        "genres": ["punk", "Punk", "General Punk", "Alternative & Punk", "Punk Rock", "Hardcore", "Emo", "Emocore"]
-      },
-      {
-        "display": "Industrial / EBM",
-        "slug": "industrial",
-        "genres": ["industrial", "Industrial", "ebm", "EBM", "darkwave", "no wave", "Gothic Rock", "New Wave"]
-      },
-      {
-        "display": "Pop",
-        "slug": "pop",
-        "genres": ["Pop", "Pop > Dream"]
-      },
-      {
-        "display": "R&B / Soul",
-        "slug": "rnb",
-        "genres": ["R&B", "R&B/Soul", "RnB", "Soul and R&B", "Soul And R&B", "Funk"]
-      },
-      {
-        "display": "Jazz",
-        "slug": "jazz",
-        "genres": ["Jazz", "Jazz & Funk"]
-      },
-      {
-        "display": "Blues",
-        "slug": "blues",
-        "genres": ["blues", "Blues"]
-      },
-      {
-        "display": "Country",
-        "slug": "country",
-        "genres": ["Country", "Country Western", "Bluegrass"]
-      },
-      {
-        "display": "Folk",
-        "slug": "folk",
-        "genres": ["Folk", "General Folk", "Acoustic"]
-      },
-      {
-        "display": "Classical / Orchestral",
-        "slug": "classical",
-        "genres": ["Classical", "Orchestral", "Solo Cello"]
-      },
-      {
-        "display": "World / Reggae",
-        "slug": "world",
-        "genres": ["World", "Reggae", "Native US"]
-      },
-      {
-        "display": "Ambient / Experimental",
-        "slug": "ambient",
-        "genres": ["ambient", "Experimental", "Avantgarde", "New Age"]
-      },
-      {
-        "display": "Soundtrack",
-        "slug": "soundtrack",
-        "genres": ["Soundtrack", "Sound Track", "General Soundtrack", "Theme Songs", "Musical"]
-      },
-      {
-        "display": "Instrumental / Vocal",
-        "slug": "instrumental",
-        "genres": ["Instrumental", "Vocal", "A Capella"]
-      },
-      {
-        "display": "Easy Listening",
-        "slug": "easy-listening",
-        "genres": ["easy listening", "Easy Listening", "Oldies", "Retro"]
-      },
-      {
-        "display": "Comedy / Novelty",
-        "slug": "comedy",
-        "genres": ["Comedy", "Parody", "Pranks", "Porn groove", "Porn Groove", "Pussy-vagina music", "p00p"]
-      },
-      {
-        "display": "Children / Family",
-        "slug": "children",
-        "genres": ["Children", "Contemporary Christian"]
-      },
-      {
-        "display": "Talk / Podcast",
-        "slug": "talk",
-        "genres": ["Podcast", "talk music", "talk radio", "Sound clip"]
-      },
-      {
-        "display": "Noise / Experimental",
-        "slug": "noise",
-        "genres": ["noise", "Noise"]
-      },
-      {
-        "display": "Misc / Other",
-        "slug": "misc",
-        "genres": ["misc", "mixtape", "Other", "Unclassifiable", "Unknown", "default", "genre", "???", "254", "MST", "Acid"]
-      }
-    ]
+    }
   },
 
   // MusicBrainz integration for metadata enrichment
@@ -259,7 +129,7 @@
       // Enable serving static files (HTML, JS, CSS, etc.)
       "enabled": true,
       // Directory to serve from (relative to data_dir or absolute path)
-      "directory": "/Users/edward/src/github/freqhole/tomb/assets"
+      "directory": "/Users/edward/src/github/freqhole/tomb/client/spume/dist"
     },
 
     // CORS configuration
