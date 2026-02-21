@@ -11,10 +11,10 @@ interface SettingsNavItem {
 
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
+  { path: "/settings/remotes", label: "remotes", icon: "" },
   // future items:
-  // { path: "/settings/remotes", label: "remote sources", icon: "🌐" },
-  // { path: "/settings/playback", label: "playback", icon: "▶️" },
-  // { path: "/settings/appearance", label: "appearance", icon: "🎨" },
+  // { path: "/settings/playback", label: "playback", icon: "" },
+  // { path: "/settings/appearance", label: "appearance", icon: "" },
 ];
 
 export function SettingsLayout(props: { children: JSX.Element }) {

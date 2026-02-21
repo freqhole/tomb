@@ -2,7 +2,10 @@
 // handles cache api, opfs, and indexeddb data
 
 import { MUSIC_DB_NAME } from "../../music/services/storage/types";
+import { closeMusicDB } from "../../music/services/storage/db/init";
+import { closeBlobDB, BLOB_DB_NAME } from "../../music/services/storage/blobs";
 import { APP_DB_NAME } from "../../app/services/storage/types";
+import { closeAppDB } from "../../app/services/storage/db";
 
 // cache names used by the app
 const BLOB_CACHE_NAME = "freqhole-blobs-v1";
@@ -293,6 +296,28 @@ export async function clearMusicDbData(): Promise<void> {
 export async function clearAllData(): Promise<void> {
   const errors: Error[] = [];
   
+  // close all database connections first - critical for Safari!
+  // if connections remain open, deletion will be "blocked" and silently fail
+  console.log("[clearAllData] closing database connections...");
+  try {
+    closeAppDB();
+  } catch (e) {
+    console.warn("[clearAllData] error closing app db:", e);
+  }
+  try {
+    closeMusicDB();
+  } catch (e) {
+    console.warn("[clearAllData] error closing music db:", e);
+  }
+  try {
+    closeBlobDB();
+  } catch (e) {
+    console.warn("[clearAllData] error closing blob db:", e);
+  }
+  
+  // small delay to ensure connections are fully closed
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
   // clear cache api
   try {
     await clearCacheApiData();
@@ -308,20 +333,26 @@ export async function clearAllData(): Promise<void> {
   }
   
   // delete all known indexeddb databases
-  const dbNames = [MUSIC_DB_NAME, APP_DB_NAME, CACHE_METADATA_DB_NAME];
+  const dbNames = [MUSIC_DB_NAME, APP_DB_NAME, BLOB_DB_NAME, CACHE_METADATA_DB_NAME];
   
   for (const dbName of dbNames) {
     try {
       await new Promise<void>((resolve, reject) => {
+        console.log(`[clearAllData] deleting database: ${dbName}`);
         const request = indexedDB.deleteDatabase(dbName);
         request.onsuccess = () => {
-          console.log(`deleted database: ${dbName}`);
+          console.log(`[clearAllData] successfully deleted database: ${dbName}`);
           resolve();
         };
-        request.onerror = () => reject(request.error);
+        request.onerror = () => {
+          console.error(`[clearAllData] error deleting database: ${dbName}`, request.error);
+          reject(request.error);
+        };
         request.onblocked = () => {
-          console.warn(`database deletion blocked: ${dbName}`);
-          setTimeout(resolve, 500);
+          // this shouldn't happen now that we close connections first,
+          // but if it does, we should report it as an error not silently succeed
+          console.error(`[clearAllData] database deletion BLOCKED: ${dbName} - connections may still be open`);
+          reject(new Error(`database deletion blocked: ${dbName}`));
         };
       });
     } catch (error) {
@@ -330,11 +361,11 @@ export async function clearAllData(): Promise<void> {
   }
   
   if (errors.length > 0) {
-    console.error("some errors during clear all:", errors);
+    console.error("[clearAllData] some errors during clear all:", errors);
     throw new Error(`failed to clear some data: ${errors.map(e => e.message).join(", ")}`);
   }
   
-  console.log("cleared all data successfully");
+  console.log("[clearAllData] cleared all data successfully");
 }
 
 // format bytes to human readable string

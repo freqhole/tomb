@@ -4,7 +4,7 @@
 import { openDB, type IDBPDatabase } from "idb";
 import { url } from "inspector/promises";
 
-const BLOB_DB_NAME = "freqhole_blobs";
+export const BLOB_DB_NAME = "freqhole_blobs";
 const BLOB_DB_VERSION = 1;
 const STORE_BLOBS = "blobs";
 const CACHE_NAME = "freqhole-blobs";
@@ -37,6 +37,15 @@ async function initBlobDB(): Promise<IDBPDatabase> {
   });
 
   return blobDbInstance;
+}
+
+// close database connection (required before deletion)
+export function closeBlobDB(): void {
+  if (blobDbInstance) {
+    blobDbInstance.close();
+    blobDbInstance = null;
+    console.log("[closeBlobDB] blob database connection closed");
+  }
 }
 
 /**

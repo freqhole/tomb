@@ -172,9 +172,19 @@ async function clearAppData(): Promise<void> {
   setAppState(null);
 }
 
+// close database connection (required before deletion)
+function closeAppDB(): void {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+    console.log("[closeAppDB] app database connection closed");
+  }
+}
+
 export {
   appState,
   clearAppData,
+  closeAppDB,
   initAppDB,
   loadAppState,
   setActiveRemoteId,

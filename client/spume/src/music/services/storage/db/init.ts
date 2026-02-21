@@ -157,3 +157,12 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
   debug("music database initialized");
   return dbInstance;
 }
+
+// close database connection (required before deletion)
+export function closeMusicDB(): void {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+    debug("music database connection closed");
+  }
+}

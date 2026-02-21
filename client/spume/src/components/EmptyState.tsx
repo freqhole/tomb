@@ -1,7 +1,5 @@
-import { Show } from "solid-js";
 import { Button } from "./buttons/Button";
 import { Icon } from "./icons/registry";
-import { canUploadMusic } from "../music/data/permissions";
 
 export interface EmptyStateProps {
   onAddMusic: () => void;
@@ -24,16 +22,13 @@ export function EmptyState(props: EmptyStateProps) {
           get started by adding local files or downloading from urls
         </p>
 
-        <p class="text-sm text-[var(--color-text-tertiary)] mb-8">
-          your music library is empty
-        </p>
+        <p class="text-sm text-[var(--color-text-tertiary)] mb-8">your music library is empty</p>
 
         <div class="flex gap-3 justify-center">
-          <Show when={canUploadMusic()}>
-            <Button variant="primary" onClick={props.onAddMusic}>
-              add music
-            </Button>
-          </Show>
+          <Button variant="primary" onClick={props.onAddMusic}>
+            add music
+          </Button>
+
           <Button variant="secondary" onClick={props.onAddRemote}>
             add remote
           </Button>

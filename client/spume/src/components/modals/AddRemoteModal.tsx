@@ -316,7 +316,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   const canGoBack = () => {
-    return !isLoading() && (step() === "auth" || step() === "url");
+    return !isLoading() && step() === "auth";
   };
 
   const handleBack = () => {

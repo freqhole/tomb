@@ -17,7 +17,7 @@ import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { AppLayout } from "../AppLayout";
-import { SettingsLayout, StorageSettingsView } from "../../settings";
+import { SettingsLayout, StorageSettingsView, RemotesSettingsView } from "../../settings";
 
 interface RoutesProps {
   onAddMusic: () => void;
@@ -54,6 +54,7 @@ export function routes(props: RoutesProps) {
       {/* settings routes - outside AppLayout */}
       <Route path="/settings" component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}>
         <Route path="/storage" component={StorageSettingsView} />
+        <Route path="/remotes" component={RemotesSettingsView} />
         {/* redirect /settings to /settings/storage */}
         <Route
           path="/"
