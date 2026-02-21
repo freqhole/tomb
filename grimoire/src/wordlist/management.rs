@@ -99,7 +99,8 @@ pub fn is_initialized() -> bool {
     WORDLIST.get().is_some()
 }
 
-/// Generate a word-based invite code
+/// Generate a word-based invite code with 4 random digits at a random position
+/// e.g., "bat-4752-fly-salad" or "6932-pig-banana"
 pub fn generate_word_code(word_count: usize) -> GrimoireResponse<String> {
     let words = match get_wordlist() {
         Some(w) => w,
@@ -121,13 +122,22 @@ pub fn generate_word_code(word_count: usize) -> GrimoireResponse<String> {
     }
 
     use rand::seq::SliceRandom;
+    use rand::Rng;
     let mut rng = rand::thread_rng();
 
     let selected_words: Vec<String> = (0..word_count)
         .map(|_| words.choose(&mut rng).unwrap().clone())
         .collect();
 
-    let code = selected_words.join("-");
+    // generate 4 random digits
+    let digits: String = (0..4).map(|_| rng.gen_range(0..10).to_string()).collect();
+
+    // insert digits at a random position (0 to word_count inclusive)
+    let insert_pos = rng.gen_range(0..=word_count);
+    let mut parts: Vec<String> = selected_words;
+    parts.insert(insert_pos, digits);
+
+    let code = parts.join("-");
     GrimoireResponse::success("Word code generated successfully", code)
 }
 
