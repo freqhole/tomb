@@ -252,13 +252,6 @@ export function TopNav(props: TopNavProps) {
           {/* back button + menu trigger - only rendered on narrow */}
           <Show when={isNarrow()}>
             <button
-              class="p-1 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
-              aria-label="back"
-              onClick={() => window.history.back()}
-            >
-              <Icon name="chevronLeft" size={20} />
-            </button>
-            <button
               class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
               classList={{ "bg-white/10": mobileMenuOpen() }}
               aria-label="menu"
