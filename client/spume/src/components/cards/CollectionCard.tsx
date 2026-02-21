@@ -1,4 +1,5 @@
 import { createSignal, JSX, Show } from "solid-js";
+import { PlayIcon } from "../icons/registry";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
@@ -170,9 +171,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             onClick={handlePlay}
             title={`play ${props.collection.domainType}`}
           >
-            <svg class={`${sizeClasses().playIcon} ml-1`} fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
+            <PlayIcon size={props.size === "small" ? 20 : 24} className="ml-1" />
           </button>
         </div>
       </div>

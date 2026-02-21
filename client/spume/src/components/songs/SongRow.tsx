@@ -1,5 +1,6 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
+import { PlayIcon, PauseIcon } from "../icons/registry";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { getPlayingIndicatorClasses, getPlayingTextClasses } from "../../design-system/colors";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -77,22 +78,12 @@ export function SongRow(props: SongRowProps): JSX.Element {
             {props.showPlayOnHover && !props.isPlaying ? (
               <>
                 <span class="group-hover:hidden">{props.trackNumber ?? ""}</span>
-                <svg
-                  class="hidden group-hover:inline w-4 h-4 mx-auto"
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M8 5v14l11-7z" />
-                </svg>
+                <span class="hidden group-hover:inline">
+                  <PlayIcon size={16} className="mx-auto" />
+                </span>
               </>
             ) : props.isPlaying ? (
-              <svg
-                class="w-4 h-4 mx-auto text-[var(--color-accent)]"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-              </svg>
+              <PauseIcon size={16} className="mx-auto text-[var(--color-accent)]" />
             ) : (
               <span>{props.trackNumber ?? ""}</span>
             )}

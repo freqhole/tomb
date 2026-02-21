@@ -1,5 +1,6 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
+import { PlayIcon, AddStrokeIcon } from "../icons/registry";
 import type { Song, GenreRef } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { formatDuration, formatHumanDuration } from "../../utils/formatDuration";
@@ -135,9 +136,7 @@ function AlbumHeader(props: {
                   class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
                   title="play album"
                 >
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
+                  <PlayIcon size={16} />
                 </button>
                 <button
                   onClick={(e) => {
@@ -147,14 +146,7 @@ function AlbumHeader(props: {
                   class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
                   title="add to queue"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M12 4v16m8-8H4"
-                    />
-                  </svg>
+                  <AddStrokeIcon size={16} />
                 </button>
                 <FavoriteHeart
                   isFavorite={props.isFavorite ?? false}
@@ -220,9 +212,7 @@ function AlbumHeader(props: {
                 class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
                 title="play album"
               >
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
+                <PlayIcon size={20} />
               </button>
               <button
                 onClick={(e) => {
@@ -232,14 +222,7 @@ function AlbumHeader(props: {
                 class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded-full transition-colors"
                 title="add to queue"
               >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
+                <AddStrokeIcon size={20} />
               </button>
               <FavoriteHeart
                 isFavorite={props.isFavorite ?? false}

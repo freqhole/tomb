@@ -17,6 +17,12 @@ import {
   VolumeOffIcon,
 } from "./player";
 
+// Re-export commonly used player icons
+export { PlayIcon, PauseIcon } from "./player";
+
+// Re-export commonly used navigation icons
+export { MusicIcon } from "./navigation";
+
 import {
   AlbumIcon,
   ArrowDownIcon,
@@ -56,6 +62,37 @@ const BaseIcon = (props: IconProps & { children: any; defaultSize?: number }) =>
       height={size()}
       viewBox="0 0 24 24"
       fill={color()}
+      class={props.className}
+      aria-label={props["aria-label"]}
+      role="img"
+      style={{
+        "flex-shrink": 0,
+        transition: "color 0.2s ease",
+      }}
+    >
+      {props.children}
+    </svg>
+  );
+};
+
+// Stroke-based icon wrapper for outline icons
+const StrokeBaseIcon = (
+  props: IconProps & { children: any; defaultSize?: number; strokeWidth?: number }
+) => {
+  const size = () => props.size ?? props.defaultSize ?? 16;
+  const color = () => props.color ?? "currentColor";
+  const strokeWidth = () => props.strokeWidth ?? 2;
+
+  return (
+    <svg
+      width={size()}
+      height={size()}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color()}
+      stroke-width={strokeWidth()}
+      stroke-linecap="round"
+      stroke-linejoin="round"
       class={props.className}
       aria-label={props["aria-label"]}
       role="img"
@@ -273,6 +310,37 @@ export const ExternalLinkIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+// Stroke-based icon variants (for consistent stroke rendering)
+export const AddStrokeIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Add"}>
+    <path d="M12 4v16m8-8H4" />
+  </StrokeBaseIcon>
+);
+
+export const ChevronDownStrokeIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Expand"}>
+    <path d="M19 9l-7 7-7-7" />
+  </StrokeBaseIcon>
+);
+
+export const FavoriteStrokeIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Add to favorites"}>
+    <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+  </StrokeBaseIcon>
+);
+
+export const TagStrokeIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Tag"}>
+    <path d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+  </StrokeBaseIcon>
+);
+
+export const CheckCircleIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Complete"}>
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+  </BaseIcon>
+);
+
 // Freqhole Brand Icon
 export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   <svg
@@ -377,6 +445,13 @@ export const IconRegistry = {
   carousel: CarouselIcon,
   externalLink: ExternalLinkIcon,
 
+  // Stroke variants
+  addStroke: AddStrokeIcon,
+  chevronDownStroke: ChevronDownStrokeIcon,
+  favoriteStroke: FavoriteStrokeIcon,
+  tagStroke: TagStrokeIcon,
+  checkCircle: CheckCircleIcon,
+
   // Brand
   freqhole: FreqholeIcon,
 } as const;
@@ -464,6 +539,13 @@ export const IconNames = {
   headphones: "headphones",
   carousel: "carousel",
   externalLink: "externalLink",
+
+  // Stroke variants
+  addStroke: "addStroke",
+  chevronDownStroke: "chevronDownStroke",
+  favoriteStroke: "favoriteStroke",
+  tagStroke: "tagStroke",
+  checkCircle: "checkCircle",
 
   // Brand
   freqhole: "freqhole",

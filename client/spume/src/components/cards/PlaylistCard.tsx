@@ -1,4 +1,5 @@
 import { Show, createSignal } from "solid-js";
+import { PlayIcon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
@@ -80,9 +81,7 @@ export function PlaylistCard(props: PlaylistCardProps) {
             }}
             title="play playlist"
           >
-            <svg class="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
+            <PlayIcon size={24} className="ml-1" />
           </button>
         </div>
       </div>

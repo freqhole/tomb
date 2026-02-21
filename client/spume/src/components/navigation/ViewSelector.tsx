@@ -1,5 +1,6 @@
 // view selector - hover flyout to switch between main views
 import { createSignal, For, Show, onCleanup } from "solid-js";
+import { ChevronDownStrokeIcon } from "../icons/registry";
 
 export interface ViewOption {
   label: string;
@@ -70,19 +71,9 @@ export function ViewSelector(props: ViewSelectorProps) {
         class="flex items-center gap-1.5 px-2 py-1 text-sm text-white/80 hover:text-white transition-colors border-none bg-transparent cursor-pointer rounded hover:bg-white/10"
         onClick={handleClick}
       >
-        <svg
-          class={`w-3 h-3 transition-transform ${open() ? "rotate-180" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
+        <span class={`transition-transform ${open() ? "rotate-180" : ""}`}>
+          <ChevronDownStrokeIcon size={12} />
+        </span>
         <span class="font-medium">{props.currentTitle || "navigate"}</span>
         <Show when={props.currentCount !== undefined}>
           <span class="text-white/40">({props.currentCount})</span>

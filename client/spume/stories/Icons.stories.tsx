@@ -2,11 +2,7 @@ import { For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import * as NavigationIcons from "../src/components/icons/navigation";
 import * as PlayerIcons from "../src/components/icons/player";
-import {
-  Icon,
-  IconRegistry,
-  type IconName,
-} from "../src/components/icons/registry";
+import { Icon, IconRegistry, type IconName } from "../src/components/icons/registry";
 
 const meta = {
   title: "Components/Media/Icons",
@@ -20,25 +16,9 @@ type Story = StoryObj<typeof meta>;
 export const AllIcons: Story = {
   render: () => {
     const categories = {
-      "player controls": [
-        "play",
-        "pause",
-        "previous",
-        "next",
-        "stop",
-      ] as IconName[],
-      "volume controls": [
-        "volume",
-        "volumeOff",
-        "volumeLow",
-        "volumeHigh",
-      ] as IconName[],
-      "playback modes": [
-        "shuffle",
-        "repeat",
-        "repeatOne",
-        "queue",
-      ] as IconName[],
+      "player controls": ["play", "pause", "previous", "next", "stop"] as IconName[],
+      "volume controls": ["volume", "volumeOff", "volumeLow", "volumeHigh"] as IconName[],
+      "playback modes": ["shuffle", "repeat", "repeatOne", "queue"] as IconName[],
       navigation: [
         "music",
         "album",
@@ -73,14 +53,7 @@ export const AllIcons: Story = {
         "favoriteOutline",
       ] as IconName[],
       "auth & user": ["logout", "user"] as IconName[],
-      system: [
-        "settings",
-        "info",
-        "upload",
-        "check",
-        "x",
-        "alertTriangle",
-      ] as IconName[],
+      system: ["settings", "info", "upload", "check", "x", "alertTriangle"] as IconName[],
       brand: ["freqhole"] as IconName[],
     };
 
@@ -90,18 +63,12 @@ export const AllIcons: Story = {
           <For each={Object.entries(categories)}>
             {([category, icons]) => (
               <div>
-                <div class="label text-[var(--color-text-secondary)] mb-4">
-                  {category}
-                </div>
+                <div class="label text-[var(--color-text-secondary)] mb-4">{category}</div>
                 <div class="grid grid-cols-6 gap-6">
                   <For each={icons}>
                     {(iconName) => (
                       <div class="flex flex-col items-center gap-2 p-4 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                        <Icon
-                          name={iconName}
-                          size={24}
-                          color="var(--color-text-primary)"
-                        />
+                        <Icon name={iconName} size={24} color="var(--color-text-primary)" />
                         <div class="caption text-center">{iconName}</div>
                       </div>
                     )}
@@ -135,14 +102,8 @@ export const Sizes: Story = {
             {(sizeConfig) => (
               <div class="flex items-center gap-4">
                 <div class="caption w-16">{sizeConfig.name}</div>
-                <div class="caption w-16 text-[var(--color-text-muted)]">
-                  {sizeConfig.size}px
-                </div>
-                <Icon
-                  name="music"
-                  size={sizeConfig.size}
-                  color="var(--color-text-primary)"
-                />
+                <div class="caption w-16 text-[var(--color-text-muted)]">{sizeConfig.size}px</div>
+                <Icon name="music" size={sizeConfig.size} color="var(--color-text-primary)" />
               </div>
             )}
           </For>
@@ -201,11 +162,7 @@ export const PlayerControls: Story = {
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="previous"
-                size={24}
-                color="var(--color-text-primary)"
-              />
+              <Icon name="previous" size={24} color="var(--color-text-primary)" />
             </button>
             <button
               type="button"
@@ -229,31 +186,19 @@ export const PlayerControls: Story = {
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="shuffle"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="shuffle" size={20} color="var(--color-text-secondary)" />
             </button>
             <button
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="repeat"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="repeat" size={20} color="var(--color-text-secondary)" />
             </button>
             <button
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="queue"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="queue" size={20} color="var(--color-text-secondary)" />
             </button>
           </div>
         </div>
@@ -265,21 +210,13 @@ export const PlayerControls: Story = {
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="volumeOff"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="volumeOff" size={20} color="var(--color-text-secondary)" />
             </button>
             <button
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="volumeLow"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="volumeLow" size={20} color="var(--color-text-secondary)" />
             </button>
             <button
               type="button"
@@ -291,11 +228,7 @@ export const PlayerControls: Story = {
               type="button"
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
             >
-              <Icon
-                name="volumeHigh"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="volumeHigh" size={20} color="var(--color-text-secondary)" />
             </button>
           </div>
         </div>
@@ -315,62 +248,42 @@ export const NavigationBar: Story = {
             class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
           >
             <Icon name="home" size={20} color="var(--color-accent-500)" />
-            <span class="body-small text-[var(--color-text-primary)]">
-              home
-            </span>
+            <span class="body-small text-[var(--color-text-primary)]">home</span>
           </a>
           <a
             href="#"
             class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
           >
             <Icon name="search" size={20} color="var(--color-text-secondary)" />
-            <span class="body-small text-[var(--color-text-secondary)]">
-              search
-            </span>
+            <span class="body-small text-[var(--color-text-secondary)]">search</span>
           </a>
           <a
             href="#"
             class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <Icon
-              name="library"
-              size={20}
-              color="var(--color-text-secondary)"
-            />
-            <span class="body-small text-[var(--color-text-secondary)]">
-              library
-            </span>
+            <Icon name="library" size={20} color="var(--color-text-secondary)" />
+            <span class="body-small text-[var(--color-text-secondary)]">library</span>
           </a>
           <a
             href="#"
             class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
           >
             <Icon name="album" size={20} color="var(--color-text-secondary)" />
-            <span class="body-small text-[var(--color-text-secondary)]">
-              albums
-            </span>
+            <span class="body-small text-[var(--color-text-secondary)]">albums</span>
           </a>
           <a
             href="#"
             class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
           >
             <Icon name="artist" size={20} color="var(--color-text-secondary)" />
-            <span class="body-small text-[var(--color-text-secondary)]">
-              artists
-            </span>
+            <span class="body-small text-[var(--color-text-secondary)]">artists</span>
           </a>
           <a
             href="#"
             class="flex items-center gap-3 p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
           >
-            <Icon
-              name="playlist"
-              size={20}
-              color="var(--color-text-secondary)"
-            />
-            <span class="body-small text-[var(--color-text-secondary)]">
-              playlists
-            </span>
+            <Icon name="playlist" size={20} color="var(--color-text-secondary)" />
+            <span class="body-small text-[var(--color-text-secondary)]">playlists</span>
           </a>
         </nav>
       </div>
@@ -391,18 +304,14 @@ export const ActionButtons: Story = {
               class="flex items-center gap-2 px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] rounded transition-colors"
             >
               <Icon name="add" size={16} color="var(--color-text-on-accent)" />
-              <span class="body-small text-[var(--color-text-on-accent)]">
-                add song
-              </span>
+              <span class="body-small text-[var(--color-text-on-accent)]">add song</span>
             </button>
             <button
               type="button"
               class="flex items-center gap-2 px-4 py-2 bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
             >
               <Icon name="edit" size={16} color="var(--color-text-primary)" />
-              <span class="body-small text-[var(--color-text-primary)]">
-                edit
-              </span>
+              <span class="body-small text-[var(--color-text-primary)]">edit</span>
             </button>
             <button
               type="button"
@@ -429,11 +338,7 @@ export const ActionButtons: Story = {
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
               title="filter"
             >
-              <Icon
-                name="filter"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="filter" size={20} color="var(--color-text-secondary)" />
             </button>
             <button
               type="button"
@@ -447,11 +352,7 @@ export const ActionButtons: Story = {
               class="p-2 rounded hover:bg-[var(--color-bg-hover)] transition-colors"
               title="close"
             >
-              <Icon
-                name="close"
-                size={20}
-                color="var(--color-text-secondary)"
-              />
+              <Icon name="close" size={20} color="var(--color-text-secondary)" />
             </button>
           </div>
         </div>
@@ -484,9 +385,10 @@ export const BrandIcon: Story = {
         <div>
           <div class="caption mb-4">with text</div>
           <div class="flex items-center gap-3">
-            <Icon name="freqhole" size={32} color="var(--color-accent-500)" />
             <span class="heading-4 text-[var(--color-text-primary)]">
-              freqhole
+              freqh
+              <Icon name="freqhole" size={24} color="var(--color-accent-500)" className="inline" />
+              le
             </span>
           </div>
         </div>
