@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
   PlayerBar,
   type PlayerBarSong,
+  type PlayerBarProps,
 } from "../src/components/player/PlayerBar";
 import { mockSongs } from "./mockData";
 
@@ -135,7 +136,7 @@ export const Interactive: Story = {
 
 // playing state
 export const Playing: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -150,8 +151,8 @@ export const Playing: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
     queueLength: 8,
   },
@@ -159,7 +160,7 @@ export const Playing: Story = {
 
 // paused state
 export const Paused: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -174,15 +175,15 @@ export const Paused: Story = {
     onPlayPause: () => console.log("play"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // no thumbnail
 export const NoThumbnail: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -197,15 +198,15 @@ export const NoThumbnail: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // favorited song
 export const Favorited: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -220,16 +221,16 @@ export const Favorited: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onFavoriteToggle: (id) => console.log("toggle favorite:", id),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onFavoriteToggle: (id: string) => console.log("toggle favorite:", id),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // queue open
 export const QueueOpen: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -244,8 +245,8 @@ export const QueueOpen: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
     queueLength: 15,
   },
@@ -253,7 +254,7 @@ export const QueueOpen: Story = {
 
 // at start of playlist
 export const AtStart: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -270,15 +271,15 @@ export const AtStart: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // at end of playlist
 export const AtEnd: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -295,15 +296,15 @@ export const AtEnd: Story = {
     onPlayPause: () => console.log("play"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // muted
 export const Muted: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -318,15 +319,15 @@ export const Muted: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // long song title
 export const LongTitle: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -348,15 +349,15 @@ export const LongTitle: Story = {
     onPlayPause: () => console.log("pause"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };
 
 // no song (should not render)
 export const NoSong: Story = {
-  render: (args) => (
+  render: (args: PlayerBarProps) => (
     <div class="relative min-h-[120px]">
       <PlayerBar {...args} />
     </div>
@@ -370,8 +371,8 @@ export const NoSong: Story = {
     onPlayPause: () => console.log("play"),
     onPrevious: () => console.log("previous"),
     onNext: () => console.log("next"),
-    onSeek: (p) => console.log("seek:", p),
-    onVolumeChange: (v) => console.log("volume:", v),
+    onSeek: (p: number) => console.log("seek:", p),
+    onVolumeChange: (v: number) => console.log("volume:", v),
     onQueueToggle: () => console.log("toggle queue"),
   },
 };

@@ -145,7 +145,7 @@ export function GenresView(props: GenresViewProps) {
   });
 
   // fetch songs for selected genre using tanstack query
-  const genreSongsQuery = useGenreSongsQuery(() => selectedGenreId());
+  const genreSongsQuery = useGenreSongsQuery(() => selectedGenreId() ?? undefined);
 
   // map to expected format for detail panel
   const genreSongs = createMemo(() => {

@@ -147,8 +147,11 @@ export async function createServerSessions(
 
   // link history entry to the primary server session for reconnection
   if (historyEntryId && created.size > 0) {
-    const [remoteId, sessionId] = created.entries().next().value;
-    void updateHistoryServerSession(historyEntryId, sessionId, remoteId);
+    const entry = created.entries().next().value;
+    if (entry) {
+      const [remoteId, sessionId] = entry;
+      void updateHistoryServerSession(historyEntryId, sessionId, remoteId);
+    }
   }
 
   return created;

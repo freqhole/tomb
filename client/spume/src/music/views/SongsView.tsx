@@ -15,7 +15,7 @@ import {
   type SortState,
 } from "../../components/virtualized/VirtualSongList";
 import type { Song } from "../data/types";
-import { useSongsInfiniteQuery, type SongSortField } from "../queries/songs";
+import { useSongsInfiniteQuery, type SongSortField, type SongSortDirection } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
@@ -67,7 +67,7 @@ export function SongsView(props: SongsViewProps) {
 
   // sorting state (persisted in browser history)
   const [sortField, setSortField] = useHistoryState<SongSortField>("songs.sortField", "added_at");
-  const [sortDirection, setSortDirection] = useHistoryState<SortDirection>(
+  const [sortDirection, setSortDirection] = useHistoryState<SongSortDirection>(
     "songs.sortDirection",
     "desc"
   );

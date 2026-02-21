@@ -1,7 +1,6 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { IconButton } from "../buttons/IconButton";
-import { Icon, type IconName } from "../icons/registry";
+import { Icon } from "../icons/registry";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import MediaImage from "../media/MediaImage";
 import { TopNavMobile } from "./TopNavMobile";
@@ -11,6 +10,7 @@ import { Badge } from "../badges/Badge";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
+import { formatRelativeTime } from "../../utils/dateTime";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -160,27 +160,6 @@ export function TopNav(props: TopNavProps) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
-  // format relative time (e.g. "2 hours ago", "3 days ago")
-  const formatRelativeTime = (timestamp: number): string => {
-    const now = Date.now();
-    const diffMs = now - timestamp;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHour = Math.floor(diffMin / 60);
-    const diffDay = Math.floor(diffHour / 24);
-    const diffWeek = Math.floor(diffDay / 7);
-    const diffMonth = Math.floor(diffDay / 30);
-    const diffYear = Math.floor(diffDay / 365);
-
-    if (diffSec < 60) return "just now";
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHour < 24) return `${diffHour}h ago`;
-    if (diffDay < 7) return `${diffDay}d ago`;
-    if (diffWeek < 4) return `${diffWeek}w ago`;
-    if (diffMonth < 12) return `${diffMonth}mo ago`;
-    return `${diffYear}y ago`;
-  };
-
   // format bytes to human readable size
   const formatBytes = (bytes: number | undefined): string => {
     if (!bytes) return "0 B";
@@ -200,10 +179,6 @@ export function TopNav(props: TopNavProps) {
   const currentRemote = () => {
     if (!props.remotes || !props.currentSourceName) return null;
     return props.remotes.find((r) => r.name === props.currentSourceName) ?? null;
-  };
-  const currentRemoteImage = () => {
-    const r = currentRemote();
-    return r?.imageUrl ?? null;
   };
 
   return (
@@ -362,12 +337,12 @@ export function TopNav(props: TopNavProps) {
                                   props.currentSourceName === "local library" ||
                                   !props.currentSourceName,
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                  props.currentSourceName &&
+                                  !!props.currentSourceName &&
                                   props.currentSourceName !== "local library",
                               }}
                               disabled={
-                                props.currentSourceName === "local library" ||
-                                !props.currentSourceName
+                                !!(props.currentSourceName === "local library" ||
+                                !props.currentSourceName)
                               }
                               onClick={() => props.onSwitchToLocal?.()}
                             >

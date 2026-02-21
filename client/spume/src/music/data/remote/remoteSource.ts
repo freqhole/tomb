@@ -17,7 +17,7 @@ import type {
   SearchResponse,
   SuggestionsResponse,
 } from "../types";
-import { adaptSongFromAPI, type RemoteSong } from "./adapters";
+import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
 import { getCurrentUser } from "../index";
 
@@ -182,23 +182,18 @@ export class RemoteMusicDataSource implements MusicDataSource {
           artist_name: item.artist?.name || "unknown artist",
           album_type: item.album.album_type,
           year: undefined, // TODO: extract year from release_date if present
-          release_date: item.album.release_date || undefined,
-          label: item.album.label || undefined,
-          genres: item.album.genres || undefined,
+          release_date: item.album.release_date ?? undefined,
+          label: item.album.label ?? undefined,
+          genres: item.album.genres ?? undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
-            ? item.images.map((img) => ({
-                remote_blob_id: img.blob_id,
-                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-                is_primary: img.is_primary ? true : false,
-                blob_type: 'thumbnail' as const,
-              }))
+            ? item.images.map((img) => adaptApiImage(img, this.baseUrl))
             : undefined,
-          urls: item.album.urls || undefined,
-          is_favorite: item.is_favorite,
-          user_rating: item.rating,
-          tags: item.album_tags || undefined,
+          urls: adaptApiUrls(item.album.urls),
+          is_favorite: item.is_favorite ?? undefined,
+          user_rating: item.rating ?? undefined,
+          tags: item.album_tags ?? undefined,
         };
       }),
       total: result.data.total_count,
@@ -258,16 +253,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
           song_count: item.song_count,
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
           images: item.images && item.images.length > 0
-            ? item.images.map((img) => ({
-                remote_blob_id: img.blob_id,
-                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-                is_primary: img.is_primary ? true : false,
-                blob_type: 'thumbnail' as const,
-              }))
+            ? item.images.map((img) => adaptApiImage(img, this.baseUrl))
             : undefined,
-          urls: item.artist.urls || undefined,
-          is_favorite: item.is_favorite,
-          user_rating: item.rating,
+          urls: adaptApiUrls(item.artist.urls),
+          is_favorite: item.is_favorite ?? undefined,
+          user_rating: item.rating ?? undefined,
         };
       }),
       total: result.data.total_count,
@@ -379,17 +369,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
         title: item.playlist.title,
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
-        images: (item.playlist.images || []).map((img) => ({
-          remote_blob_id: img.blob_id,
-          remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
-          is_primary: img.is_primary === 1,
-          blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original',
-        })),
-        urls: item.playlist.urls || undefined,
+        images: item.playlist.images && item.playlist.images.length > 0
+          ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl))
+          : undefined,
+        urls: adaptApiUrls(item.playlist.urls),
         song_count: item.song_count,
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
-        is_favorite: item.is_favorite,
+        is_favorite: item.is_favorite ?? undefined,
         created_by_id: item.playlist.created_by_id,
       })),
       total: result.data.total_count,
@@ -473,7 +460,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       title: params.title || null,
       description: params.description || null,
       is_public: params.is_public ?? null,
-      entity_urls: params.entity_urls ?? null,
+      entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null, // server will use authenticated user
     });
 
@@ -507,6 +494,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async deleteSong(songId: string): Promise<void> {
     const result = await apiClient.music.deleteSong(this.baseUrl, {
       id: songId,
+      user_id: null,
     });
 
     if (!result.success) {
@@ -518,6 +506,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async deleteAlbum(albumId: string): Promise<void> {
     const result = await apiClient.music.deleteAlbum(this.baseUrl, {
       id: albumId,
+      user_id: null,
     });
 
     if (!result.success) {
@@ -529,6 +518,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async deleteArtist(artistId: string): Promise<void> {
     const result = await apiClient.music.deleteArtist(this.baseUrl, {
       id: artistId,
+      user_id: null,
     });
 
     if (!result.success) {
@@ -806,7 +796,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       artist_id: params.artist_id,
       name: params.name ?? null,
       bio: params.bio ?? null,
-      entity_urls: params.entity_urls ?? null,
+      entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null,
     });
 
@@ -840,7 +830,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       label: params.label ?? null,
       genre_ids: params.genre_ids ?? null,
       genres: params.genres ?? null,
-      entity_urls: params.entity_urls ?? null,
+      entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null,
       merge_into_album_id: params.merge_into_album_id ?? null,
     });
@@ -898,7 +888,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!result.success) {
       this.checkAuthError(result);
       // #TODO: should be able to remove the `as any` cast after turning strict mode on!
-      const err = (result as any).error;
+      const err = result.error;
       console.error("updateSongs failed:", err);
       throw new Error(`failed to update song: ${err?.message || JSON.stringify(err)}`);
     }

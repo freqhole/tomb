@@ -113,7 +113,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
     <Combobox<ArtistOption>
       value={localValue()}
       onChange={(option) => {
-        setLocalValue(option);
+        setLocalValue(option ?? undefined);
         if (option) {
           props.onSelect({
             id: option.id,

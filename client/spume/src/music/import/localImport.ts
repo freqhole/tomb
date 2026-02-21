@@ -94,7 +94,7 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
       phase: "saving",
       current: i + 1,
       total: songsData.length,
-      currentFile: songData.file_name,
+      currentFile: songData.file_name ?? "",
       addedCount,
       skippedCount,
     }));

@@ -117,7 +117,7 @@ export const FullFlow: Story = {
 export const Login: Story = {
   args: {
     initialMode: "login",
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("login submitted:", data);
     },
   },
@@ -127,7 +127,7 @@ export const Login: Story = {
 export const Register: Story = {
   args: {
     initialMode: "register",
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("register submitted:", data);
     },
   },
@@ -138,7 +138,7 @@ export const WithError: Story = {
   args: {
     initialMode: "login",
     error: "invalid username or authentication failed",
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("login submitted:", data);
     },
   },
@@ -149,7 +149,7 @@ export const Loading: Story = {
   args: {
     initialMode: "login",
     loading: true,
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("login submitted:", data);
     },
   },
@@ -160,7 +160,7 @@ export const WithoutModeToggle: Story = {
   args: {
     initialMode: "login",
     showModeToggle: false,
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("login submitted:", data);
     },
   },
@@ -246,7 +246,7 @@ export const RegisterWithError: Story = {
   args: {
     initialMode: "register",
     error: "this invite code has already been used",
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("register submitted:", data);
     },
   },
@@ -257,7 +257,7 @@ export const LoadingRegister: Story = {
   args: {
     initialMode: "register",
     loading: true,
-    onSubmit: (data) => {
+    onSubmit: (data: { username: string; inviteCode?: string; mode: "login" | "register" }) => {
       console.log("register submitted:", data);
     },
   },

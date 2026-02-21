@@ -4,6 +4,7 @@
 import type { Song } from "../types";
 
 // type-safe adapter return type - compiler enforces all Song fields are mapped
+// Core required fields plus optional user-specific metadata
 export type RemoteSong = Required<Pick<Song, 
   // core identification
   | 'id' | 'sha256' | 'title' | 'artist_id' | 'album_id'
@@ -14,79 +15,102 @@ export type RemoteSong = Required<Pick<Song,
   // denormalized display fields
   | 'artist_name' | 'album_title' | 'album_type'
   | 'album_added_at' | 'album_primary_genre_id' | 'album_primary_genre_name'
-  // images and urls
+  // images and urls (always present, may be empty arrays)
   | 'images' | 'urls'
-  // user-specific metadata (optional fields)
-  | 'is_favorite' | 'user_rating' | 'album_is_favorite' | 'album_rating'
+  // user-specific metadata (always present: boolean/arrays)
+  | 'is_favorite' | 'album_is_favorite'
   | 'album_tags' | 'album_genres' | 'album_images'
   // source type and metadata
   | 'source_type' | 'opfs_path' | 'file_name' | 'file_size'
   | 'last_modified' | 'mime_type' | 'source_url' | 'downloaded_at'
   | 'remote_server_id' | 'remote_sha256' | 'added_at'
->>;
+>> & Pick<Song,
+  // optional numeric ratings (undefined = not rated)
+  | 'user_rating' | 'album_rating'
+>;
+
+// API image structure (from API: is_primary is number 0|1, blob_type is string)
+export interface ApiImage {
+  blob_id: string;
+  is_primary: number;
+  blob_type?: string;
+}
+
+// API URL structure (from API: id and name are nullable, not optional)
+export interface ApiUrl {
+  id: string | null;
+  name: string | null;
+  url: string;
+}
 
 // API response structure - defines adapter's contract with API client
-// this is not a copy of API types, but a structural interface defining what the adapter uses
+// arrays are nullable (not optional) matching the API's zod schema
 export interface ApiSongQueryItem {
   song: {
     id: string;
     title: string;
     media_blob_id: string;
-    track_number?: number;
-    disc_number?: number;
-    duration?: number;  // milliseconds
+    track_number: number;
+    disc_number: number;
+    duration: number | null;  // milliseconds
     year?: number | null;
-    bpm?: number | null;
-    track_artist?: string | null;
-    lyrics?: string | null;
-    metadata?: string | null;
+    bpm: number | null;
+    track_artist: string | null;
+    lyrics: string | null;
+    metadata: string | null;
     created_at: number;
     updated_at: number;
-    urls?: Array<{
-      id?: string;
-      name?: string;
-      url: string;
-    }>;
+    images: ApiImage[] | null;
+    urls: ApiUrl[] | null;
   };
-  artist?: {
+  artist: {
     id: string;
     name: string;
-  };
-  album?: {
+  } | null;
+  album: {
     id: string;
     title: string;
-    album_type?: string;
-    release_date?: string;
-    genres?: {id: string; name: string}[];
-    images?: Array<{
-      blob_id: string;
-      is_primary: boolean | number;
-      blob_type?: string;
-    }>;
-  };
-  blob?: {
+    album_type: string;
+    release_date: string | null;
+    genres: {id: string; name: string}[] | null;
+    images: ApiImage[] | null;
+  } | null;
+  media_blob: {
     sha256: string;
-    mime_type?: string;
-  };
-  genre?: {
+    mime?: string | null;
+  } | null;
+  genre: {
     id: string;
     name: string;
+  } | null;
+  is_favorite: boolean | null;
+  rating: number | null;
+  album_is_favorite: boolean | null;
+  album_rating: number | null;
+  album_tags: string[] | null;
+  images: ApiImage[] | null;
+}
+
+// helper to convert API image to app ImageMetadata
+export function adaptApiImage(img: ApiImage, baseUrl: string) {
+  return {
+    remote_blob_id: img.blob_id,
+    remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
+    is_primary: !!img.is_primary,
+    blob_type: (img.blob_type || 'original') as 'thumbnail' | 'waveform' | 'original' | 'preview',
   };
-  is_favorite?: boolean;
-  rating?: number | null;
-  album_is_favorite?: boolean;
-  album_rating?: number | null;
-  album_tags?: string[];
-  images?: Array<{
-    blob_id: string;
-    is_primary: boolean | number;
-    blob_type?: string;
-  }>;
-  urls?: Array<{
-    id?: string;
-    name?: string;
-    url: string;
-  }>;
+}
+
+// helper to convert API URLs to clean EntityUrl[] (filters out entries without id)
+export function adaptApiUrls(urls: ApiUrl[] | null | undefined): Array<{id: string; name?: string; url: string}> | undefined {
+  if (!urls || urls.length === 0) return undefined;
+  return urls
+    .filter((u): u is ApiUrl & { id: string } => u.id != null && u.url != null)
+    .map(u => ({
+      id: u.id,
+      name: u.name ?? undefined,
+      url: u.url,
+    }));
 }
 
 // adapter to convert API song query result to domain Song type
@@ -94,7 +118,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
   const song = item.song;
   const artist = item.artist;
   const album = item.album;
-  const blob = item.blob;
+  const blob = item.media_blob;
 
   const sha256 = blob?.sha256 || song.media_blob_id;
 
@@ -104,58 +128,43 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     title: song.title,
     artist_id: artist?.id || "",
     album_id: album?.id || "",
-    track_number: song.track_number || 0,
-    disc_number: song.disc_number || 1,
+    track_number: song.track_number ?? 0,
+    disc_number: song.disc_number ?? 1,
     duration_seconds: song.duration ? Math.floor(song.duration / 1000) : 0, // convert ms to seconds
     year:
-      song.year ||
+      song.year ??
       (album?.release_date
         ? parseInt(album.release_date.substring(0, 4))
         : null),
-    bpm: song.bpm || null,
-    track_artist: song.track_artist || null,
-    lyrics: song.lyrics || null,
-    metadata: song.metadata || null,
+    bpm: song.bpm ?? null,
+    track_artist: song.track_artist ?? null,
+    lyrics: song.lyrics ?? null,
+    metadata: song.metadata ?? null,
     created_at: song.created_at,
     updated_at: song.updated_at,
 
     // denormalized fields
     artist_name: artist?.name || "unknown artist",
     album_title: album?.title || "unknown album",
-    album_type: album?.album_type || undefined,
+    album_type: album?.album_type || "album",
     album_added_at: song.created_at, // use song's created_at as proxy
-    album_primary_genre_id: item.genre?.id || null,
-    album_primary_genre_name: album?.genres?.[0]?.name || item.genre?.name || null,
+    album_primary_genre_id: item.genre?.id ?? null,
+    album_primary_genre_name: album?.genres?.[0]?.name ?? item.genre?.name ?? null,
 
     // song-specific images only (album images stored separately in album_images)
-    images: (() => {
-      const mapImage = (img: any) => ({
-        remote_blob_id: img.blob_id,
-        remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
-        is_primary: !!img.is_primary,
-        blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original' | 'preview',
-      });
-      
-      const songImages = (item.images || []).map(mapImage);
-      return songImages.length > 0 ? songImages : undefined;
-    })(),
+    images: item.images?.map(img => adaptApiImage(img, baseUrl)) ?? [],
 
     // user-specific metadata (from API response top-level)
-    is_favorite: item.is_favorite || false,
+    is_favorite: item.is_favorite ?? false,
     user_rating: item.rating ?? undefined,
     album_is_favorite: item.album_is_favorite ?? false,
     album_rating: item.album_rating ?? undefined,
-    album_tags: item.album_tags || undefined,
-    album_genres: album?.genres || undefined,
-    album_images: album?.images?.map((img: any) => ({
-      remote_blob_id: img.blob_id,
-      remote_url: `${baseUrl}/api/blobs/${img.blob_id}`,
-      is_primary: !!img.is_primary,
-      blob_type: img.blob_type as 'thumbnail' | 'waveform' | 'original' | 'preview',
-    })) || undefined,
+    album_tags: item.album_tags ?? [],
+    album_genres: album?.genres ?? [],
+    album_images: album?.images?.map(img => adaptApiImage(img, baseUrl)) ?? [],
 
-    // entity URLs
-    urls: item.song.urls || item.urls || undefined,
+    // entity URLs (convert null fields to undefined)
+    urls: adaptApiUrls(song.urls) ?? [],
 
     // remote source type
     source_type: "remote" as const,
@@ -165,7 +174,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     file_name: null,
     file_size: null,
     last_modified: null,
-    mime_type: blob?.mime_type || null,
+    mime_type: blob?.mime ?? null,
     source_url: `${baseUrl}/api/blobs/${song.media_blob_id}`,
     downloaded_at: null,
 

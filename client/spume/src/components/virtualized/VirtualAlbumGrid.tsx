@@ -150,7 +150,7 @@ export function VirtualAlbumGrid(props: VirtualAlbumGridProps): JSX.Element {
     get count() {
       return rowCount();
     },
-    getScrollElement: () => parentRef,
+    getScrollElement: () => parentRef ?? null,
     estimateSize: () => getCardHeight() + gap,
     overscan: 2,
   });

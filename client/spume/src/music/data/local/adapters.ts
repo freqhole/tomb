@@ -7,9 +7,9 @@ import type { AlbumSummary } from "../types";
 // output type: enforces all AlbumSummary fields are mapped
 export type LocalAlbumSummary = Required<Pick<AlbumSummary,
   | 'album_id' | 'title' | 'artist_id' | 'artist_name' | 'album_type'
-  | 'year' | 'release_date' | 'label' | 'song_count' 
-  | 'total_duration'
+  | 'song_count' | 'total_duration'
 >> & Partial<Pick<AlbumSummary,
+  | 'year' | 'release_date' | 'label'
   | 'genres' | 'images' | 'is_favorite' | 'user_rating' | 'tags'
 >>;
 

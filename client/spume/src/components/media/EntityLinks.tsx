@@ -1,12 +1,7 @@
 // display component for entity URLs (read-only links)
 import { For, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
-
-interface EntityUrl {
-  id?: string;
-  name?: string;
-  url: string;
-}
+import type { EntityUrl } from "../../music/data/types";
 
 interface EntityLinksProps {
   urls?: EntityUrl[] | null;

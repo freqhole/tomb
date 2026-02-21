@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { EntityUrlz, EntityUrl } from "../src/components/forms/EntityUrlz";
+import { EntityUrlz, type EntityUrlFormItem } from "../src/components/forms/EntityUrlz";
 
 const meta = {
   title: "Components/Forms/EntityUrlz",
@@ -23,7 +23,7 @@ type Story = StoryObj<typeof meta>;
 // empty state
 export const Empty: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([]);
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([]);
     return <EntityUrlz urls={urls()} onChange={setUrls} />;
   },
 };
@@ -31,7 +31,7 @@ export const Empty: Story = {
 // with existing links
 export const WithLinks: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([
       { id: "1", name: "wikipedia", url: "https://en.wikipedia.org/wiki/Example" },
       { id: "2", name: "discogs", url: "https://www.discogs.com/artist/123" },
       { id: "3", name: "bandcamp", url: "https://example.bandcamp.com" },
@@ -43,7 +43,7 @@ export const WithLinks: Story = {
 // with various states
 export const MixedStates: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([
       { id: "1", name: "existing link", url: "https://example.com/existing" },
       { name: "new link", url: "https://example.com/new", isNew: true },
       { id: "2", name: "deleted link", url: "https://example.com/deleted", isDeleted: true },
@@ -62,7 +62,7 @@ export const MixedStates: Story = {
 // disabled state
 export const Disabled: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([
       { id: "1", name: "spotify", url: "https://open.spotify.com/artist/example" },
       { id: "2", name: "apple music", url: "https://music.apple.com/us/artist/example" },
     ]);
@@ -78,7 +78,7 @@ export const Disabled: Story = {
 // with max limit
 export const WithMaxLimit: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([
       { id: "1", name: "link 1", url: "https://example.com/1" },
       { id: "2", name: "link 2", url: "https://example.com/2" },
     ]);
@@ -94,7 +94,7 @@ export const WithMaxLimit: Story = {
 // interactive demo
 export const Interactive: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([
       { id: "1", name: "official website", url: "https://example.com" },
     ]);
     return (
@@ -111,7 +111,7 @@ export const Interactive: Story = {
 // in a form context
 export const InFormContext: Story = {
   render: () => {
-    const [urls, setUrls] = createSignal<EntityUrl[]>([
+    const [urls, setUrls] = createSignal<EntityUrlFormItem[]>([
       { id: "1", name: "musicbrainz", url: "https://musicbrainz.org/artist/123" },
     ]);
     return (

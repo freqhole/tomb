@@ -75,7 +75,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     get count() {
       return count();
     },
-    getScrollElement: () => parentRef,
+    getScrollElement: () => parentRef ?? null,
     estimateSize: () => 80,
     overscan: 5,
   });

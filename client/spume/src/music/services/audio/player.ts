@@ -70,12 +70,15 @@ function initAudio(): HTMLAudioElement {
       const delta = ct - lastTimeUpdateValue;
       // only record reasonable deltas (< 5s to avoid seek jumps)
       if (delta > 0 && delta < 5) {
-        const { queue, current_sha256 } = appState();
-        const songIdx = current_sha256
-          ? queue.findIndex((s) => s.sha256 === current_sha256)
-          : 0;
-        const currentSong = queue[songIdx] ?? null;
-        recordTimeProgress(delta, songIdx, ct, currentSong);
+        const state = appState();
+        if (state) {
+          const { queue, current_sha256 } = state;
+          const songIdx = current_sha256
+            ? queue.findIndex((s) => s.sha256 === current_sha256)
+            : 0;
+          const currentSong = queue[songIdx] ?? null;
+          recordTimeProgress(delta, songIdx, ct, currentSong);
+        }
       }
     }
     lastTimeUpdateValue = ct;
@@ -89,17 +92,19 @@ function initAudio(): HTMLAudioElement {
       const progress = ct / audioElement!.duration;
       if (progress >= 0.9) {
         songCompletionRecorded = true;
-        const { queue, current_sha256 } = appState();
-        const songIdx = current_sha256
-          ? queue.findIndex((s) => s.sha256 === current_sha256)
-          : 0;
-        const currentSong = queue.find((s) => s.sha256 === current_sha256) ?? null;
-        markSongCompleted(songIdx, currentSong);
+        const state = appState();
+        if (state) {
+          const { queue, current_sha256 } = state;
+          const songIdx = current_sha256
+            ? queue.findIndex((s) => s.sha256 === current_sha256)
+            : 0;
+          const currentSong = queue.find((s) => s.sha256 === current_sha256) ?? null;
+          markSongCompleted(songIdx, currentSong);
 
-        // queue a play_complete analytics event
-        if (currentSong) {
-          let targetBaseUrl: string | undefined;
-          try {
+          // queue a play_complete analytics event
+          if (currentSong) {
+            let targetBaseUrl: string | undefined;
+            try {
             if (currentSong.source_url) {
               targetBaseUrl = new URL(currentSong.source_url).origin;
             }
@@ -112,6 +117,7 @@ function initAudio(): HTMLAudioElement {
             target_remote_id: currentSong.remote_server_id ?? undefined,
             target_base_url: targetBaseUrl,
           });
+        }
         }
       }
     }
@@ -164,7 +170,7 @@ function initAudio(): HTMLAudioElement {
       return;
     }
     
-    const error = audioElement.error;
+    const error = audioElement!.error;
     if (error) {
       console.error(
         `media error code: ${error.code}, message: ${error.message}`,
@@ -234,7 +240,9 @@ async function getMediaSessionArtwork(song: Song): Promise<MediaImage[]> {
 async function updateMediaSession() {
   if (!("mediaSession" in navigator)) return;
 
-  const {queue, current_sha256} = appState();
+  const state = appState();
+  if (!state) return;
+  const {queue, current_sha256} = state;
 
   if (!current_sha256) {
     navigator.mediaSession.metadata = null;
@@ -248,7 +256,7 @@ async function updateMediaSession() {
   // fallback: fetch from current data source
   if (!song) {
     const dataSource = getDataSource();
-    song = await dataSource.getSongById(current_sha256);
+    song = await dataSource.getSongById(current_sha256) ?? undefined;
   }
 
   if (!song) return;
@@ -320,7 +328,9 @@ function handlePreCacheNext() {
   const progress = audioElement.currentTime / audioElement.duration;
   if (progress < 0.5) return;
 
-  const {queue, current_sha256} = appState();
+  const state = appState();
+  if (!state) return;
+  const {queue, current_sha256} = state;
   if (!current_sha256 || !queue.length) return;
 
   // pre-cache next ~30 minutes of songs
@@ -343,7 +353,9 @@ async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<vo
   const wasPlaying = !audioElement.paused;
   if (wasPlaying && !forceWhilePlaying) return;
 
-  const {current_sha256} = appState();
+  const state = appState();
+  if (!state) return;
+  const {current_sha256} = state;
   if (!current_sha256) return;
 
   // only attempt if the song is currently using a direct URL
@@ -353,7 +365,8 @@ async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<vo
   if (!cachedURL) return;
 
   // double-check same song before swapping
-  if (appState().current_sha256 !== current_sha256) return;
+  const currentState = appState();
+  if (!currentState || currentState.current_sha256 !== current_sha256) return;
 
   // save current position before swapping src
   const savedTime = audioElement.currentTime;
@@ -487,7 +500,9 @@ export async function togglePlayback(source: 'ui' | 'mediaSession' = 'ui'): Prom
   } else {
     try {
       // if no song loaded, start first in queue
-      const {queue, current_sha256} = appState();
+      const state = appState();
+      if (!state) return;
+      const {queue, current_sha256} = state;
       if (!current_sha256 && queue.length) {
         await playSong(queue[0]);
         return;
@@ -620,7 +635,9 @@ export async function playNext(): Promise<void> {
   
   if (!canGoNext()) return;
 
-  const {queue, current_sha256} = appState();
+  const state = appState();
+  if (!state) return;
+  const {queue, current_sha256} = state;
   const currentId = current_sha256;
   let currentIdx = currentId
     ? queue.findIndex((s) => s.sha256 === currentId)
@@ -660,7 +677,9 @@ export async function playNext(): Promise<void> {
 export async function playPrevious(): Promise<void> {
   if (!canGoPrevious()) return;
 
-  const {queue, current_sha256} = appState();
+  const state = appState();
+  if (!state) return;
+  const {queue, current_sha256} = state;
   const currentId = current_sha256;
   const currentIdx = currentId
     ? queue.findIndex((s) => s.sha256 === currentId)

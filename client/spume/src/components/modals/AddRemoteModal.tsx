@@ -456,7 +456,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         imageUrl={
                           serverInfo()?.image_url ? `${url()}${serverInfo()?.image_url}` : null
                         }
-                        alt={serverInfo()?.name}
+                        alt={serverInfo()?.name ?? "Server"}
                         class="w-12 h-12 rounded object-cover"
                       />
                       <div class="flex-1 min-w-0">

@@ -246,7 +246,7 @@ export function AlbumsView(props: AlbumsViewProps) {
         title: album.title,
         artist_name: album.artist,
         artist_id: original?.artist_id,
-        song_count: album.trackCount,
+        song_count: album.trackCount ?? undefined,
       },
       {
         showPlayActions: true,

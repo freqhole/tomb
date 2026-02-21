@@ -84,9 +84,9 @@ export async function addToQueue(
   const startPlaying = options?.startPlaying ?? false;
   const position = options?.position ?? "end";
 
-  const { queue, current_sha256 } = appState();
-  const currentQueue = queue || [];
-  const currentId = current_sha256;
+  const state = appState();
+  const currentQueue: Song[] = state?.queue || [];
+  const currentId = state?.current_sha256;
 
   let newQueue: Song[];
 
@@ -113,7 +113,7 @@ export async function addToQueue(
   await setQueue(newQueue);
 
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
-  if (startPlaying || !current_sha256 || hasPlaybackEnded()) {
+  if (startPlaying || !currentId || hasPlaybackEnded()) {
     await playSong(songs[0]);
   }
 

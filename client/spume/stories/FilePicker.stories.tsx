@@ -86,7 +86,7 @@ export const SingleFile: Story = {
   args: {
     label: "choose a file",
     hint: "select one file to upload",
-    onFileAccept: (files) => console.log("accepted:", files),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
   },
 };
 
@@ -97,7 +97,7 @@ export const MultipleFiles: Story = {
     hint: "you can select up to 10 files",
     multiple: true,
     maxFiles: 10,
-    onFileAccept: (files) => console.log("accepted:", files),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
   },
 };
 
@@ -108,7 +108,7 @@ export const ImagesOnly: Story = {
     hint: "only image files are accepted",
     multiple: true,
     accept: "image/*",
-    onFileAccept: (files) => console.log("accepted:", files),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
   },
 };
 
@@ -120,8 +120,8 @@ export const WithSizeLimits: Story = {
     multiple: true,
     maxFileSize: 5 * 1024 * 1024, // 5MB
     minFileSize: 1024, // 1KB
-    onFileAccept: (files) => console.log("accepted:", files),
-    onFileReject: (rejections) => console.log("rejected:", rejections),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
+    onFileReject: (rejections: any[]) => console.log("rejected:", rejections),
   },
 };
 
@@ -132,7 +132,7 @@ export const SpecificFileTypes: Story = {
     hint: "only PDF and Word documents are accepted",
     multiple: true,
     accept: [".pdf", ".doc", ".docx"],
-    onFileAccept: (files) => console.log("accepted:", files),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
   },
 };
 
@@ -142,7 +142,7 @@ export const WithError: Story = {
     label: "upload files",
     error: "file size exceeds maximum allowed size",
     multiple: true,
-    onFileAccept: (files) => console.log("accepted:", files),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
   },
 };
 
@@ -163,7 +163,7 @@ export const WithoutDragAndDrop: Story = {
     hint: "click the button to select files",
     allowDragAndDrop: false,
     multiple: true,
-    onFileAccept: (files) => console.log("accepted:", files),
+    onFileAccept: (files: File[]) => console.log("accepted:", files),
   },
 };
 

@@ -1,6 +1,7 @@
 // shared queue state used by both queue.ts and player.ts
 // lives in its own module to avoid circular imports
 import { appState } from "../../../app/services/storage/db";
+import type { Song } from "../storage/types";
 
 // track if playback has ended (all songs in queue finished)
 let playbackEnded = false;
@@ -20,19 +21,23 @@ export function hasPlaybackEnded(): boolean {
 // computed queue position helpers
 
 export function canGoNext(): boolean {
-  const { queue, current_sha256 } = appState();
+  const state = appState();
+  if (!state) return false;
+  const { queue, current_sha256 } = state;
   if (!queue.length) return false;
   const currentIdx = current_sha256
-    ? queue.findIndex((s) => s.sha256 === current_sha256)
+    ? queue.findIndex((s: Song) => s.sha256 === current_sha256)
     : -1;
   return currentIdx >= 0 && currentIdx < queue.length - 1;
 }
 
 export function canGoPrevious(): boolean {
-  const { queue, current_sha256 } = appState();
+  const state = appState();
+  if (!state) return false;
+  const { queue, current_sha256 } = state;
   if (!queue.length) return false;
   const currentIdx = current_sha256
-    ? queue.findIndex((s) => s.sha256 === current_sha256)
+    ? queue.findIndex((s: Song) => s.sha256 === current_sha256)
     : -1;
   return currentIdx > 0;
 }

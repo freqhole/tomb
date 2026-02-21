@@ -19,7 +19,8 @@ export async function findAlbumByArtistAndTitle(
 ): Promise<Album | undefined> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_ALBUMS).store.index("by_artist_title");
-  return index.get([artistId, title]);
+  // IDB keys don't accept null - use empty string as sentinel for "no artist"
+  return index.get([artistId ?? "", title]);
 }
 
 export async function getOrCreateAlbum(

@@ -44,7 +44,7 @@ export const Interactive: Story = {
 export const Default: Story = {
   args: {
     volume: 0.7,
-    onVolumeChange: (v) => console.log("volume changed:", v),
+    onVolumeChange: (v: number) => console.log("volume changed:", v),
   },
 };
 
@@ -52,7 +52,7 @@ export const Default: Story = {
 export const HighVolume: Story = {
   args: {
     volume: 0.95,
-    onVolumeChange: (v) => console.log("volume changed:", v),
+    onVolumeChange: (v: number) => console.log("volume changed:", v),
   },
 };
 
@@ -60,7 +60,7 @@ export const HighVolume: Story = {
 export const LowVolume: Story = {
   args: {
     volume: 0.15,
-    onVolumeChange: (v) => console.log("volume changed:", v),
+    onVolumeChange: (v: number) => console.log("volume changed:", v),
   },
 };
 
@@ -68,7 +68,7 @@ export const LowVolume: Story = {
 export const Muted: Story = {
   args: {
     volume: 0,
-    onVolumeChange: (v) => console.log("volume changed:", v),
+    onVolumeChange: (v: number) => console.log("volume changed:", v),
   },
 };
 
@@ -76,7 +76,7 @@ export const Muted: Story = {
 export const MaxVolume: Story = {
   args: {
     volume: 1,
-    onVolumeChange: (v) => console.log("volume changed:", v),
+    onVolumeChange: (v: number) => console.log("volume changed:", v),
   },
 };
 

@@ -13,7 +13,7 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
-import { EntityUrlz, EntityUrl } from "../forms/EntityUrlz";
+import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
@@ -62,8 +62,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const [albumId, setAlbumId] = createSignal<string | undefined>(undefined);
 
   // entity URLs management
-  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
-  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
   // image management
   const [songImages, setSongImages] = createSignal<ImageMetadata[]>([]);
   const albumImages = () => songQuery.data?.album_images ?? [];
@@ -411,6 +411,10 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
       // call API to remove image association
       const dataSource = getDataSource();
+      if (!dataSource.removeImage) {
+        toast.error("image removal not supported");
+        return;
+      }
       await dataSource.removeImage({
         entityType: "song",
         entityId: songData.id,

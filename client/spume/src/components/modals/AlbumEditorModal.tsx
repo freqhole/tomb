@@ -21,7 +21,7 @@ import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { pushModal, popModal } from "../../music/hooks/modals";
-import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
+import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 
 interface AlbumEditorModalProps {
@@ -75,7 +75,7 @@ function DiscNumberBulkAction(props: { songs: Song[]; onUpdated: () => void }) {
         entity_urls: null,
         user_id: null,
         updated_by: null,
-      } as any);
+      });
 
       if (result.success) {
         toast.success(`set disc number to ${num} for ${props.songs.length} songs`);
@@ -177,8 +177,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   const [mergeTargetAlbumId, setMergeTargetAlbumId] = createSignal<string | undefined>(undefined);
 
   // entity URLs management
-  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
-  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
   const [imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
     status: string;
@@ -223,8 +223,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       // sync entity URLs
       if (album.urls) {
         const mapped = album.urls.map((u) => ({
-          id: u.id || undefined,
-          name: u.name || undefined,
+          id: u.id ?? undefined,
+          name: u.name ?? "",
           url: u.url,
         }));
         setEntityUrls(mapped);
@@ -550,6 +550,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       // call API to remove image association
       const dataSource = getDataSource();
+      if (!dataSource.removeImage) {
+        toast.error("image removal not supported");
+        return;
+      }
       await dataSource.removeImage({
         entityType: "album",
         entityId: albumData.album_id,

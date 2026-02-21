@@ -692,7 +692,7 @@ export function getNextSongsToCache(
     sha256: string;
     duration_seconds: number;
     source_type: string;
-    source_url?: string;
+    source_url?: string | null;
   }>,
   targetMinutes: number = 30,
 ): Array<{ sha256: string; source_url: string }> {
@@ -742,7 +742,7 @@ export async function preCacheNextSongs(
     sha256: string;
     duration_seconds: number;
     source_type: string;
-    source_url?: string;
+    source_url?: string | null;
   }>,
   targetMinutes: number = 30,
 ): Promise<void> {

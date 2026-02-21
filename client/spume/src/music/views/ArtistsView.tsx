@@ -172,7 +172,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   });
 
   // fetch songs for selected artist using tanstack query
-  const artistSongsQuery = useArtistSongsQuery(() => selectedArtistId());
+  const artistSongsQuery = useArtistSongsQuery(() => selectedArtistId() ?? undefined);
 
   // songs for detail panel - just pass through query results
   const artistSongs = createMemo(() => {
@@ -702,7 +702,7 @@ export function ArtistsView(props: ArtistsViewProps) {
   const alphabetNav = () =>
     sortBy() === "name" ? (
       <AlphabetNav
-        currentLetter={currentLetter()}
+        currentLetter={currentLetter() ?? undefined}
         disabledLetters={disabledLetters()}
         onLetterClick={(letter) => {
           setCurrentLetter(letter);

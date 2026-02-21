@@ -11,7 +11,7 @@ import { canUpdatePlaylist, canDeletePlaylist } from "../../data/permissions";
 import { pollJobUntilComplete } from "../../../utils/jobs";
 import type { Playlist, ImageMetadata } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
-import { EntityUrlz, type EntityUrl } from "../../../components/forms/EntityUrlz";
+import { EntityUrlz, type EntityUrlFormItem } from "../../../components/forms/EntityUrlz";
 
 export interface PlaylistEditorProps {
   playlist: Playlist;
@@ -28,20 +28,12 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const [isDeleting, setIsDeleting] = createSignal(false);
   const [uploadingImage, setUploadingImage] = createSignal(false);
 
-  // entity URLs management
-  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>(
-    (props.playlist.urls || []).map((u) => ({
-      id: u.id || undefined,
-      name: u.name || undefined,
-      url: u.url,
-    }))
+  // entity URLs management - convert from storage type (id optional) to form type
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>(
+    (props.playlist.urls || []).map(u => ({ ...u, name: u.name || "" }))
   );
-  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>(
-    (props.playlist.urls || []).map((u) => ({
-      id: u.id || undefined,
-      name: u.name || undefined,
-      url: u.url,
-    }))
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>(
+    (props.playlist.urls || []).map(u => ({ ...u, name: u.name || "" }))
   );
 
   const updatePlaylistMutation = useUpdatePlaylistMutation();
@@ -95,7 +87,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       const currentImages = playlistImages();
       const newImage: ImageMetadata = {
         local_blob_id: blob_id,
-        remote_url: null,
+        remote_url: undefined,
         is_primary: currentImages.length === 0,
         blob_type: "thumbnail",
       };

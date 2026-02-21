@@ -99,7 +99,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
     get count() {
       return props.songs.length;
     },
-    getScrollElement: () => scrollElementRef,
+    getScrollElement: () => scrollElementRef ?? null,
     estimateSize: () => 60,
     overscan: 5,
   });
@@ -108,7 +108,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
     get count() {
       return props.historyEntries.length;
     },
-    getScrollElement: () => historyScrollRef,
+    getScrollElement: () => historyScrollRef ?? null,
     estimateSize: () => 56,
     overscan: 5,
   });

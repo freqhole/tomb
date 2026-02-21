@@ -442,7 +442,7 @@ export function AppLayout(props: AppLayoutProps) {
           id: r.remote_id,
           name: r.name,
           url: r.base_url,
-          imageUrl: r.image_url,
+          imageUrl: r.image_url ?? undefined,
         }))}
         onSwitchToLocal={handleSwitchToLocal}
         onSwitchToRemote={handleSwitchToRemote}

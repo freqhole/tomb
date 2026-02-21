@@ -43,6 +43,13 @@ export interface GenreRef {
   name: string;
 }
 
+// clean entity URL type for app use (adapter filters out incomplete entries)
+export interface EntityUrl {
+  id: string;
+  name?: string;
+  url: string;
+}
+
 // album summary data for grids
 export interface AlbumSummary {
   album_id: string;
@@ -57,7 +64,7 @@ export interface AlbumSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
-  urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
+  urls?: EntityUrl[];
   is_favorite?: boolean;
   user_rating?: number;
   tags?: string[];
@@ -72,7 +79,7 @@ export interface ArtistSummary {
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
-  urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
+  urls?: EntityUrl[];
   is_favorite?: boolean;
   user_rating?: number;
 }
@@ -92,7 +99,7 @@ export interface PlaylistSummary {
   description: string | null;
   is_public: boolean;
   images?: ImageMetadata[];
-  urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
+  urls?: EntityUrl[];
   song_count: number;
   created_at: number;
   updated_at: number;

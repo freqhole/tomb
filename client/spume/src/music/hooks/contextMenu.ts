@@ -470,6 +470,7 @@ export function useAlbumContextMenu(
     icon: IconNames.playlist,
     onClick: async () => {
       const dataSource = getDataSource();
+      if (!dataSource.getAlbumSongs) return;
       const response = await dataSource.getAlbumSongs(album.id);
       showPlaylistSelector(response.items.map((s) => s.id));
     },

@@ -16,7 +16,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { pushModal, popModal } from "../../music/hooks/modals";
-import { EntityUrlz, type EntityUrl } from "../forms/EntityUrlz";
+import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { error as errorLog } from "../../utils/logger";
 
 interface ArtistEditorModalProps {
@@ -50,8 +50,8 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
 
   // entity URLs management
-  const [entityUrls, setEntityUrls] = createSignal<EntityUrl[]>([]);
-  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrl[]>([]);
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
   const [imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
     status: string;
@@ -80,8 +80,8 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       // sync entity URLs
       if (artist.urls) {
         const mapped = artist.urls.map((u) => ({
-          id: u.id || undefined,
-          name: u.name || undefined,
+          id: u.id ?? undefined,
+          name: u.name ?? "",
           url: u.url,
         }));
         setEntityUrls(mapped);
@@ -325,6 +325,10 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
       // call API to remove image association
       const dataSource = getDataSource();
+      if (!dataSource.removeImage) {
+        toast.error("image removal not supported");
+        return;
+      }
       await dataSource.removeImage({
         entityType: "artist",
         entityId: artistData.artist_id,

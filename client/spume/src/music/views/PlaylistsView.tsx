@@ -253,7 +253,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // fetch songs for selected playlist
   const playlistSongsQuery = usePlaylistSongsQuery({
-    playlistId: () => selectedPlaylistId(),
+    playlistId: () => selectedPlaylistId() ?? undefined,
   });
 
   // flatten playlist songs

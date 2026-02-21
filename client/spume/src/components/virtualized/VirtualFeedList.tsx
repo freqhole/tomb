@@ -372,7 +372,7 @@ function FeedRow(props: {
           <Show
             when={shouldShowCollage()}
             fallback={
-              <MediaThumbnail images={images()} size={IMAGE_SIZE} hideIndex showPlayIcon={false} />
+              <MediaThumbnail images={images() ?? undefined} size={IMAGE_SIZE} hideIndex showPlayIcon={false} />
             }
           >
             <ImageCollageGrid images={collageImages()!} size={IMAGE_SIZE} />

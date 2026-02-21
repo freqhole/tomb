@@ -2,7 +2,8 @@
 import { createSignal, For, Index, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 
-export interface EntityUrl {
+// form item type - extends domain EntityUrl with edit state tracking
+export interface EntityUrlFormItem {
   id?: string;
   name: string;
   url: string;
@@ -11,8 +12,8 @@ export interface EntityUrl {
 }
 
 interface EntityUrlzProps {
-  urls: EntityUrl[];
-  onChange: (urls: EntityUrl[]) => void;
+  urls: EntityUrlFormItem[];
+  onChange: (urls: EntityUrlFormItem[]) => void;
   disabled?: boolean;
   /** max number of URLs allowed (default unlimited) */
   maxUrls?: number;
@@ -22,7 +23,7 @@ interface EntityUrlzProps {
 
 /** inline url editor row - uses local state to avoid focus issues */
 function UrlEditor(props: {
-  url: EntityUrl;
+  url: EntityUrlFormItem;
   index: number;
   onUpdate: (index: number, field: "name" | "url", value: string) => void;
   onDelete: (index: number) => void;
@@ -97,7 +98,7 @@ export function EntityUrlz(props: EntityUrlzProps) {
 
   const handleAdd = () => {
     if (!canAddMore()) return;
-    const newUrl: EntityUrl = {
+    const newUrl: EntityUrlFormItem = {
       name: "",
       url: "",
       isNew: true,

@@ -216,8 +216,8 @@ export function generateBulkSongs(count: number): DomainSong[] {
       track_number: trackNumber,
       images: [],
       is_favorite: Math.random() > 0.7,
-      user_rating: Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : null,
-      album_rating: Math.random() > 0.6 ? Math.floor(Math.random() * 5) + 1 : null,
+      user_rating: Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : undefined,
+      album_rating: Math.random() > 0.6 ? Math.floor(Math.random() * 5) + 1 : undefined,
       album_tags:
         Math.random() > 0.3
           ? [

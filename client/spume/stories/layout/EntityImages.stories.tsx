@@ -16,31 +16,31 @@ type Story = StoryObj<typeof meta>;
 // mock images for testing
 const mockImages: ImageMetadata[] = [
   {
-    local_blob_id: null,
+    local_blob_id: undefined,
     remote_url: "https://picsum.photos/seed/1/200",
     is_primary: true,
     blob_type: "thumbnail",
   },
   {
-    local_blob_id: null,
+    local_blob_id: undefined,
     remote_url: "https://picsum.photos/seed/2/200",
     is_primary: false,
     blob_type: "thumbnail",
   },
   {
-    local_blob_id: null,
+    local_blob_id: undefined,
     remote_url: "https://picsum.photos/seed/3/200",
     is_primary: false,
     blob_type: "thumbnail",
   },
   {
-    local_blob_id: null,
+    local_blob_id: undefined,
     remote_url: "https://picsum.photos/seed/4/200",
     is_primary: false,
     blob_type: "thumbnail",
   },
   {
-    local_blob_id: null,
+    local_blob_id: undefined,
     remote_url: "https://picsum.photos/seed/5/200",
     is_primary: false,
     blob_type: "thumbnail",
@@ -59,7 +59,7 @@ export const Empty: Story = {
       setImages([
         ...images(),
         {
-          local_blob_id: null,
+          local_blob_id: undefined,
           remote_url: `https://picsum.photos/seed/${Date.now()}/200`,
           is_primary: images().length === 0,
           blob_type: "thumbnail",
@@ -92,7 +92,7 @@ export const WithImages: Story = {
       setImages([
         ...images(),
         {
-          local_blob_id: null,
+          local_blob_id: undefined,
           remote_url: `https://picsum.photos/seed/${Date.now()}/200`,
           is_primary: false,
           blob_type: "thumbnail" as const,
@@ -143,7 +143,7 @@ export const Compact: Story = {
       setImages([
         ...images(),
         {
-          local_blob_id: null,
+          local_blob_id: undefined,
           remote_url: `https://picsum.photos/seed/${Date.now()}/200`,
           is_primary: false,
           blob_type: "thumbnail",

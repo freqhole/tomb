@@ -176,7 +176,7 @@ export async function fetchUrlsOnRemote(
       try {
         const result = await apiClient.music.createFetchJob(remote.base_url, {
           url,
-          user_id: userId,
+          user_id: userId ?? null,
         });
         if (!result.success) {
           updateJobStatus(trackId, "failed", { error: "failed to create fetch job" });

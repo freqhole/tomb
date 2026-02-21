@@ -1,4 +1,4 @@
-import { For, Show, type JSX } from "solid-js";
+import { For, Show } from "solid-js";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -179,10 +179,10 @@ export function TopNavMobile(props: TopNavMobileProps) {
                       "text-white bg-white/10 cursor-default":
                         props.currentSourceName === "local library" || !props.currentSourceName,
                       "text-white/70 cursor-pointer hover:bg-white/10 hover:text-white":
-                        props.currentSourceName && props.currentSourceName !== "local library",
+                        !!props.currentSourceName && props.currentSourceName !== "local library",
                     }}
                     disabled={
-                      props.currentSourceName === "local library" || !props.currentSourceName
+                      !!(props.currentSourceName === "local library" || !props.currentSourceName)
                     }
                     onClick={() => handleMenuItemClick(() => props.onSwitchToLocal?.())}
                   >

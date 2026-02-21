@@ -19,6 +19,7 @@ import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
 import { EntityLinks } from "../media/EntityLinks";
 import { canUpdateArtist } from "../../music/data/permissions";
+import type { EntityUrl } from "../../music/data/types";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -28,7 +29,7 @@ export interface ArtistDetailPanelArtist {
   album_count: number;
   total_duration: number;
   images?: ImageMetadata[];
-  urls?: Array<{ id?: string; name?: string; url: string }> | null;
+  urls?: EntityUrl[] | null;
   is_favorite?: boolean;
   user_rating?: number;
 }

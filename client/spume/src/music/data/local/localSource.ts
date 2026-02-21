@@ -83,8 +83,8 @@ function adaptDatabaseImages(dbImages?: Array<{ blob_id?: string; local_blob_id?
   if (!dbImages?.length) return [];
   
   return dbImages.map(img => ({
-    local_blob_id: img.local_blob_id || img.blob_id || null,
-    remote_url: img.remote_url || null,
+    local_blob_id: img.local_blob_id || img.blob_id || undefined,
+    remote_url: img.remote_url ?? undefined,
     is_primary: typeof img.is_primary === 'boolean' ? img.is_primary : img.is_primary === 1,
     blob_type: (img.type as 'thumbnail' | 'waveform') || 'thumbnail',
   }));
@@ -1109,7 +1109,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         const images = album.images || [];
         // if this is primary, mark others as non-primary
         if (params.isPrimary) {
-          images.forEach(img => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => img.is_primary = false);
         }
         images.push(imageMetadata);
         album.images = images;
@@ -1121,7 +1121,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (artist) {
         const images = artist.images || [];
         if (params.isPrimary) {
-          images.forEach(img => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => img.is_primary = false);
         }
         images.push(imageMetadata);
         artist.images = images;
@@ -1133,7 +1133,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       if (playlist) {
         const images = playlist.images || [];
         if (params.isPrimary) {
-          images.forEach(img => img.is_primary = false);
+          images.forEach((img: ImageMetadata) => img.is_primary = false);
         }
         images.push(imageMetadata);
         playlist.images = images;
@@ -1239,7 +1239,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               song_count: albumSongs.length,
               total_duration: totalDuration,
               is_favorite: isFavorite,
-              user_rating: rating,
+              user_rating: rating ?? undefined,
               images: album.images,
             },
           });
@@ -1269,7 +1269,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               album_count: artistAlbums.length,
               total_duration: totalDuration,
               is_favorite: isFavorite,
-              user_rating: rating,
+              user_rating: rating ?? undefined,
               images: artist.images,
             },
           });

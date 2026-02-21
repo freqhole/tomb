@@ -124,9 +124,6 @@ const fullConfig = [
       // disallow unnecessary semicolons
       "no-extra-semi": "error",
 
-      // enforce consistent brace style
-      curly: ["warn", "multi-line", "consistent"],
-
       // no unused expressions
       "no-unused-expressions": [
         "warn",
@@ -135,6 +132,13 @@ const fullConfig = [
           allowTernary: true,
         },
       ],
+    },
+  },
+  // allow console in logger utility
+  {
+    files: ["src/utils/logger.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
 ];

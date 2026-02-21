@@ -405,7 +405,7 @@ export async function querySongsWithDetails(options?: {
       let collected = 0;
 
       if (cursor) {
-        let currentCursor = cursor;
+        let currentCursor: typeof cursor | null = cursor;
         while (currentCursor && collected < limit) {
           if (skipped < offset) {
             skipped++;

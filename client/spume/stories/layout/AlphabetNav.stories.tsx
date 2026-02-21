@@ -109,7 +109,7 @@ export const Interactive: Story = {
       get count() {
         return listItems().length;
       },
-      getScrollElement: () => scrollContainerRef,
+      getScrollElement: () => scrollContainerRef ?? null,
       estimateSize: (index) => {
         const item = listItems()[index];
         return item.type === "header" ? 40 : 72; // two-line artist rows with extra height
