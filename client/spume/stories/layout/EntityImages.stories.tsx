@@ -70,11 +70,7 @@ export const Empty: Story = {
 
     return (
       <div class="p-8 max-w-2xl">
-        <EntityImages
-          images={images()}
-          onUpload={handleUpload}
-          uploading={uploading()}
-        />
+        <EntityImages images={images()} onUpload={handleUpload} uploading={uploading()} />
       </div>
     );
   },

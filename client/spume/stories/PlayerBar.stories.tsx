@@ -335,8 +335,7 @@ export const LongTitle: Story = {
   args: {
     song: {
       id: "3",
-      title:
-        "the epic song with an extremely long title that should truncate properly",
+      title: "the epic song with an extremely long title that should truncate properly",
       artist: "an artist with a really long name that also needs truncation",
       album: "the album",
       isFavorite: false,

@@ -56,9 +56,7 @@ function groupArtistsByLetter(artists: MockArtist[]): LetterSection[] {
   letters.forEach((letter) => {
     sections.push({
       letter,
-      artists: grouped
-        .get(letter)!
-        .sort((a, b) => a.name.localeCompare(b.name)),
+      artists: grouped.get(letter)!.sort((a, b) => a.name.localeCompare(b.name)),
     });
   });
 
@@ -76,9 +74,7 @@ function groupArtistsByLetter(artists: MockArtist[]): LetterSection[] {
  */
 export const Interactive: Story = {
   render: () => {
-    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>(
-      "A",
-    );
+    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>("A");
     const sections = groupArtistsByLetter(mockArtists);
 
     // calculate which letters have no artists
@@ -131,9 +127,7 @@ export const Interactive: Story = {
     // scroll to letter when clicked
     const handleLetterClick = (letter: string) => {
       const items = listItems();
-      const index = items.findIndex(
-        (item) => item.type === "header" && item.letter === letter,
-      );
+      const index = items.findIndex((item) => item.type === "header" && item.letter === letter);
       if (index !== -1) {
         virtualizer.scrollToIndex(index, { align: "start" });
         setCurrentLetter(letter);
@@ -230,8 +224,7 @@ export const Interactive: Story = {
                             "font-size": "14px",
                             display: "flex",
                             "align-items": "center",
-                            "border-bottom":
-                              "1px solid var(--color-border-default)",
+                            "border-bottom": "1px solid var(--color-border-default)",
                           }}
                         >
                           {item.letter}
@@ -241,8 +234,7 @@ export const Interactive: Story = {
                           style={{
                             height: "72px",
                             padding: "14px 20px",
-                            "border-bottom":
-                              "1px solid var(--color-border-subtle)",
+                            "border-bottom": "1px solid var(--color-border-subtle)",
                             cursor: "pointer",
                             transition: "background-color 0.15s ease",
                             display: "flex",
@@ -251,12 +243,10 @@ export const Interactive: Story = {
                             gap: "6px",
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor =
-                              "var(--color-bg-secondary)";
+                            e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)";
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor =
-                              "transparent";
+                            e.currentTarget.style.backgroundColor = "transparent";
                           }}
                         >
                           <div
@@ -268,10 +258,7 @@ export const Interactive: Story = {
                               color: "var(--color-text-secondary)",
                             }}
                           >
-                            <MarqueeText
-                              text={item.artist.name}
-                              hoverOnly={true}
-                            />
+                            <MarqueeText text={item.artist.name} hoverOnly={true} />
                           </div>
                           <div
                             style={{
@@ -279,8 +266,7 @@ export const Interactive: Story = {
                               color: "var(--color-text-tertiary)",
                             }}
                           >
-                            {item.artist.songCount} songs ·{" "}
-                            {item.artist.albumCount} albums
+                            {item.artist.songCount} songs · {item.artist.albumCount} albums
                           </div>
                         </div>
                       )}
@@ -301,9 +287,7 @@ export const Interactive: Story = {
  */
 export const WithDisabledLetters: Story = {
   render: () => {
-    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>(
-      "B",
-    );
+    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>("B");
 
     // simulate letters with no items
     const disabledLetters = new Set(["E", "I", "O", "Q", "U", "X", "Z", "#"]);
@@ -349,9 +333,7 @@ export const WithDisabledLetters: Story = {
  */
 export const DescendingOrder: Story = {
   render: () => {
-    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>(
-      "Z",
-    );
+    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>("Z");
 
     return (
       <div
@@ -393,9 +375,7 @@ export const DescendingOrder: Story = {
  */
 export const NoSelection: Story = {
   render: () => {
-    const [currentLetter, setCurrentLetter] = createSignal<
-      string | undefined
-    >();
+    const [currentLetter, setCurrentLetter] = createSignal<string | undefined>();
 
     return (
       <div

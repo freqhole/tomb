@@ -15,7 +15,11 @@ import {
   type SortState,
 } from "../../components/virtualized/VirtualSongList";
 import type { Song } from "../data/types";
-import { useSongsInfiniteQuery, type SongSortField, type SongSortDirection } from "../queries/songs";
+import {
+  useSongsInfiniteQuery,
+  type SongSortField,
+  type SongSortDirection,
+} from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";

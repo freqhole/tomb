@@ -341,8 +341,10 @@ export function TopNav(props: TopNavProps) {
                                   props.currentSourceName !== "local library",
                               }}
                               disabled={
-                                !!(props.currentSourceName === "local library" ||
-                                !props.currentSourceName)
+                                !!(
+                                  props.currentSourceName === "local library" ||
+                                  !props.currentSourceName
+                                )
                               }
                               onClick={() => props.onSwitchToLocal?.()}
                             >

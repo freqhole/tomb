@@ -30,10 +30,10 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
   // entity URLs management - convert from storage type (id optional) to form type
   const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>(
-    (props.playlist.urls || []).map(u => ({ ...u, name: u.name || "" }))
+    (props.playlist.urls || []).map((u) => ({ ...u, name: u.name || "" }))
   );
   const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>(
-    (props.playlist.urls || []).map(u => ({ ...u, name: u.name || "" }))
+    (props.playlist.urls || []).map((u) => ({ ...u, name: u.name || "" }))
   );
 
   const updatePlaylistMutation = useUpdatePlaylistMutation();
