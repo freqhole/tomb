@@ -10,6 +10,7 @@ import { getPageInfo } from "../../app/services/pageInfo";
 import { Badge } from "../badges/Badge";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
+import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -46,6 +47,10 @@ export interface TopNavProps {
   brandName?: string;
   /** brand tagline/description */
   brandTagline?: string;
+  /** current authenticated user name (for remote sources) */
+  currentUsername?: string | null;
+  /** current authenticated user role (for remote sources) */
+  currentUserRole?: string | null;
   /** version text */
   version?: string;
   /** callback when brand is clicked */
@@ -210,6 +215,8 @@ export function TopNav(props: TopNavProps) {
           onClose={() => setMobileMenuOpen(false)}
           brandName={props.brandName}
           brandTagline={props.brandTagline}
+          currentUsername={props.currentUsername}
+          currentUserRole={props.currentUserRole}
           version={props.version}
           currentSourceName={props.currentSourceName}
           remotes={props.remotes}
@@ -312,10 +319,24 @@ export function TopNav(props: TopNavProps) {
                                 />
                                 <span>le</span>
                               </h3>
-                              <Show when={props.brandTagline}>
-                                <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
-                                  {props.brandTagline}
-                                </p>
+                              <Show
+                                when={props.currentUsername && props.currentUserRole}
+                                fallback={
+                                  <Show when={props.brandTagline}>
+                                    <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
+                                      {props.brandTagline}
+                                    </p>
+                                  </Show>
+                                }
+                              >
+                                <div class="flex items-center gap-2 mt-1">
+                                  <span class="text-xs text-[var(--color-text-secondary)]">
+                                    {props.currentUsername}
+                                  </span>
+                                  <Badge variant="default" size="sm">
+                                    {props.currentUserRole}
+                                  </Badge>
+                                </div>
                               </Show>
                             </div>
                             <Show when={props.version}>
@@ -324,7 +345,7 @@ export function TopNav(props: TopNavProps) {
                               </div>
                             </Show>
                           </div>
-                          <Show when={props.onAddMusic}>
+                          <Show when={props.onAddMusic && canUploadMusic()}>
                             <button
                               class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
                               onClick={() => props.onAddMusic?.()}
@@ -519,14 +540,16 @@ export function TopNav(props: TopNavProps) {
                           >
                             view all
                           </button>
-                          <button
-                            class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer font-medium"
-                            onClick={() => {
-                              props.onCreatePlaylist?.();
-                            }}
-                          >
-                            + create
-                          </button>
+                          <Show when={canCreatePlaylist()}>
+                            <button
+                              class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer font-medium"
+                              onClick={() => {
+                                props.onCreatePlaylist?.();
+                              }}
+                            >
+                              + create
+                            </button>
+                          </Show>
                         </div>
                       </div>
                     </div>

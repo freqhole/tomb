@@ -48,6 +48,7 @@ import {
   type DownloadProgress,
   type SyncCheckResult,
 } from "../services/playlists/downloadSync";
+import { canUpdatePlaylist } from "../data/permissions";
 import { getRemoteByUrl } from "../../app/services/remotes/remoteManager";
 import { getPlaylistById, initMusicDB } from "../services/storage/db";
 import { convertToLocalPlaylist, isEditablePlaylist } from "../services/storage/playlists";
@@ -996,7 +997,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                           {/* action buttons - only render here on wide screens */}
                           <Show when={!editMode() && !isNarrow()}>
                             <div class="flex gap-2 sticky top-0 bg-[var(--color-background-primary)] py-2 z-10">
-                              <Show when={selectedPlaylist()?.is_editable !== false}>
+                              <Show when={selectedPlaylist()?.is_editable !== false && canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)}>
                                 <IconButton
                                   icon="edit"
                                   size="default"
@@ -1109,7 +1110,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
                       {/* sticky action buttons for narrow - direct child of scroll container */}
                       <Show when={!editMode() && isNarrow()}>
                         <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
-                          <Show when={selectedPlaylist()?.is_editable !== false}>
+                          <Show when={selectedPlaylist()?.is_editable !== false && canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)}>
                             <IconButton
                               icon="edit"
                               size="default"

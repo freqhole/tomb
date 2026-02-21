@@ -1,10 +1,10 @@
 //! Favorites API handlers
 
 use axum::{extract::State, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{ListFavoritesRequest, ListFavoritesResponse, SetFavoriteResponse};
 use grimoire::response::GrimoireResponse;
-use grimoire::users::{FavoritesService, SetFavoriteRequest};
+use grimoire::users::{FavoritesService, SetFavoriteRequest, UserRole};
 use inventory;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
@@ -22,6 +22,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SetFavoriteRequest",
         response_type: "SetFavoriteResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -33,6 +34,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ListFavoritesRequest",
         response_type: "ListFavoritesResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 

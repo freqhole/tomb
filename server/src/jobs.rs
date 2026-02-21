@@ -1,7 +1,7 @@
 //! job status and management handlers
 
 use axum::{extract::Extension, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::jobs::{get_job, list_jobs, GetJobRequest, Job, JobStatus, ListJobsRequest};
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
@@ -27,6 +27,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetJobRequest",
         response_type: "Job",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -71,5 +72,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ListJobsRequest",
         response_type: "Vec<Job>",
+        auth: RouteAuth::Authenticated,
     }
 }

@@ -14,7 +14,7 @@ import { useNavigate } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import type { FavoriteTarget } from "../../music/queries/favorites";
-import { getCurrentUserId } from "../../music/data";
+import { getCurrentUser } from "../../music/data";
 
 const ROW_HEIGHT = 100;
 const IMAGE_SIZE = ROW_HEIGHT - 12; // 6px padding top + bottom
@@ -251,7 +251,7 @@ function FeedRow(props: {
     const item = props.item;
     const isComplete = item.session_status === "completed" || (item.progress_percent ?? 0) >= 100;
     if (isComplete) return false;
-    const isOwn = item.user_id && item.user_id === getCurrentUserId();
+    const isOwn = item.user_id && item.user_id === getCurrentUser()?.userId;
     return isOwn && hasProgress();
   };
 

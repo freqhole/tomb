@@ -133,6 +133,7 @@ export interface Playlist {
   urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
   created_at: number;
   updated_at: number;
+  created_by_id?: string | null; // user who created the playlist
   // sync fields for remote playlists
   source_type?: "local" | "remote"; // undefined for legacy, defaults to "local"
   source_remote_id?: string | null; // remote playlist id

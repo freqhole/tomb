@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
+import { canCreatePlaylist } from "../../music/data/permissions";
 import {
   useAddSongsToPlaylistMutation,
   useCreatePlaylistMutation,
@@ -164,20 +165,22 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
           />
 
           {/* create new button - before playlists list */}
-          <div class="pb-2 border-b border-[var(--color-border-default)]">
-            <Button
-              variant="ghost"
-              onClick={handleCreatePlaylist}
-              disabled={isLoading()}
-              class="w-full justify-start"
-            >
-              <Icon
-                name={IconNames.add}
-                className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0"
-              />
-              new playlist
-            </Button>
-          </div>
+          <Show when={canCreatePlaylist()}>
+            <div class="pb-2 border-b border-[var(--color-border-default)]">
+              <Button
+                variant="ghost"
+                onClick={handleCreatePlaylist}
+                disabled={isLoading()}
+                class="w-full justify-start"
+              >
+                <Icon
+                  name={IconNames.add}
+                  className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0"
+                />
+                new playlist
+              </Button>
+            </div>
+          </Show>
 
           {/* playlists list */}
           <div class="max-h-[400px] overflow-y-auto space-y-1">

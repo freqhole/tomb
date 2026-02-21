@@ -9,6 +9,7 @@
 //! no webauthn-rs types should leak into other modules.
 
 pub mod handlers;
+pub mod helpers;
 pub mod middleware;
 pub mod session;
 
@@ -19,5 +20,6 @@ pub mod freq_webauthn;
 
 // re-export public types
 pub use handlers::*;
+pub use helpers::*;
 pub use middleware::*;
 pub use session::*;

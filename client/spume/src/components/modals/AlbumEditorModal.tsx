@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import * as apiClient from "freqhole-api-client";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import { canUpdateAlbum, canDeleteAlbum } from "../../music/data/permissions";
 import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
@@ -942,11 +943,13 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         {/* footer */}
         <Show when={initialData() && activeTab() === "info"}>
           <div class="flex items-center justify-between p-6">
-            <Button onClick={handleDelete} variant="danger">
-              delete
-            </Button>
+            <Show when={canDeleteAlbum()}>
+              <Button onClick={handleDelete} variant="danger">
+                delete
+              </Button>
+            </Show>
             <div class="flex items-center gap-3">
-              <Show when={hasChanges()}>
+              <Show when={hasChanges() && canUpdateAlbum()}>
                 <button
                   onClick={handleReset}
                   class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
@@ -957,9 +960,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               <Button variant="secondary" onClick={props.onClose}>
                 cancel
               </Button>
-              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
-                save changes
-              </Button>
+              <Show when={canUpdateAlbum()}>
+                <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
+                  save changes
+                </Button>
+              </Show>
             </div>
           </div>
         </Show>

@@ -7,6 +7,7 @@ import { toast } from "../../../components/feedback/Toast";
 import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../queries/playlists";
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
+import { canUpdatePlaylist, canDeletePlaylist } from "../../data/permissions";
 import { pollJobUntilComplete } from "../../../utils/jobs";
 import type { Playlist, ImageMetadata } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
@@ -284,16 +285,20 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
           placeholder="description (optional)"
         />
         <div class="flex gap-2">
-          <Button variant="primary" onClick={handleSave}>
-            save
-          </Button>
+          <Show when={canUpdatePlaylist(props.playlist.created_by_id ?? null)}>
+            <Button variant="primary" onClick={handleSave}>
+              save
+            </Button>
+          </Show>
           <Button variant="secondary" onClick={handleCancel}>
             cancel
           </Button>
           <div class="flex-1" />
-          <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
-            delete
-          </Button>
+          <Show when={canDeletePlaylist(props.playlist.created_by_id ?? null)}>
+            <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
+              delete
+            </Button>
+          </Show>
         </div>
       </div>
 

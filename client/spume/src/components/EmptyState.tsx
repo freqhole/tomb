@@ -1,5 +1,7 @@
+import { Show } from "solid-js";
 import { Button } from "./buttons/Button";
 import { Icon } from "./icons/registry";
+import { canUploadMusic } from "../music/data/permissions";
 
 export interface EmptyStateProps {
   onAddMusic: () => void;
@@ -27,9 +29,11 @@ export function EmptyState(props: EmptyStateProps) {
         </p>
 
         <div class="flex gap-3 justify-center">
-          <Button variant="primary" onClick={props.onAddMusic}>
-            add music
-          </Button>
+          <Show when={canUploadMusic()}>
+            <Button variant="primary" onClick={props.onAddMusic}>
+              add music
+            </Button>
+          </Show>
           <Button variant="secondary" onClick={props.onAddRemote}>
             add remote
           </Button>

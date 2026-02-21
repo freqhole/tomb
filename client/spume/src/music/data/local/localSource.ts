@@ -1560,6 +1560,27 @@ export class LocalMusicDataSource implements MusicDataSource {
       song_count: results.length,
     };
   }
+
+  // permission checks - local source always permits all actions
+  canDeletePlaylist(_playlist: { created_by_id?: string | null }): boolean {
+    return true;
+  }
+
+  canUpdatePlaylist(_playlist: { created_by_id?: string | null }): boolean {
+    return true;
+  }
+
+  canDeleteSong(): boolean {
+    return true;
+  }
+
+  canDeleteAlbum(): boolean {
+    return true;
+  }
+
+  canDeleteArtist(): boolean {
+    return true;
+  }
 }
 
 // singleton instance

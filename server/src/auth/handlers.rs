@@ -1,7 +1,7 @@
 //! authentication route handlers
 
 use axum::{extract::Extension, response::IntoResponse, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::users::{
     ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, UserService,
     WhoAmIResponse,
@@ -36,6 +36,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "String",
         response_type: "WhoAmIResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -57,6 +58,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "String",
         response_type: "serde_json::Value",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -106,6 +108,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "String",
         response_type: "ApiKeyRegenerateResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -117,6 +120,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "String",
         response_type: "ApiKeyStatusResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -207,5 +211,6 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "RedeemInviteRequest",
         response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
     }
 }

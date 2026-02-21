@@ -4,16 +4,19 @@ use axum::{
     extract::{Multipart, State},
     Extension, Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
 use grimoire::media_blobz::{create_media_blob, BlobType};
 use grimoire::upload::{MusicMetadataHints, MusicUploadResponse};
 use grimoire::media_blobz::CreateMediaBlobRequest;
+use grimoire::users::UserRole;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
-use crate::{auth::AuthenticatedUser, error::ApiError, AppState};
+use crate::auth::{check_role, AuthenticatedUser};
+use crate::error::ApiError;
+use crate::AppState;
 
 inventory::submit! {
     RouteInfo {
@@ -23,6 +26,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "MusicUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -39,9 +43,7 @@ pub async fn upload_music_handler(
     mut multipart: Multipart,
 ) -> Result<Json<MusicUploadResponse>, ApiError> {
     // check user role - only member (20) or lower can upload
-    if user.role.level() > grimoire::users::UserRole::Member.level() {
-        return Err(ApiError::Forbidden);
-    }
+    check_role(&user, UserRole::Member)?;
 
     let mut file_data: Option<Vec<u8>> = None;
     let mut filename: Option<String> = None;

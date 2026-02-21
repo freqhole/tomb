@@ -4,7 +4,7 @@ use axum::{
     extract::{Extension, Path, State},
     Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{
     delete_artist, get_artist, query_artists, ArtistsQueryResult, DeleteArtistRequest,
     DeleteArtistResponse, QueryParams,
@@ -14,9 +14,12 @@ use grimoire::music::entities::artists::{
     UpdateArtistRequest,
 };
 use grimoire::response::GrimoireResponse;
+use grimoire::users::UserRole;
 use inventory;
 
-use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
+use crate::auth::{check_role, AuthenticatedUser};
+use crate::error::ApiError;
+use crate::AppState;
 
 /// Create a new artist
 pub async fn create_artist_handler(
@@ -42,6 +45,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "CreateArtistRequest",
         response_type: "Artist",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -53,6 +57,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "ArtistsQueryResult",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -64,6 +69,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetArtistRequest",
         response_type: "Artist",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -75,6 +81,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeleteArtistRequest",
         response_type: "DeleteArtistResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -86,6 +93,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdateArtistRequest",
         response_type: "Artist",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -97,6 +105,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "Vec<String>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -116,9 +125,7 @@ pub async fn query_artists_handler(
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &auth_user.user_id => {
             // requesting data for a different user - must be admin
-            if !auth_user.role.is_admin() {
-                return Err(ApiError::Forbidden);
-            }
+            check_role(&auth_user, UserRole::Admin)?;
             uid.clone()
         }
         Some(uid) => uid.clone(),
@@ -177,9 +184,7 @@ pub async fn delete_artist_handler(
     body: Option<Json<DeleteArtistRequest>>,
 ) -> Result<Json<DeleteArtistResponse>, ApiError> {
     // require admin
-    if !user.role.is_admin() {
-        return Err(ApiError::Forbidden);
-    }
+    check_role(&user, UserRole::Admin)?;
 
     let user_id = body
         .and_then(|b| b.user_id.clone())
@@ -206,9 +211,7 @@ pub async fn update_artist_handler(
     Json(mut req): Json<UpdateArtistRequest>,
 ) -> Result<Json<Artist>, ApiError> {
     // require admin
-    if !user.role.is_admin() {
-        return Err(ApiError::Forbidden);
-    }
+    check_role(&user, UserRole::Admin)?;
 
     // inject authenticated user id
     req.updated_by = Some(user.user_id);

@@ -107,10 +107,6 @@ pub struct DeletePlaylistRequest {
     /// Playlist ID
     #[arg(long)]
     pub playlist_id: String,
-
-    /// User ID performing the delete
-    #[arg(long)]
-    pub deleted_by: Option<String>,
 }
 
 /// request for removing songs from a playlist

@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, For, onMount, Show } from "soli
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import { canUpdateArtist, canDeleteArtist } from "../../music/data/permissions";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
@@ -471,11 +472,13 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
         {/* footer */}
         <Show when={initialData() && activeTab() === "info"}>
           <div class="flex items-center justify-between p-6">
-            <Button onClick={handleDelete} variant="danger">
-              delete
-            </Button>
+            <Show when={canDeleteArtist()}>
+              <Button onClick={handleDelete} variant="danger">
+                delete
+              </Button>
+            </Show>
             <div class="flex items-center gap-3">
-              <Show when={hasChanges()}>
+              <Show when={hasChanges() && canUpdateArtist()}>
                 <button
                   onClick={handleReset}
                   class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
@@ -486,9 +489,11 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
               <Button variant="secondary" onClick={props.onClose}>
                 cancel
               </Button>
-              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
-                save changes
-              </Button>
+              <Show when={canUpdateArtist()}>
+                <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
+                  save changes
+                </Button>
+              </Show>
             </div>
           </div>
         </Show>

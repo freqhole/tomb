@@ -133,7 +133,6 @@ export const updatePlaylistRequest: s.UpdatePlaylistRequest = {
 
 export const deletePlaylistRequest: s.DeletePlaylistRequest = {
   playlist_id: PLACEHOLDER_ID,
-  deleted_by: null,
 };
 
 export const queryPlaylistSongsRequest: s.QueryPlaylistSongsRequest = {

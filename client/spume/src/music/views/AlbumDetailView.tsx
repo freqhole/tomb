@@ -15,6 +15,7 @@ import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { getCurrentRemote, getDataSource } from "../data";
+import { canUpdateAlbum } from "../data/permissions";
 import { showAlbumEditor, showImageCarousel } from "../hooks/modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
@@ -325,18 +326,20 @@ export function AlbumDetailView() {
                       <span class="hidden md:inline">play album</span>
                       <span class="md:hidden">play</span>
                     </Button>
-                    <button
-                      onClick={() =>
-                        showAlbumEditor({
-                          albumId: info().album_id || params.id,
-                          onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
-                        })
-                      }
-                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                      title="edit album info"
-                    >
-                      <Icon name={IconNames.edit} />
-                    </button>
+                    <Show when={canUpdateAlbum()}>
+                      <button
+                        onClick={() =>
+                          showAlbumEditor({
+                            albumId: info().album_id || params.id,
+                            onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
+                          })
+                        }
+                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                        title="edit album info"
+                      >
+                        <Icon name={IconNames.edit} />
+                      </button>
+                    </Show>
                     <FavoriteHeart
                       isFavorite={albumQuery.data?.is_favorite ?? false}
                       onToggle={handleAlbumFavoriteToggle}

@@ -427,8 +427,7 @@ export const DeleteImageRequestSchema = z.object({
 export type DeleteImageRequest = z.infer<typeof DeleteImageRequestSchema>;
 
 export const DeletePlaylistRequestSchema = z.object({
-  playlist_id: z.string(),
-  deleted_by: z.string().nullable()
+  playlist_id: z.string()
 });
 export type DeletePlaylistRequest = z.infer<typeof DeletePlaylistRequestSchema>;
 

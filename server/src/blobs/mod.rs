@@ -22,7 +22,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
     Extension,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::media_blobz::{get_media_blob_with_data, BlobMetadataResponse};
 use std::io::SeekFrom;
 use tokio::{
@@ -40,6 +40,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "String", // binary response, not typed
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -51,6 +52,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "BlobMetadataResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 

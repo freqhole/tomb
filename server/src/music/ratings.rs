@@ -2,13 +2,13 @@
 
 use axum::{extract::State, Json};
 use axum::extract::Extension;
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{
     GetRatingStatsRequest, RatingStats, RemoveRatingRequest, RemoveRatingResponse,
     SetRatingResponse,
 };
 use grimoire::response::GrimoireResponse;
-use grimoire::users::{RatingsService, SetRatingRequest};
+use grimoire::users::{RatingsService, SetRatingRequest, UserRole};
 use inventory;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
@@ -25,6 +25,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SetRatingRequest",
         response_type: "SetRatingResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -36,6 +37,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "RemoveRatingRequest",
         response_type: "RemoveRatingResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -47,6 +49,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetRatingStatsRequest",
         response_type: "RatingStats",
+        auth: RouteAuth::Authenticated,
     }
 }
 

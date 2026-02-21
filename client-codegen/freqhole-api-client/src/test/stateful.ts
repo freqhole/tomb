@@ -618,7 +618,6 @@ export async function runStatefulTests() {
         baseUrl,
         {
           playlist_id: testState.createdPlaylistId!,
-          deleted_by: null,
         },
         apiKey,
       );

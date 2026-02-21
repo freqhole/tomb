@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For } from "solid-js";
+import { canSetRating } from "../../music/data/permissions";
 
 export interface RatingProps {
   rating?: number | null;
@@ -11,6 +12,7 @@ export interface RatingProps {
 
 // compact rating component with 5 vertical bars
 // click cycles through 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 0
+// automatically disabled if user doesn't have permission to rate
 export function Rating(props: RatingProps) {
   const [isUpdating, setIsUpdating] = createSignal(false);
   const [localRating, setLocalRating] = createSignal(props.rating ?? 0);
@@ -28,7 +30,7 @@ export function Rating(props: RatingProps) {
   const rating = () => localRating();
 
   const size = () => props.size || "md";
-  const disabled = () => props.disabled || false;
+  const disabled = () => props.disabled || !canSetRating();
 
   const getSizeClass = () => {
     switch (size()) {

@@ -1,7 +1,7 @@
 //! health check handlers
 
 use axum::Json;
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::config::get_config;
 use grimoire::health::{HealthResponse, ServerInfoResponse};
 
@@ -39,6 +39,7 @@ inventory::submit! {
         domain: Domain::App,
         request_type: "String",
         response_type: "HealthResponse",
+        auth: RouteAuth::Public,
     }
 }
 
@@ -81,5 +82,6 @@ inventory::submit! {
         domain: Domain::App,
         request_type: "String",
         response_type: "ServerInfoResponse",
+        auth: RouteAuth::Public,
     }
 }

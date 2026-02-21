@@ -13,7 +13,7 @@ import { playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
-import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId } from "./serverSession";
+import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, reconnectServerSession } from "./serverSession";
 import type { Song } from "../storage/types";
 
 // re-export queue state so consumers can import everything from queue.ts
@@ -261,7 +261,6 @@ export async function resumeHistoryEntry(
 
   // reconnect server session if the entry has server session info
   if (entry.server_session_id && entry.server_remote_id) {
-    const { reconnectServerSession } = await import("./serverSession");
     void reconnectServerSession({
       id: entry.id,
       server_session_id: entry.server_session_id,

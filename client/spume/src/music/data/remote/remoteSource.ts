@@ -1,7 +1,7 @@
 // remote data source implementation
 // queries remote server for music library data using freqhole-api-client
 import * as apiClient from "freqhole-api-client";
-import { isAuthError } from "freqhole-api-client";
+import { isAuthError, permissions } from "freqhole-api-client";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -19,6 +19,7 @@ import type {
 } from "../types";
 import { adaptSongFromAPI, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
+import { getCurrentUser } from "../index";
 
 // remote data source implementation
 // uses cookie-based auth - no credentials stored client-side
@@ -389,6 +390,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         created_at: item.playlist.created_at * 1000, // convert seconds to milliseconds
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
         is_favorite: item.is_favorite,
+        created_by_id: item.playlist.created_by_id,
       })),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -494,7 +496,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async deletePlaylist(playlistId: string): Promise<void> {
     const result = await apiClient.music.deletePlaylist(this.baseUrl, {
       playlist_id: playlistId,
-      deleted_by: null, // server will use authenticated user
     });
 
     if (!result.success) {
@@ -1059,5 +1060,36 @@ export class RemoteMusicDataSource implements MusicDataSource {
       this.checkAuthError(result);
       throw new Error("failed to set primary image");
     }
+  }
+
+  // permission checks - use api-client permission helpers with current user context
+  canDeletePlaylist(playlist: { created_by_id?: string | null }): boolean {
+    const user = getCurrentUser();
+    if (!user) return false;
+    return permissions.canDeletePlaylist(user.userId, playlist.created_by_id ?? null, user.role);
+  }
+
+  canUpdatePlaylist(playlist: { created_by_id?: string | null }): boolean {
+    const user = getCurrentUser();
+    if (!user) return false;
+    return permissions.canUpdatePlaylist(user.userId, playlist.created_by_id ?? null, user.role);
+  }
+
+  canDeleteSong(): boolean {
+    const user = getCurrentUser();
+    if (!user) return false;
+    return permissions.canDeleteSong(user.role);
+  }
+
+  canDeleteAlbum(): boolean {
+    const user = getCurrentUser();
+    if (!user) return false;
+    return permissions.canDeleteAlbum(user.role);
+  }
+
+  canDeleteArtist(): boolean {
+    const user = getCurrentUser();
+    if (!user) return false;
+    return permissions.canDeleteArtist(user.role);
   }
 }

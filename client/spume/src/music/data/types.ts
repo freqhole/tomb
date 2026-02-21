@@ -97,6 +97,7 @@ export interface PlaylistSummary {
   created_at: number;
   updated_at: number;
   is_favorite?: boolean;
+  created_by_id?: string | null;
 }
 
 // favorite target type for mutations
@@ -411,6 +412,14 @@ export interface MusicDataSource {
     entityId: string;
     blobId: string;
   }): Promise<void>;
+
+  // permission checks - check if current user can perform action
+  // remote sources use API auth metadata, local sources return true
+  canDeletePlaylist?(playlist: { created_by_id?: string | null }): boolean;
+  canUpdatePlaylist?(playlist: { created_by_id?: string | null }): boolean;
+  canDeleteSong?(): boolean;
+  canDeleteAlbum?(): boolean;
+  canDeleteArtist?(): boolean;
 
   // source metadata
   getSourceInfo(): Promise<{

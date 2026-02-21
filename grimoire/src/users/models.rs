@@ -58,6 +58,16 @@ impl UserRole {
     pub fn is_viewer(&self) -> bool {
         matches!(self, UserRole::Viewer)
     }
+
+    /// get role name as a static string (for codegen)
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UserRole::Root => "root",
+            UserRole::Admin => "admin",
+            UserRole::Member => "member",
+            UserRole::Viewer => "viewer",
+        }
+    }
 }
 
 impl PartialOrd for UserRole {

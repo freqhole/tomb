@@ -4,12 +4,15 @@ use axum::{
     extract::{Path, State},
     Extension, Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{query_genres, GenresQueryResult, QueryParams};
 use grimoire::response::GrimoireResponse;
+use grimoire::users::UserRole;
 use inventory;
 
-use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
+use crate::auth::{check_role, AuthenticatedUser};
+use crate::error::ApiError;
+use crate::AppState;
 
 // ============================================================================
 // Route Registration
@@ -23,6 +26,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "GenresQueryResult",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -34,6 +38,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetGenreRequest",
         response_type: "Genre",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -53,9 +58,7 @@ pub async fn query_genres_handler(
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &auth_user.user_id => {
             // requesting data for a different user - must be admin
-            if !auth_user.role.is_admin() {
-                return Err(ApiError::Forbidden);
-            }
+            check_role(&auth_user, UserRole::Admin)?;
             uid.clone()
         }
         Some(uid) => uid.clone(),

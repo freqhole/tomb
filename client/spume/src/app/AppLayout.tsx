@@ -19,7 +19,7 @@ import { TopNav } from "../components/navigation/TopNav";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import { getCurrentRemote, getDataSource } from "../music/data";
+import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
@@ -430,6 +430,8 @@ export function AppLayout(props: AppLayoutProps) {
       <TopNav
         brandName="freqhole"
         brandTagline="get yr freq on."
+        currentUsername={getCurrentUser()?.username ?? null}
+        currentUserRole={getCurrentUser()?.role ?? null}
         searchPlaceholder="search artists, albums, songs..."
         onSearchChange={(query) => console.log("search:", query)}
         onSearchSubmit={(query) => console.log("search submit:", query)}

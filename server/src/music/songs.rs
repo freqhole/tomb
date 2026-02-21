@@ -4,16 +4,17 @@ use axum::{
     extract::{Extension, Path, State},
     Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{
     delete_song, list_recent_songs, query_songs, update_songs, DeleteSongRequest,
     DeleteSongResponse, QueryParams, RecentSongsRequest, SongsQueryResult, UpdateSongsRequest,
     UpdateSongsResult,
 };
 use grimoire::response::GrimoireResponse;
+use grimoire::users::UserRole;
 use inventory;
 
-use crate::auth::middleware::AuthenticatedUser;
+use crate::auth::{check_role, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::AppState;
 
@@ -29,6 +30,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "SongsQueryResult",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -40,6 +42,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "RecentSongsRequest",
         response_type: "SongsQueryResult",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -51,6 +54,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdateSongsRequest",
         response_type: "UpdateSongsResult",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -62,6 +66,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeleteSongRequest",
         response_type: "DeleteSongResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -81,9 +86,7 @@ pub async fn query_songs_handler(
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &auth_user.user_id => {
             // requesting data for a different user - must be admin
-            if !auth_user.role.is_admin() {
-                return Err(ApiError::Forbidden);
-            }
+            check_role(&auth_user, UserRole::Admin)?;
             uid.clone()
         }
         Some(uid) => uid.clone(),
@@ -169,9 +172,7 @@ pub async fn delete_song_handler(
     body: Option<Json<DeleteSongRequest>>,
 ) -> Result<Json<DeleteSongResponse>, ApiError> {
     // require admin
-    if !user.role.is_admin() {
-        return Err(ApiError::Forbidden);
-    }
+    check_role(&user, UserRole::Admin)?;
 
     let user_id = body
         .and_then(|b| b.user_id.clone())

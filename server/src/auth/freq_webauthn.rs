@@ -481,7 +481,7 @@ pub async fn login_finish(
 
 // route registrations for inventory-based codegen
 #[cfg(feature = "webauthn")]
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 
 #[cfg(feature = "webauthn")]
 inventory::submit! {
@@ -492,6 +492,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "RegisterStartRequest",
         response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
     }
 }
 
@@ -504,6 +505,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "serde_json::Value",
         response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
     }
 }
 
@@ -516,6 +518,7 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "StartLoginRequest",
         response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
     }
 }
 
@@ -528,5 +531,6 @@ inventory::submit! {
         domain: Domain::Auth,
         request_type: "serde_json::Value",
         response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
     }
 }

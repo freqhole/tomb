@@ -1,7 +1,7 @@
 //! search API handlers
 
 use axum::{extract::Extension, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::response::GrimoireResponse;
 use grimoire::search::{
     get_suggestions, search, SearchRequest, SearchResponse, SuggestionsRequest, SuggestionsResponse,
@@ -23,6 +23,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SuggestionsRequest",
         response_type: "SuggestionsResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -34,6 +35,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SearchRequest",
         response_type: "SearchResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 

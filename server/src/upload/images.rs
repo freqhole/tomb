@@ -4,7 +4,7 @@ use axum::{
     extract::{Multipart, State},
     Extension, Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
 use grimoire::media_blobz::{create_media_blob, BlobType};
 use grimoire::music::entities::{albums, artists, playlists, songs};
@@ -13,11 +13,14 @@ use grimoire::upload::{
     AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
     SetPrimaryImageRequest,
 };
+use grimoire::users::UserRole;
 use grimoire::{media_blobz::CreateMediaBlobRequest, Bytes};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::{auth::AuthenticatedUser, error::ApiError, AppState};
+use crate::auth::{check_role, AuthenticatedUser};
+use crate::error::ApiError;
+use crate::AppState;
 
 const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
@@ -29,6 +32,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "ImageUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -40,6 +44,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeleteImageRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -51,6 +56,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SetPrimaryImageRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -67,9 +73,7 @@ pub async fn upload_image_handler(
     mut multipart: Multipart,
 ) -> Result<Json<ImageUploadResponse>, ApiError> {
     // check user role - only member (20) or lower can upload
-    if user.role.level() > grimoire::users::UserRole::Member.level() {
-        return Err(ApiError::Forbidden);
-    }
+    check_role(&user, UserRole::Member)?;
 
     let mut file_data: Option<Vec<u8>> = None;
     let mut filename: Option<String> = None;

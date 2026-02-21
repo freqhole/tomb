@@ -6,21 +6,22 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{
     query_playlist_songs, query_playlists, PlaylistSongsQueryResult, PlaylistsQueryResult,
     QueryParams, QueryPlaylistSongsRequest,
 };
 use grimoire::music::entities::playlists::{
     add_songs_to_playlist, compute_playlist_etag, create_playlist, delete_playlist, get_playlist,
-    get_playlist_images, remove_songs_from_playlist, update_playlist,
-    update_songs_position, AddSongsToPlaylistRequest, CreatePlaylistRequest,
-    DeletePlaylistRequest, Playlist,
+    get_playlist_images, remove_songs_from_playlist, update_playlist, update_songs_position,
+    AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, Playlist,
     RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
+use grimoire::users::UserRole;
 use grimoire::EmptyResponse;
 
-use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
+use crate::auth::{check_owner_or_admin, check_role, AuthenticatedUser};
+use crate::error::ApiError;
 
 /// list playlists
 pub async fn list_playlists(
@@ -31,9 +32,7 @@ pub async fn list_playlists(
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &auth_user.user_id => {
             // requesting data for a different user - must be admin
-            if !auth_user.role.is_admin() {
-                return Err(ApiError::Forbidden);
-            }
+            check_role(&auth_user, UserRole::Admin)?;
             uid.clone()
         }
         Some(uid) => uid.clone(),
@@ -65,6 +64,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "PlaylistsQueryResult",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -92,6 +92,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "CreatePlaylistRequest",
         response_type: "Playlist",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -136,6 +137,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetPlaylistRequest",
         response_type: "Playlist",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -163,6 +165,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetPlaylistRequest",
         response_type: "String",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -171,6 +174,13 @@ pub async fn update_playlist_handler(
     Extension(user): Extension<AuthenticatedUser>,
     Json(mut req): Json<UpdatePlaylistRequest>,
 ) -> Result<Json<Playlist>, ApiError> {
+    // fetch playlist to check ownership
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    let playlist = playlist_response.data.ok_or(ApiError::NotFound)?;
+
+    // check ownership: owner OR admin can update
+    check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
+
     // inject authenticated user id for audit trail
     if req.updated_by.is_none() {
         req.updated_by = Some(user.user_id);
@@ -193,16 +203,24 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdatePlaylistRequest",
         response_type: "Playlist",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     }
 }
 
 /// delete a playlist (soft delete)
+/// owner or admin can delete, viewer/member cannot delete others' playlists
 pub async fn delete_playlist_handler(
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<DeletePlaylistRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
-    let deleted_by = req.deleted_by.or(Some(user.user_id));
-    let response = delete_playlist(&req.playlist_id, deleted_by).await;
+    // fetch playlist to check ownership
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    let playlist = playlist_response.data.ok_or(ApiError::NotFound)?;
+
+    // check ownership: owner OR admin can delete
+    check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
+
+    let response = delete_playlist(&req.playlist_id, Some(user.user_id)).await;
 
     response
         .data
@@ -218,14 +236,22 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeletePlaylistRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     }
 }
 
 /// add songs to a playlist
 pub async fn add_songs_handler(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<AddSongsToPlaylistRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
+    // fetch playlist to check ownership
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    let playlist = playlist_response.data.ok_or(ApiError::NotFound)?;
+
+    // check ownership: owner OR admin can add songs
+    check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
+
     let response = add_songs_to_playlist(&req.playlist_id, &req.song_ids).await;
 
     response
@@ -242,14 +268,22 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "AddSongsToPlaylistRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     }
 }
 
 /// remove songs from a playlist
 pub async fn remove_songs_handler(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<RemoveSongsFromPlaylistRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
+    // fetch playlist to check ownership
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    let playlist = playlist_response.data.ok_or(ApiError::NotFound)?;
+
+    // check ownership: owner OR admin can remove songs
+    check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
+
     let response = remove_songs_from_playlist(&req.playlist_id, req.song_ids).await;
 
     response
@@ -266,14 +300,22 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "RemoveSongsFromPlaylistRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     }
 }
 
 /// reorder songs in a playlist
 pub async fn reorder_songs_handler(
-    Extension(_user): Extension<AuthenticatedUser>,
+    Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<ReorderPlaylistSongsRequest>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
+    // fetch playlist to check ownership
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    let playlist = playlist_response.data.ok_or(ApiError::NotFound)?;
+
+    // check ownership: owner OR admin can reorder songs
+    check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
+
     // convert Vec<String> to Vec<&str> for the grimoire function
     let song_ids_refs: Vec<&str> = req.song_ids.iter().map(|s| s.as_str()).collect();
     let response = update_songs_position(&req.playlist_id, &song_ids_refs, req.new_position).await;
@@ -292,6 +334,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "QueryPlaylistSongsRequest",
         response_type: "PlaylistSongsQueryResult",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -341,6 +384,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ReorderPlaylistSongsRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     }
 }
 
@@ -366,5 +410,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "Vec<String>",
+        auth: RouteAuth::Authenticated,
     }
 }

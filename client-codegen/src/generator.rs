@@ -1,6 +1,6 @@
 //! typescript client generator - outputs route config + schemas
 
-use grimoire::api_registry::{self, RouteInfo};
+use grimoire::api_registry::{self, RouteAuth, RouteInfo};
 use std::collections::HashSet;
 use zod_gen::ZodGenerator;
 
@@ -56,12 +56,48 @@ fn extract_type(rust_type: &str) -> Option<String> {
     )
 }
 
+/// format RouteAuth enum as TypeScript object literal
+fn auth_to_ts(auth: &RouteAuth) -> String {
+    match auth {
+        RouteAuth::Public => "{ type: 'public' }".to_string(),
+        RouteAuth::Authenticated => "{ type: 'authenticated' }".to_string(),
+        RouteAuth::Role(role) => {
+            format!("{{ type: 'role', role: '{}' }}", role.as_str())
+        }
+        RouteAuth::Owner => "{ type: 'owner' }".to_string(),
+        RouteAuth::OwnerOr(role) => {
+            format!("{{ type: 'owner_or', role: '{}' }}", role.as_str())
+        }
+    }
+}
+
 fn generate_routes_file(routes: &[RouteInfo]) -> String {
     use std::collections::HashMap;
 
     let mut output = String::from(
         "// generated route config\nimport * as s from './schema';\nimport { z } from 'zod';\n\n",
     );
+
+    // add role hierarchy constant
+    output.push_str("// role hierarchy - lower number = higher privilege\n");
+    output.push_str("export const roleHierarchy = {\n");
+    output.push_str("  root: 0,\n");
+    output.push_str("  admin: 10,\n");
+    output.push_str("  member: 20,\n");
+    output.push_str("  viewer: 30,\n");
+    output.push_str("} as const;\n\n");
+
+    // add type definitions
+    output.push_str("export type UserRoleName = keyof typeof roleHierarchy;\n");
+    output.push_str(
+        "export type RouteAuthType = 'public' | 'authenticated' | 'role' | 'owner' | 'owner_or';\n",
+    );
+    output.push_str("export type RouteAuth =\n");
+    output.push_str("  | { type: 'public' }\n");
+    output.push_str("  | { type: 'authenticated' }\n");
+    output.push_str("  | { type: 'role'; role: UserRoleName }\n");
+    output.push_str("  | { type: 'owner' }\n");
+    output.push_str("  | { type: 'owner_or'; role: UserRoleName };\n\n");
 
     // group routes by domain
     let mut domains: HashMap<&str, Vec<&RouteInfo>> = HashMap::new();
@@ -80,21 +116,23 @@ fn generate_routes_file(routes: &[RouteInfo]) -> String {
         for route in domain_routes {
             let req_schema = schema_ref(route.request_type);
             let resp_schema = schema_ref(route.response_type);
+            let auth_ts = auth_to_ts(&route.auth);
 
             output.push_str(&format!(
-                "    {}: {{ method: '{}', path: '{}', req: {}, resp: {} }},\n",
+                "    {}: {{ method: '{}', path: '{}', req: {}, resp: {}, auth: {} as const }},\n",
                 route.name,
                 route.method.as_str(),
                 route.path,
                 req_schema,
-                resp_schema
+                resp_schema,
+                auth_ts
             ));
         }
 
         output.push_str("  },\n");
     }
 
-    output.push_str("};\n");
+    output.push_str("} as const;\n");
     output
 }
 

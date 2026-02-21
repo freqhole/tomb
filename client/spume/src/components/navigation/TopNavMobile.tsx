@@ -4,6 +4,7 @@ import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { routes } from "../../music/utils/routing";
+import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 
 // re-export shared types
 export type { NavMenuItem, NavMenuSection, RecentPlaylist } from "./TopNav";
@@ -17,6 +18,10 @@ export interface TopNavMobileProps {
   brandName?: string;
   /** brand tagline/description */
   brandTagline?: string;
+  /** current authenticated user name (for remote sources) */
+  currentUsername?: string | null;
+  /** current authenticated user role (for remote sources) */
+  currentUserRole?: string | null;
   /** version text */
   version?: string;
   /** current source name (e.g. "local library" or remote name) */
@@ -129,8 +134,22 @@ export function TopNavMobile(props: TopNavMobileProps) {
                       />
                       <span>le</span>
                     </h3>
-                    <Show when={props.brandTagline}>
-                      <p class="text-xs text-white/50 m-0 mt-1">{props.brandTagline}</p>
+                    <Show
+                      when={props.currentUsername && props.currentUserRole}
+                      fallback={
+                        <Show when={props.brandTagline}>
+                          <p class="text-xs text-white/50 m-0 mt-1">{props.brandTagline}</p>
+                        </Show>
+                      }
+                    >
+                      <div class="flex items-center gap-2 mt-1">
+                        <span class="text-xs text-white/70">
+                          {props.currentUsername}
+                        </span>
+                        <span class="px-1.5 py-0.5 bg-white/10 rounded text-xs text-white/50">
+                          {props.currentUserRole}
+                        </span>
+                      </div>
                     </Show>
                   </div>
                   <Show when={props.version}>
@@ -139,7 +158,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
                     </div>
                   </Show>
                 </div>
-                <Show when={props.onAddMusic}>
+                <Show when={props.onAddMusic && canUploadMusic()}>
                   <button
                     class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
                     onClick={() => handleMenuItemClick(() => props.onAddMusic?.())}
@@ -394,12 +413,14 @@ export function TopNavMobile(props: TopNavMobileProps) {
                 >
                   view all
                 </button>
-                <button
-                  class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer font-medium"
-                  onClick={() => handleMenuItemClick(() => props.onCreatePlaylist?.())}
-                >
-                  + create
-                </button>
+                <Show when={canCreatePlaylist()}>
+                  <button
+                    class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-white/10 rounded transition-colors bg-transparent cursor-pointer font-medium"
+                    onClick={() => handleMenuItemClick(() => props.onCreatePlaylist?.())}
+                  >
+                    + create
+                  </button>
+                </Show>
               </div>
             </div>
 

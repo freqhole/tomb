@@ -1,11 +1,12 @@
 //! musicbrainz handlers
 
 use axum::{extract::Extension, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::musicbrainz::{
     GetReleaseRequest, MbCoverArtImage, MbReleaseDetail, MbSearchReleasesResponse,
     ReleaseSearchQuery, SearchReleasesRequest,
 };
+use grimoire::users::UserRole;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError, AppState};
 
@@ -90,6 +91,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SearchReleasesRequest",
         response_type: "MbSearchReleasesResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -166,5 +168,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetReleaseRequest",
         response_type: "MbReleaseDetail",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }

@@ -1,13 +1,14 @@
 //! tags handlers
 
 use axum::{extract::Extension, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::entities::tags::{
     add_albums_tags, delete_tag, get_albums_tags, get_tag, list_tags, query_tags,
     remove_albums_tags, replace_albums_tags, AddAlbumsTagsRequest, DeleteTagRequest,
     GetAlbumsTagsRequest, GetTagRequest, QueryTagsRequest, RemoveAlbumsTagsRequest,
     ReplaceAlbumsTagsRequest, Tag,
 };
+use grimoire::users::UserRole;
 use grimoire::EmptyResponse;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
@@ -32,6 +33,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "Vec<Tag>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -57,6 +59,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "QueryTagsRequest",
         response_type: "Vec<Tag>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -81,6 +84,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetTagRequest",
         response_type: "Tag",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -106,6 +110,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeleteTagRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -130,6 +135,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetAlbumsTagsRequest",
         response_type: "Vec<Tag>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -154,6 +160,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "AddAlbumsTagsRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -178,6 +185,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "RemoveAlbumsTagsRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }
 
@@ -202,5 +210,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ReplaceAlbumsTagsRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     }
 }

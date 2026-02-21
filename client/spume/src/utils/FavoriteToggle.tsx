@@ -1,10 +1,12 @@
 // smart favorite toggle component with business logic
 // wraps FavoriteHeart with mutation handling
+import { Show } from "solid-js";
 import {
   useToggleFavoriteMutation,
   type FavoriteTarget,
 } from "../music/queries/favorites";
 import { FavoriteHeart, type FavoriteHeartProps } from "../components/ratings/FavoriteHeart";
+import { canSetFavorite } from "../music/data/permissions";
 
 export interface FavoriteToggleProps
   extends Pick<FavoriteHeartProps, "disabled" | "size" | "readonly" | "class"> {
@@ -22,6 +24,7 @@ export interface FavoriteToggleProps
 
 // smart favorite toggle with automatic mutation handling
 // use this in the app - NOT FavoriteHeart directly
+// automatically hidden if user doesn't have permission to set favorites
 export function FavoriteToggle(props: FavoriteToggleProps) {
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
@@ -42,13 +45,15 @@ export function FavoriteToggle(props: FavoriteToggleProps) {
   };
 
   return (
-    <FavoriteHeart
-      isFavorite={props.isFavorite}
-      onToggle={handleToggle}
-      disabled={props.disabled || toggleFavoriteMutation.isPending}
-      size={props.size}
-      readonly={props.readonly}
-      class={props.class}
-    />
+    <Show when={canSetFavorite()}>
+      <FavoriteHeart
+        isFavorite={props.isFavorite}
+        onToggle={handleToggle}
+        disabled={props.disabled || toggleFavoriteMutation.isPending}
+        size={props.size}
+        readonly={props.readonly}
+        class={props.class}
+      />
+    </Show>
   );
 }

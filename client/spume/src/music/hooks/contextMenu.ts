@@ -19,6 +19,15 @@ import {
 import { queryKeys } from "../queries/queryKeys";
 import { routes } from "../utils/routing";
 import { addToQueue, playQueue } from "../services/queue/queue";
+import {
+  canUpdateSong,
+  canDeleteSong,
+  canUpdateAlbum,
+  canUpdateArtist,
+  canManageTags,
+  canDeletePlaylist,
+  canUpdatePlaylist,
+} from "../data/permissions";
 
 // shared helper to create favorite menu action
 // standardizes favorite toggle across all context menus
@@ -186,7 +195,7 @@ export function useSongContextMenu(
   });
 
   // tags
-  if (song.album_id) {
+  if (song.album_id && canManageTags()) {
     actions.push({
       label: "tags",
       icon: IconNames.tag,
@@ -196,50 +205,54 @@ export function useSongContextMenu(
     });
   }
 
-  actions.push({ type: "separator" });
+  // edit/info - only for admins
+  if (canUpdateSong()) {
+    actions.push({ type: "separator" });
 
-  // edit/info
-  actions.push({
-    label: "edit info...",
-    icon: IconNames.edit,
-    onClick: () => {
-      showSongEditor({ songId: song.id });
-    },
-  });
+    actions.push({
+      label: "edit info...",
+      icon: IconNames.edit,
+      onClick: () => {
+        showSongEditor({ songId: song.id });
+      },
+    });
+  }
 
-  // delete
-  actions.push({
-    label: "delete",
-    icon: IconNames.delete,
-    destructive: true,
-    onClick: async () => {
-      const confirmed = await confirm({
-        title: "delete song",
-        message: `are you sure you want to delete "${song.title}"? this cannot be undone.`,
-        confirmText: "delete",
-        variant: "danger",
-      });
+  // delete - only for admins
+  if (canDeleteSong()) {
+    actions.push({
+      label: "delete",
+      icon: IconNames.delete,
+      destructive: true,
+      onClick: async () => {
+        const confirmed = await confirm({
+          title: "delete song",
+          message: `are you sure you want to delete "${song.title}"? this cannot be undone.`,
+          confirmText: "delete",
+          variant: "danger",
+        });
 
-      if (confirmed) {
-        try {
-          const dataSource = getDataSource();
-          if (dataSource.deleteSong) {
-            await dataSource.deleteSong(song.id);
-            toast.success(`deleted "${song.title}"`);
-            // invalidate queries to refresh views
-            queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-            queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-            queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
-          } else {
-            toast.error("delete not supported for this data source");
+        if (confirmed) {
+          try {
+            const dataSource = getDataSource();
+            if (dataSource.deleteSong) {
+              await dataSource.deleteSong(song.id);
+              toast.success(`deleted "${song.title}"`);
+              // invalidate queries to refresh views
+              queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+              queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+              queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+            } else {
+              toast.error("delete not supported for this data source");
+            }
+          } catch (error) {
+            console.error("failed to delete song:", error);
+            toast.error("failed to delete song");
           }
-        } catch (error) {
-          console.error("failed to delete song:", error);
-          toast.error("failed to delete song");
         }
-      }
-    },
-  });
+      },
+    });
+  }
 
   // append custom actions
   if (options.customActions && options.customActions.length > 0) {
@@ -462,25 +475,29 @@ export function useAlbumContextMenu(
     },
   });
 
-  // tags
-  actions.push({
-    label: "tags",
-    icon: IconNames.tag,
-    onClick: () => {
-      showTagSelector([album.id], album.title);
-    },
-  });
+  // tags - only for admins
+  if (canManageTags()) {
+    actions.push({
+      label: "tags",
+      icon: IconNames.tag,
+      onClick: () => {
+        showTagSelector([album.id], album.title);
+      },
+    });
+  }
 
-  actions.push({ type: "separator" });
+  // edit - only for admins
+  if (canUpdateAlbum()) {
+    actions.push({ type: "separator" });
 
-  // edit
-  actions.push({
-    label: "edit info...",
-    icon: IconNames.edit,
-    onClick: () => {
-      showAlbumEditor({ albumId: album.id });
-    },
-  });
+    actions.push({
+      label: "edit info...",
+      icon: IconNames.edit,
+      onClick: () => {
+        showAlbumEditor({ albumId: album.id });
+      },
+    });
+  }
 
   if (options.customActions && options.customActions.length > 0) {
     actions.push({ type: "separator" });
@@ -495,6 +512,8 @@ export interface PlaylistContextMenuData {
   id: string;
   title: string;
   song_count?: number;
+  /** owner id for permission checks */
+  created_by_id?: string | null;
 }
 
 export function usePlaylistContextMenu(
@@ -567,46 +586,50 @@ export function usePlaylistContextMenu(
     ),
   );
 
-  // edit
-  actions.push({
-    label: "edit details...",
-    icon: IconNames.edit,
-    onClick: () => {
-      // TODO: open playlist edit modal
-      console.log("edit playlist:", playlist.id);
-    },
-  });
+  // edit - only for owner or admin
+  if (canUpdatePlaylist(playlist.created_by_id ?? null)) {
+    actions.push({
+      label: "edit details...",
+      icon: IconNames.edit,
+      onClick: () => {
+        // TODO: open playlist edit modal
+        console.log("edit playlist:", playlist.id);
+      },
+    });
+  }
 
-  // delete
-  actions.push({
-    label: "delete playlist",
-    icon: IconNames.delete,
-    destructive: true,
-    onClick: async () => {
-      const confirmed = await confirm({
-        title: "delete playlist",
-        message: `are you sure you want to delete "${playlist.title}"? this cannot be undone.`,
-        confirmText: "delete",
-        variant: "danger",
-      });
+  // delete - only for owner or admin
+  if (canDeletePlaylist(playlist.created_by_id ?? null)) {
+    actions.push({
+      label: "delete playlist",
+      icon: IconNames.delete,
+      destructive: true,
+      onClick: async () => {
+        const confirmed = await confirm({
+          title: "delete playlist",
+          message: `are you sure you want to delete "${playlist.title}"? this cannot be undone.`,
+          confirmText: "delete",
+          variant: "danger",
+        });
 
-      if (confirmed) {
-        try {
-          const dataSource = getDataSource();
-          if (dataSource.deletePlaylist) {
-            await dataSource.deletePlaylist(playlist.id);
-            toast.success(`deleted "${playlist.title}"`);
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-          } else {
-            toast.error("delete not supported for this data source");
+        if (confirmed) {
+          try {
+            const dataSource = getDataSource();
+            if (dataSource.deletePlaylist) {
+              await dataSource.deletePlaylist(playlist.id);
+              toast.success(`deleted "${playlist.title}"`);
+              queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+            } else {
+              toast.error("delete not supported for this data source");
+            }
+          } catch (error) {
+            console.error("failed to delete playlist:", error);
+            toast.error("failed to delete playlist");
           }
-        } catch (error) {
-          console.error("failed to delete playlist:", error);
-          toast.error("failed to delete playlist");
         }
-      }
-    },
-  });
+      },
+    });
+  }
 
   if (options.customActions && options.customActions.length > 0) {
     actions.push({ type: "separator" });
@@ -676,16 +699,18 @@ export function useArtistContextMenu(
     },
   });
 
-  actions.push({ type: "separator" });
+  // edit - only for admins
+  if (canUpdateArtist()) {
+    actions.push({ type: "separator" });
 
-  // edit
-  actions.push({
-    label: "edit info...",
-    icon: IconNames.edit,
-    onClick: () => {
-      showArtistEditor({ artistId: artist.id });
-    },
-  });
+    actions.push({
+      label: "edit info...",
+      icon: IconNames.edit,
+      onClick: () => {
+        showArtistEditor({ artistId: artist.id });
+      },
+    });
+  }
 
   actions.push({ type: "separator" });
 

@@ -18,6 +18,7 @@ import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
 import { EntityLinks } from "../media/EntityLinks";
+import { canUpdateArtist } from "../../music/data/permissions";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -296,7 +297,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="flex items-center gap-2">
-                <Show when={props.onEditArtist}>
+                <Show when={props.onEditArtist && canUpdateArtist()}>
                   <button
                     onClick={props.onEditArtist}
                     class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
@@ -433,7 +434,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="mt-2 flex items-center justify-center flex-wrap gap-2">
-                <Show when={props.onEditArtist}>
+                <Show when={props.onEditArtist && canUpdateArtist()}>
                   <button
                     onClick={props.onEditArtist}
                     class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"

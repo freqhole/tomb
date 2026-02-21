@@ -4,7 +4,9 @@
 //! the server (to register routes) and the codegen tool (to generate
 //! typescript clients).
 
+use crate::users::UserRole;
 use inventory;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
@@ -46,6 +48,58 @@ impl Domain {
     }
 }
 
+/// route authorization requirements
+///
+/// defines what level of access is required for a route:
+/// - Public: no authentication required
+/// - Authenticated: any authenticated user (Viewer or higher)
+/// - Role(role): user must have at least the specified role
+/// - Owner: only the resource owner can access
+/// - OwnerOr(role): owner OR user with at least the specified role
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "role", rename_all = "snake_case")]
+pub enum RouteAuth {
+    /// no authentication required (health checks, login, etc.)
+    Public,
+    /// any authenticated user (equivalent to Role(Viewer))
+    Authenticated,
+    /// user must have at least the specified role
+    Role(UserRole),
+    /// only the resource owner can access (no admin override)
+    Owner,
+    /// owner OR user with at least the specified role (e.g., owner or admin)
+    OwnerOr(UserRole),
+}
+
+impl RouteAuth {
+    /// convert to TypeScript-friendly type string for codegen
+    pub fn type_str(&self) -> &'static str {
+        match self {
+            RouteAuth::Public => "public",
+            RouteAuth::Authenticated => "authenticated",
+            RouteAuth::Role(_) => "role",
+            RouteAuth::Owner => "owner",
+            RouteAuth::OwnerOr(_) => "owner_or",
+        }
+    }
+
+    /// get the role name if this auth variant has one (for codegen)
+    pub fn role_str(&self) -> Option<&'static str> {
+        match self {
+            RouteAuth::Role(role) | RouteAuth::OwnerOr(role) => Some(role.as_str()),
+            _ => None,
+        }
+    }
+}
+
+impl Default for RouteAuth {
+    /// default to Authenticated (any logged-in user)
+    /// this is a safe default - routes should explicitly set Public if needed
+    fn default() -> Self {
+        RouteAuth::Authenticated
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RouteInfo {
     pub name: &'static str,
@@ -54,6 +108,8 @@ pub struct RouteInfo {
     pub domain: Domain,
     pub request_type: &'static str,
     pub response_type: &'static str,
+    /// authorization requirements for this route
+    pub auth: RouteAuth,
 }
 
 inventory::collect!(RouteInfo);

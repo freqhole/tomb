@@ -1,6 +1,7 @@
 // data source exports and active source management
 // integrates with remote management to auto-switch between local and remote sources
 
+import type { UserRoleName } from "freqhole-api-client";
 import * as apiClient from "freqhole-api-client";
 import { createSignal } from "solid-js";
 import { appState, setActiveRemoteId } from "../../app/services/storage/db";
@@ -25,12 +26,17 @@ const [currentRemote, setCurrentRemote] = createSignal<{
   base_url: string;
 } | null>(null);
 
-// current authenticated user id (per remote)
-const [currentUserId, setCurrentUserId] = createSignal<string | null>(null);
+// current authenticated user info (per remote)
+export interface CurrentUser {
+  userId: string;
+  username: string;
+  role: UserRoleName;
+}
+const [currentUser, setCurrentUser] = createSignal<CurrentUser | null>(null);
 
-// get the current authenticated user id
-export function getCurrentUserId() {
-  return currentUserId();
+// get the current authenticated user (null if not connected to remote or not authenticated)
+export function getCurrentUser(): CurrentUser | null {
+  return currentUser();
 }
 
 // get the currently active data source
@@ -48,7 +54,7 @@ export async function useLocalSource(): Promise<void> {
   debug("switching to local data source");
   setActiveSource(localDataSource);
   setCurrentRemote(null);
-  setCurrentUserId(null);
+  setCurrentUser(null);
 
   // persist to app state and deactivate all remotes
   await setActiveRemoteId(null);
@@ -66,17 +72,21 @@ export async function useRemoteSource(
   setActiveSource(remoteSource);
   setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
 
-  // fetch current user id from whoami
+  // fetch current user info from whoami
   try {
     const whoamiResult = await apiClient.auth.whoami(baseUrl);
     if (whoamiResult.success && whoamiResult.data) {
-      setCurrentUserId(whoamiResult.data.user_id);
-      debug(`authenticated as user: ${whoamiResult.data.username} (${whoamiResult.data.user_id})`);
+      setCurrentUser({
+        userId: whoamiResult.data.user_id,
+        username: whoamiResult.data.username,
+        role: whoamiResult.data.role as UserRoleName,
+      });
+      debug(`authenticated as user: ${whoamiResult.data.username} (${whoamiResult.data.user_id}), role: ${whoamiResult.data.role}`);
     } else {
-      setCurrentUserId(null);
+      setCurrentUser(null);
     }
   } catch {
-    setCurrentUserId(null);
+    setCurrentUser(null);
   }
 
   // persist to app state and mark remote as active

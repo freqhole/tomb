@@ -4,9 +4,10 @@ use axum::{
     extract::{Extension, Path},
     Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::jobs::{create_job, get_job, CreateJobRequest, Job, JobType};
 use grimoire::music::fetch::FetchMediaParams;
+use grimoire::users::UserRole;
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
 
@@ -42,6 +43,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "FetchMediaParams",
         response_type: "Job",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -66,5 +68,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "GetJobRequest",
         response_type: "Job",
+        auth: RouteAuth::Authenticated,
     }
 }

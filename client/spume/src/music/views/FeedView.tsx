@@ -9,7 +9,7 @@ import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
-import { getCurrentRemote, getCurrentUserId, getDataSource } from "../data";
+import { getCurrentRemote, getCurrentUser, getDataSource } from "../data";
 import type { FeedItem } from "../data/types";
 import {
   useActivityFeedInfiniteQuery,
@@ -72,7 +72,7 @@ export function FeedView() {
   };
   const userIdForQuery = () => {
     if (!myItemsOnly()) return null;
-    return getCurrentUserId() ?? null;
+    return getCurrentUser()?.userId ?? null;
   };
 
   const feedQuery = useActivityFeedInfiniteQuery(50, feedTypesForQuery, userIdForQuery);
@@ -156,7 +156,7 @@ export function FeedView() {
 
     if (item.feed_type === "listen_session" && item.session_id) {
       // own sessions resume, other users' sessions start over
-      const isOwnSession = item.user_id && item.user_id === getCurrentUserId();
+      const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
       if (isOwnSession) {
         void playSession(item);
       } else {
@@ -485,7 +485,7 @@ export function FeedView() {
 
     // listening sessions get their own menu
     if (item.feed_type === "listen_session") {
-      const isOwnSession = item.user_id && item.user_id === getCurrentUserId();
+      const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
       const isCompleted =
         item.session_status === "completed" || (item.progress_percent ?? 0) >= 100;
 

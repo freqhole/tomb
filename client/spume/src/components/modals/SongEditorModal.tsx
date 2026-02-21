@@ -2,6 +2,7 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import { canUpdateSong, canDeleteSong } from "../../music/data/permissions";
 import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/hooks/modals";
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
@@ -802,20 +803,24 @@ export function SongEditorModal(props: SongEditorModalProps) {
         {/* footer - only show on info tab */}
         <Show when={activeTab() === "info"}>
           <div class="flex items-center justify-between gap-2 p-4">
-            <Button onClick={handleDelete} variant="danger">
-              delete
-            </Button>
+            <Show when={canDeleteSong()}>
+              <Button onClick={handleDelete} variant="danger">
+                delete
+              </Button>
+            </Show>
             <div class="flex items-center gap-2">
               <Button onClick={props.onClose} variant="ghost">
                 cancel
               </Button>
-              <Button
-                onClick={handleSave}
-                variant="primary"
-                disabled={!hasChanges() || updateMutation.isPending}
-              >
-                {updateMutation.isPending ? "saving..." : "save"}
-              </Button>
+              <Show when={canUpdateSong()}>
+                <Button
+                  onClick={handleSave}
+                  variant="primary"
+                  disabled={!hasChanges() || updateMutation.isPending}
+                >
+                  {updateMutation.isPending ? "saving..." : "save"}
+                </Button>
+              </Show>
             </div>
           </div>
         </Show>

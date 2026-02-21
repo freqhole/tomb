@@ -3,7 +3,7 @@
 import * as apiClient from "freqhole-api-client";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "../../components/feedback/Toast";
-import { getCurrentRemote, getCurrentUserId } from "../data";
+import { getCurrentRemote, getCurrentUser } from "../data";
 import { pollJobUntilComplete } from "../../utils/jobs";
 
 // ============================================================================
@@ -156,7 +156,7 @@ export async function fetchUrlsOnRemote(
   const remote = getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
-  const userId = getCurrentUserId();
+  const userId = getCurrentUser()?.userId;
 
   for (const url of urls) {
     // use a short label: hostname + path tail

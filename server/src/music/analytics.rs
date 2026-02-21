@@ -4,7 +4,7 @@ use axum::{
     extract::{Extension, Path},
     Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteInfo};
+use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::analytics::{
     create_listen_session, create_play_event, delete_listen_session, get_combined_feed,
     get_listen_session, get_song_play_analytics, get_top_albums, get_top_artists, get_top_songs,
@@ -17,9 +17,11 @@ use grimoire::music::analytics::{
     UpdateListenSessionSongsRequest,
 };
 use grimoire::response::GrimoireResponse;
+use grimoire::users::UserRole;
 use grimoire::EmptyResponse;
 
-use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
+use crate::auth::{check_owner, AuthenticatedUser};
+use crate::error::ApiError;
 
 // helper to map GrimoireResponse errors to appropriate ApiError
 fn map_response_error<T>(response: &GrimoireResponse<T>) -> ApiError {
@@ -66,6 +68,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "RecordPlayRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -95,6 +98,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ListeningHistoryRequest",
         response_type: "ListeningHistoryResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -119,6 +123,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "SongAnalyticsRequest",
         response_type: "PlayAnalytics",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -146,6 +151,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "TopSongsRequest",
         response_type: "Vec<TopSong>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -173,6 +179,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "TopAlbumsRequest",
         response_type: "Vec<TopAlbum>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -200,6 +207,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "TopArtistsRequest",
         response_type: "Vec<TopArtist>",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -234,6 +242,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "FeedRequest",
         response_type: "FeedResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -258,6 +267,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "CreateListenSessionRequest",
         response_type: "ListenSession",
+        auth: RouteAuth::Role(UserRole::Member),
     }
 }
 
@@ -286,6 +296,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "ListListenSessionsRequest",
         response_type: "ListListenSessionsResponse",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -307,6 +318,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "ListenSession",
+        auth: RouteAuth::Authenticated,
     }
 }
 
@@ -333,6 +345,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdateListenSessionProgressRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
     }
 }
 
@@ -359,6 +372,7 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "UpdateListenSessionSongsRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
     }
 }
 
@@ -394,23 +408,29 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
     }
 }
 
 /// delete a listen session
-/// admins can delete any session, other users can only delete their own
+/// only the owner can delete their session (no admin override for listen sessions)
 pub async fn delete_listen_session_handler(
     Extension(user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Result<Json<EmptyResponse>, ApiError> {
-    let response = delete_listen_session(&id, &user.user_id, user.role.is_admin()).await;
+    // fetch session to check ownership
+    let session_response = get_listen_session(&id).await;
+    let session = session_response.data.ok_or(ApiError::NotFound)?;
+
+    // strictly owner only, no admin override for listen sessions
+    check_owner(&user, Some(&session.user_id))?;
+
+    let response = delete_listen_session(&id).await;
 
     if response.success {
         Ok(Json(EmptyResponse::ok()))
     } else if response.message.contains("not found") {
         Err(ApiError::NotFound)
-    } else if response.message.contains("not authorized") {
-        Err(ApiError::Forbidden)
     } else {
         Err(ApiError::Internal(response.message))
     }
@@ -424,5 +444,6 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
     }
 }
