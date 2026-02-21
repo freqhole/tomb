@@ -18,7 +18,6 @@
 // - running server with data (songs, albums, genres must exist)
 // - valid API_KEY environment variable
 // - fail-fast approach: if setup fails, tests don't proceed
-import * as app from "../app.js";
 import * as auth from "../auth.js";
 import * as music from "../music.js";
 import { queryParams } from "./fixtures.js";

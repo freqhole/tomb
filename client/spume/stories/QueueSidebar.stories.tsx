@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js";
+import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
@@ -45,14 +45,14 @@ export const Interactive: Story = {
       console.log("handleRemoveSong called with index:", index);
       console.log(
         "current songs:",
-        currentSongs.map((s, i) => `${i}: ${s.title}`),
+        currentSongs.map((s, i) => `${i}: ${s.title}`)
       );
       console.log("removing song at index:", index, currentSongs[index]?.title);
 
       const newSongs = currentSongs.filter((_, i) => i !== index);
       console.log(
         "new songs after remove:",
-        newSongs.map((s, i) => `${i}: ${s.title}`),
+        newSongs.map((s, i) => `${i}: ${s.title}`)
       );
       setSongs(newSongs);
 
@@ -67,10 +67,7 @@ export const Interactive: Story = {
       setCurrentIndex(0);
     };
 
-    const getContextMenuActions = (
-      index: number,
-      song: Song,
-    ): MenuAction[] => [
+    const getContextMenuActions = (index: number, song: Song): MenuAction[] => [
       {
         label: "play now",
         icon: "play" as const,
@@ -161,14 +158,14 @@ export const Open: Story = {
       console.log("handleRemoveSong called with index:", index);
       console.log(
         "current songs:",
-        currentSongs.map((s, i) => `${i}: ${s.title}`),
+        currentSongs.map((s, i) => `${i}: ${s.title}`)
       );
       console.log("removing song at index:", index, currentSongs[index]?.title);
 
       const newSongs = currentSongs.filter((_, i) => i !== index);
       console.log(
         "new songs after remove:",
-        newSongs.map((s, i) => `${i}: ${s.title}`),
+        newSongs.map((s, i) => `${i}: ${s.title}`)
       );
       setSongs(newSongs);
 
@@ -183,10 +180,7 @@ export const Open: Story = {
       setCurrentIndex(0);
     };
 
-    const getContextMenuActions = (
-      index: number,
-      song: Song,
-    ): MenuAction[] => [
+    const getContextMenuActions = (index: number, song: Song): MenuAction[] => [
       {
         label: "play now",
         icon: "play" as const,
@@ -598,7 +592,7 @@ export const ResponsiveComparison: Story = {
               </button>
             </div>
             <QueueSidebar
-          historyEntries={[]}
+              historyEntries={[]}
               songs={mockQueueSongs.slice(0, 5)}
               currentIndex={1}
               isOpen={narrowOpen()}
@@ -613,9 +607,7 @@ export const ResponsiveComparison: Story = {
 
         {/* wide - sidebar */}
         <div>
-          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
-            wide (sidebar)
-          </h3>
+          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">wide (sidebar)</h3>
           <div class="relative h-[500px] w-[500px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden flex">
             <div class="flex-1 p-4">
               <button
@@ -626,7 +618,7 @@ export const ResponsiveComparison: Story = {
               </button>
             </div>
             <QueueSidebar
-          historyEntries={[]}
+              historyEntries={[]}
               songs={mockQueueSongs.slice(0, 5)}
               currentIndex={1}
               isOpen={wideOpen()}

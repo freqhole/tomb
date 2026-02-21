@@ -1,4 +1,4 @@
-import { createSignal, Show, type JSX } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { Alert } from "../feedback/Alert";
 import { TextInput } from "../forms/TextInput";
@@ -26,9 +26,7 @@ export interface AuthFormProps {
 
 // auth form component with login/register modes
 export function AuthForm(props: AuthFormProps) {
-  const [mode, setMode] = createSignal<"login" | "register">(
-    props.initialMode || "login",
-  );
+  const [mode, setMode] = createSignal<"login" | "register">(props.initialMode || "login");
   const [username, setUsername] = createSignal("");
   const [inviteCode, setInviteCode] = createSignal("");
 
@@ -98,16 +96,8 @@ export function AuthForm(props: AuthFormProps) {
         </Show>
 
         {/* submit button */}
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={isSubmitDisabled()}
-          class="w-full"
-        >
-          <Show
-            when={props.loading}
-            fallback={mode() === "login" ? "sign in" : "create account"}
-          >
+        <Button type="submit" variant="primary" disabled={isSubmitDisabled()} class="w-full">
+          <Show when={props.loading} fallback={mode() === "login" ? "sign in" : "create account"}>
             {mode() === "login" ? "signing in..." : "creating account..."}
           </Show>
         </Button>
@@ -117,9 +107,7 @@ export function AuthForm(props: AuthFormProps) {
       <Show when={showModeToggle()}>
         <div class="text-center border-t border-[var(--color-border-default)] pt-4">
           <p class="body-sm text-[var(--color-text-tertiary)]">
-            {mode() === "login"
-              ? "don't have an account?"
-              : "already have an account?"}{" "}
+            {mode() === "login" ? "don't have an account?" : "already have an account?"}{" "}
             <button
               type="button"
               onClick={switchMode}
@@ -139,14 +127,14 @@ export function AuthForm(props: AuthFormProps) {
             when={mode() === "login"}
             fallback={
               <>
-                freqhole uses passwordless authentication. you'll use your
-                device's built-in security (fingerprint, face recognition, or
-                security key) to create and access your account.
+                freqhole uses passwordless authentication. you'll use your device's built-in
+                security (fingerprint, face recognition, or security key) to create and access your
+                account.
               </>
             }
           >
-            use your device's built-in security (fingerprint, face recognition,
-            or security key) to sign in securely.
+            use your device's built-in security (fingerprint, face recognition, or security key) to
+            sign in securely.
           </Show>
         </p>
       </div>

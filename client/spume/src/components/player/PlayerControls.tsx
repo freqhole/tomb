@@ -1,4 +1,4 @@
-import { Show, type JSX } from "solid-js";
+import { Show } from "solid-js";
 import { IconButton } from "../buttons/IconButton";
 
 export interface PlayerControlsProps {

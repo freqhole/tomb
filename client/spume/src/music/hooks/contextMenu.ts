@@ -84,7 +84,6 @@ export function useSongContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
-  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions
@@ -392,7 +391,6 @@ export function useAlbumContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
-  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions
@@ -522,7 +520,6 @@ export function usePlaylistContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
-  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions
@@ -653,7 +650,6 @@ export function useArtistContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
-  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
 
   // play actions (if callbacks provided)

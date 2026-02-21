@@ -230,7 +230,7 @@ export function groupSongsByAlbum(songs: Song[]): Map<string, Song[]> {
   }
 
   // sort songs within each album by disc+track
-  for (const [albumId, albumSongs] of groups.entries()) {
+  for (const [_albumId, albumSongs] of groups.entries()) {
     albumSongs.sort((a, b) => {
       const discA = a.disc_number || 1;
       const discB = b.disc_number || 1;

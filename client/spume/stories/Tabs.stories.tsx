@@ -1,17 +1,11 @@
 import { createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { Badge } from "../src/components/badges/Badge";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
 import { TextArea } from "../src/components/forms/TextArea";
 import { TextInput } from "../src/components/forms/TextInput";
 import { Icon } from "../src/components/icons/registry";
-import {
-  Tab,
-  TabList,
-  TabPanel,
-  Tabs,
-} from "../src/components/navigation/Tabs";
+import { Tab, TabList, TabPanel, Tabs } from "../src/components/navigation/Tabs";
 import { mockArtists } from "./mockData";
 
 const meta = {
@@ -41,8 +35,7 @@ export const BasicTabs: Story = {
               <TabPanel id="metadata">
                 <div class="text-[var(--color-text-secondary)]">
                   <p class="body-base mb-4">
-                    edit song metadata like title, artist, album, year, and
-                    genre.
+                    edit song metadata like title, artist, album, year, and genre.
                   </p>
                   <div class="p-4 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)]">
                     metadata form fields would go here
@@ -52,9 +45,7 @@ export const BasicTabs: Story = {
 
               <TabPanel id="images">
                 <div class="text-[var(--color-text-secondary)]">
-                  <p class="body-base mb-4">
-                    upload or select album artwork for this song.
-                  </p>
+                  <p class="body-base mb-4">upload or select album artwork for this song.</p>
                   <div class="p-4 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)]">
                     image upload area would go here
                   </div>
@@ -64,8 +55,7 @@ export const BasicTabs: Story = {
               <TabPanel id="search">
                 <div class="text-[var(--color-text-secondary)]">
                   <p class="body-base mb-4">
-                    search for song information on musicbrainz and other
-                    sources.
+                    search for song information on musicbrainz and other sources.
                   </p>
                   <div class="p-4 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)]">
                     search interface would go here
@@ -104,9 +94,7 @@ export const TabsWithBadges: Story = {
               </TabPanel>
 
               <TabPanel id="favorites">
-                <div class="text-[var(--color-text-secondary)]">
-                  showing your 28 favorite songs
-                </div>
+                <div class="text-[var(--color-text-secondary)]">showing your 28 favorite songs</div>
               </TabPanel>
 
               <TabPanel id="recent">
@@ -116,9 +104,7 @@ export const TabsWithBadges: Story = {
               </TabPanel>
 
               <TabPanel id="untagged">
-                <div class="text-[var(--color-text-secondary)]">
-                  showing 5 songs without tags
-                </div>
+                <div class="text-[var(--color-text-secondary)]">showing 5 songs without tags</div>
               </TabPanel>
             </div>
           </Tabs>
@@ -146,27 +132,19 @@ export const TabsWithDisabled: Story = {
 
             <div class="pt-6">
               <TabPanel id="overview">
-                <div class="text-[var(--color-text-secondary)]">
-                  overview content
-                </div>
+                <div class="text-[var(--color-text-secondary)]">overview content</div>
               </TabPanel>
 
               <TabPanel id="analytics">
-                <div class="text-[var(--color-text-secondary)]">
-                  analytics content
-                </div>
+                <div class="text-[var(--color-text-secondary)]">analytics content</div>
               </TabPanel>
 
               <TabPanel id="export">
-                <div class="text-[var(--color-text-secondary)]">
-                  export content (disabled)
-                </div>
+                <div class="text-[var(--color-text-secondary)]">export content (disabled)</div>
               </TabPanel>
 
               <TabPanel id="settings">
-                <div class="text-[var(--color-text-secondary)]">
-                  settings content
-                </div>
+                <div class="text-[var(--color-text-secondary)]">settings content</div>
               </TabPanel>
             </div>
           </Tabs>
@@ -197,9 +175,7 @@ export const EditSongModal: Story = {
         <div class="max-w-3xl mx-auto bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg overflow-hidden">
           {/* modal header */}
           <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
-            <h2 class="heading-5 text-[var(--color-text-primary)]">
-              edit song
-            </h2>
+            <h2 class="heading-5 text-[var(--color-text-primary)]">edit song</h2>
             <IconButton icon="close" variant="ghost" aria-label="close modal" />
           </div>
 
@@ -290,16 +266,11 @@ export const EditSongModal: Story = {
                   <div class="space-y-4">
                     <div class="flex gap-4">
                       <div class="w-32 h-32 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded flex items-center justify-center">
-                        <Icon
-                          name="album"
-                          size={48}
-                          color="var(--color-text-muted)"
-                        />
+                        <Icon name="album" size={48} color="var(--color-text-muted)" />
                       </div>
                       <div class="flex-1">
                         <p class="body-small text-[var(--color-text-secondary)] mb-4">
-                          upload custom album artwork or select from search
-                          results
+                          upload custom album artwork or select from search results
                         </p>
                         <button
                           type="button"
@@ -363,13 +334,7 @@ export const EditSongModal: Story = {
                   <div class="space-y-4">
                     <TextInput
                       placeholder="search for song information..."
-                      leftIcon={
-                        <Icon
-                          name="search"
-                          size={18}
-                          color="var(--color-text-muted)"
-                        />
-                      }
+                      leftIcon={<Icon name="search" size={18} color="var(--color-text-muted)" />}
                     />
                     <div class="text-center text-[var(--color-text-tertiary)] py-8">
                       enter a search query to find song information
@@ -401,9 +366,7 @@ export const AddMusicModal: Story = {
         <div class="max-w-3xl mx-auto bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg overflow-hidden">
           {/* modal header */}
           <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
-            <h2 class="heading-5 text-[var(--color-text-primary)]">
-              add music
-            </h2>
+            <h2 class="heading-5 text-[var(--color-text-primary)]">add music</h2>
             <IconButton icon="close" variant="ghost" aria-label="close modal" />
           </div>
 
@@ -419,15 +382,9 @@ export const AddMusicModal: Story = {
                 <TabPanel id="files">
                   <div class="border-2 border-dashed border-[var(--color-border-default)] rounded-lg p-12 text-center">
                     <div class="mx-auto mb-4">
-                      <Icon
-                        name="music"
-                        size={48}
-                        color="var(--color-text-muted)"
-                      />
+                      <Icon name="music" size={48} color="var(--color-text-muted)" />
                     </div>
-                    <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
-                      add music files
-                    </h3>
+                    <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add music files</h3>
                     <p class="body-small text-[var(--color-text-secondary)] mb-2">
                       drag audio files here or click to select
                     </p>
@@ -445,8 +402,7 @@ export const AddMusicModal: Story = {
                         download from urls
                       </h3>
                       <p class="body-small text-[var(--color-text-secondary)]">
-                        enter youtube, soundcloud, or other supported urls (one
-                        per line)
+                        enter youtube, soundcloud, or other supported urls (one per line)
                       </p>
                     </div>
 
@@ -494,12 +450,7 @@ export const SearchResults: Story = {
               <Tab
                 id="all"
                 label="all"
-                badge={
-                  results.songs +
-                  results.albums +
-                  results.artists +
-                  results.playlists
-                }
+                badge={results.songs + results.albums + results.artists + results.playlists}
               />
               <Tab id="songs" label="songs" badge={results.songs} />
               <Tab id="albums" label="albums" badge={results.albums} />
@@ -530,9 +481,7 @@ export const SearchResults: Story = {
                     <h3 class="heading-6 text-[var(--color-text-primary)] mb-3">
                       songs ({results.songs})
                     </h3>
-                    <div class="text-[var(--color-text-secondary)]">
-                      song results would go here
-                    </div>
+                    <div class="text-[var(--color-text-secondary)]">song results would go here</div>
                   </div>
                 </div>
               </TabPanel>
@@ -545,22 +494,19 @@ export const SearchResults: Story = {
 
               <TabPanel id="albums">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.albums} albums matching "
-                  {mockArtists[0].name}"
+                  showing {results.albums} albums matching "{mockArtists[0].name}"
                 </div>
               </TabPanel>
 
               <TabPanel id="artists">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.artists} artists matching "
-                  {mockArtists[0].name}"
+                  showing {results.artists} artists matching "{mockArtists[0].name}"
                 </div>
               </TabPanel>
 
               <TabPanel id="playlists">
                 <div class="text-[var(--color-text-secondary)]">
-                  showing {results.playlists} playlists matching "
-                  {mockArtists[0].name}"
+                  showing {results.playlists} playlists matching "{mockArtists[0].name}"
                 </div>
               </TabPanel>
             </div>
@@ -619,11 +565,7 @@ export const DynamicTabs: Story = {
                         }}
                         class="ml-1 p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-bg-hover)] rounded transition-opacity"
                       >
-                        <Icon
-                          name="close"
-                          size={14}
-                          color="var(--color-text-muted)"
-                        />
+                        <Icon name="close" size={14} color="var(--color-text-muted)" />
                       </button>
                     )}
                   </div>

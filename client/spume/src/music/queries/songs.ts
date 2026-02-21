@@ -4,7 +4,6 @@ import type { Accessor } from "solid-js";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
-import type { Song } from "../data/types";
 import { queryKeys } from "./queryKeys";
 
 export type SongSortField =

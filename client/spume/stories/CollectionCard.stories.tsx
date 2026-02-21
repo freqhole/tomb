@@ -1,15 +1,7 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import {
-  CollectionCard,
-  CollectionCardData,
-} from "../src/components/cards/CollectionCard";
-import {
-  formatDuration,
-  mockAlbums,
-  mockArtists,
-  mockGenres,
-} from "./mockData";
+import { CollectionCard, CollectionCardData } from "../src/components/cards/CollectionCard";
+import { formatDuration, mockAlbums, mockArtists, mockGenres } from "./mockData";
 
 const meta = {
   title: "Components/Cards/CollectionCard",
@@ -71,8 +63,7 @@ const samplePlaylist: CollectionCardData = {
   playCount: 89,
 };
 
-const artist1 =
-  mockArtists.find((a) => a.name === "Radiohead") || mockArtists[1];
+const artist1 = mockArtists.find((a) => a.name === "Radiohead") || mockArtists[1];
 const sampleArtist: CollectionCardData = {
   id: artist1.id,
   title: artist1.name,
@@ -187,8 +178,7 @@ export const Interactive: Story = {
       <div class="p-4 space-y-4">
         <div class="text-gray-300 text-sm space-y-1">
           <p>
-            last action:{" "}
-            <span class="text-magenta-400">{lastAction() || "none"}</span>
+            last action: <span class="text-magenta-400">{lastAction() || "none"}</span>
           </p>
         </div>
         <div class="w-48">
@@ -199,14 +189,11 @@ export const Interactive: Story = {
             showYear={true}
             onClick={(col) => setLastAction(`clicked: ${col.title}`)}
             onPlay={(col) => setLastAction(`play: ${col.title}`)}
-            onContextMenu={(e, col) =>
-              setLastAction(`context menu: ${col.title}`)
-            }
+            onContextMenu={(_e, col) => setLastAction(`context menu: ${col.title}`)}
           />
         </div>
         <div class="text-gray-500 text-xs">
-          click the card, hover and click play button, or right-click for
-          context menu
+          click the card, hover and click play button, or right-click for context menu
         </div>
       </div>
     );
@@ -262,17 +249,10 @@ export const Grid: Story = {
 
     return (
       <div class="p-4">
-        <div class="text-gray-300 text-xs uppercase tracking-wide mb-4">
-          album grid
-        </div>
+        <div class="text-gray-300 text-xs uppercase tracking-wide mb-4">album grid</div>
         <div class="grid grid-cols-4 gap-4">
           {albums.map((album) => (
-            <CollectionCard
-              collection={album}
-              size="medium"
-              showYear={true}
-              showGenres={false}
-            />
+            <CollectionCard collection={album} size="medium" showYear={true} showGenres={false} />
           ))}
         </div>
       </div>
@@ -315,31 +295,19 @@ export const SizeComparison: Story = {
       <div class="space-y-2">
         <div class="text-gray-300 text-xs uppercase tracking-wide">small</div>
         <div class="w-32">
-          <CollectionCard
-            collection={sampleAlbum}
-            size="small"
-            showYear={true}
-          />
+          <CollectionCard collection={sampleAlbum} size="small" showYear={true} />
         </div>
       </div>
       <div class="space-y-2">
         <div class="text-gray-300 text-xs uppercase tracking-wide">medium</div>
         <div class="w-48">
-          <CollectionCard
-            collection={sampleAlbum}
-            size="medium"
-            showYear={true}
-          />
+          <CollectionCard collection={sampleAlbum} size="medium" showYear={true} />
         </div>
       </div>
       <div class="space-y-2">
         <div class="text-gray-300 text-xs uppercase tracking-wide">large</div>
         <div class="w-64">
-          <CollectionCard
-            collection={sampleAlbum}
-            size="large"
-            showYear={true}
-          />
+          <CollectionCard collection={sampleAlbum} size="large" showYear={true} />
         </div>
       </div>
     </div>
@@ -350,15 +318,9 @@ export const SizeComparison: Story = {
 export const DomainTypes: Story = {
   render: () => (
     <div class="p-4">
-      <div class="text-gray-300 text-xs uppercase tracking-wide mb-4">
-        domain types
-      </div>
+      <div class="text-gray-300 text-xs uppercase tracking-wide mb-4">domain types</div>
       <div class="grid grid-cols-4 gap-4">
-        <CollectionCard
-          collection={sampleAlbum}
-          size="medium"
-          showYear={true}
-        />
+        <CollectionCard collection={sampleAlbum} size="medium" showYear={true} />
         <CollectionCard collection={samplePlaylist} size="medium" />
         <CollectionCard collection={sampleArtist} size="medium" />
         <CollectionCard collection={sampleGenre} size="medium" />

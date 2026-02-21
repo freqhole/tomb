@@ -7,7 +7,6 @@ import {
 } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
-import type { PlaylistSummary, Song } from "../data/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { queryKeys } from "./queryKeys";
 

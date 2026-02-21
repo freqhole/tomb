@@ -1,5 +1,5 @@
 // settings layout - wrapper for all settings pages with navigation
-import { JSX, Show, For } from "solid-js";
+import { JSX, For } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
 

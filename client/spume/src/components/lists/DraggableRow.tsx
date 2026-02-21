@@ -1,5 +1,4 @@
 import { createSignal, Show, splitProps, type JSX } from "solid-js";
-import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { getPlayingIndicatorClasses } from "../../design-system/colors";

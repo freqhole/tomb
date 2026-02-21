@@ -193,12 +193,6 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   // --- clear / filter ---
 
-  const handleClear = () => {
-    setSearchValue("");
-    props.onSearchChange?.("");
-    clearFilterQueryParam();
-  };
-
   const clearFilterQueryParam = () => {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];

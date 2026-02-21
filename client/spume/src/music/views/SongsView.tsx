@@ -1,7 +1,7 @@
 // songs view - optimized with virtualization and infinite scroll
 
 import { useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
@@ -48,7 +48,7 @@ export function SongsView(props: SongsViewProps) {
   const [searchParams] = useSearchParams();
 
   // responsive: track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
+  const [_isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
 
@@ -187,21 +187,21 @@ export function SongsView(props: SongsViewProps) {
     }));
   });
 
-  const handleSongClick = (song: Song, index: number) => {
+  const handleSongClick = (song: Song, _index: number) => {
     props.onSongClick?.(song);
   };
 
-  const handleSongDoubleClick = (song: Song, index: number) => {
+  const handleSongDoubleClick = (song: Song, _index: number) => {
     props.onSongDoubleClick?.(song);
   };
 
   // play song immediately when thumbnail is clicked
-  const handlePlayClick = async (song: Song, index: number) => {
+  const handlePlayClick = async (song: Song, _index: number) => {
     await playQueue([song], { source: { type: "song", label: song.title } });
   };
 
   // build context menu actions for a song
-  const getContextMenuActions = (song: Song, index: number) => {
+  const getContextMenuActions = (song: Song, _index: number) => {
     return useSongContextMenu(song, {
       showPlayActions: true,
       isFavorite: song.is_favorite,

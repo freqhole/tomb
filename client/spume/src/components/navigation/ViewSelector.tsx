@@ -57,8 +57,6 @@ export function ViewSelector(props: ViewSelectorProps) {
     clearTimeout(closeTimeout);
   });
 
-  const currentView = () => props.views.find((v) => v.label === props.currentTitle) || null;
-
   return (
     <div
       ref={containerRef}

@@ -114,7 +114,7 @@ const highlightedSuggestions: SearchSuggestion[] = [
 // real-world example with API simulation
 export const RealWorldExample: Story = {
   render: () => {
-    const [query, setQuery] = createSignal("");
+    const [, setQuery] = createSignal("");
     const [loading, setLoading] = createSignal(false);
     const [suggestions, setSuggestions] = createSignal<SearchSuggestion[]>([]);
     const [selectedItem, setSelectedItem] = createSignal<SearchSuggestion | null>(null);
@@ -124,6 +124,7 @@ export const RealWorldExample: Story = {
       setSuggestions([]);
       setSelectedItem(null);
     };
+    void handleClear; // available for clear button usage
 
     // simulate API call
     const searchAPI = async (searchQuery: string): Promise<SearchSuggestion[]> => {
@@ -237,7 +238,7 @@ export const FilledVariant: Story = {
 // with suggestions - controlled example
 export const WithSuggestions: Story = {
   render: () => {
-    const [query, setQuery] = createSignal("");
+    const [_query, setQuery] = createSignal("");
     const [suggestions, setSuggestions] = createSignal<SearchSuggestion[]>([]);
 
     const handleInputChange = (value: string) => {
@@ -258,11 +259,6 @@ export const WithSuggestions: Story = {
       if (!suggestion) return;
       console.log("selected:", suggestion);
       setQuery(suggestion.text);
-      setSuggestions([]);
-    };
-
-    const handleClear = () => {
-      setQuery("");
       setSuggestions([]);
     };
 
@@ -307,6 +303,8 @@ export const Loading: Story = {
       setSuggestions([]);
       setLoading(false);
     };
+    void handleClear; // available for clear button usage
+    void query; // tracked for debugging
 
     return (
       <SearchInput
@@ -384,6 +382,7 @@ export const CustomDebounce: Story = {
       setQuery("");
       setCallCount(0);
     };
+    void handleClear; // available for clear button usage
 
     return (
       <div class="space-y-4">
@@ -402,7 +401,7 @@ export const CustomDebounce: Story = {
 // no results
 export const NoResults: Story = {
   render: () => {
-    const [query, setQuery] = createSignal("");
+    const [, setQuery] = createSignal("");
 
     return (
       <SearchInput

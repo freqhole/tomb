@@ -131,8 +131,8 @@ export function GenresView(props: GenresViewProps) {
 
   // reset virtual list when query param changes
   createEffect(() => {
-    const q = searchParams.q;
-    const queryParam = Array.isArray(q) ? q[0] : q;
+    // track query param changes to reset list
+    searchParams.q; // read to create dependency
     // briefly show resetting state to force list to remount
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);

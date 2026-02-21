@@ -61,6 +61,7 @@ export const Interactive: Story = {
     const [queueOpen, setQueueOpen] = createSignal(false);
     const [song, setSong] = createSignal(mockSong);
     const [isFavorite, setIsFavorite] = createSignal(false);
+    void setSong; // may be used for dynamic song switching later
 
     const handlePlayPause = () => {
       setIsPlaying(!isPlaying());
@@ -110,6 +111,7 @@ export const Interactive: Story = {
         });
       }
     }, 1000);
+    void interval; // tracked for cleanup
 
     return (
       <div class="relative min-h-[120px]">

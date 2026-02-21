@@ -44,7 +44,6 @@ export function ImageCollageGrid(props: ImageCollageGridProps): JSX.Element {
     });
   });
 
-  const half = () => Math.floor(props.size / 2);
   const gap = 1; // 1px gap between grid cells
 
   return (

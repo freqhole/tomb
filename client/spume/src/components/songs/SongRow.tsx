@@ -1,7 +1,6 @@
 // reusable song row component for displaying a single song in a list
 import { Show, type JSX } from "solid-js";
 import { PlayIcon, PauseIcon } from "../icons/registry";
-import type { FavoriteTarget } from "../../music/queries/favorites";
 import { getPlayingIndicatorClasses, getPlayingTextClasses } from "../../design-system/colors";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";

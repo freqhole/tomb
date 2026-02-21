@@ -1,4 +1,4 @@
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { PlayIcon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
@@ -14,16 +14,6 @@ export interface ArtistCardProps {
 }
 
 export function ArtistCard(props: ArtistCardProps) {
-  // helper to get artist abbreviation
-  const getArtistAbbreviation = (name: string | undefined) => {
-    if (!name) return "?";
-    const words = name.split(/\s+/);
-    return words
-      .slice(0, 3)
-      .map((w) => w[0]?.toUpperCase() || "")
-      .join("");
-  };
-
   const [isCardHovered, setIsCardHovered] = createSignal(false);
 
   return (

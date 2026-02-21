@@ -15,7 +15,6 @@ export { activeHistoryEntryId };
 
 // in-memory accumulator (flushed to IDB periodically)
 let accumulatedSeconds = 0;
-let lastFlushTime = 0;
 let currentSongIndex = 0;
 let currentSongPosition = 0;
 let completedSongs = new Set<number>(); // track completed song indices
@@ -35,7 +34,6 @@ export function startTracking(historyEntryId: string): void {
   currentSongIndex = 0;
   currentSongPosition = 0;
   completedSongs = new Set();
-  lastFlushTime = Date.now();
 
   // start periodic flush
   if (flushIntervalId) clearInterval(flushIntervalId);
@@ -67,7 +65,6 @@ export function resumeTracking(
   for (let i = 0; i < resumeState.songs_completed; i++) {
     completedSongs.add(i);
   }
-  lastFlushTime = Date.now();
 
   if (flushIntervalId) clearInterval(flushIntervalId);
   flushIntervalId = setInterval(() => {
@@ -158,7 +155,6 @@ async function flushProgress(): Promise<void> {
       current_song_index: currentSongIndex,
       current_song_position: currentSongPosition,
     });
-    lastFlushTime = Date.now();
   } catch (error) {
     console.error("failed to flush listen progress:", error);
   }

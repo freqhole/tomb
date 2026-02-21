@@ -1,11 +1,6 @@
-import { createSignal, For } from "solid-js";
+import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { Badge } from "../src/components/badges/Badge";
-import {
-  TagFilterPicker,
-  type TagFilter,
-  type TagOption,
-} from "../src/components/forms/TagFilterPicker";
+import { TagFilterPicker, type TagFilter } from "../src/components/forms/TagFilterPicker";
 import { mockTags } from "./mockData";
 
 const meta = {
@@ -44,12 +39,10 @@ export const Interactive: Story = {
           f.tag === tag
             ? {
                 tag: f.tag,
-                mode: (f.mode === "include" ? "exclude" : "include") as
-                  | "include"
-                  | "exclude",
+                mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
               }
-            : f,
-        ),
+            : f
+        )
       );
       const filter = selectedFilters().find((f) => f.tag === tag);
       if (filter) {
@@ -88,8 +81,7 @@ export const Interactive: Story = {
               "margin-bottom": "16px",
             }}
           >
-            click tag to add (green/include), then click badge to toggle to
-            exclude (red)
+            click tag to add (green/include), then click badge to toggle to exclude (red)
           </p>
 
           <TagFilterPicker
@@ -185,12 +177,10 @@ export const WithSelectedTags: Story = {
           f.tag === tag
             ? {
                 tag: f.tag,
-                mode: (f.mode === "include" ? "exclude" : "include") as
-                  | "include"
-                  | "exclude",
+                mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
               }
-            : f,
-        ),
+            : f
+        )
       );
     };
 
@@ -242,12 +232,10 @@ export const CompactMode: Story = {
           f.tag === tag
             ? {
                 tag: f.tag,
-                mode: (f.mode === "include" ? "exclude" : "include") as
-                  | "include"
-                  | "exclude",
+                mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
               }
-            : f,
-        ),
+            : f
+        )
       );
     };
 
@@ -297,12 +285,10 @@ export const Loading: Story = {
           f.tag === tag
             ? {
                 tag: f.tag,
-                mode: (f.mode === "include" ? "exclude" : "include") as
-                  | "include"
-                  | "exclude",
+                mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
               }
-            : f,
-        ),
+            : f
+        )
       );
     };
 
@@ -352,12 +338,10 @@ export const NoTags: Story = {
           f.tag === tag
             ? {
                 tag: f.tag,
-                mode: (f.mode === "include" ? "exclude" : "include") as
-                  | "include"
-                  | "exclude",
+                mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
               }
-            : f,
-        ),
+            : f
+        )
       );
     };
 
@@ -409,12 +393,10 @@ export const InMusicListContext: Story = {
           f.tag === tag
             ? {
                 tag: f.tag,
-                mode: (f.mode === "include" ? "exclude" : "include") as
-                  | "include"
-                  | "exclude",
+                mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
               }
-            : f,
-        ),
+            : f
+        )
       );
     };
 

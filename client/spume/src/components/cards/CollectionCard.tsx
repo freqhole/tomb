@@ -1,6 +1,5 @@
 import { createSignal, JSX, Show } from "solid-js";
 import { PlayIcon } from "../icons/registry";
-import type { FavoriteTarget } from "../../music/queries/favorites";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";

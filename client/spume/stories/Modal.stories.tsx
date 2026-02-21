@@ -1,10 +1,9 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { BodyText, Heading } from "../src/design-system/typography";
-import { IconButton } from "../src/components/buttons/IconButton";
 import { Alert } from "../src/components/feedback/Alert";
 import { Modal, useModal } from "../src/components/overlays/Modal";
-import { mockAlbums, mockSongs } from "./mockData";
+import { mockSongs } from "./mockData";
 
 const meta = {
   title: "Components/Overlays/Modal",

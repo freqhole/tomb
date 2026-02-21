@@ -2,7 +2,6 @@ import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import {
   TopNav,
-  type NavMenuItem,
   type NavMenuSection,
   type RecentPlaylist,
 } from "../src/components/navigation/TopNav";
@@ -82,15 +81,13 @@ const mockMainNavSections: NavMenuSection[] = [
   },
 ];
 
-const mockRecentPlaylists: RecentPlaylist[] = mockPlaylists
-  .slice(0, 5)
-  .map((playlist, index) => ({
-    id: playlist.id,
-    name: playlist.name,
-    thumbnailUrl: null,
-    updatedAt: Date.now() - index * 3600000, // stagger by 1 hour each
-    onClick: () => console.log("open playlist:", playlist.name),
-  }));
+const mockRecentPlaylists: RecentPlaylist[] = mockPlaylists.slice(0, 5).map((playlist, index) => ({
+  id: playlist.id,
+  name: playlist.name,
+  thumbnailUrl: null,
+  updatedAt: Date.now() - index * 3600000, // stagger by 1 hour each
+  onClick: () => console.log("open playlist:", playlist.name),
+}));
 
 // interactive example with full layout
 export const Interactive: Story = {
@@ -120,9 +117,7 @@ export const Interactive: Story = {
         <div class="flex-1 flex overflow-hidden">
           {/* left column */}
           <div class="flex-1 overflow-y-auto p-8">
-            <h1 class="text-2xl font-bold text-[var(--color-text-primary)] my-8">
-              artists
-            </h1>
+            <h1 class="text-2xl font-bold text-[var(--color-text-primary)] my-8">artists</h1>
             <div class="space-y-2">
               {Array.from({ length: 20 }, (_, i) => (
                 <div class="p-4 bg-[var(--color-bg-tertiary)] rounded-lg text-[var(--color-text-primary)]">
@@ -134,17 +129,13 @@ export const Interactive: Story = {
 
           {/* right column */}
           <div class="flex-1 overflow-y-auto p-8 border-l border-[var(--color-border-default)]">
-            <h2 class="text-xl font-bold text-[var(--color-text-primary)] mb-4">
-              artist detail
-            </h2>
+            <h2 class="text-xl font-bold text-[var(--color-text-primary)] mb-4">artist detail</h2>
             <div class="space-y-2 text-[var(--color-text-secondary)] text-sm">
               <p>click the brand icon to open 3-column flyout menu</p>
               <p>click the search icon to expand search</p>
               <p>
                 current search:{" "}
-                <span class="text-[var(--color-accent-500)]">
-                  {searchQuery() || "(empty)"}
-                </span>
+                <span class="text-[var(--color-accent-500)]">{searchQuery() || "(empty)"}</span>
               </p>
             </div>
           </div>

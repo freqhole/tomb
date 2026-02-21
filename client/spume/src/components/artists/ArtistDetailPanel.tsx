@@ -104,7 +104,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   const albumGroups = createMemo((): AlbumGroup[] => {
     const groups = new Map<string, AlbumGroup>();
 
-    props.songs.forEach((song, index) => {
+    props.songs.forEach((song, _index) => {
       if (!groups.has(song.album_id)) {
         // get first image URL from album_images if available
         const firstImage = song.album_images?.[0];
@@ -523,9 +523,6 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     }
                     getAlbumContextMenuActions={() => {
                       // get favorite status from any song in the album
-                      const firstSongData = album().songs[0]
-                        ? props.getSongData?.(album().songs[0].id)
-                        : null;
                       return useAlbumContextMenu(
                         {
                           id: album().albumId,

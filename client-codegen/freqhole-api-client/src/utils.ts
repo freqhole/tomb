@@ -2,7 +2,6 @@
 
 import { z } from "zod";
 import type { SafeParseResult } from "./client.js";
-import { routes } from "./codegen/routes.js";
 import * as s from "./codegen/schema.js";
 
 // helper to extract error message from failed response

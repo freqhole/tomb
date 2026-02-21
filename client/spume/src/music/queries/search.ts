@@ -1,5 +1,5 @@
 // search query hooks for suggestions and full search results
-import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
+import { createInfiniteQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
 import type {

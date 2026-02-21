@@ -71,12 +71,8 @@ export async function queryAlbums(options?: {
     const artistName = artist?.name || "various artists";
 
     // get genre name from map and add to result
-    let genreName: string | undefined;
     if (album.genre_id) {
-      const genre = genresById.get(album.genre_id);
-      if (genre) {
-        genreName = genre.name;
-      }
+      // genre exists in map - we don't need to use it since we gather from songs
     }
 
     // gather unique genres from songs in this album (album_genres is GenreRef[])

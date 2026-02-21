@@ -1,5 +1,5 @@
 // song editor modal - edit single song metadata
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { canUpdateSong, canDeleteSong } from "../../music/data/permissions";
@@ -68,7 +68,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const [songImages, setSongImages] = createSignal<ImageMetadata[]>([]);
   const albumImages = () => songQuery.data?.album_images ?? [];
   const [loadedSongId, setLoadedSongId] = createSignal<string | null>(null);
-  const [imagePreview, setImagePreview] = createSignal<string | null>(null);
+  const [_imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
     status: string;
     message: string;

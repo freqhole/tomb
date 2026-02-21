@@ -20,14 +20,10 @@ import {
   fixtures,
   PLACEHOLDER_ID,
   queryParams,
-  withAlbumId,
-  withEntityId,
-  withId,
-  withPlaylistId,
 } from "./fixtures.js";
 
 const baseUrl = process.env.API_URL || "http://localhost:8080";
-const apiKey = process.env.API_KEY;
+// const apiKey = process.env.API_KEY;
 
 export async function runIntegrationTests() {
   let passed = 0;

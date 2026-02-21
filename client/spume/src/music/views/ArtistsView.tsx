@@ -141,8 +141,8 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // reset virtual list when query param changes
   createEffect(() => {
-    const q = searchParams.q;
-    const queryParam = Array.isArray(q) ? q[0] : q;
+    // track query param changes to reset list
+    searchParams.q; // read to create dependency
     // briefly show resetting state to force list to remount
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);
@@ -517,12 +517,12 @@ export function ArtistsView(props: ArtistsViewProps) {
   };
 
   // navigate to genre detail
-  const handleGenreClick = (genreId: string, genreName: string) => {
+  const handleGenreClick = (genreId: string, _genreName: string) => {
     navigate(buildRoute(`/genres/${genreId}`));
   };
 
   // build context menu actions for each artist
-  const getContextMenuActions = (item: ListItem, index: number) => {
+  const getContextMenuActions = (item: ListItem, _index: number) => {
     const artist = sortedArtists().find((a) => a.artist_id === item.id);
     if (!artist) return [];
 

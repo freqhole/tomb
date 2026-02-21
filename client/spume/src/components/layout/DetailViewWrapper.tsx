@@ -1,16 +1,6 @@
 // detail view wrapper - handles common mobile patterns for standalone detail views
-import {
-  createSignal,
-  onCleanup,
-  onMount,
-  createEffect,
-  Show,
-  type JSX,
-  type ParentProps,
-} from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import { createSignal, onCleanup, onMount, createEffect, type ParentProps } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
-import { Icon } from "../icons/registry";
 
 const NARROW_BREAKPOINT = 768;
 
@@ -44,10 +34,8 @@ export interface DetailViewWrapperProps extends ParentProps {
  * ```
  */
 export function DetailViewWrapper(props: DetailViewWrapperProps) {
-  const navigate = useNavigate();
-
   // narrow viewport detection
-  const [isNarrow, setIsNarrow] = createSignal(
+  const [_isNarrow, setIsNarrow] = createSignal(
     typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
   );
 
@@ -69,27 +57,6 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
       count: props.pageCount,
     });
   });
-
-  // handle back navigation
-  const handleBack = () => {
-    if (typeof props.onBack === "string") {
-      navigate(props.onBack);
-    } else if (typeof props.onBack === "function") {
-      props.onBack();
-    } else {
-      // default: go back in history
-      navigate(-1);
-    }
-  };
-
-  // determine if back button should show
-  const shouldShowBackButton = () => {
-    if (props.showBackButton !== undefined) {
-      return props.showBackButton;
-    }
-    // auto: show on narrow viewports
-    return isNarrow();
-  };
 
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>

@@ -1,6 +1,6 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, on, onCleanup } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
@@ -95,7 +95,7 @@ export function FavoritesView(props: FavoritesViewProps) {
   });
 
   // song handlers
-  const handleSongClick = (song: Song) => {
+  const handleSongClick = (_song: Song) => {
     // single click - could navigate to song detail if we had one
   };
 

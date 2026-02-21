@@ -3,7 +3,6 @@ import { PlayIcon } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
-import { formatHumanDuration } from "../../utils/formatDuration";
 import type { PlaylistSummary } from "../../music/data/types";
 
 export interface PlaylistCardProps {

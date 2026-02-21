@@ -1,5 +1,5 @@
 import type { JSX, ParentComponent } from "solid-js";
-import { createContext, For, mergeProps, splitProps, useContext } from "solid-js";
+import { createContext, splitProps, useContext } from "solid-js";
 import { Badge } from "../badges/Badge";
 
 export interface Tab {

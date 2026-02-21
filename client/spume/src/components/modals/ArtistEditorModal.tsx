@@ -1,5 +1,5 @@
 // artist editor modal - edit artist metadata
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -52,7 +52,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
   // entity URLs management
   const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
   const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
-  const [imagePreview, setImagePreview] = createSignal<string | null>(null);
+  const [_imagePreview, setImagePreview] = createSignal<string | null>(null);
   const [processingJob, setProcessingJob] = createSignal<{
     status: string;
     message: string;

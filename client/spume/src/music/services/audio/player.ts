@@ -22,7 +22,7 @@ import { stopServerSession } from "../queue/serverSession";
 import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySwapToCachedURL } from "../storage/audioAccess";
 import { getBlobObjectURL } from "../storage/blobs";
-import type { ImageMetadata, Song } from "../storage/types";
+import type { Song } from "../storage/types";
 
 // player state signals
 const [isPlaying, setIsPlaying] = createSignal(false);
@@ -492,7 +492,7 @@ export async function playSong(songOrId: string | Song): Promise<void> {
 
 // play/pause toggle - keep it simple like playlistz
 // source: 'ui' = app controls, 'mediaSession' = lock screen/control center
-export async function togglePlayback(source: 'ui' | 'mediaSession' = 'ui'): Promise<void> {
+export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Promise<void> {
   const audio = initAudio();
 
   if (isPlaying()) {

@@ -32,7 +32,6 @@ import {
   playSong,
   seek,
   setPlayerVolume,
-  stop,
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
@@ -571,7 +570,7 @@ export function AppLayout(props: AppLayoutProps) {
           onClearAll={() => {
             void clearQueue();
           }}
-          getContextMenuActions={(index, queueSong) => {
+          getContextMenuActions={(index, _queueSong) => {
             const state = appState();
             if (!state?.queue[index]) return [];
 

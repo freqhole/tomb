@@ -1,8 +1,6 @@
 import { For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import * as NavigationIcons from "../src/components/icons/navigation";
-import * as PlayerIcons from "../src/components/icons/player";
-import { Icon, IconRegistry, type IconName } from "../src/components/icons/registry";
+import { Icon, type IconName } from "../src/components/icons/registry";
 
 const meta = {
   title: "Components/Media/Icons",

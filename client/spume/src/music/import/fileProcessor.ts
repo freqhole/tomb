@@ -11,7 +11,7 @@ import {
   getOrCreateGenre,
   getSongsByAlbumId,
 } from "../services/storage/db";
-import type { NewSong, Song } from "../services/storage/types";
+import type { NewSong } from "../services/storage/types";
 
 export interface AudioMetadata {
   title: string;
@@ -79,7 +79,7 @@ async function readID3Tags(file: File): Promise<{
 
 // get audio duration by loading file in audio element
 async function getAudioDuration(file: File): Promise<number> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve, _reject) => {
     const audio = new Audio();
     const url = URL.createObjectURL(file);
 
@@ -123,13 +123,9 @@ export async function processMusicFile(
   const album = await getOrCreateAlbum(metadata.album, artist.artist_id);
 
   // create or get genre if present
-  let genreId: string | null = null;
   if (metadata.genre) {
-    const genre = await getOrCreateGenre(metadata.genre);
-    genreId = genre.genre_id;
-
-    // also link genre to album if album doesn't have one yet
-    // TODO: update album.genre_id if null
+    await getOrCreateGenre(metadata.genre);
+    // TODO: link genre to album if album doesn't have one yet
   }
 
   const now = Date.now();

@@ -3,11 +3,8 @@
 
 import { Combobox } from "@kobalte/core/combobox";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
-import type { ArtistSummary } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useArtistAutocompleteQuery } from "../../music/queries/autocomplete";
-import { Icon } from "../icons/registry";
-import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 
 export interface ArtistAutocompleteProps {

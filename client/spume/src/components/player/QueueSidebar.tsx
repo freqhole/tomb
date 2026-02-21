@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createSignal, For, Show, type JSX } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
@@ -112,10 +112,6 @@ export function QueueSidebar(props: QueueSidebarProps) {
     estimateSize: () => 56,
     overscan: 5,
   });
-
-  const handleSongClick = (index: number) => {
-    props.onSongClick(index);
-  };
 
   const handleSongDoubleClick = (index: number) => {
     if (props.onSongDoubleClick) {

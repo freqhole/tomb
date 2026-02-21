@@ -1,6 +1,5 @@
 import { Toast as KobalteToast, toaster } from "@kobalte/core/toast";
 import { Show, type JSX } from "solid-js";
-import { Portal } from "solid-js/web";
 import { solidColors } from "../../design-system/colors";
 import { Icon } from "../icons/registry";
 

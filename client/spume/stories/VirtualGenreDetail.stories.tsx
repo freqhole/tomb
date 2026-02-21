@@ -2,12 +2,7 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { VirtualGenreDetailSong } from "../src/components/virtualized/VirtualGenreDetail";
 import { VirtualGenreDetail } from "../src/components/virtualized/VirtualGenreDetail";
-import {
-  getAlbumsByArtist,
-  getSongsByAlbum,
-  mockAlbums,
-  mockSongs,
-} from "./mockData";
+import { getSongsByAlbum, mockAlbums } from "./mockData";
 
 const meta = {
   title: "Components/Virtualized/VirtualGenreDetail",
@@ -25,21 +20,6 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// helper to convert mock songs to VirtualGenreDetailSong format
-function convertMockSongs(songs: typeof mockSongs): VirtualGenreDetailSong[] {
-  return songs.map((song, index) => ({
-    sha256: song.id,
-    title: song.title,
-    artist_id: `artist-${song.artist}`,
-    artist_name: song.artist,
-    album_id: `album-${song.album}`,
-    album_title: song.album,
-    duration_seconds: song.durationSeconds,
-    year: 1970 + Math.floor(Math.random() * 50),
-    thumbnail_blob_id: null,
-  }));
-}
-
 // generate songs from mock albums to ensure proper grouping
 function generateGenreSongs(albumCount: number = 20): VirtualGenreDetailSong[] {
   const songs: VirtualGenreDetailSong[] = [];
@@ -47,7 +27,7 @@ function generateGenreSongs(albumCount: number = 20): VirtualGenreDetailSong[] {
 
   albums.forEach((album) => {
     const albumSongs = getSongsByAlbum(album.title);
-    albumSongs.forEach((song, index) => {
+    albumSongs.forEach((song, _index) => {
       songs.push({
         sha256: song.id,
         title: song.title,

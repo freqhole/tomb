@@ -4,11 +4,8 @@
 
 import { Combobox } from "@kobalte/core/combobox";
 import { createEffect, createMemo, createSignal, Show, type Accessor } from "solid-js";
-import type { AlbumSummary } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useAlbumAutocompleteQuery } from "../../music/queries/autocomplete";
-import { Icon } from "../icons/registry";
-import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 
 export interface AlbumAutocompleteProps {

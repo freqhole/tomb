@@ -1,7 +1,6 @@
 import { createSignal, For, Show, splitProps } from "solid-js";
 import { TagStrokeIcon, ChevronDownStrokeIcon } from "../icons/registry";
 import { Badge } from "../badges/Badge";
-import { IconButton } from "../buttons/IconButton";
 
 export type TagFilterMode = "include" | "exclude";
 
@@ -71,9 +70,7 @@ export function TagFilterPicker(props: TagFilterPickerProps) {
   // filter out already selected tags from available list
   const unselectedTags = () => {
     const selectedTagValues = new Set(local.selectedFilters.map((f) => f.tag));
-    return local.availableTags.filter(
-      (tag) => !selectedTagValues.has(tag.value),
-    );
+    return local.availableTags.filter((tag) => !selectedTagValues.has(tag.value));
   };
 
   const handleAddTag = (tag: string) => {
@@ -181,17 +178,13 @@ export function TagFilterPicker(props: TagFilterPickerProps) {
 
             {/* loading state */}
             <Show when={local.loading}>
-              <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
-                loading tags...
-              </div>
+              <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">loading tags...</div>
             </Show>
 
             {/* no unselected tags */}
             <Show when={!local.loading && unselectedTags().length === 0}>
               <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
-                {local.availableTags.length === 0
-                  ? "no tags available"
-                  : "all tags selected"}
+                {local.availableTags.length === 0 ? "no tags available" : "all tags selected"}
               </div>
             </Show>
 
@@ -206,9 +199,7 @@ export function TagFilterPicker(props: TagFilterPickerProps) {
                     >
                       <span>{tag.label}</span>
                       <Show when={tag.count !== undefined}>
-                        <span class="text-[var(--color-text-tertiary)] text-xs">
-                          ({tag.count})
-                        </span>
+                        <span class="text-[var(--color-text-tertiary)] text-xs">({tag.count})</span>
                       </Show>
                     </button>
                   )}

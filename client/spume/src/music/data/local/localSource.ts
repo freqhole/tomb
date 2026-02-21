@@ -10,7 +10,6 @@ import {
   deleteAlbumCascade,
   deleteArtist,
   deleteArtistCascade,
-  deleteSong,
   deleteSongCascade,
   deleteTag,
   findTagByName,
@@ -52,7 +51,7 @@ import {
   type PlaylistSong,
   type Song,
 } from "../../services/storage/types";
-import { sortSongsByArtist, sortSongsCanonical } from "../../utils/songSort";
+import { sortSongsCanonical } from "../../utils/songSort";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -66,11 +65,9 @@ import type {
   PlaylistSummary,
   QueryParams,
   SearchField,
-  SearchResponse,
   SearchSuggestion,
   SuggestionsResponse,
 } from "../types";
-import { getPrimaryImageBlobId } from "../../utils/images";
 
 
 // return the song's own images (never mix in album images)
@@ -1146,7 +1143,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     return { blob_id: blobId, job_id: '' };
   }
 
-  async getEntityImages(params: {
+  async getEntityImages(_params: {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
   }): Promise<string[]> {
@@ -1155,7 +1152,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     return [];
   }
 
-  async removeImage(params: {
+  async removeImage(_params: {
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     blobId: string;

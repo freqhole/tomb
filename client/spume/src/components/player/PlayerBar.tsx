@@ -1,4 +1,4 @@
-import { Show, type JSX } from "solid-js";
+import { Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";

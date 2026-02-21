@@ -16,7 +16,6 @@ import { getSessionIdForRemote } from "../queue/serverSession";
 
 const MAX_RETRIES = 5;
 const SYNC_INTERVAL_MS = 30_000; // try syncing every 30 seconds
-const RETRY_BACKOFF_MS = 5_000; // base backoff for retries
 
 // reactive count of pending events
 const [pendingEventCount, setPendingEventCount] = createSignal(0);

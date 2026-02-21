@@ -2,7 +2,6 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
-import { CollectionCardData } from "../src/components/cards/CollectionCard";
 import {
   formatDuration,
   formatNumber,
@@ -11,11 +10,7 @@ import {
 } from "../src/components/cards/StatsCard";
 import { SearchSortControls } from "../src/components/controls/SearchSortControls";
 import { HeadingSection } from "../src/components/layout/HeadingSection";
-import {
-  TwoColumnLayout,
-  ResponsiveMasterDetail,
-  type MasterDetailContext,
-} from "../src/components/layout/TwoColumnLayout";
+import { ResponsiveMasterDetail } from "../src/components/layout/TwoColumnLayout";
 import { DraggableRow, DraggableRowSongContent } from "../src/components/lists/DraggableRow";
 import { AlphabetNav } from "../src/components/navigation/AlphabetNav";
 import { TopNav } from "../src/components/navigation/TopNav";
@@ -26,7 +21,6 @@ import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import type { Song as DomainSong } from "../src/music/data/types";
 import {
-  generateBulkAlbums,
   generateBulkSongs,
   mockAlbums,
   mockArtists,
@@ -85,7 +79,7 @@ export const FullAppDemo: Story = {
   render: () => {
     // navigation state
     const [currentRoute, setCurrentRoute] = createSignal<Route>("songs");
-    const [topNavOpen, setTopNavOpen] = createSignal(false);
+    const [_topNavOpen, setTopNavOpen] = createSignal(false);
 
     // player state
     const [currentSong, setCurrentSong] = createSignal<Song | null>(generatedSongs[0]);
@@ -132,7 +126,7 @@ export const FullAppDemo: Story = {
     };
 
     // artists view state
-    const [selectedArtist, setSelectedArtist] = createSignal<Artist | null>(mockArtists[0]);
+    const [_selectedArtist, _setSelectedArtist] = createSignal<Artist | null>(mockArtists[0]);
     const [artistSortBy, setArtistSortBy] = createSignal("name");
     const [artistSortDirection, setArtistSortDirection] = createSignal<"asc" | "desc">("asc");
     const [currentLetter, setCurrentLetter] = createSignal<string | undefined>();
@@ -142,7 +136,7 @@ export const FullAppDemo: Story = {
     const [selectedSongIds, setSelectedSongIds] = createSignal<Set<string>>(new Set());
 
     // genres view state
-    const [selectedGenre, setSelectedGenre] = createSignal<Genre | null>(mockGenres[0]);
+    const [_selectedGenre, _setSelectedGenre] = createSignal<Genre | null>(mockGenres[0]);
     const [genreSortBy, setGenreSortBy] = createSignal("name");
     const [genreSortDirection, setGenreSortDirection] = createSignal<"asc" | "desc">("asc");
 

@@ -2,7 +2,6 @@
 // metadata in IndexedDB, actual blob data in OPFS or Cache API
 
 import { openDB, type IDBPDatabase } from "idb";
-import { url } from "inspector/promises";
 
 export const BLOB_DB_NAME = "freqhole_blobs";
 const BLOB_DB_VERSION = 1;

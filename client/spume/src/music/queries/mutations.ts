@@ -2,7 +2,6 @@
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "../../components/feedback/Toast";
 import { getDataSource } from "../data";
-import { updateAlbumInCache, updateArtistInCache } from "./cacheUpdates";
 import { queryKeys } from "./queryKeys";
 
 interface UpdateArtistData {

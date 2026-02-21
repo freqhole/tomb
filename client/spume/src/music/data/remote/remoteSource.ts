@@ -40,14 +40,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
-  // check result for errors - flags auth issues and throws with the given message
-  private assertSuccess<T>(result: apiClient.SafeParseResult<T>, message: string): asserts result is { success: true; data: T } {
-    if (!result.success) {
-      this.checkAuthError(result);
-      throw new Error(message);
-    }
-  }
-
   // helper to convert our QueryParams to API QueryParams
   private buildApiParams(params?: QueryParams): apiClient.QueryParams {
     const filters: Record<string, any> = {};
@@ -909,12 +901,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }));
   }
 
-  async addTag(params: { name: string }): Promise<void> {
+  async addTag(_params: { name: string }): Promise<void> {
     // Note: there may not be an addTag endpoint, might need to be done via album/song tagging
     throw new Error("addTag not implemented for remote source");
   }
 
-  async deleteTag(params: { name: string }): Promise<void> {
+  async deleteTag(_params: { name: string }): Promise<void> {
     // Note: there may not be a deleteTag endpoint
     throw new Error("deleteTag not implemented for remote source");
   }

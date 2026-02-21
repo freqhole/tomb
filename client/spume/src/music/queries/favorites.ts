@@ -7,9 +7,9 @@ import {
 import type { Accessor } from "solid-js";
 import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
-import { debug, error as logError, warn } from "../../utils/logger";
+import { debug, error as logError } from "../../utils/logger";
 import { getDataSource } from "../data";
-import type { FavoriteItem, FavoriteTarget, ListFavoritesParams } from "../data/types";
+import type { FavoriteTarget, ListFavoritesParams } from "../data/types";
 import {
   updateAlbumInCache,
   updateArtistInCache,
@@ -168,7 +168,7 @@ export function useToggleFavoriteMutation() {
       debug("favorites", "invalidation complete");
     },
 
-    onError: (error: Error, variables, context) => {
+    onError: (error: Error, variables, _context) => {
       // show error toast
       logError("favorites", "onError:", error);
       logError("favorites", "variables:", variables);

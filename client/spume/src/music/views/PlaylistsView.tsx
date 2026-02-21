@@ -36,7 +36,6 @@ import {
   usePlaylistSongsQuery,
   usePlaylistsQuery,
   useReorderPlaylistSongsMutation,
-  useUpdatePlaylistMutation,
 } from "../queries/playlists";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
@@ -64,7 +63,7 @@ export interface PlaylistsViewProps {
 // narrow breakpoint for responsive layout
 const NARROW_BREAKPOINT = 768;
 
-export function PlaylistsView(props: PlaylistsViewProps) {
+export function PlaylistsView(_props: PlaylistsViewProps) {
   const params = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
   const [isResetting, setIsResetting] = createSignal(false);
@@ -172,7 +171,6 @@ export function PlaylistsView(props: PlaylistsViewProps) {
   const [isSyncing, setIsSyncing] = createSignal(false);
 
   // mutations for updating playlist
-  const updatePlaylistMutation = useUpdatePlaylistMutation();
   const reorderSongsMutation = useReorderPlaylistSongsMutation();
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
@@ -231,8 +229,8 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // reset virtual list when query param changes
   createEffect(() => {
-    const q = searchParams.q;
-    const queryParam = Array.isArray(q) ? q[0] : q;
+    // track query param changes to reset list
+    searchParams.q; // read to create dependency
     // briefly show resetting state to force list to remount
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);
@@ -656,7 +654,7 @@ export function PlaylistsView(props: PlaylistsViewProps) {
     if (!remote) return;
 
     // fetch the LOCAL playlist from IndexedDB — syncPlaylist expects the local record
-    const db = await initMusicDB();
+    await initMusicDB();
     const localPlaylist = await getPlaylistById(status.localPlaylistId);
     if (!localPlaylist) {
       errorLog("local playlist not found:", status.localPlaylistId);

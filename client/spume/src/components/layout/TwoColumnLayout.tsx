@@ -1,4 +1,13 @@
-import { Show, splitProps, createSignal, onMount, onCleanup, createEffect, type JSX, type Accessor } from "solid-js";
+import {
+  Show,
+  splitProps,
+  createSignal,
+  onMount,
+  onCleanup,
+  createEffect,
+  type JSX,
+  type Accessor,
+} from "solid-js";
 
 const NARROW_BREAKPOINT = 768;
 
@@ -64,7 +73,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
         class={`flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] overflow-hidden
           flex-1 md:flex-none md:w-auto
           ${local.showDetail ? "hidden md:flex" : "flex"}`}
-        style={{ 
+        style={{
           "--left-width": `${leftWidth()}px`,
         }}
       >
@@ -77,7 +86,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on narrow: full width overlay with slide-in, only when showDetail */}
       {/* on wide: always visible, fills remaining space */}
       {/* back button is now rendered by the detail view itself for better layout control */}
-      <div 
+      <div
         class={`flex-1 flex flex-col min-w-0
           ${local.showDetail ? "flex" : "hidden md:flex"}
           md:relative`}
@@ -109,7 +118,7 @@ export interface MasterDetailContext<T> {
 export interface ResponsiveMasterDetailProps<T> {
   /** list of items to display */
   items: T[] | Accessor<T[]>;
-  /** 
+  /**
    * initially selected item (uncontrolled mode)
    * use this when you don't need external control over selection
    */
@@ -139,20 +148,20 @@ export interface ResponsiveMasterDetailProps<T> {
 
 /**
  * responsive master-detail layout that manages selection state internally
- * 
+ *
  * supports both controlled and uncontrolled selection:
  * - uncontrolled: use `initialSelection` prop, component manages state
  * - controlled: use `selection` accessor + `onSelectionChange` callback
- * 
+ *
  * on narrow screens (<768px):
  * - shows list by default
  * - when item selected, shows detail view with back button
  * - back button returns to list
- * 
+ *
  * on wide screens (>=768px):
  * - shows both columns side-by-side
  * - selection updates detail view in place
- * 
+ *
  * example usage (uncontrolled):
  * ```tsx
  * <ResponsiveMasterDetail
@@ -178,11 +187,11 @@ export interface ResponsiveMasterDetailProps<T> {
  *   )}
  * />
  * ```
- * 
+ *
  * example usage (controlled):
  * ```tsx
  * const [selected, setSelected] = createSignal<Artist | null>(null);
- * 
+ *
  * <ResponsiveMasterDetail
  *   items={artists()}
  *   selection={selected}
@@ -251,12 +260,6 @@ export function ResponsiveMasterDetail<T>(props: ResponsiveMasterDetailProps<T>)
       setShowingDetailOnNarrow(false);
     }
   });
-
-  // resolve items accessor
-  const resolvedItems = () => {
-    const items = props.items;
-    return typeof items === "function" ? items() : items;
-  };
 
   // create accessor wrapper for selectedItem
   const selectedItemAccessor: Accessor<T | null> = selectedItem;

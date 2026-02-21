@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { Icon } from "../icons/registry";
 
 export interface VolumeControlProps {

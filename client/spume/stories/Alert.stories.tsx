@@ -1,6 +1,5 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { solidColors } from "../src/design-system/colors";
 import { Badge } from "../src/components/badges/Badge";
 import { Button } from "../src/components/buttons/Button";
 import { Alert } from "../src/components/feedback/Alert";

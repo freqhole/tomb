@@ -1,7 +1,6 @@
 // app domain wrapper functions
 import { call } from "./client.js";
 import { routes } from "./codegen/routes.js";
-import type * as s from "./codegen/schema.js";
 
 // health check (no auth required)
 export function healthCheck(baseUrl: string) {

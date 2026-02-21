@@ -1,10 +1,7 @@
-import { createSignal, For, type JSX } from "solid-js";
+import { createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { IconButton } from "../src/components/buttons/IconButton";
-import {
-  DraggableRow,
-  DraggableRowSongContent,
-} from "../src/components/lists/DraggableRow";
+import { DraggableRow, DraggableRowSongContent } from "../src/components/lists/DraggableRow";
 import { mockSongs, type Song } from "./mockData";
 
 const meta = {
@@ -43,9 +40,7 @@ export const Interactive: Story = {
   render: () => {
     const [songs, setSongs] = createSignal<Song[]>(mockSongs);
     const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
-    const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(
-      null,
-    );
+    const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
     const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
 
     const handleDragStart = (index: number) => (e: DragEvent) => {

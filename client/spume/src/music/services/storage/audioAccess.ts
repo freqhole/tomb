@@ -1,6 +1,6 @@
 // audio access abstraction - handles getting audio urls from various sources
 import { createSignal } from "solid-js";
-import { cacheBlob, getCachedBlob, preCacheBlob } from "../cache/blobCache";
+import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 

@@ -1,5 +1,5 @@
 import { FileField } from "@kobalte/core/file-field";
-import { For, Show, splitProps, type JSX } from "solid-js";
+import { Show, splitProps } from "solid-js";
 import { Icon } from "../icons/registry";
 
 export interface FilePickerProps {
@@ -138,9 +138,7 @@ export function FilePicker(props: FilePickerProps) {
               </FileField.Trigger>
 
               <Show when={allowDragAndDrop()}>
-                <p class="body-sm text-[var(--color-text-tertiary)]">
-                  or drag and drop files here
-                </p>
+                <p class="body-sm text-[var(--color-text-tertiary)]">or drag and drop files here</p>
               </Show>
 
               <Show when={local.maxFiles}>
@@ -151,9 +149,7 @@ export function FilePicker(props: FilePickerProps) {
 
               <Show when={local.accept}>
                 <p class="caption text-[var(--color-text-muted)]">
-                  {Array.isArray(local.accept)
-                    ? local.accept.join(", ")
-                    : local.accept}
+                  {Array.isArray(local.accept) ? local.accept.join(", ") : local.accept}
                 </p>
               </Show>
 
@@ -170,7 +166,7 @@ export function FilePicker(props: FilePickerProps) {
 
         {/* file list */}
         <FileField.ItemList class="space-y-2 mt-4">
-          {(file) => (
+          {(_file) => (
             <FileField.Item
               class="
                 flex items-center gap-3
@@ -196,10 +192,7 @@ export function FilePicker(props: FilePickerProps) {
               {/* file info */}
               <div class="flex-1 min-w-0">
                 <FileField.ItemName class="body-sm text-[var(--color-text-primary)] truncate block" />
-                <FileField.ItemSize
-                  precision={2}
-                  class="caption text-[var(--color-text-muted)]"
-                />
+                <FileField.ItemSize precision={2} class="caption text-[var(--color-text-muted)]" />
               </div>
 
               {/* delete button */}

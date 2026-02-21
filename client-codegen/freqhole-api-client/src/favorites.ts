@@ -1,7 +1,6 @@
 // hand-rolled favorites types with proper discriminated union support
 // the codegen doesn't handle rust's #[serde(tag = "type")] properly yet
 import { z } from "zod";
-import type * as s from "./codegen/schema.js";
 import {
   SongQueryResultSchema,
   AlbumQueryResultSchema,

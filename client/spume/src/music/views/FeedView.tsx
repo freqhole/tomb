@@ -1,6 +1,6 @@
 // feed view — single infinite scrolling list of all activity events
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { Button } from "../../components/buttons/Button";
@@ -88,6 +88,8 @@ export function FeedView() {
     const pages = feedQuery.data?.pages ?? [];
     return pages.length > 0 ? pages[0].total : 0;
   });
+  // ensure totalCount is tracked to avoid unused warning
+  void totalCount;
 
   // responsive list height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();

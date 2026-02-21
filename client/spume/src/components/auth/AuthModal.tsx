@@ -1,5 +1,3 @@
-import { type JSX } from "solid-js";
-import { Alert } from "../feedback/Alert";
 import { Modal } from "../overlays/Modal";
 import { AuthForm, type AuthFormProps } from "./AuthForm";
 
@@ -21,8 +19,7 @@ export function AuthModal(props: AuthModalProps) {
     props.onAuthSuccess?.();
   };
 
-  const title = () =>
-    (props.initialMode || "login") === "login" ? "sign in" : "create account";
+  const title = () => ((props.initialMode || "login") === "login" ? "sign in" : "create account");
 
   return (
     <Modal isOpen={props.isOpen} onClose={props.onClose} title={title()}>

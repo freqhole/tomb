@@ -1,6 +1,5 @@
 // query hooks for ratings with optimistic updates
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
-import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError } from "../../utils/logger";
 import { getDataSource } from "../data";
 import { queryKeys } from "./queryKeys";

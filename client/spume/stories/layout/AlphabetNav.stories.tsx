@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createSignal, For, onMount } from "solid-js";
+import { createEffect, createSignal, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { AlphabetNav } from "../../src/components/navigation/AlphabetNav";
 import { MarqueeText } from "../../src/components/text/MarqueeText";

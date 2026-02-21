@@ -32,7 +32,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>(
     (props.playlist.urls || []).map((u) => ({ ...u, name: u.name || "" }))
   );
-  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>(
+  const [initialEntityUrls, _setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>(
     (props.playlist.urls || []).map((u) => ({ ...u, name: u.name || "" }))
   );
 

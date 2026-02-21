@@ -1,12 +1,5 @@
 import type { JSX } from "solid-js";
-import {
-  For,
-  Show,
-  createSignal,
-  onCleanup,
-  onMount,
-  splitProps,
-} from "solid-js";
+import { For, Show, splitProps } from "solid-js";
 import { Icon } from "../icons/registry";
 
 export interface SelectOption {
@@ -15,8 +8,7 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
-export interface SelectProps
-  extends JSX.SelectHTMLAttributes<HTMLSelectElement> {
+export interface SelectProps extends JSX.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
   hint?: string;
@@ -69,9 +61,7 @@ export function Select(props: SelectProps) {
   return (
     <div class={`space-y-1 ${local.class || ""}`}>
       <Show when={local.label}>
-        <label class="label text-[var(--color-text-secondary)] block">
-          {local.label}
-        </label>
+        <label class="label text-[var(--color-text-secondary)] block">{local.label}</label>
       </Show>
 
       <div class="relative">
@@ -104,13 +94,7 @@ export function Select(props: SelectProps) {
         <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
           <Show
             when={local.error}
-            fallback={
-              <Icon
-                name="chevronDown"
-                size={16}
-                color="var(--color-text-tertiary)"
-              />
-            }
+            fallback={<Icon name="chevronDown" size={16} color="var(--color-text-tertiary)" />}
           >
             <Icon name="alertTriangle" size={16} color="var(--color-error)" />
           </Show>

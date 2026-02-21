@@ -41,7 +41,6 @@ type Story = StoryObj<typeof meta>;
 
 // sample album art url
 const sampleAlbumUrl = "https://picsum.photos/400/400";
-const sampleArtistUrl = "https://picsum.photos/400/401";
 
 // default with image
 export const Default: Story = {
@@ -69,48 +68,26 @@ export const WithHover: Story = {
 export const AllSizes: Story = {
   render: () => (
     <div class="p-4 space-y-4">
-      <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">
-        size variants
-      </div>
+      <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">size variants</div>
       <div class="flex gap-4 items-end flex-wrap">
         <div class="space-y-1">
-          <MediaImage
-            imageUrl={sampleAlbumUrl}
-            alt="extra small"
-            size="xs"
-          />
+          <MediaImage imageUrl={sampleAlbumUrl} alt="extra small" size="xs" />
           <div class="text-xs text-gray-400 text-center">xs</div>
         </div>
         <div class="space-y-1">
-          <MediaImage
-            imageUrl={sampleAlbumUrl}
-            alt="small"
-            size="sm"
-          />
+          <MediaImage imageUrl={sampleAlbumUrl} alt="small" size="sm" />
           <div class="text-xs text-gray-400 text-center">sm</div>
         </div>
         <div class="space-y-1">
-          <MediaImage
-            imageUrl={sampleAlbumUrl}
-            alt="medium"
-            size="md"
-          />
+          <MediaImage imageUrl={sampleAlbumUrl} alt="medium" size="md" />
           <div class="text-xs text-gray-400 text-center">md</div>
         </div>
         <div class="space-y-1">
-          <MediaImage
-            imageUrl={sampleAlbumUrl}
-            alt="large"
-            size="lg"
-          />
+          <MediaImage imageUrl={sampleAlbumUrl} alt="large" size="lg" />
           <div class="text-xs text-gray-400 text-center">lg</div>
         </div>
         <div class="space-y-1">
-          <MediaImage
-            imageUrl={sampleAlbumUrl}
-            alt="extra large"
-            size="xl"
-          />
+          <MediaImage imageUrl={sampleAlbumUrl} alt="extra large" size="xl" />
           <div class="text-xs text-gray-400 text-center">xl</div>
         </div>
       </div>
@@ -127,13 +104,7 @@ export const FallbackIcons: Story = {
       </div>
       <div class="flex gap-4 flex-wrap">
         <div class="space-y-2 text-center">
-          <MediaImage
-            imageUrl={null}
-            alt="song"
-            size="lg"
-            domainType="song"
-            showFallback={true}
-          />
+          <MediaImage imageUrl={null} alt="song" size="lg" domainType="song" showFallback={true} />
           <div class="text-xs text-gray-400">song</div>
         </div>
         <div class="space-y-2 text-center">
@@ -208,15 +179,8 @@ export const LoadingState: Story = {
 
     return (
       <div class="p-4 space-y-4">
-        <div class="text-gray-300 text-sm">
-          {loading() ? "loading..." : "image loaded"}
-        </div>
-        <MediaImage
-          imageUrl={imageUrl()}
-          alt="loading test"
-          size="xl"
-          domainType="album"
-        />
+        <div class="text-gray-300 text-sm">{loading() ? "loading..." : "image loaded"}</div>
+        <MediaImage imageUrl={imageUrl()} alt="loading test" size="xl" domainType="album" />
         <button
           onClick={loadImage}
           disabled={loading()}
@@ -244,9 +208,7 @@ export const ErrorHandling: Story = {
 export const InGrid: Story = {
   render: () => (
     <div class="p-4">
-      <div class="text-gray-300 text-xs uppercase tracking-wide mb-4">
-        grid of album covers
-      </div>
+      <div class="text-gray-300 text-xs uppercase tracking-wide mb-4">grid of album covers</div>
       <div class="grid grid-cols-4 gap-3">
         {Array.from({ length: 8 }).map((_, i) => (
           <MediaImage
@@ -266,28 +228,16 @@ export const InGrid: Story = {
 export const CustomClasses: Story = {
   render: () => (
     <div class="p-4 space-y-4">
-      <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">
-        custom styling
-      </div>
+      <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">custom styling</div>
       <div class="flex gap-4 flex-wrap">
-        <MediaImage
-          imageUrl={sampleAlbumUrl}
-          alt="rounded full"
-          size="lg"
-          class="rounded-full"
-        />
+        <MediaImage imageUrl={sampleAlbumUrl} alt="rounded full" size="lg" class="rounded-full" />
         <MediaImage
           imageUrl={sampleAlbumUrl}
           alt="with border"
           size="lg"
           class="border-4 border-magenta-500"
         />
-        <MediaImage
-          imageUrl={sampleAlbumUrl}
-          alt="with shadow"
-          size="lg"
-          class="shadow-2xl"
-        />
+        <MediaImage imageUrl={sampleAlbumUrl} alt="with shadow" size="lg" class="shadow-2xl" />
       </div>
     </div>
   ),
