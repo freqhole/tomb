@@ -25,7 +25,7 @@ import {
   usePlaylistContextMenu,
 } from "../hooks/contextMenu";
 import { routes } from "../utils/routing";
-import { useViewportHeight } from "../../utils/viewport";
+import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 
 export interface FavoritesViewProps {
   onAddMusic: () => void;
@@ -38,9 +38,8 @@ export function FavoritesView(props: FavoritesViewProps) {
 
   // responsive height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const containerHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
+  const containerHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({

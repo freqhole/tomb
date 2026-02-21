@@ -14,7 +14,7 @@ import {
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
-import { useViewportHeight } from "../../utils/viewport";
+import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
 import { Badge } from "../../components/badges/Badge";
@@ -83,14 +83,14 @@ export function PlaylistsView(props: PlaylistsViewProps) {
 
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
-  const NAV_HEIGHT = 56; // height of top navigation bar
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
   const listHeight = () => {
     const vh = viewportHeight();
     const pb = playerBarHeight();
-    const result = vh - NAV_HEIGHT - pb;
+    const navH = getNavHeight();
+    const result = vh - navH - pb;
     console.log(
-      `[PlaylistsView] listHeight=${result}px (viewport=${vh}, nav=${NAV_HEIGHT}, playerBar=${pb})`
+      `[PlaylistsView] listHeight=${result}px (viewport=${vh}, nav=${navH}, playerBar=${pb})`
     );
     return result;
   };

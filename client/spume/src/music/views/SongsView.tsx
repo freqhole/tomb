@@ -5,7 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
-import { useViewportHeight } from "../../utils/viewport";
+import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import {
@@ -50,9 +50,8 @@ export function SongsView(props: SongsViewProps) {
 
   // responsive list height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
+  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   onMount(() => {
     const handleResize = () => {

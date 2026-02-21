@@ -97,3 +97,16 @@ export function getViewportHeight(): number {
   if (typeof window === "undefined") return 800;
   return window.visualViewport?.height ?? window.innerHeight;
 }
+
+const NARROW_BREAKPOINT = 768;
+const NAV_HEIGHT = 56;
+
+/**
+ * get the nav height to subtract from viewport for content areas.
+ * returns NAV_HEIGHT (56px) on narrow/mobile views where nav is fixed,
+ * returns 0 on wide/desktop views where nav is part of the flex layout.
+ */
+export function getNavHeight(): number {
+  if (typeof window === "undefined") return 0;
+  return window.innerWidth < NARROW_BREAKPOINT ? NAV_HEIGHT : 0;
+}

@@ -5,7 +5,7 @@ import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
-import { useViewportHeight } from "../../utils/viewport";
+import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { formatNumber } from "../../components/cards/StatsCard";
 import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
@@ -37,9 +37,8 @@ export function GenresView(props: GenresViewProps) {
 
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
-  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
+  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // use genre from URL params, fallback to history state
   const initialGenreId =

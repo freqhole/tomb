@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
-import { useViewportHeight } from "../../utils/viewport";
+import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
@@ -38,9 +38,8 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   // responsive grid height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const gridHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
+  const gridHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   onMount(() => {
     onCleanup(() => {

@@ -1,7 +1,7 @@
 // feed view — single infinite scrolling list of all activity events
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
-import { useViewportHeight } from "../../utils/viewport";
+import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { Button } from "../../components/buttons/Button";
 import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
@@ -91,9 +91,8 @@ export function FeedView() {
 
   // responsive list height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const NAV_HEIGHT = 56;
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const listHeight = () => viewportHeight() - NAV_HEIGHT - playerBarHeight();
+  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // set page info with feed filter controls
   createEffect(
