@@ -143,9 +143,7 @@ export function TopNavMobile(props: TopNavMobileProps) {
                       }
                     >
                       <div class="flex items-center gap-2 mt-1">
-                        <span class="text-xs text-white/70">
-                          {props.currentUsername}
-                        </span>
+                        <span class="text-xs text-white/70">{props.currentUsername}</span>
                         <span class="px-1.5 py-0.5 bg-white/10 rounded text-xs text-white/50">
                           {props.currentUserRole}
                         </span>
