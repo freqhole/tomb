@@ -313,10 +313,10 @@ export async function downloadPlaylist(
             "downloadSync",
             `song already exists with sha256 ${sha256}, skipping download`,
           );
-          // just add to playlist mapping
+          // just add to playlist mapping - use array index since remote position might be -1 (unsorted)
           localSongMappings.push({
             song_id: sha256,
-            position: remoteSong.position || i,
+            position: remoteSong.position != null && remoteSong.position >= 0 ? remoteSong.position : i,
           });
           continue;
         }
@@ -434,10 +434,10 @@ export async function downloadPlaylist(
         // save song to database
         await db.put("songs", localSong);
 
-        // add to playlist mapping
+        // add to playlist mapping - use array index since remote position might be -1 (unsorted)
         localSongMappings.push({
           song_id: sha256,
-          position: remoteSong.position || i,
+          position: remoteSong.position != null && remoteSong.position >= 0 ? remoteSong.position : i,
         });
       } catch (error) {
         console.error(
@@ -645,10 +645,10 @@ export async function syncPlaylist(
         // check if we already have this song
         const existingSong = await db.get("songs", sha256);
         if (existingSong) {
-          // already have it, just add to mapping
+          // already have it, just add to mapping - use array index since remote position might be -1
           localSongMappings.push({
             song_id: sha256,
-            position: remoteSong.position || i,
+            position: remoteSong.position != null && remoteSong.position >= 0 ? remoteSong.position : i,
           });
           continue;
         }
@@ -765,7 +765,7 @@ export async function syncPlaylist(
 
         localSongMappings.push({
           song_id: sha256,
-          position: remoteSong.position || i,
+          position: remoteSong.position != null && remoteSong.position >= 0 ? remoteSong.position : i,
         });
       } catch (error) {
         console.error(`failed to sync song ${song.title}:`, error);
