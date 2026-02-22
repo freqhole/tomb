@@ -18,6 +18,7 @@ import {
   updatePlaylistSongs,
   updateSyncedPlaylistETag,
 } from "../storage/playlists";
+import { storeBlob } from "../storage/blobs";
 import type { GenreRef, ImageMetadata, Playlist, Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
 
@@ -37,18 +38,59 @@ export interface SyncCheckResult {
 }
 
 /**
- * convert remote API image array to local ImageMetadata with remote_url references
+ * download remote images and store them locally in IndexedDB/OPFS
+ * returns ImageMetadata array with local_blob_id set for offline access
  */
-function buildRemoteImages(
+async function downloadAndStoreImages(
   remoteUrl: string,
   apiImages: Array<{ blob_id: string; is_primary: number; blob_type?: string }> | null | undefined,
-): ImageMetadata[] {
+): Promise<ImageMetadata[]> {
   if (!apiImages?.length) return [];
-  return apiImages.map((img) => ({
-    remote_url: `${remoteUrl}/api/blobs/${img.blob_id}`,
-    is_primary: img.is_primary === 1,
-    blob_type: (img.blob_type as ImageMetadata["blob_type"]) || "thumbnail",
-  }));
+
+  const results: ImageMetadata[] = [];
+
+  for (const img of apiImages) {
+    try {
+      const imageUrl = `${remoteUrl}/api/blobs/${img.blob_id}`;
+      const response = await fetch(imageUrl, { credentials: "include" });
+
+      if (!response.ok) {
+        debug("downloadSync", `failed to fetch image ${img.blob_id}: ${response.status}`);
+        // fall back to remote_url reference
+        results.push({
+          remote_url: imageUrl,
+          is_primary: img.is_primary === 1,
+          blob_type: (img.blob_type as ImageMetadata["blob_type"]) || "thumbnail",
+        });
+        continue;
+      }
+
+      const blob = await response.blob();
+      const mimeType = blob.type || "image/jpeg";
+
+      // store blob locally and get local_blob_id
+      const localBlobId = await storeBlob(blob, mimeType);
+
+      results.push({
+        local_blob_id: localBlobId,
+        remote_url: imageUrl, // keep remote_url as fallback
+        is_primary: img.is_primary === 1,
+        blob_type: (img.blob_type as ImageMetadata["blob_type"]) || "thumbnail",
+      });
+
+      debug("downloadSync", `stored image ${img.blob_id} as local blob ${localBlobId}`);
+    } catch (err) {
+      debug("downloadSync", `error downloading image ${img.blob_id}:`, err);
+      // fall back to remote_url reference
+      results.push({
+        remote_url: `${remoteUrl}/api/blobs/${img.blob_id}`,
+        is_primary: img.is_primary === 1,
+        blob_type: (img.blob_type as ImageMetadata["blob_type"]) || "thumbnail",
+      });
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -199,8 +241,8 @@ export async function downloadPlaylist(
       downloadedSongs: 0,
     });
 
-    // build playlist images as remote_url references (no download needed)
-    const playlistImages = buildRemoteImages(remoteUrl, remotePlaylist.images);
+    // download playlist images to local storage
+    const playlistImages = await downloadAndStoreImages(remoteUrl, remotePlaylist.images);
 
     // create local playlist
     const localPlaylistId = generateUUID();
@@ -308,7 +350,7 @@ export async function downloadPlaylist(
         if (artist) {
           const artistUpdates: Partial<typeof artistRecord> = {};
           if (artist.images?.length && !artistRecord.images?.length) {
-            artistUpdates.images = buildRemoteImages(remoteUrl, artist.images);
+            artistUpdates.images = await downloadAndStoreImages(remoteUrl, artist.images);
           }
           if (artist.urls?.length && !artistRecord.urls?.length) {
             artistUpdates.urls = buildEntityUrls(artist.urls);
@@ -329,7 +371,7 @@ export async function downloadPlaylist(
         if (album) {
           const albumUpdates: Partial<typeof albumRecord> = {};
           if (album.images?.length && !albumRecord.images?.length) {
-            albumUpdates.images = buildRemoteImages(remoteUrl, album.images);
+            albumUpdates.images = await downloadAndStoreImages(remoteUrl, album.images);
           }
           if (album.urls?.length && !albumRecord.urls?.length) {
             albumUpdates.urls = buildEntityUrls(album.urls);
@@ -343,8 +385,8 @@ export async function downloadPlaylist(
         const { primaryGenreId, primaryGenreName, genreRefs } =
           await syncAlbumGenres(albumId, album?.genres);
 
-        // build song images from remote
-        const songImages = buildRemoteImages(remoteUrl, song.images);
+        // download song images to local storage
+        const songImages = await downloadAndStoreImages(remoteUrl, song.images);
 
         // build song entity URLs from remote
         const songUrls = buildEntityUrls(song.urls);
@@ -510,8 +552,8 @@ export async function syncPlaylist(
     }
     const remotePlaylist = playlistResult.data;
 
-    // update local playlist metadata including images
-    const playlistImages = buildRemoteImages(remoteUrl, remotePlaylist.images);
+    // download and update local playlist images
+    const playlistImages = await downloadAndStoreImages(remoteUrl, remotePlaylist.images);
     const updatedPlaylist: Playlist = {
       ...localPlaylist,
       title: remotePlaylist.title,
@@ -638,7 +680,7 @@ export async function syncPlaylist(
         if (artist) {
           const artistUpdates: Partial<typeof artistRecord> = {};
           if (artist.images?.length && !artistRecord.images?.length) {
-            artistUpdates.images = buildRemoteImages(remoteUrl, artist.images);
+            artistUpdates.images = await downloadAndStoreImages(remoteUrl, artist.images);
           }
           if (artist.urls?.length && !artistRecord.urls?.length) {
             artistUpdates.urls = buildEntityUrls(artist.urls);
@@ -659,7 +701,7 @@ export async function syncPlaylist(
         if (album) {
           const albumUpdates: Partial<typeof albumRecord> = {};
           if (album.images?.length && !albumRecord.images?.length) {
-            albumUpdates.images = buildRemoteImages(remoteUrl, album.images);
+            albumUpdates.images = await downloadAndStoreImages(remoteUrl, album.images);
           }
           if (album.urls?.length && !albumRecord.urls?.length) {
             albumUpdates.urls = buildEntityUrls(album.urls);
@@ -673,8 +715,8 @@ export async function syncPlaylist(
         const { primaryGenreId, primaryGenreName, genreRefs } =
           await syncAlbumGenres(albumId, album?.genres);
 
-        // build song images from remote
-        const songImages = buildRemoteImages(remoteUrl, song.images);
+        // download song images to local storage
+        const songImages = await downloadAndStoreImages(remoteUrl, song.images);
 
         // build song entity URLs from remote
         const songUrls = buildEntityUrls(song.urls);
