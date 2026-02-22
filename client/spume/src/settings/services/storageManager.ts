@@ -6,6 +6,7 @@ import { closeMusicDB } from "../../music/services/storage/db/init";
 import { closeBlobDB, BLOB_DB_NAME } from "../../music/services/storage/blobs";
 import { APP_DB_NAME } from "../../app/services/storage/types";
 import { closeAppDB } from "../../app/services/storage/db";
+import { closeMetadataDB } from "../../music/services/cache/blobCache";
 import { debug } from "../../utils/logger";
 
 // cache names used by the app
@@ -314,6 +315,11 @@ export async function clearAllData(): Promise<void> {
     closeBlobDB();
   } catch (e) {
     console.warn("[clearAllData] error closing blob db:", e);
+  }
+  try {
+    closeMetadataDB();
+  } catch (e) {
+    console.warn("[clearAllData] error closing metadata db:", e);
   }
   
   // small delay to ensure connections are fully closed

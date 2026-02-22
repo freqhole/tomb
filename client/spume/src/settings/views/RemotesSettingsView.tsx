@@ -1,6 +1,7 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, onMount, Show, For } from "solid-js";
 import { getAllRemotes, deleteRemote } from "../../app/services/remotes/remoteManager";
+import { logout, whoami } from "../../app/services/remotes/authService";
 import { initAppDB } from "../../app/services/storage/db";
 import {
   STORE_QUEUE_HISTORY,
@@ -8,6 +9,8 @@ import {
   type Remote,
 } from "../../app/services/storage/types";
 import { debug } from "../../utils/logger";
+import { toast } from "../../components/feedback/Toast";
+import { ReauthModal } from "../../components/auth/ReauthModal";
 
 // format a timestamp as a readable date
 function formatDate(timestamp: number): string {
@@ -71,11 +74,23 @@ async function deleteQueueHistoryForRemote(remoteId: string): Promise<number> {
   return entriesToDelete.length;
 }
 
+// auth info for a remote
+interface AuthInfo {
+  loggedIn: boolean;
+  username?: string;
+  role?: string;
+}
+
 export function RemotesSettingsView() {
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [deleting, setDeleting] = createSignal<string | null>(null);
+  const [loggingOut, setLoggingOut] = createSignal<string | null>(null);
+  // auth status per remote: null = checking, AuthInfo = resolved
+  const [authStatus, setAuthStatus] = createSignal<Map<string, AuthInfo | null>>(new Map());
+  // reauth modal state
+  const [reauthRemote, setReauthRemote] = createSignal<Remote | null>(null);
 
   // confirmation dialog state
   const [confirmDialog, setConfirmDialog] = createSignal<{
@@ -92,10 +107,67 @@ export function RemotesSettingsView() {
     try {
       const data = await getAllRemotes();
       setRemotes(data);
+      // check auth status for each remote
+      checkAllAuthStatus(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to load remotes");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkAllAuthStatus = async (remoteList: Remote[]) => {
+    // initialize all as checking (null)
+    const initial = new Map<string, AuthInfo | null>();
+    for (const r of remoteList) {
+      initial.set(r.remote_id, null);
+    }
+    setAuthStatus(initial);
+
+    // check each remote in parallel
+    await Promise.all(
+      remoteList.map(async (remote) => {
+        try {
+          const result = await whoami(remote.base_url);
+          setAuthStatus((prev) => {
+            const next = new Map(prev);
+            next.set(remote.remote_id, {
+              loggedIn: result.success,
+              username: result.username,
+              role: result.role,
+            });
+            return next;
+          });
+        } catch {
+          // network error - assume not logged in
+          setAuthStatus((prev) => {
+            const next = new Map(prev);
+            next.set(remote.remote_id, { loggedIn: false });
+            return next;
+          });
+        }
+      })
+    );
+  };
+
+  const checkSingleAuthStatus = async (remote: Remote) => {
+    try {
+      const result = await whoami(remote.base_url);
+      setAuthStatus((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, {
+          loggedIn: result.success,
+          username: result.username,
+          role: result.role,
+        });
+        return next;
+      });
+    } catch {
+      setAuthStatus((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, { loggedIn: false });
+        return next;
+      });
     }
   };
 
@@ -139,6 +211,42 @@ export function RemotesSettingsView() {
     setConfirmDialog({ isOpen: false, remote: null });
   };
 
+  const handleLogout = async (remote: Remote) => {
+    setLoggingOut(remote.remote_id);
+    try {
+      const result = await logout(remote.base_url);
+      if (result.success) {
+        toast.success(`logged out from ${remote.name}`);
+        // update auth status
+        setAuthStatus((prev) => {
+          const next = new Map(prev);
+          next.set(remote.remote_id, { loggedIn: false });
+          return next;
+        });
+      } else {
+        toast.error(result.error || "logout failed");
+      }
+    } catch (err) {
+      toast.error("logout failed");
+    } finally {
+      setLoggingOut(null);
+    }
+  };
+
+  const handleLogin = (remote: Remote) => {
+    setReauthRemote(remote);
+  };
+
+  const handleReauthSuccess = async () => {
+    const remote = reauthRemote();
+    if (remote) {
+      toast.success(`signed in to ${remote.name}`);
+      // re-fetch auth status to get username/role
+      await checkSingleAuthStatus(remote);
+    }
+    setReauthRemote(null);
+  };
+
   return (
     <div class="p-4 md:p-6">
       <div class="mb-6">
@@ -173,9 +281,31 @@ export function RemotesSettingsView() {
         >
           <div class="space-y-3">
             <For each={remotes()}>
-              {(remote) => (
+              {(remote) => {
+                // construct full image URL from base_url + relative path
+                const imageUrl = () => remote.image_url 
+                  ? `${remote.base_url}${remote.image_url}` 
+                  : null;
+                
+                return (
                 <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
-                  <div class="flex items-start justify-between gap-4">
+                  <div class="flex items-start gap-4">
+                    {/* server image */}
+                    <Show when={imageUrl()} fallback={
+                      <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
+                        <span class="text-xl">🌐</span>
+                      </div>
+                    }>
+                      <img
+                        src={imageUrl()!}
+                        alt={remote.name}
+                        class="w-12 h-12 rounded-lg object-cover shrink-0"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    </Show>
+                    
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-2 mb-1">
                         <h3 class="text-sm font-medium text-[var(--color-text-primary)] truncate">
@@ -190,6 +320,21 @@ export function RemotesSettingsView() {
                       <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
                         {remote.base_url}
                       </p>
+                      {/* logged in user info */}
+                      {(() => {
+                        const info = authStatus().get(remote.remote_id);
+                        if (info?.loggedIn && info.username) {
+                          return (
+                            <p class="text-xs text-[var(--color-text-secondary)] mb-2">
+                              signed in as <span class="font-medium">{info.username}</span>
+                              <Show when={info.role}>
+                                <span class="text-[var(--color-text-muted)]"> ({info.role})</span>
+                              </Show>
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
                       <div class="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
                         <span>added {formatDate(remote.created_at)}</span>
                         <Show when={remote.last_connected_at}>
@@ -197,16 +342,59 @@ export function RemotesSettingsView() {
                         </Show>
                       </div>
                     </div>
-                    <button
-                      class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                      onClick={() => showDeleteConfirm(remote)}
-                      disabled={deleting() === remote.remote_id}
-                    >
-                      {deleting() === remote.remote_id ? "deleting..." : "delete"}
-                    </button>
+                    
+                    {/* action buttons */}
+                    <div class="flex flex-col gap-2 shrink-0">
+                      {/* auth status indicator + login/logout button */}
+                      {(() => {
+                        const info = authStatus().get(remote.remote_id);
+                        const isChecking = info === null;
+                        const isLoggedIn = info?.loggedIn === true;
+                        
+                        if (isChecking) {
+                          return (
+                            <button
+                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
+                              disabled
+                            >
+                              checking...
+                            </button>
+                          );
+                        }
+                        
+                        if (isLoggedIn) {
+                          return (
+                            <button
+                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleLogout(remote)}
+                              disabled={loggingOut() === remote.remote_id}
+                            >
+                              {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
+                            </button>
+                          );
+                        }
+                        
+                        // not logged in
+                        return (
+                          <button
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                            onClick={() => handleLogin(remote)}
+                          >
+                            sign in
+                          </button>
+                        );
+                      })()}
+                      <button
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => showDeleteConfirm(remote)}
+                        disabled={deleting() === remote.remote_id}
+                      >
+                        {deleting() === remote.remote_id ? "deleting..." : "delete"}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              )}
+              );}}
             </For>
           </div>
         </Show>
@@ -220,6 +408,18 @@ export function RemotesSettingsView() {
         onConfirm={handleConfirmDelete}
         onCancel={handleCancel}
       />
+
+      <Show when={reauthRemote()}>
+        {(remote) => (
+          <ReauthModal
+            isOpen={true}
+            onClose={() => setReauthRemote(null)}
+            onSuccess={handleReauthSuccess}
+            baseUrl={remote().base_url}
+            remoteName={remote().name}
+          />
+        )}
+      </Show>
     </div>
   );
 }

@@ -158,3 +158,22 @@ export async function authenticate(
   }
   return loginWithWebauthn(baseUrl, data.username);
 }
+
+// logout from a remote server
+export async function logout(baseUrl: string): Promise<AuthResult> {
+  try {
+    debug("auth", "logging out from:", baseUrl);
+    const result = await apiClient.auth.logout(baseUrl);
+    if (result.success) {
+      debug("auth", "logout successful");
+      return { success: true };
+    }
+    return { success: false, error: "logout failed" };
+  } catch (err) {
+    console.error("logout failed:", err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "logout failed",
+    };
+  }
+}

@@ -90,6 +90,14 @@ const METADATA_STORE_NAME = "blob_metadata";
 let metadataDB: IDBDatabase | null = null;
 const METADATA_DB_VERSION = 2; // bump version to ensure schema upgrade
 
+// close metadata database connection (required before deletion in Safari)
+export function closeMetadataDB(): void {
+  if (metadataDB) {
+    metadataDB.close();
+    metadataDB = null;
+  }
+}
+
 // initialize metadata database
 async function initMetadataDB(): Promise<IDBDatabase> {
   if (metadataDB) return metadataDB;
