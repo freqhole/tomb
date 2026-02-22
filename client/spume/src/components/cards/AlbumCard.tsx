@@ -4,6 +4,7 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
 import type { AlbumSummary, GenreRef } from "../../music/data/types";
+import { debug } from "../../utils/logger";
 
 export interface AlbumCardProps {
   album: AlbumSummary;
@@ -19,12 +20,12 @@ export function AlbumCard(props: AlbumCardProps) {
   const [isCardHovered, setIsCardHovered] = createSignal(false);
 
   const handleMouseEnter = () => {
-    console.log(`[AlbumCard] hover enter: ${props.album.title}`);
+    debug("AlbumCard", `hover enter: ${props.album.title}`);
     setIsCardHovered(true);
   };
 
   const handleMouseLeave = () => {
-    console.log(`[AlbumCard] hover leave: ${props.album.title}`);
+    debug("AlbumCard", `hover leave: ${props.album.title}`);
     setIsCardHovered(false);
   };
 

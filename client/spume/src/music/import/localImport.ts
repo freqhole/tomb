@@ -6,6 +6,7 @@ import {
   getSongBySha256,
 } from "../services/storage/db";
 import { computeSHA256 } from "../../utils/hash";
+import { debug, warn } from "../../utils/logger";
 
 export interface ImportResult {
   addedCount: number;
@@ -63,7 +64,7 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     skippedCount: 0,
   });
 
-  console.log("computing sha256 hashes for uploaded files...");
+  debug("localImport", "computing sha256 hashes for uploaded files...");
   const sha256Hashes: string[] = [];
   for (let i = 0; i < fileArray.length; i++) {
     setLocalImportProgress((prev) => ({
@@ -103,7 +104,8 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     const existingSong = await getSongBySha256(songData.sha256);
 
     if (existingSong) {
-      console.log(
+      debug(
+        "localImport",
         `skipping duplicate (sha256 match): ${songData.file_name} - already exists as song id ${existingSong.id}`,
       );
       skippedCount++;
@@ -114,14 +116,15 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     try {
       await createSong(songData);
       addedCount++;
-      console.log(`added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
+      debug("localImport", `added: ${songData.file_name} (sha256: ${songData.sha256.slice(0, 8)}...)`);
     } catch (error) {
       // handle constraint error (duplicate sha256 from race condition or stale index)
       if (error instanceof Error && error.name === 'ConstraintError') {
-        console.warn(
+        warn(
+          "localImport",
           `skipping duplicate (constraint error): ${songData.file_name} - sha256 ${songData.sha256.slice(0, 8)}... already exists in database`,
         );
-        console.warn('this suggests getSongBySha256 did not find the existing song - possible stale index');
+        warn("localImport", 'this suggests getSongBySha256 did not find the existing song - possible stale index');
         skippedCount++;
       } else {
         // re-throw unexpected errors
@@ -145,6 +148,6 @@ export async function importMusicFiles(files: FileList): Promise<ImportResult> {
     skippedCount,
   });
 
-  console.log(`added ${addedCount} songs, skipped ${skippedCount} duplicates`);
+  debug("localImport", `added ${addedCount} songs, skipped ${skippedCount} duplicates`);
   return { addedCount, skippedCount };
 }

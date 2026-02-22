@@ -6,6 +6,7 @@ import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteMa
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
+import { debug } from "../../utils/logger";
 
 export interface AddRemoteModalProps {
   isOpen: boolean;
@@ -176,10 +177,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           throw new Error("invite code required for registration");
         }
 
-        console.log("starting registration for username:", data.username);
+        debug("webauthn", "starting registration for username:", data.username);
 
         // step 1: start registration with invite code
-        console.log("starting webauthn registration...");
+        debug("webauthn", "starting webauthn registration...");
         const startResult = await apiClient.auth.registerStart(baseUrl, {
           username: data.username,
           invite_code: data.inviteCode, // pass invite code to register_start
@@ -189,10 +190,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           console.error("register start failed:", startResult);
           throw new Error("failed to start registration");
         }
-        console.log("register start response:", startResult.data);
+        debug("webauthn", "register start response:", startResult.data);
 
         // step 2: create webauthn credential
-        console.log("requesting credential creation from browser...");
+        debug("webauthn", "requesting credential creation from browser...");
         const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(startResult.data);
         const credential = (await navigator.credentials.create(
           credentialOptions
@@ -201,31 +202,32 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         if (!credential) {
           throw new Error("failed to create credential");
         }
-        console.log("credential created:", credential);
-        console.log("credential.response:", credential.response);
-        console.log(
+        debug("webauthn", "credential created:", credential);
+        debug("webauthn", "credential.response:", credential.response);
+        debug(
+          "webauthn",
           "attestationObject:",
           (credential.response as AuthenticatorAttestationResponse).attestationObject
         );
-        console.log("clientDataJSON:", credential.response.clientDataJSON);
+        debug("webauthn", "clientDataJSON:", credential.response.clientDataJSON);
 
         // step 3: finish registration
-        console.log("finishing registration...");
+        debug("webauthn", "finishing registration...");
         const serializedCredential = apiClient.webauthn.serializeRegistrationCredential(credential);
-        console.log("serialized credential:", serializedCredential);
+        debug("webauthn", "serialized credential:", serializedCredential);
         const finishResult = await apiClient.auth.registerFinish(baseUrl, serializedCredential);
 
         if (!finishResult.success) {
           console.error("register finish failed:", finishResult);
           throw new Error("failed to complete registration");
         }
-        console.log("registration complete!");
+        debug("webauthn", "registration complete!");
       } else {
         // login flow with webauthn
-        console.log("starting login for username:", data.username);
+        debug("webauthn", "starting login for username:", data.username);
 
         // step 1: start login
-        console.log("starting webauthn login...");
+        debug("webauthn", "starting webauthn login...");
         const startResult = await apiClient.auth.loginStart(baseUrl, {
           username: data.username,
         });
@@ -234,10 +236,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           console.error("login start failed:", startResult);
           throw new Error("failed to start login");
         }
-        console.log("login start response:", startResult.data);
+        debug("webauthn", "login start response:", startResult.data);
 
         // step 2: get webauthn credential
-        console.log("requesting credential from browser...");
+        debug("webauthn", "requesting credential from browser...");
         const credentialOptions = apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
         const credential = (await navigator.credentials.get(
           credentialOptions
@@ -246,30 +248,32 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         if (!credential) {
           throw new Error("failed to get credential");
         }
-        console.log("credential retrieved:", credential);
-        console.log("credential.response:", credential.response);
-        console.log(
+        debug("webauthn", "credential retrieved:", credential);
+        debug("webauthn", "credential.response:", credential.response);
+        debug(
+          "webauthn",
           "authenticatorData:",
           (credential.response as AuthenticatorAssertionResponse).authenticatorData
         );
-        console.log("clientDataJSON:", credential.response.clientDataJSON);
-        console.log(
+        debug("webauthn", "clientDataJSON:", credential.response.clientDataJSON);
+        debug(
+          "webauthn",
           "signature:",
           (credential.response as AuthenticatorAssertionResponse).signature
         );
 
         // step 3: finish login
-        console.log("finishing login...");
+        debug("webauthn", "finishing login...");
         const serializedCredential =
           apiClient.webauthn.serializeAuthenticationCredential(credential);
-        console.log("serialized credential:", serializedCredential);
+        debug("webauthn", "serialized credential:", serializedCredential);
         const finishResult = await apiClient.auth.loginFinish(baseUrl, serializedCredential);
 
         if (!finishResult.success) {
           console.error("login finish failed:", finishResult);
           throw new Error("failed to complete login");
         }
-        console.log("login complete!");
+        debug("webauthn", "login complete!");
       }
 
       // authentication successful, complete setup

@@ -2,6 +2,7 @@
 // metadata in IndexedDB, actual blob data in OPFS or Cache API
 
 import { openDB, type IDBPDatabase } from "idb";
+import { debug } from "../../../utils/logger";
 
 export const BLOB_DB_NAME = "freqhole_blobs";
 const BLOB_DB_VERSION = 1;
@@ -43,7 +44,7 @@ export function closeBlobDB(): void {
   if (blobDbInstance) {
     blobDbInstance.close();
     blobDbInstance = null;
-    console.log("[closeBlobDB] blob database connection closed");
+    debug("blobs", "blob database connection closed");
   }
 }
 

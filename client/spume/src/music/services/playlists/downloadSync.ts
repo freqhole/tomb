@@ -19,6 +19,7 @@ import {
   updateSyncedPlaylistETag,
 } from "../storage/playlists";
 import type { GenreRef, ImageMetadata, Playlist, Song } from "../storage/types";
+import { debug } from "../../../utils/logger";
 
 export interface DownloadProgress {
   stage: "fetching" | "downloading" | "complete" | "error";
@@ -117,7 +118,8 @@ export async function downloadPlaylist(
       remoteUrl,
     );
     if (existing) {
-      console.log(
+      debug(
+        "downloadSync",
         "playlist already exists, deleting and re-downloading:",
         existing.playlist_id,
       );
@@ -265,7 +267,8 @@ export async function downloadPlaylist(
         // check if we already have this song downloaded
         const existingSong = await db.get("songs", sha256);
         if (existingSong) {
-          console.log(
+          debug(
+            "downloadSync",
             `song already exists with sha256 ${sha256}, skipping download`,
           );
           // just add to playlist mapping

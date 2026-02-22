@@ -88,9 +88,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const pb = playerBarHeight();
     const navH = getNavHeight();
     const result = vh - navH - pb;
-    console.log(
-      `[PlaylistsView] listHeight=${result}px (viewport=${vh}, nav=${navH}, playerBar=${pb})`
-    );
+    debug("PlaylistsView", `listHeight=${result}px (viewport=${vh}, nav=${navH}, playerBar=${pb})`);
     return result;
   };
 
@@ -797,7 +795,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       if (containerRef) {
         const rect = containerRef.getBoundingClientRect();
         const parentRect = containerRef.parentElement?.getBoundingClientRect();
-        console.log("[PlaylistsView] rendered heights:", {
+        debug("PlaylistsView", "rendered heights:", {
           containerHeight: rect.height,
           containerTop: rect.top,
           containerBottom: rect.bottom,

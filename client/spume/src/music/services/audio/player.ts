@@ -23,6 +23,7 @@ import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySwapToCachedURL } from "../storage/audioAccess";
 import { getBlobObjectURL } from "../storage/blobs";
 import type { Song } from "../storage/types";
+import { debug } from "../../../utils/logger";
 
 // player state signals
 const [isPlaying, setIsPlaying] = createSignal(false);
@@ -334,7 +335,7 @@ function handlePreCacheNext() {
   if (!current_sha256 || !queue.length) return;
 
   // pre-cache next ~30 minutes of songs
-  console.log("pre-caching next songs (~30 min)");
+  debug("player", "pre-caching next songs (~30 min)");
   hasPreCachedNext = true;
   void preCacheNextSongs(current_sha256, queue, 30);
 }
@@ -404,7 +405,7 @@ async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<vo
   pendingSwapCleanup = cleanup;
   audioElement.addEventListener("loadedmetadata", restorePosition);
 
-  console.log(`swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`);
+  debug("player", `swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`);
 }
 
 // play a specific song

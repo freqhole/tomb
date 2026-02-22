@@ -18,6 +18,7 @@ import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { AppLayout } from "../AppLayout";
 import { SettingsLayout, StorageSettingsView, RemotesSettingsView } from "../../settings";
+import { debug } from "../../utils/logger";
 
 interface RoutesProps {
   onAddMusic: () => void;
@@ -89,7 +90,7 @@ export function routes(props: RoutesProps) {
             component={() => (
               <ArtistsView
                 onAddMusic={props.onAddMusic}
-                onArtistClick={(artistId) => console.log("artist clicked:", artistId)}
+                onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
               />
             )}
           />
@@ -128,7 +129,7 @@ export function routes(props: RoutesProps) {
             component={() => (
               <ArtistsView
                 onAddMusic={props.onAddMusic}
-                onArtistClick={(artistId) => console.log("artist clicked:", artistId)}
+                onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
               />
             )}
           />

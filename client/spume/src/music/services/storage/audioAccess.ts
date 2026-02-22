@@ -3,6 +3,7 @@ import { createSignal } from "solid-js";
 import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
+import { debug } from "../../../utils/logger";
 
 // cache of active blob urls to prevent memory leaks
 const activeBlobURLs = new Map<string, string>();
@@ -34,7 +35,8 @@ function removeFromDirectURLSet(sha256: string): void {
 // get audio url for playback
 // handles opfs, cached remote, and direct remote streaming
 export async function getAudioURL(song: Song): Promise<string> {
-  console.log(
+  debug(
+    "audioAccess",
     `getting audio url for song: ${song.title} (source: ${song.source_type})`,
   );
 
@@ -54,7 +56,7 @@ export async function getAudioURL(song: Song): Promise<string> {
     }
 
     try {
-      console.log(`reading from opfs: ${song.opfs_path}`);
+      debug("audioAccess", `reading from opfs: ${song.opfs_path}`);
       const file = await readAudioFromOPFS(song.opfs_path);
       const url = URL.createObjectURL(file);
       activeBlobURLs.set(song.sha256, url);
@@ -71,12 +73,12 @@ export async function getAudioURL(song: Song): Promise<string> {
       throw new Error(`remote song has no source url: ${song.sha256}`);
     }
 
-    console.log(`checking cache for remote url: ${song.source_url}`);
+    debug("audioAccess", `checking cache for remote url: ${song.source_url}`);
 
     // try to get from cache
     const cachedResponse = await getCachedBlob(song.source_url);
     if (cachedResponse) {
-      console.log(`using cached audio: ${song.source_url}`);
+      debug("audioAccess", `using cached audio: ${song.source_url}`);
       const blob = await cachedResponse.blob();
       const url = URL.createObjectURL(blob);
       activeBlobURLs.set(song.sha256, url);
@@ -85,7 +87,7 @@ export async function getAudioURL(song: Song): Promise<string> {
 
     // not cached: return direct URL for immediate streaming
     // the browser will handle range requests and buffering natively
-    console.log(`streaming direct URL (not cached): ${song.source_url}`);
+    debug("audioAccess", `streaming direct URL (not cached): ${song.source_url}`);
     directURLSongs.set(song.sha256, song.source_url);
     addToDirectURLSet(song.sha256);
 
@@ -129,7 +131,7 @@ export async function trySwapToCachedURL(sha256: string): Promise<string | null>
   directURLSongs.delete(sha256);
   removeFromDirectURLSet(sha256);
 
-  console.log(`prepared cached URL swap for song: ${sha256}`);
+  debug("audioAccess", `prepared cached URL swap for song: ${sha256}`);
   return url;
 }
 
@@ -139,7 +141,7 @@ export function cleanupAudioURL(songId: string): void {
     const url = activeBlobURLs.get(songId)!;
     URL.revokeObjectURL(url);
     activeBlobURLs.delete(songId);
-    console.log(`cleaned up audio url for song: ${songId}`);
+    debug("audioAccess", `cleaned up audio url for song: ${songId}`);
   }
 }
 
@@ -147,7 +149,7 @@ export function cleanupAudioURL(songId: string): void {
 export function cleanupAllAudioURLs(): void {
   for (const [songId, url] of activeBlobURLs.entries()) {
     URL.revokeObjectURL(url);
-    console.log(`cleaned up audio url for song: ${songId}`);
+    debug("audioAccess", `cleaned up audio url for song: ${songId}`);
   }
   activeBlobURLs.clear();
 }
@@ -155,7 +157,7 @@ export function cleanupAllAudioURLs(): void {
 // re-create a blob URL from underlying storage (OPFS or API Cache)
 // used when iOS revokes blob URLs after PWA suspension
 export async function refreshBlobURL(song: Song): Promise<string | null> {
-  console.log(`refreshing blob URL for song: ${song.title} (source: ${song.source_type})`);
+  debug("audioAccess", `refreshing blob URL for song: ${song.title} (source: ${song.source_type})`);
 
   // cleanup old blob URL if exists
   if (activeBlobURLs.has(song.sha256)) {
@@ -174,7 +176,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
       const file = await readAudioFromOPFS(song.opfs_path);
       const url = URL.createObjectURL(file);
       activeBlobURLs.set(song.sha256, url);
-      console.log(`refreshed blob URL from OPFS: ${song.sha256}`);
+      debug("audioAccess", `refreshed blob URL from OPFS: ${song.sha256}`);
       return url;
     } catch (error) {
       console.error(`failed to refresh from OPFS:`, error);
@@ -189,11 +191,11 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
       const blob = await cachedResponse.blob();
       const url = URL.createObjectURL(blob);
       activeBlobURLs.set(song.sha256, url);
-      console.log(`refreshed blob URL from API Cache: ${song.sha256}`);
+      debug("audioAccess", `refreshed blob URL from API Cache: ${song.sha256}`);
       return url;
     }
     // not in cache - fall back to remote URL (browser will handle it)
-    console.log(`not in cache, falling back to remote URL: ${song.source_url}`);
+    debug("audioAccess", `not in cache, falling back to remote URL: ${song.source_url}`);
     directURLSongs.set(song.sha256, song.source_url);
     addToDirectURLSet(song.sha256);
     return song.source_url;

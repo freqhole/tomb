@@ -12,6 +12,7 @@ import {
   getSongsByAlbumId,
 } from "../services/storage/db";
 import type { NewSong } from "../services/storage/types";
+import { debug } from "../../utils/logger";
 
 export interface AudioMetadata {
   title: string;
@@ -112,7 +113,7 @@ export async function processMusicFile(
   }
 
   // write file to opfs
-  console.log(`writing to opfs: ${file.name}`);
+  debug("fileProcessor", `writing to opfs: ${file.name}`);
   const extension = getFileExtension(metadata.mime_type, file.name);
   const opfsPath = await writeAudioToOPFS(file, songId, extension);
 

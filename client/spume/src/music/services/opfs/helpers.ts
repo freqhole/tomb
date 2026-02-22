@@ -1,5 +1,6 @@
 // opfs (origin private file system) helpers for audio storage
 // used as fallback when file system access api is not available
+import { debug } from "../../../utils/logger";
 
 // opfs directory for audio files
 const AUDIO_DIR = "audio";
@@ -41,7 +42,7 @@ export async function writeAudioToOPFS(
     await writable.write(blob);
     await writable.close();
 
-    console.log(`wrote audio file to opfs: ${fileName} (${blob.size} bytes)`);
+    debug("opfs", `wrote audio file to opfs: ${fileName} (${blob.size} bytes)`);
     return `${AUDIO_DIR}/${fileName}`;
   } catch (error) {
     console.error("failed to write audio to opfs:", error);
@@ -93,7 +94,7 @@ export async function readAudioFromOPFS(path: string): Promise<File> {
     const fileHandle = await audioDir.getFileHandle(fileName);
     const file = await fileHandle.getFile();
 
-    console.log(`read audio file from opfs: ${fileName} (${file.size} bytes)`);
+    debug("opfs", `read audio file from opfs: ${fileName} (${file.size} bytes)`);
     return file;
   } catch (error) {
     console.error(`failed to read audio from opfs (${path}):`, error);
@@ -134,7 +135,7 @@ export async function deleteAudioFromOPFS(path: string): Promise<void> {
     const audioDir = await ensureAudioDir();
     await audioDir.removeEntry(fileName);
 
-    console.log(`deleted audio file from opfs: ${fileName}`);
+    debug("opfs", `deleted audio file from opfs: ${fileName}`);
   } catch (error) {
     console.error(`failed to delete audio from opfs (${path}):`, error);
     throw new Error(`failed to delete audio from opfs: ${error}`);
@@ -150,7 +151,7 @@ export async function deleteThumbnailFromOPFS(blobId: string): Promise<void> {
     for await (const [name, handle] of thumbnailsDir.entries()) {
       if (handle.kind === "file" && name.startsWith(blobId + ".")) {
         await thumbnailsDir.removeEntry(name);
-        console.log(`deleted thumbnail from opfs: ${name}`);
+        debug("opfs", `deleted thumbnail from opfs: ${name}`);
         return;
       }
     }
@@ -158,7 +159,7 @@ export async function deleteThumbnailFromOPFS(blobId: string): Promise<void> {
     // if not found by prefix, try exact match (for legacy files without extension)
     try {
       await thumbnailsDir.removeEntry(blobId);
-      console.log(`deleted thumbnail from opfs: ${blobId}`);
+      debug("opfs", `deleted thumbnail from opfs: ${blobId}`);
     } catch {
       // file doesn't exist, that's fine
     }

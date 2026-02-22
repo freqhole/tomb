@@ -4,6 +4,7 @@
 // we track visualViewport.height reactively so lists can adjust their height in real-time.
 
 import { createSignal, onCleanup, onMount } from "solid-js";
+import { debug } from "./logger";
 
 // debug logging - set to true to diagnose viewport issues
 const DEBUG_VIEWPORT = true;
@@ -15,7 +16,7 @@ function logViewport(event: string) {
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
   const isStandalone = ("standalone" in window.navigator) && (window.navigator as any).standalone;
   
-  console.log(`[viewport] ${event}`, {
+  debug("viewport", `${event}`, {
     visualViewport: window.visualViewport?.height,
     innerHeight: window.innerHeight,
     outerHeight: window.outerHeight,

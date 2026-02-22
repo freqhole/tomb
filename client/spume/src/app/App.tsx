@@ -54,6 +54,7 @@ import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
 import { initAppDB } from "./services/storage/db";
+import { debug } from "../utils/logger";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -205,7 +206,7 @@ export function App() {
         isOpen={isAddRemoteOpen()}
         onClose={() => setIsAddRemoteOpen(false)}
         onSuccess={(remote) => {
-          console.log("remote added successfully:", remote.name);
+          debug("App", "remote added successfully:", remote.name);
           // show success toast
           toast.success(`connected to ${remote.name}`, {
             title: "remote added",

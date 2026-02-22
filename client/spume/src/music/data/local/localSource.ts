@@ -68,6 +68,7 @@ import type {
   SearchSuggestion,
   SuggestionsResponse,
 } from "../types";
+import { debug } from "../../../utils/logger";
 
 
 // return the song's own images (never mix in album images)
@@ -266,13 +267,13 @@ export class LocalMusicDataSource implements MusicDataSource {
   async getArtists(
     params?: QueryParams,
   ): Promise<PaginatedResponse<ArtistSummary>> {
-    console.log(`[LocalMusicDataSource.getArtists] called with params:`, params);
+    debug("localSource", `[LocalMusicDataSource.getArtists] called with params:`, params);
     try {
 
       const limit = params?.limit ?? 50;
       const offset = params?.offset ?? 0;
 
-      console.log(`[LocalMusicDataSource.getArtists] calling queryArtists...`);
+      debug("localSource", `[LocalMusicDataSource.getArtists] calling queryArtists...`);
       // query artists with aggregated stats
       const results = await queryArtists({ 
         limit, 
@@ -280,7 +281,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         artistId: params?.artist_id, 
       });
 
-      console.log(`[localSource.getArtists] queryArtists returned ${results.length} results`);
+      debug("localSource", `[localSource.getArtists] queryArtists returned ${results.length} results`);
 
     // map to ArtistSummary format with images array
     const artistPromises = results.map(async (result) => {
@@ -314,7 +315,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     // filter out null entries (failed artists)
     const artists = artistResults.filter(a => a !== null) as ArtistSummary[];
 
-    console.log(`[localSource.getArtists] returning ${artists.length} artists after filtering`);
+    debug("localSource", `[localSource.getArtists] returning ${artists.length} artists after filtering`);
 
     // TODO: get total count properly from database
     // for now, assume has_more if we got a full page
@@ -1026,7 +1027,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (artistId && oldArtistId && artistId !== oldArtistId) {
       const count = await countSongsByArtist(oldArtistId);
       if (count === 0) {
-        console.log(`deleting orphaned artist: ${oldArtistId}`);
+        debug("localSource", `deleting orphaned artist: ${oldArtistId}`);
         await deleteArtist(oldArtistId);
       }
     }
@@ -1034,7 +1035,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (albumId && oldAlbumId && albumId !== oldAlbumId) {
       const count = await countSongsByAlbum(oldAlbumId);
       if (count === 0) {
-        console.log(`deleting orphaned album: ${oldAlbumId}`);
+        debug("localSource", `deleting orphaned album: ${oldAlbumId}`);
         await deleteAlbum(oldAlbumId);
       }
     }

@@ -6,6 +6,7 @@ import { closeMusicDB } from "../../music/services/storage/db/init";
 import { closeBlobDB, BLOB_DB_NAME } from "../../music/services/storage/blobs";
 import { APP_DB_NAME } from "../../app/services/storage/types";
 import { closeAppDB } from "../../app/services/storage/db";
+import { debug } from "../../utils/logger";
 
 // cache names used by the app
 const BLOB_CACHE_NAME = "freqhole-blobs-v1";
@@ -229,7 +230,7 @@ export async function getStorageBreakdown(): Promise<StorageBreakdown> {
 export async function clearCacheApiData(): Promise<void> {
   try {
     await caches.delete(BLOB_CACHE_NAME);
-    console.log("cleared cache api data");
+    debug("storageManager", "cleared cache api data");
   } catch (error) {
     console.error("failed to clear cache api data:", error);
     throw error;
@@ -248,7 +249,7 @@ export async function clearOPFSData(): Promise<void> {
     // remove audio directory
     try {
       await root.removeEntry(OPFS_AUDIO_DIR, { recursive: true });
-      console.log("removed opfs audio directory");
+      debug("storageManager", "removed opfs audio directory");
     } catch {
       // directory doesn't exist, that's fine
     }
@@ -256,12 +257,12 @@ export async function clearOPFSData(): Promise<void> {
     // remove thumbnails directory
     try {
       await root.removeEntry(OPFS_THUMBNAILS_DIR, { recursive: true });
-      console.log("removed opfs thumbnails directory");
+      debug("storageManager", "removed opfs thumbnails directory");
     } catch {
       // directory doesn't exist, that's fine
     }
     
-    console.log("cleared opfs data");
+    debug("storageManager", "cleared opfs data");
   } catch (error) {
     console.error("failed to clear opfs data:", error);
     throw error;
@@ -275,7 +276,7 @@ export async function clearMusicDbData(): Promise<void> {
     const request = indexedDB.deleteDatabase(MUSIC_DB_NAME);
     
     request.onsuccess = () => {
-      console.log("deleted music database");
+      debug("storageManager", "deleted music database");
       resolve();
     };
     
@@ -298,7 +299,7 @@ export async function clearAllData(): Promise<void> {
   
   // close all database connections first - critical for Safari!
   // if connections remain open, deletion will be "blocked" and silently fail
-  console.log("[clearAllData] closing database connections...");
+  debug("storageManager", "closing database connections...");
   try {
     closeAppDB();
   } catch (e) {
@@ -338,10 +339,10 @@ export async function clearAllData(): Promise<void> {
   for (const dbName of dbNames) {
     try {
       await new Promise<void>((resolve, reject) => {
-        console.log(`[clearAllData] deleting database: ${dbName}`);
+        debug("storageManager", `deleting database: ${dbName}`);
         const request = indexedDB.deleteDatabase(dbName);
         request.onsuccess = () => {
-          console.log(`[clearAllData] successfully deleted database: ${dbName}`);
+          debug("storageManager", `successfully deleted database: ${dbName}`);
           resolve();
         };
         request.onerror = () => {
@@ -365,7 +366,7 @@ export async function clearAllData(): Promise<void> {
     throw new Error(`failed to clear some data: ${errors.map(e => e.message).join(", ")}`);
   }
   
-  console.log("[clearAllData] cleared all data successfully");
+  debug("storageManager", "cleared all data successfully");
 }
 
 // format bytes to human readable string

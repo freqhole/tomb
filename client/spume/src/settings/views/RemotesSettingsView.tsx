@@ -1,15 +1,13 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, onMount, Show, For } from "solid-js";
-import {
-  getAllRemotes,
-  deleteRemote,
-} from "../../app/services/remotes/remoteManager";
+import { getAllRemotes, deleteRemote } from "../../app/services/remotes/remoteManager";
 import { initAppDB } from "../../app/services/storage/db";
 import {
   STORE_QUEUE_HISTORY,
   type QueueHistoryEntry,
   type Remote,
 } from "../../app/services/storage/types";
+import { debug } from "../../utils/logger";
 
 // format a timestamp as a readable date
 function formatDate(timestamp: number): string {
@@ -122,7 +120,10 @@ export function RemotesSettingsView() {
     try {
       // delete associated queue history entries first
       const deletedCount = await deleteQueueHistoryForRemote(dialog.remote.remote_id);
-      console.log(`deleted ${deletedCount} queue history entries for remote ${dialog.remote.name}`);
+      debug(
+        "RemotesSettings",
+        `deleted ${deletedCount} queue history entries for remote ${dialog.remote.name}`
+      );
 
       // then delete the remote itself
       await deleteRemote(dialog.remote.remote_id);
@@ -142,9 +143,7 @@ export function RemotesSettingsView() {
     <div class="p-4 md:p-6">
       <div class="mb-6">
         <h1 class="text-xl font-semibold text-[var(--color-text-primary)] mb-1">remotes</h1>
-        <p class="text-sm text-[var(--color-text-muted)]">
-          manage your connected music servers
-        </p>
+        <p class="text-sm text-[var(--color-text-muted)]">manage your connected music servers</p>
       </div>
 
       <Show when={loading()}>
@@ -165,9 +164,7 @@ export function RemotesSettingsView() {
           fallback={
             <div class="text-center py-12">
               <div class="text-4xl mb-3">🌐</div>
-              <p class="text-[var(--color-text-muted)] text-sm">
-                no remotes configured
-              </p>
+              <p class="text-[var(--color-text-muted)] text-sm">no remotes configured</p>
               <p class="text-[var(--color-text-muted)] text-xs mt-1">
                 add a remote server from the main menu to get started
               </p>

@@ -67,6 +67,7 @@ import {
 import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
+import { debug } from "../utils/logger";
 
 // responsive breakpoint
 const NARROW_BREAKPOINT = 768;
@@ -432,8 +433,8 @@ export function AppLayout(props: AppLayoutProps) {
         currentUsername={getCurrentUser()?.username ?? null}
         currentUserRole={getCurrentUser()?.role ?? null}
         searchPlaceholder="search artists, albums, songs..."
-        onSearchChange={(query) => console.log("search:", query)}
-        onSearchSubmit={(query) => console.log("search submit:", query)}
+        onSearchChange={(query) => debug("AppLayout", "search:", query)}
+        onSearchSubmit={(query) => debug("AppLayout", "search submit:", query)}
         onNavigate={(path) => navigate(path)}
         currentPath={location.pathname + location.search}
         currentSourceName={currentSourceName()}
@@ -664,7 +665,7 @@ export function AppLayout(props: AppLayoutProps) {
         isOpen={isAddRemoteOpen()}
         onClose={() => setIsAddRemoteOpen(false)}
         onSuccess={() => {
-          console.log("remote added successfully");
+          debug("AppLayout", "remote added successfully");
           // reload remotes list
           void (async () => {
             const allRemotes = await getAllRemotes();

@@ -12,6 +12,7 @@ import {
   STORE_REMOTES,
   type AppState,
 } from "./types";
+import { debug } from "../../../utils/logger";
 
 let dbInstance: IDBPDatabase | null = null;
 
@@ -177,7 +178,7 @@ function closeAppDB(): void {
   if (dbInstance) {
     dbInstance.close();
     dbInstance = null;
-    console.log("[closeAppDB] app database connection closed");
+    debug("appDB", "app database connection closed");
   }
 }
 

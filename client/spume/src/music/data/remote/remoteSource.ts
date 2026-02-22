@@ -20,6 +20,7 @@ import type {
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
 import { getCurrentUser } from "../index";
+import { debug, error } from "../../../utils/logger";
 
 // remote data source implementation
 // uses cookie-based auth - no credentials stored client-side
@@ -1010,7 +1011,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entityId: string;
     blobId: string;
   }): Promise<void> {
-    console.log('removeImage called with:', params);
+    debug("remoteSource", 'removeImage called with:', params);
     
     const result = await apiClient.music.deleteImage(this.baseUrl, {
       entity_type: params.entityType,
@@ -1018,11 +1019,11 @@ export class RemoteMusicDataSource implements MusicDataSource {
       blob_id: params.blobId,
     });
     
-    console.log('deleteImage result:', result);
+    debug("remoteSource", 'deleteImage result:', result);
     
     if (!result.success) {
       this.checkAuthError(result);
-      console.error('deleteImage failed:', result);
+      error("remoteSource", 'deleteImage failed:', result);
       throw new Error("failed to remove image");
     }
   }

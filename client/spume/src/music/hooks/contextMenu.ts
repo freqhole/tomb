@@ -28,6 +28,7 @@ import {
   canDeletePlaylist,
   canUpdatePlaylist,
 } from "../data/permissions";
+import { debug } from "../../utils/logger";
 
 // shared helper to create favorite menu action
 // standardizes favorite toggle across all context menus
@@ -314,7 +315,7 @@ export function useMultipleSongsContextMenu(
     icon: IconNames.genre,
     onClick: () => {
       // TODO: open tag management modal
-      console.log("manage tags for multiple songs:", songs.length);
+      debug("contextMenu", "manage tags for multiple songs:", songs.length);
     },
   });
 
@@ -326,7 +327,7 @@ export function useMultipleSongsContextMenu(
     icon: IconNames.edit,
     onClick: () => {
       // TODO: open bulk edit modal
-      console.log("bulk edit songs:", songs.length);
+      debug("contextMenu", "bulk edit songs:", songs.length);
     },
   });
 
@@ -591,7 +592,7 @@ export function usePlaylistContextMenu(
       icon: IconNames.edit,
       onClick: () => {
         // TODO: open playlist edit modal
-        console.log("edit playlist:", playlist.id);
+        debug("contextMenu", "edit playlist:", playlist.id);
       },
     });
   }
