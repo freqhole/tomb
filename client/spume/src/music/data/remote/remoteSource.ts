@@ -1075,4 +1075,64 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!user) return false;
     return permissions.canDeleteArtist(user.role);
   }
+
+  // listen session operations
+  async getListenSession(sessionId: string): Promise<import("../types").ListenSession | null> {
+    const result = await apiClient.music.getListenSession(this.baseUrl, sessionId);
+    if (!result.success) {
+      this.checkAuthError(result);
+      return null;
+    }
+    const data = result.data;
+    return {
+      id: data.id,
+      user_id: data.user_id,
+      session_type: data.session_type,
+      entity_id: data.entity_id ?? null,
+      label: data.label,
+      status: data.status,
+      song_ids: data.song_ids,
+      total_songs: data.total_songs,
+      songs_completed: data.songs_completed,
+      current_song_index: data.current_song_index,
+      current_song_position_ms: data.current_song_position_ms,
+      progress_percent: data.progress_percent,
+      total_duration_ms: data.total_duration_ms,
+      listened_duration_ms: data.listened_duration_ms,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+  }
+
+  async deleteListenSession(sessionId: string): Promise<void> {
+    const result = await apiClient.music.deleteListenSession(this.baseUrl, sessionId);
+    if (!result.success) {
+      this.checkAuthError(result);
+      throw new Error("failed to delete listen session");
+    }
+  }
+
+  // musicbrainz operations
+  async searchMusicbrainzReleases(params: {
+    artist: string | null;
+    release: string | null;
+    limit: number | null;
+    offset: number | null;
+  }): Promise<import("../types").MbSearchReleasesResponse | null> {
+    const result = await apiClient.music.searchMusicbrainzReleases(this.baseUrl, params);
+    if (!result.success) {
+      this.checkAuthError(result);
+      return null;
+    }
+    return result.data;
+  }
+
+  async getMusicbrainzRelease(mbid: string): Promise<import("../types").MbReleaseDetail | null> {
+    const result = await apiClient.music.getMusicbrainzRelease(this.baseUrl, { mbid });
+    if (!result.success) {
+      this.checkAuthError(result);
+      return null;
+    }
+    return result.data;
+  }
 }

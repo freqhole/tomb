@@ -1,7 +1,6 @@
 // album editor modal - edit album metadata
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import * as apiClient from "freqhole-api-client";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { canUpdateAlbum, canDeleteAlbum } from "../../music/data/permissions";
@@ -54,36 +53,23 @@ function DiscNumberBulkAction(props: { songs: Song[]; onUpdated: () => void }) {
       return;
     }
 
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
+    const dataSource = getDataSource();
+    if (!dataSource.updateSong) {
+      toast.error("cannot update songs");
+      return;
+    }
 
     setApplying(true);
     try {
-      // single API call — updateSongs applies same disc_number to all song_ids
-      const result = await apiClient.music.updateSongs(remote.base_url, {
+      // single API call — updateSong applies same disc_number to all song_ids
+      await dataSource.updateSong({
         song_ids: props.songs.map((s) => s.id),
         disc_number: num,
-        title: null,
-        track_number: null,
-        artist_name: null,
-        album_title: null,
-        year: null,
-        duration: null,
-        bpm: null,
-        lyrics: null,
-        genre: null,
-        entity_urls: null,
-        user_id: null,
-        updated_by: null,
       });
 
-      if (result.success) {
-        toast.success(`set disc number to ${num} for ${props.songs.length} songs`);
-        props.onUpdated();
-        setEditing(false);
-      } else {
-        toast.error("failed to update disc number");
-      }
+      toast.success(`set disc number to ${num} for ${props.songs.length} songs`);
+      props.onUpdated();
+      setEditing(false);
     } catch (err) {
       console.error("failed to update disc number:", err);
       toast.error("failed to update disc number");

@@ -1,9 +1,14 @@
 // musicbrainz integration panel for album editor
 // search musicbrainz releases, browse results, import cover art + metadata
 import { createMemo, createSignal, For, Show } from "solid-js";
-import * as apiClient from "freqhole-api-client";
 import type { Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import type {
+  MbArtistCredit,
+  MbReleaseListItem,
+  MbReleaseDetail,
+  MbTrack,
+} from "../../music/data/types";
 import { pollJobUntilComplete } from "../../utils/jobs";
 import { TextInput } from "../forms/TextInput";
 import { Button } from "../buttons/Button";
@@ -42,17 +47,10 @@ export interface MusicBrainzPanelProps {
   onAlbumUpdated: () => void;
 }
 
-// infer types from the API client return values — no explicit type imports needed
-type ApiSuccess<T extends (...args: any[]) => Promise<any>> = Extract<
-  Awaited<ReturnType<T>>,
-  { success: true }
->["data"];
-
-type SearchResponse = ApiSuccess<typeof apiClient.music.searchMusicbrainzReleases>;
-type ReleaseListItem = SearchResponse["results"][number];
-type ReleaseDetail = ApiSuccess<typeof apiClient.music.getMusicbrainzRelease>;
-type ArtistCreditEntry = ReleaseListItem["artist_credit"][number];
-type MbTrack = ReleaseDetail["media"][number]["tracks"][number];
+// re-export types for local use
+type ReleaseListItem = MbReleaseListItem;
+type ReleaseDetail = MbReleaseDetail;
+type ArtistCreditEntry = MbArtistCredit;
 
 // a matched pair for the side-by-side comparison view
 interface TrackMatch {
@@ -90,12 +88,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const [manualOverrides, setManualOverrides] = createSignal<Map<string, string>>(new Map());
 
   // ── helpers ──
-
-  /** check if an API error result is a rate limit error (uses error code from server) */
-  const isRateLimitResult = (result: unknown): boolean => {
-    const issues = (result as any)?.error?.issues ?? [];
-    return issues.some((i: any) => i.path?.[0] === "rate_limited");
-  };
 
   const formatArtistCredit = (credits?: ArtistCreditEntry[]): string => {
     if (!credits || credits.length === 0) return "unknown artist";
@@ -315,9 +307,9 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       return;
     }
 
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) {
-      toast.error("no remote server connected");
+    const dataSource = getDataSource();
+    if (!dataSource.searchMusicbrainzReleases) {
+      toast.error("musicbrainz search not available");
       return;
     }
 
@@ -338,21 +330,15 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
     };
 
     try {
-      const result = await apiClient.music.searchMusicbrainzReleases(remote.base_url, params);
+      const result = await dataSource.searchMusicbrainzReleases(params);
 
-      if (result.success && result.data) {
-        setResults(result.data.results || []);
-        setSearchCount(result.data.count || 0);
+      if (result) {
+        setResults(result.results || []);
+        setSearchCount(result.count || 0);
         setCurrentOffset(offset);
       } else {
-        const issues = (result as any).error?.issues ?? [];
-        const details = issues.map((i: any) => i.message).join("; ");
-        errorLog("musicbrainz search failed:", details);
-        if (isRateLimitResult(result)) {
-          toast.warning("musicbrainz is rate limiting — try again in a moment");
-        } else {
-          toast.error("musicbrainz search failed");
-        }
+        errorLog("musicbrainz search failed");
+        toast.error("musicbrainz search failed");
         setResults([]);
       }
     } catch (err) {
@@ -368,8 +354,11 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const handleNextPage = () => doSearch(currentOffset() + PAGE_SIZE);
 
   const handleSelectRelease = async (release: ReleaseListItem) => {
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
+    const dataSource = getDataSource();
+    if (!dataSource.getMusicbrainzRelease) {
+      toast.error("musicbrainz not available");
+      return;
+    }
 
     setSelectedListItem(release);
     setSelectedRelease(null);
@@ -379,19 +368,13 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
     setManualOverrides(new Map());
 
     try {
-      const result = await apiClient.music.getMusicbrainzRelease(remote.base_url, {
-        mbid: release.id,
-      });
+      const result = await dataSource.getMusicbrainzRelease(release.id);
 
-      if (result.success && result.data) {
-        setSelectedRelease(result.data);
+      if (result) {
+        setSelectedRelease(result);
       } else {
-        errorLog("failed to fetch release details:", result);
-        if (isRateLimitResult(result)) {
-          toast.warning("musicbrainz is rate limiting — try again in a moment");
-        } else {
-          toast.error("failed to fetch release details");
-        }
+        errorLog("failed to fetch release details");
+        toast.error("failed to fetch release details");
       }
     } catch (err) {
       errorLog("failed to fetch release details:", err);
@@ -586,27 +569,29 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const [updatingField, setUpdatingField] = createSignal<string | null>(null);
 
   const handleUpdateAlbumField = async (field: MetadataField) => {
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
-
+    const dataSource = getDataSource();
     setUpdatingField(field.key);
     try {
       if (field.isArtistName) {
+        if (!dataSource.updateArtist) {
+          toast.error("artist update not available");
+          return;
+        }
         // update the artist entity name directly — no album re-scope
-        const result = await apiClient.music.updateArtist(remote.base_url, {
+        await dataSource.updateArtist({
           artist_id: props.artistId,
           name: field.mbValue,
         });
-        if (result.success) {
-          toast.success("artist name updated");
-          props.onAlbumUpdated();
-        } else {
-          toast.error("failed to update artist name");
-        }
+        toast.success("artist name updated");
+        props.onAlbumUpdated();
       } else {
+        if (!dataSource.updateAlbum) {
+          toast.error("album update not available");
+          return;
+        }
         // update album field
         const detail = selectedRelease();
-        const result = await apiClient.music.updateAlbum(remote.base_url, {
+        await dataSource.updateAlbum({
           album_id: props.albumId,
           title: field.key === "title" ? field.mbValue : null,
           artist_id: null,
@@ -619,12 +604,8 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           entity_urls: null,
           updated_by: null,
         });
-        if (result.success) {
-          toast.success(`${field.label} updated`);
-          props.onAlbumUpdated();
-        } else {
-          toast.error(`failed to update ${field.label}`);
-        }
+        toast.success(`${field.label} updated`);
+        props.onAlbumUpdated();
       }
     } catch (err) {
       errorLog(`failed to update ${field.label}:`, err);
@@ -637,8 +618,8 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const handleImportAlbumMetadata = async () => {
     const detail = selectedRelease();
     if (!detail) return;
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
+
+    const dataSource = getDataSource();
 
     const fields = albumMetadataFields().filter((f) => f.differs);
     if (fields.length === 0) {
@@ -651,21 +632,25 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       // update artist name separately if it changed
       const artistField = fields.find((f) => f.isArtistName);
       if (artistField) {
-        const artistResult = await apiClient.music.updateArtist(remote.base_url, {
+        if (!dataSource.updateArtist) {
+          toast.error("artist update not available");
+          return;
+        }
+        await dataSource.updateArtist({
           artist_id: props.artistId,
           name: artistField.mbValue,
         });
-        if (!artistResult.success) {
-          toast.error("failed to update artist name");
-          return;
-        }
       }
 
       // collect album-level changes
       const albumFields = fields.filter((f) => !f.isArtistName);
       if (albumFields.length > 0) {
+        if (!dataSource.updateAlbum) {
+          toast.error("album update not available");
+          return;
+        }
         const albumType = mapMbAlbumType(detail);
-        const result = await apiClient.music.updateAlbum(remote.base_url, {
+        await dataSource.updateAlbum({
           album_id: props.albumId,
           title: albumFields.some((f) => f.key === "title") ? detail.title || null : null,
           artist_id: null,
@@ -680,11 +665,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           entity_urls: null,
           updated_by: null,
         });
-
-        if (!result.success) {
-          toast.error("failed to update album metadata");
-          return;
-        }
       }
 
       toast.success("album metadata updated from musicbrainz");
@@ -701,8 +681,12 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
 
   const handleUpdateSong = async (match: TrackMatch) => {
     if (!match.mbTrack || !match.fhSong) return;
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
+
+    const dataSource = getDataSource();
+    if (!dataSource.updateSong) {
+      toast.error("song update not available");
+      return;
+    }
 
     setUpdatingSongId(match.fhSong.id);
     try {
@@ -716,31 +700,16 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           ? trackArtist
           : null;
 
-      const result = await apiClient.music.updateSongs(remote.base_url, {
+      await dataSource.updateSong({
         song_ids: [match.fhSong.id],
         title: mbTrack.title || null,
         track_number: mbTrack.position ?? null,
         disc_number: (mbTrack as any)._disc ?? match.discNumber ?? null,
         track_artist: trackArtistValue,
-        artist_name: null,
-        // leave other fields unchanged
-        album_title: null,
-        year: null,
-        duration: null,
-        bpm: null,
-        lyrics: null,
-        genre: null,
-        entity_urls: null,
-        user_id: null,
-        updated_by: null,
-      } as any);
+      });
 
-      if (result.success) {
-        toast.success(`updated "${mbTrack.title}"`);
-        props.onAlbumUpdated();
-      } else {
-        toast.error("failed to update song");
-      }
+      toast.success(`updated "${mbTrack.title}"`);
+      props.onAlbumUpdated();
     } catch (err) {
       errorLog("failed to update song:", err);
       toast.error("failed to update song");
@@ -756,8 +725,11 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       return;
     }
 
-    const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
+    const dataSource = getDataSource();
+    if (!dataSource.updateSong) {
+      toast.error("song update not available");
+      return;
+    }
 
     setUpdatingAllSongs(true);
     let updated = 0;
@@ -775,26 +747,15 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
             ? trackArtist
             : null;
 
-        const result = await apiClient.music.updateSongs(remote.base_url, {
+        await dataSource.updateSong({
           song_ids: [match.fhSong.id],
           title: mbTrack.title || null,
           track_number: mbTrack.position ?? null,
           disc_number: (mbTrack as any)._disc ?? match.discNumber ?? null,
           track_artist: trackArtistValue,
-          artist_name: null,
-          album_title: null,
-          year: null,
-          duration: null,
-          bpm: null,
-          lyrics: null,
-          genre: null,
-          entity_urls: null,
-          user_id: null,
-          updated_by: null,
-        } as any);
+        });
 
-        if (result.success) updated++;
-        else failed++;
+        updated++;
       } catch {
         failed++;
       }

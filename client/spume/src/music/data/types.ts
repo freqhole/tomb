@@ -352,15 +352,19 @@ export interface MusicDataSource {
 
   updateAlbum?(params: {
     album_id: string;
-    title?: string;
-    artist_id?: string;
-    album_type?: string;
-    release_date?: string;
-    label?: string;
-    genre_id?: string;
+    title?: string | null;
+    artist_id?: string | null;
+    artist_name?: string | null;
+    album_type?: string | null;
+    release_date?: string | null;
+    label?: string | null;
+    genre_id?: string | null;
+    genre_ids?: string[] | null;
+    genres?: string[] | null;
     year?: number;
-    entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
+    entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
     merge_into_album_id?: string;
+    updated_by?: string | null;
   }): Promise<void>;
 
   updateSong?(params: {
@@ -428,6 +432,19 @@ export interface MusicDataSource {
   canDeleteAlbum?(): boolean;
   canDeleteArtist?(): boolean;
 
+  // listen session operations (remote only — returns undefined for local)
+  getListenSession?(sessionId: string): Promise<ListenSession | null>;
+  deleteListenSession?(sessionId: string): Promise<void>;
+
+  // musicbrainz operations (remote only — returns undefined for local)
+  searchMusicbrainzReleases?(params: {
+    artist: string | null;
+    release: string | null;
+    limit: number | null;
+    offset: number | null;
+  }): Promise<MbSearchReleasesResponse | null>;
+  getMusicbrainzRelease?(mbid: string): Promise<MbReleaseDetail | null>;
+
   // source metadata
   getSourceInfo(): Promise<{
     type: "local" | "remote";
@@ -490,4 +507,104 @@ export interface FeedItem {
 export interface FeedResponse {
   items: FeedItem[];
   total: number;
+}
+
+// listen session data from server
+export interface ListenSession {
+  id: string;
+  user_id: string;
+  session_type: string;
+  entity_id: string | null;
+  label: string;
+  status: string;
+  song_ids: string[];
+  total_songs: number;
+  songs_completed: number;
+  current_song_index: number;
+  current_song_position_ms: number | null;
+  progress_percent: number | null;
+  total_duration_ms: number;
+  listened_duration_ms: number;
+  created_at: number;
+  updated_at: number;
+}
+
+// musicbrainz types
+export interface MbArtistCredit {
+  name: string;
+  joinphrase: string | null;
+}
+
+export interface MbTrack {
+  position: number | null;
+  title: string;
+  length_ms: number | null;
+  artist_credit: MbArtistCredit[];
+}
+
+export interface MbMedium {
+  position: number | null;
+  title: string | null;
+  format: string | null;
+  tracks: MbTrack[];
+  track_count: number;
+}
+
+export interface MbCoverArtThumbnails {
+  small: string | null;
+  large: string | null;
+  thumb_250: string | null;
+  thumb_500: string | null;
+  thumb_1200: string | null;
+}
+
+export interface MbCoverArtImage {
+  id: string;
+  image_url: string;
+  thumbnails: MbCoverArtThumbnails | null;
+  types: string[];
+  front: boolean;
+  back: boolean;
+  comment: string | null;
+}
+
+export interface MbReleaseListItem {
+  id: string;
+  title: string;
+  date: string | null;
+  country: string | null;
+  status: string | null;
+  score: number | null;
+  artist_credit: MbArtistCredit[];
+  track_count: number;
+  has_cover_art: boolean;
+  cover_art_url: string | null;
+  primary_type: string | null;
+  secondary_types: string[];
+  label: string | null;
+  format: string | null;
+  packaging: string | null;
+}
+
+export interface MbReleaseDetail {
+  id: string;
+  title: string;
+  date: string | null;
+  country: string | null;
+  status: string | null;
+  artist_credit: MbArtistCredit[];
+  media: MbMedium[];
+  primary_type: string | null;
+  secondary_types: string[];
+  has_cover_art: boolean;
+  cover_art_url: string | null;
+  cover_art_images: MbCoverArtImage[];
+  genres: string[];
+  label: string | null;
+}
+
+export interface MbSearchReleasesResponse {
+  results: MbReleaseListItem[];
+  count: number;
+  offset: number;
 }

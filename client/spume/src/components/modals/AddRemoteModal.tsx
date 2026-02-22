@@ -1,7 +1,7 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url, 2) test connection, 3) authenticate, 4) complete
-import * as apiClient from "freqhole-api-client";
 import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
+import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
@@ -50,7 +50,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           }
 
           // try to hit the hello endpoint
-          const helloResult = await apiClient.app.getServerInfo(origin);
+          const helloResult = await getServerInfo(origin);
           if (helloResult.success && helloResult.data?.server_id) {
             setOriginHint(origin);
           } else {
@@ -109,7 +109,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
     try {
       // fetch server info from /api/hello (public endpoint)
-      const helloResult = await apiClient.app.getServerInfo(remoteUrl);
+      const helloResult = await getServerInfo(remoteUrl);
 
       if (!helloResult.success || !helloResult.data) {
         throw new Error("failed to fetch server info");
@@ -118,7 +118,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       const info = helloResult.data;
 
       // test connection using whoami endpoint to check auth status
-      const whoamiResult = await apiClient.auth.whoami(remoteUrl);
+      const whoamiResult = await whoami(remoteUrl);
 
       if (whoamiResult.success) {
         // already authenticated, complete setup immediately
@@ -170,111 +170,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
     try {
       const baseUrl = url().trim();
+      debug("webauthn", `starting ${data.mode} for username:`, data.username);
 
-      if (data.mode === "register") {
-        // registration flow with webauthn
-        if (!data.inviteCode) {
-          throw new Error("invite code required for registration");
-        }
+      const result = await authenticate(baseUrl, data);
 
-        debug("webauthn", "starting registration for username:", data.username);
-
-        // step 1: start registration with invite code
-        debug("webauthn", "starting webauthn registration...");
-        const startResult = await apiClient.auth.registerStart(baseUrl, {
-          username: data.username,
-          invite_code: data.inviteCode, // pass invite code to register_start
-        });
-
-        if (!startResult.success) {
-          console.error("register start failed:", startResult);
-          throw new Error("failed to start registration");
-        }
-        debug("webauthn", "register start response:", startResult.data);
-
-        // step 2: create webauthn credential
-        debug("webauthn", "requesting credential creation from browser...");
-        const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(startResult.data);
-        const credential = (await navigator.credentials.create(
-          credentialOptions
-        )) as PublicKeyCredential;
-
-        if (!credential) {
-          throw new Error("failed to create credential");
-        }
-        debug("webauthn", "credential created:", credential);
-        debug("webauthn", "credential.response:", credential.response);
-        debug(
-          "webauthn",
-          "attestationObject:",
-          (credential.response as AuthenticatorAttestationResponse).attestationObject
-        );
-        debug("webauthn", "clientDataJSON:", credential.response.clientDataJSON);
-
-        // step 3: finish registration
-        debug("webauthn", "finishing registration...");
-        const serializedCredential = apiClient.webauthn.serializeRegistrationCredential(credential);
-        debug("webauthn", "serialized credential:", serializedCredential);
-        const finishResult = await apiClient.auth.registerFinish(baseUrl, serializedCredential);
-
-        if (!finishResult.success) {
-          console.error("register finish failed:", finishResult);
-          throw new Error("failed to complete registration");
-        }
-        debug("webauthn", "registration complete!");
-      } else {
-        // login flow with webauthn
-        debug("webauthn", "starting login for username:", data.username);
-
-        // step 1: start login
-        debug("webauthn", "starting webauthn login...");
-        const startResult = await apiClient.auth.loginStart(baseUrl, {
-          username: data.username,
-        });
-
-        if (!startResult.success) {
-          console.error("login start failed:", startResult);
-          throw new Error("failed to start login");
-        }
-        debug("webauthn", "login start response:", startResult.data);
-
-        // step 2: get webauthn credential
-        debug("webauthn", "requesting credential from browser...");
-        const credentialOptions = apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
-        const credential = (await navigator.credentials.get(
-          credentialOptions
-        )) as PublicKeyCredential;
-
-        if (!credential) {
-          throw new Error("failed to get credential");
-        }
-        debug("webauthn", "credential retrieved:", credential);
-        debug("webauthn", "credential.response:", credential.response);
-        debug(
-          "webauthn",
-          "authenticatorData:",
-          (credential.response as AuthenticatorAssertionResponse).authenticatorData
-        );
-        debug("webauthn", "clientDataJSON:", credential.response.clientDataJSON);
-        debug(
-          "webauthn",
-          "signature:",
-          (credential.response as AuthenticatorAssertionResponse).signature
-        );
-
-        // step 3: finish login
-        debug("webauthn", "finishing login...");
-        const serializedCredential =
-          apiClient.webauthn.serializeAuthenticationCredential(credential);
-        debug("webauthn", "serialized credential:", serializedCredential);
-        const finishResult = await apiClient.auth.loginFinish(baseUrl, serializedCredential);
-
-        if (!finishResult.success) {
-          console.error("login finish failed:", finishResult);
-          throw new Error("failed to complete login");
-        }
-        debug("webauthn", "login complete!");
+      if (!result.success) {
+        throw new Error(result.error ?? "authentication failed");
       }
+
+      debug("webauthn", `${data.mode} complete!`);
 
       // authentication successful, complete setup
       await completeSetup();

@@ -1,7 +1,7 @@
 import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
-import * as apiClient from "freqhole-api-client";
+import { whoami } from "../../app/services/remotes/authService";
 import { useLocalSource, useRemoteSource } from "../../music/data";
 import { getActiveRemote, getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
@@ -210,7 +210,7 @@ function RemoteContextHandler(props: { children?: any }) {
 
     // confirm it's actually an auth issue (not just server being down)
     try {
-      const whoamiResult = await apiClient.auth.whoami(info.base_url);
+      const whoamiResult = await whoami(info.base_url);
       if (whoamiResult.success) {
         // session is actually valid — clear the flag (false alarm)
         clearRemoteNeedsAuth(info.remote_id);

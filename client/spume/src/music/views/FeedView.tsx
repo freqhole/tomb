@@ -22,7 +22,6 @@ import { playQueue, addToQueue, resumeHistoryEntry } from "../services/queue/que
 import { resumeServerSession } from "../services/queue/serverSession";
 import { activeHistoryEntryId } from "../services/queue/listenProgress";
 import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
-import * as apiClient from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
 import {
@@ -209,18 +208,19 @@ export function FeedView() {
     if (!confirmed) return;
 
     try {
-      // fetch the full session from server
-      const sessionResult = await apiClient.music.getListenSession(
-        remote.base_url,
-        item.session_id
-      );
-
-      if (!sessionResult.success || !sessionResult.data) {
-        toast.error("failed to load session");
+      // fetch the full session from server via data source
+      const dataSource = getDataSource();
+      if (!dataSource.getListenSession) {
+        toast.error("listen sessions not supported");
         return;
       }
 
-      const session = sessionResult.data;
+      const session = await dataSource.getListenSession(item.session_id);
+
+      if (!session) {
+        toast.error("failed to load session");
+        return;
+      }
       const songs = await fetchSongsByIds(session.song_ids);
       if (songs.length === 0) {
         toast.error("no playable songs in session");
@@ -239,7 +239,7 @@ export function FeedView() {
           listened_seconds: Math.round(session.listened_duration_ms / 1000),
           songs_completed: session.songs_completed,
           current_song_index: session.current_song_index,
-          current_song_position: Math.round(session.current_song_position_ms / 1000),
+          current_song_position: Math.round((session.current_song_position_ms ?? 0) / 1000),
         };
 
         await playQueue(songs, {
@@ -297,17 +297,18 @@ export function FeedView() {
     if (!remote || !item.session_id) return;
 
     try {
-      const sessionResult = await apiClient.music.getListenSession(
-        remote.base_url,
-        item.session_id
-      );
-
-      if (!sessionResult.success || !sessionResult.data) {
-        toast.error("failed to load session");
+      const dataSource = getDataSource();
+      if (!dataSource.getListenSession) {
+        toast.error("listen sessions not supported");
         return;
       }
 
-      const session = sessionResult.data;
+      const session = await dataSource.getListenSession(item.session_id);
+
+      if (!session) {
+        toast.error("failed to load session");
+        return;
+      }
       const songs = await fetchSongsByIds(session.song_ids);
       if (songs.length === 0) {
         toast.error("no playable songs in session");
@@ -507,13 +508,15 @@ export function FeedView() {
         icon: IconNames.queue,
         onClick: async () => {
           try {
-            if (item.session_id && remote) {
-              const sessionResult = await apiClient.music.getListenSession(
-                remote.base_url,
-                item.session_id
-              );
-              if (sessionResult.success && sessionResult.data) {
-                const songs = await fetchSongsByIds(sessionResult.data.song_ids);
+            if (item.session_id) {
+              const dataSource = getDataSource();
+              if (!dataSource.getListenSession) {
+                toast.error("listen sessions not supported");
+                return;
+              }
+              const session = await dataSource.getListenSession(item.session_id);
+              if (session) {
+                const songs = await fetchSongsByIds(session.song_ids);
                 if (songs.length > 0) {
                   await addToQueue(songs, {
                     source: { type: "song", label: item.title },
@@ -535,20 +538,18 @@ export function FeedView() {
           icon: IconNames.delete,
           onClick: async () => {
             try {
-              if (item.session_id && remote) {
-                const result = await apiClient.music.deleteListenSession(
-                  remote.base_url,
-                  item.session_id
-                );
-                if (result.success) {
-                  toast.info("session deleted");
-                  // invalidate feed queries to refresh
-                  void queryClient.invalidateQueries({
-                    queryKey: queryKeys.analytics.all(),
-                  });
-                } else {
-                  toast.error("failed to delete session");
+              if (item.session_id) {
+                const dataSource = getDataSource();
+                if (!dataSource.deleteListenSession) {
+                  toast.error("cannot delete session");
+                  return;
                 }
+                await dataSource.deleteListenSession(item.session_id);
+                toast.info("session deleted");
+                // invalidate feed queries to refresh
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.analytics.all(),
+                });
               }
             } catch {
               toast.error("failed to delete session");
