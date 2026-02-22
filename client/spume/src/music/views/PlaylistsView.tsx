@@ -1036,7 +1036,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                       onClick={handleDownloadPlaylist}
                                       disabled={isDownloading()}
                                     >
-                                      {isDownloading() ? "saving..." : "save to local"}
+                                      {isDownloading() ? "saving..." : <><span>save</span><span class="hidden sm:inline"> to local</span></>}
                                     </Button>
                                   }
                                 >
@@ -1158,7 +1158,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   onClick={handleDownloadPlaylist}
                                   disabled={isDownloading()}
                                 >
-                                  {isDownloading() ? "saving..." : "save to local"}
+                                  {isDownloading() ? "saving..." : <><span>save</span><span class="hidden sm:inline"> to local</span></>}
                                 </Button>
                               }
                             >
