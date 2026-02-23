@@ -21,16 +21,19 @@ import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "
 import { setRemoteNeedsAuth } from "./authState";
 import { getCurrentUser } from "../index";
 import { debug, error } from "../../../utils/logger";
+import { getRemoteMediaUrl } from "../../../utils/urls";
 
 // remote data source implementation
-// uses cookie-based auth - no credentials stored client-side
+// supports cookie-based auth or api key auth
 export class RemoteMusicDataSource implements MusicDataSource {
   private baseUrl: string;
   private remoteId: string;
+  private apiKey?: string;
 
-  constructor(baseUrl: string, remoteId: string) {
+  constructor(baseUrl: string, remoteId: string, apiKey?: string) {
     this.baseUrl = baseUrl;
     this.remoteId = remoteId;
+    this.apiKey = apiKey;
   }
 
   // check a failed result for 401 auth errors and flag the remote if needed.
@@ -75,7 +78,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // songs
   async getSongs(params?: QueryParams): Promise<PaginatedResponse<RemoteSong>> {
     const apiParams = this.buildApiParams(params);
-    const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
+    const result = await apiClient.music.querySongs(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -85,7 +88,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // adapt API response to our interface
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId, this.apiKey),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -109,14 +112,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
       user_id: null,
       favorites_only: null,
       min_rating: null,
-    });
+    }, this.apiKey);
 
     if (!result.success || result.data.items.length === 0) {
       if (!result.success) this.checkAuthError(result);
       return null;
     }
 
-    return adaptSongFromAPI(result.data.items[0], this.baseUrl, this.remoteId);
+    return adaptSongFromAPI(result.data.items[0], this.baseUrl, this.remoteId, this.apiKey);
   }
 
   async getSongsByIds(ids: string[]): Promise<RemoteSong[]> {
@@ -135,7 +138,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       user_id: null,
       favorites_only: null,
       min_rating: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -145,7 +148,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // build a map for fast lookup and preserve original order
     const songMap = new Map<string, RemoteSong>();
     for (const item of result.data.items) {
-      const song = adaptSongFromAPI(item, this.baseUrl, this.remoteId);
+      const song = adaptSongFromAPI(item, this.baseUrl, this.remoteId, this.apiKey);
       songMap.set(song.id, song);
     }
 
@@ -158,7 +161,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await apiClient.music.queryAlbums(this.baseUrl, apiParams);
+    const result = await apiClient.music.queryAlbums(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -181,7 +184,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
-            ? item.images.map((img) => adaptApiImage(img, this.baseUrl))
+            ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.apiKey))
             : undefined,
           urls: adaptApiUrls(item.album.urls),
           is_favorite: item.is_favorite ?? undefined,
@@ -205,7 +208,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       album_id: albumId,
     });
 
-    const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
+    const result = await apiClient.music.querySongs(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -214,7 +217,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId, this.apiKey),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -228,7 +231,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<ArtistSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await apiClient.music.queryArtists(this.baseUrl, apiParams);
+    const result = await apiClient.music.queryArtists(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -246,7 +249,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           song_count: item.song_count,
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
           images: item.images && item.images.length > 0
-            ? item.images.map((img) => adaptApiImage(img, this.baseUrl))
+            ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.apiKey))
             : undefined,
           urls: adaptApiUrls(item.artist.urls),
           is_favorite: item.is_favorite ?? undefined,
@@ -269,7 +272,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       artist_id: artistId,
     });
 
-    const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
+    const result = await apiClient.music.querySongs(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -277,7 +280,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     const mappedItems = result.data.items.map((item) =>
-      adaptSongFromAPI(item, this.baseUrl, this.remoteId),
+      adaptSongFromAPI(item, this.baseUrl, this.remoteId, this.apiKey),
     );
 
     return {
@@ -294,7 +297,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<GenreSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await apiClient.music.queryGenres(this.baseUrl, apiParams);
+    const result = await apiClient.music.queryGenres(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -325,7 +328,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       genre_id: genreId,
     });
 
-    const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
+    const result = await apiClient.music.querySongs(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -334,7 +337,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
+        adaptSongFromAPI(item, this.baseUrl, this.remoteId, this.apiKey),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -348,7 +351,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<PlaylistSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await apiClient.music.listPlaylists(this.baseUrl, apiParams);
+    const result = await apiClient.music.listPlaylists(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -363,7 +366,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
         images: item.playlist.images && item.playlist.images.length > 0
-          ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl))
+          ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl, this.apiKey))
           : undefined,
         urls: adaptApiUrls(item.playlist.urls),
         song_count: item.song_count,
@@ -390,7 +393,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       sort_direction: params?.sort_direction || null,
       limit: params?.limit || null,
       offset: params?.offset || null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -401,7 +404,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // playlist songs have same structure as regular song queries
     return {
       items: result.data.items.map((item) =>
-        adaptSongFromAPI(item.details, this.baseUrl, this.remoteId),
+        adaptSongFromAPI(item.details, this.baseUrl, this.remoteId, this.apiKey),
       ),
       total: result.data.total_count,
       offset: result.data.offset,
@@ -420,7 +423,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       description: params.description || null,
       is_public: params.is_public ?? false,
       created_by_id: null, // server will use authenticated user
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -455,7 +458,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       is_public: params.is_public ?? null,
       entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null, // server will use authenticated user
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -476,7 +479,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async deletePlaylist(playlistId: string): Promise<void> {
     const result = await apiClient.music.deletePlaylist(this.baseUrl, {
       playlist_id: playlistId,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -488,7 +491,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.deleteSong(this.baseUrl, {
       id: songId,
       user_id: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -500,7 +503,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.deleteAlbum(this.baseUrl, {
       id: albumId,
       user_id: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -512,7 +515,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.deleteArtist(this.baseUrl, {
       id: artistId,
       user_id: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -527,7 +530,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.addSongsToPlaylist(this.baseUrl, {
       playlist_id: playlistId,
       song_ids: songIds,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -545,7 +548,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.removeSongsFromPlaylist(this.baseUrl, {
       playlist_id: playlistId,
       song_ids: songIds,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -562,7 +565,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       playlist_id: playlistId,
       song_ids: songIds,
       new_position: newPosition,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -583,7 +586,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       page: params.page || 1,
       page_size: params.page_size || 10,
       context: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -606,7 +609,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       page: params.page || null,
       page_size: params.page_size || null,
       context: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -625,7 +628,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       target_type: params?.target_type || null,
       offset: params?.offset ?? null,
       limit: params?.limit ?? null,
-    });
+    }, this.apiKey);
 
     if (!result.success || !result.data) {
       if (!result.success) this.checkAuthError(result);
@@ -642,7 +645,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           return {
             type: "song" as const,
             favorited_at: apiFav.favorited_at,
-            data: adaptSongFromAPI(apiFav.song, this.baseUrl, this.remoteId),
+            data: adaptSongFromAPI(apiFav.song, this.baseUrl, this.remoteId, this.apiKey),
           };
         case "album":
           return {
@@ -662,7 +665,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               total_duration: apiFav.album.album.total_duration,
               images: apiFav.album.images && apiFav.album.images.length > 0
                 ? apiFav.album.images.map((img) => ({
-                    remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                    remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id, this.apiKey),
                     is_primary: img.is_primary ? true : false,
                     blob_type: 'thumbnail' as const,
                   }))
@@ -685,7 +688,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               total_duration: apiFav.artist.total_duration ? Math.floor(apiFav.artist.total_duration / 1000) : 0,
               images: apiFav.artist.images && apiFav.artist.images.length > 0
                 ? apiFav.artist.images.map((img) => ({
-                    remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                    remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id, this.apiKey),
                     is_primary: img.is_primary ? true : false,
                     blob_type: 'thumbnail' as const,
                   }))
@@ -705,7 +708,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               is_public: apiFav.playlist.playlist.is_public === 1,
               images: (apiFav.playlist.playlist.images || []).map((img) => ({
                 blob_id: img.blob_id,
-                remote_url: `${this.baseUrl}/api/blobs/${img.blob_id}`,
+                remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id, this.apiKey),
                 is_primary: img.is_primary === 1,
                 blob_type: img.blob_type as 'thumbnail' | 'waveform',
               })),
@@ -738,7 +741,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       target_type: params.targetType,
       target_id: params.targetId,
       is_favorite: params.isFavorite,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -766,7 +769,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       target_type: params.targetType,
       target_id: params.targetId,
       rating: params.rating,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -791,7 +794,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       bio: params.bio ?? null,
       entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -826,7 +829,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null,
       merge_into_album_id: params.merge_into_album_id ?? null,
-    });
+    }, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -876,7 +879,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       updated_by: params.updated_by,
     };
     
-    const result = await apiClient.music.updateSongs(this.baseUrl, apiParams);
+    const result = await apiClient.music.updateSongs(this.baseUrl, apiParams, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -888,7 +891,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async getTags(): Promise<{ tag_id: string; name: string; created_at: number }[]> {
-    const result = await apiClient.music.listTags(this.baseUrl);
+    const result = await apiClient.music.listTags(this.baseUrl, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -919,7 +922,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     song_count: number;
   }> {
     // use whoami to get server info
-    const result = await apiClient.auth.whoami(this.baseUrl);
+    const result = await apiClient.auth.whoami(this.baseUrl, this.apiKey);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -935,7 +938,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   // album tags
   async getAlbumTags(albumId: string): Promise<string[]> {
-    const result = await apiClient.music.getAlbumsTags(this.baseUrl, { album_ids: [albumId] });
+    const result = await apiClient.music.getAlbumsTags(this.baseUrl, { album_ids: [albumId] }, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to get album tags");
@@ -944,7 +947,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
-    const result = await apiClient.music.addAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: [], tag_names: tagNames });
+    const result = await apiClient.music.addAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: [], tag_names: tagNames }, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to add tags to album");
@@ -952,7 +955,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
-    const result = await apiClient.music.removeAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: tagIds });
+    const result = await apiClient.music.removeAlbumsTags(this.baseUrl, { album_ids: [albumId], tag_ids: tagIds }, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to remove tags from album");
@@ -972,6 +975,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         entity_id: params.entityId,
         is_primary: params.isPrimary ?? false,
       },
+      apiKey: this.apiKey,
     });
     
     if (!result.success) {
@@ -989,12 +993,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // map entity type to API function
     switch (params.entityType) {
       case 'artist': {
-        const result = await apiClient.music.getArtistImages(this.baseUrl, { id: params.entityId });
+        const result = await apiClient.music.getArtistImages(this.baseUrl, { id: params.entityId }, this.apiKey);
         if (!result.success) {
           this.checkAuthError(result);
           throw new Error("failed to get artist images");
         }
-        return result.data.map((blobId: string) => `${this.baseUrl}/api/blobs/${blobId}`);
+        return result.data.map((blobId: string) => getRemoteMediaUrl(this.baseUrl, blobId, this.apiKey));
       }
       case 'album':
       case 'song':
@@ -1017,7 +1021,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
-    });
+    }, this.apiKey);
     
     debug("remoteSource", 'deleteImage result:', result);
     
@@ -1037,7 +1041,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
-    });
+    }, this.apiKey);
     
     if (!result.success) {
       this.checkAuthError(result);
@@ -1078,7 +1082,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   // listen session operations
   async getListenSession(sessionId: string): Promise<import("../types").ListenSession | null> {
-    const result = await apiClient.music.getListenSession(this.baseUrl, sessionId);
+    const result = await apiClient.music.getListenSession(this.baseUrl, sessionId, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       return null;
@@ -1105,7 +1109,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteListenSession(sessionId: string): Promise<void> {
-    const result = await apiClient.music.deleteListenSession(this.baseUrl, sessionId);
+    const result = await apiClient.music.deleteListenSession(this.baseUrl, sessionId, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to delete listen session");
@@ -1119,7 +1123,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     limit: number | null;
     offset: number | null;
   }): Promise<import("../types").MbSearchReleasesResponse | null> {
-    const result = await apiClient.music.searchMusicbrainzReleases(this.baseUrl, params);
+    const result = await apiClient.music.searchMusicbrainzReleases(this.baseUrl, params, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       return null;
@@ -1128,7 +1132,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async getMusicbrainzRelease(mbid: string): Promise<import("../types").MbReleaseDetail | null> {
-    const result = await apiClient.music.getMusicbrainzRelease(this.baseUrl, { mbid });
+    const result = await apiClient.music.getMusicbrainzRelease(this.baseUrl, { mbid }, this.apiKey);
     if (!result.success) {
       this.checkAuthError(result);
       return null;

@@ -17,9 +17,9 @@ export interface WhoamiResult {
 }
 
 // check if user is authenticated on a remote
-export async function whoami(baseUrl: string): Promise<WhoamiResult> {
+export async function whoami(baseUrl: string, apiKey?: string): Promise<WhoamiResult> {
   try {
-    const result = await apiClient.auth.whoami(baseUrl);
+    const result = await apiClient.auth.whoami(baseUrl, apiKey);
     if (result.success && result.data) {
       return {
         success: true,
@@ -30,6 +30,28 @@ export async function whoami(baseUrl: string): Promise<WhoamiResult> {
     }
     return { success: false };
   } catch {
+    return { success: false };
+  }
+}
+
+// verify an API key is valid by checking whoami
+export async function verifyApiKey(baseUrl: string, apiKey: string): Promise<WhoamiResult> {
+  try {
+    debug("auth", "verifying api key on:", baseUrl);
+    const result = await apiClient.auth.whoami(baseUrl, apiKey);
+    if (result.success && result.data) {
+      debug("auth", "api key verified for user:", result.data.username);
+      return {
+        success: true,
+        userId: result.data.user_id,
+        username: result.data.username,
+        role: result.data.role,
+      };
+    }
+    debug("auth", "api key verification failed - invalid key");
+    return { success: false };
+  } catch (err) {
+    console.error("api key verification failed:", err);
     return { success: false };
   }
 }

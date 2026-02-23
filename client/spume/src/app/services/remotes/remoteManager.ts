@@ -47,6 +47,7 @@ function sanitizeServerId(serverId: string): string {
 export async function createRemote(data: {
   name?: string; // optional - uses server name from /api/hello if not provided
   base_url: string;
+  api_key?: string; // optional - for api key authentication
 }): Promise<Remote> {
   const db = await initAppDB();
 
@@ -103,6 +104,8 @@ export async function createRemote(data: {
     image_url: serverInfo.image_url ?? null,
     version: serverInfo.version,
     last_info_check: Date.now(),
+    // api key auth (optional)
+    api_key: data.api_key,
   };
 
   await db.put(STORE_REMOTES, remote);
@@ -114,7 +117,7 @@ export async function createRemote(data: {
 // update an existing remote
 export async function updateRemote(
   remoteId: string,
-  updates: Partial<Pick<Remote, "name" | "base_url">>,
+  updates: Partial<Pick<Remote, "name" | "base_url" | "api_key">>,
 ): Promise<Remote> {
   const db = await initAppDB();
 

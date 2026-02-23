@@ -23,6 +23,7 @@ interface RemoteSession {
   sessionId: string;
   remoteId: string;
   baseUrl: string;
+  apiKey?: string;
   // the original label from the source context (preserved when updating songs)
   label: string;
   // entity_id if this session is for a named entity (album, playlist, etc.)
@@ -62,11 +63,12 @@ function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices
   return groups;
 }
 
-// resolve a remote_server_id to its base_url via IDB
-async function resolveRemoteBaseUrl(remoteId: string): Promise<string | null> {
+// resolve a remote_server_id to its base_url and api_key via IDB
+async function resolveRemoteInfo(remoteId: string): Promise<{ baseUrl: string; apiKey?: string } | null> {
   try {
     const remote = await getRemoteById(remoteId);
-    return remote?.base_url ?? null;
+    if (!remote?.base_url) return null;
+    return { baseUrl: remote.base_url, apiKey: remote.api_key };
   } catch {
     return null;
   }
@@ -97,8 +99,9 @@ export async function createServerSessions(
   // create sessions in parallel
   const promises = Array.from(groups.entries()).map(
     async ([remoteId, group]) => {
-      const baseUrl = await resolveRemoteBaseUrl(remoteId);
-      if (!baseUrl) return;
+      const remoteInfo = await resolveRemoteInfo(remoteId);
+      if (!remoteInfo) return;
+      const { baseUrl, apiKey } = remoteInfo;
 
       try {
         const totalDurationMs = group.songs.reduce(
@@ -113,13 +116,14 @@ export async function createServerSessions(
           song_ids: group.songs.map((s) => s.id || s.sha256),
           total_songs: group.songs.length,
           total_duration_ms: totalDurationMs,
-        });
+        }, apiKey);
 
         if (result.success) {
           const session: RemoteSession = {
             sessionId: result.data.id,
             remoteId,
             baseUrl,
+            apiKey,
             label: source.label,
             entityId: source.entity_id,
             songIndices: group.indices,
@@ -206,6 +210,7 @@ async function sendProgress(session: RemoteSession): Promise<void> {
     session.baseUrl,
     session.sessionId,
     { progress: session.progress },
+    session.apiKey,
   );
 
   if (!result.success) {
@@ -262,6 +267,7 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
               session.baseUrl,
               session.sessionId,
               "abandoned",
+              session.apiKey,
             );
           } catch (error) {
             console.error(
@@ -296,6 +302,7 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
                 total_songs: group.songs.length,
                 total_duration_ms: totalDurationMs,
               },
+              session.apiKey,
             );
           } catch (error) {
             console.error(
@@ -325,6 +332,7 @@ export async function stopAllServerSessions(
         session.baseUrl,
         session.sessionId,
         status,
+        session.apiKey,
       );
     } catch (error) {
       console.error(
@@ -355,6 +363,7 @@ export async function resumeServerSession(
   },
   remoteId: string,
   baseUrl: string,
+  apiKey?: string,
   sessionContext?: {
     label: string;
     entityId?: string;
@@ -369,6 +378,7 @@ export async function resumeServerSession(
     sessionId,
     remoteId,
     baseUrl,
+    apiKey,
     label: sessionContext?.label ?? "",
     entityId: sessionContext?.entityId,
     songIndices: [], // will be populated if updateServerSessionSongs is called
@@ -383,6 +393,7 @@ export async function resumeServerSession(
     baseUrl,
     sessionId,
     "active",
+    apiKey,
   );
 
   // check if the session no longer exists on server
@@ -432,9 +443,9 @@ export async function reconnectServerSession(
   // skip if no server session info stored
   if (!historyEntry.server_session_id || !historyEntry.server_remote_id) return;
 
-  const baseUrl = await resolveRemoteBaseUrl(historyEntry.server_remote_id);
-  if (!baseUrl) {
-    console.warn("could not resolve base url for server session reconnection");
+  const remoteInfo = await resolveRemoteInfo(historyEntry.server_remote_id);
+  if (!remoteInfo) {
+    console.warn("could not resolve remote info for server session reconnection");
     return;
   }
 
@@ -443,7 +454,8 @@ export async function reconnectServerSession(
     historyEntry.server_session_id,
     { progress: historyEntry.songs_completed },
     historyEntry.server_remote_id,
-    baseUrl,
+    remoteInfo.baseUrl,
+    remoteInfo.apiKey,
     {
       label: historyEntry.label,
       entityId: historyEntry.entity_id,

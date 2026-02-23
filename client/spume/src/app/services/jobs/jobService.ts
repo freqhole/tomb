@@ -21,6 +21,7 @@ export type PollResult = "completed" | "failed" | "timeout";
  * @param baseUrl - remote base URL
  * @param jobId - job ID to poll
  * @param timeoutMs - timeout in milliseconds (default: 10000)
+ * @param apiKey - optional api key for auth
  * @returns "completed" if job finished, "failed" if job failed/cancelled or server error,
  *          "timeout" if polling hit its time limit (job may still be processing on server)
  */
@@ -28,6 +29,7 @@ export async function pollJobUntilComplete(
   baseUrl: string,
   jobId: string,
   timeoutMs: number = 10000,
+  apiKey?: string,
 ): Promise<PollResult> {
   const startTime = Date.now();
   const pollInterval = 500; // check every 500ms
@@ -35,7 +37,7 @@ export async function pollJobUntilComplete(
   while (Date.now() - startTime < timeoutMs) {
     const jobResult = await apiClient.music.getJobStatus(baseUrl, {
       job_id: jobId,
-    });
+    }, apiKey);
 
     if (!isSuccess(jobResult)) {
       errorLog("jobs", "failed to get job status:", jobResult.error);
@@ -66,13 +68,15 @@ export async function pollJobUntilComplete(
  * get job status (single check, no polling)
  * @param baseUrl - remote base URL
  * @param jobId - job ID to check
+ * @param apiKey - optional api key for auth
  * @returns job status data or null if failed to fetch
  */
 export async function getJobStatus(
   baseUrl: string,
   jobId: string,
+  apiKey?: string,
 ): Promise<{ status: string; error_message?: string | null } | null> {
-  const result = await apiClient.music.getJobStatus(baseUrl, { job_id: jobId });
+  const result = await apiClient.music.getJobStatus(baseUrl, { job_id: jobId }, apiKey);
   if (isSuccess(result)) {
     return { status: result.data.status, error_message: result.data.error_message };
   }

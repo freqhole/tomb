@@ -18,6 +18,7 @@ import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { AppLayout } from "../AppLayout";
 import { SettingsLayout, StorageSettingsView, RemotesSettingsView } from "../../settings";
+import { getSavedRoute } from "../../utils/tauri/routePersistence";
 import { debug } from "../../utils/logger";
 
 interface RoutesProps {
@@ -30,12 +31,41 @@ function RootRedirect() {
   const queryClient = useQueryClient();
 
   onMount(async () => {
-    // check if there's an active remote in IndexedDB
+    // check for saved route from previous tauri session
+    const savedRoute = getSavedRoute();
+    if (savedRoute) {
+      // extract remote ID from route if present (e.g., "/abc123/songs" -> "abc123")
+      const match = savedRoute.match(/^\/([^\/]+)/);
+      const routeContext = match?.[1];
+
+      if (routeContext && routeContext !== "local" && routeContext !== "settings") {
+        // try to restore remote context
+        const remote = await getRemoteById(routeContext);
+        if (remote) {
+          await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
+          queryClient.invalidateQueries();
+          navigate(savedRoute, { replace: true });
+          return;
+        }
+      } else if (routeContext === "local") {
+        await useLocalSource();
+        queryClient.invalidateQueries();
+        navigate(savedRoute, { replace: true });
+        return;
+      }
+    }
+
+    // fallback: check if there's an active remote in IndexedDB
     const activeRemote = await getActiveRemote();
 
     if (activeRemote) {
       // switch to that remote and navigate to its route
-      await useRemoteSource(activeRemote.remote_id, activeRemote.name, activeRemote.base_url);
+      await useRemoteSource(
+        activeRemote.remote_id,
+        activeRemote.name,
+        activeRemote.base_url,
+        activeRemote.api_key
+      );
       queryClient.invalidateQueries();
       navigate(`/${activeRemote.remote_id}/songs`, { replace: true });
     } else {
@@ -193,7 +223,7 @@ function RemoteContextHandler(props: { children?: any }) {
     const remote = await getRemoteById(remoteId);
     if (remote) {
       setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
-      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+      await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
       queryClient.invalidateQueries();
     } else {
       console.warn(`remote not found: ${remoteId}`);

@@ -420,8 +420,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       return;
     }
 
-    // if it's already a URL (http/https/blob), use it directly
-    if (url.startsWith("http") || url.startsWith("blob:")) {
+    // if it's already a URL (http/https/blob/freqhole), use it directly
+    if (url.startsWith("http") || url.startsWith("blob:") || url.startsWith("freqhole://")) {
       setBackgroundImageUrl(url);
       return;
     }

@@ -25,6 +25,7 @@ import type { Song } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import { EntityLinks } from "../../components/media/EntityLinks";
+import MarqueeText from "../../components/text/MarqueeText";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -243,15 +244,15 @@ export function AlbumDetailView() {
               <div class="flex flex justify-between px-1 md:gap-6 md:p-6">
                 {/* album info */}
                 <div class="flex flex-col justify-center min-w-0 md:mt-[50px] md:gap-2 md:text-left">
-                  <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)] truncate">
-                    {info().title}
+                  <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)]">
+                    <MarqueeText text={info().title} class="pb-1" />
                   </h1>
-                  <div class="flex flex-col md:flex-row md:flex-wrap md:items-center gap-y-0.5 md:gap-x-2 md:gap-y-1 md:text-xl text-[var(--color-text-secondary)]">
+                  <div class="flex flex-col md:flex-wrap gap-y-0.5 md:gap-x-2 md:gap-y-1 md:text-xl text-[var(--color-text-secondary)]">
                     <button
                       onClick={handleArtistClick}
                       class="hover:text-[var(--color-text-primary)] hover:underline text-left"
                     >
-                      {songs()[0]?.artist_name || "unknown artist"}
+                      <MarqueeText text={songs()[0]?.artist_name || "unknown artist"} />
                     </button>
                     <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                       {info().year && <span>{info().year}</span>}

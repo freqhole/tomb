@@ -1,7 +1,12 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url, 2) test connection, 3) authenticate, 4) complete
 import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
-import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
+import {
+  authenticate,
+  getServerInfo,
+  verifyApiKey,
+  whoami,
+} from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
@@ -11,7 +16,12 @@ import { debug } from "../../utils/logger";
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: (remote: { remote_id: string; name: string; base_url: string }) => void;
+  onSuccess?: (remote: {
+    remote_id: string;
+    name: string;
+    base_url: string;
+    api_key?: string;
+  }) => void;
 }
 
 type Step = "url" | "testing" | "auth" | "complete";
@@ -21,6 +31,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   const [url, setUrl] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
+  const [pendingApiKey, setPendingApiKey] = createSignal<string | null>(null);
   const [serverInfo, setServerInfo] = createSignal<{
     server_id: string;
     name: string;
@@ -190,13 +201,45 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
+  // handle api key authentication
+  const handleApiKeyAuth = async (apiKey: string) => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const baseUrl = url().trim();
+      debug("auth", "verifying api key for:", baseUrl);
+
+      const result = await verifyApiKey(baseUrl, apiKey);
+
+      if (!result.success) {
+        throw new Error("invalid api key - please check and try again");
+      }
+
+      debug("auth", "api key verified for user:", result.username);
+
+      // store the api key for use when creating the remote
+      setPendingApiKey(apiKey);
+
+      // api key valid, complete setup
+      await completeSetup();
+    } catch (err) {
+      console.error("api key verification failed:", err);
+      setError(err instanceof Error ? err.message : "api key verification failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // final step: save remote config
   const completeSetup = async () => {
     try {
       // createRemote will fetch server name from /api/hello
       const remoteUrl = url();
+      const apiKey = pendingApiKey();
       const remote = await createRemote({
         base_url: remoteUrl,
+        api_key: apiKey || undefined,
       });
 
       setStep("complete");
@@ -220,6 +263,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setError(null);
     setServerInfo(null);
     setOriginHint(null);
+    setPendingApiKey(null);
     props.onClose();
   };
 
@@ -386,9 +430,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   <AuthForm
                     initialMode="login"
                     onSubmit={handleAuth}
+                    onApiKeySubmit={handleApiKeyAuth}
                     loading={isLoading()}
                     error={error() || undefined}
                     showModeToggle={true}
+                    showApiKeyOption={true}
                   />
                 </div>
               </Match>

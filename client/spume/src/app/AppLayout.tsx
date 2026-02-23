@@ -67,6 +67,7 @@ import {
 import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
+import { saveRoute } from "../utils/tauri/routePersistence";
 import { debug } from "../utils/logger";
 
 // responsive breakpoint
@@ -95,6 +96,11 @@ export function AppLayout(props: AppLayoutProps) {
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
+
+  // persist route for tauri (no-op in web mode)
+  createEffect(() => {
+    saveRoute(location.pathname);
+  });
 
   // fetch recent playlists (contextual to current data source)
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);

@@ -416,7 +416,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         isPrimary: false,
       });
 
-      const pollResult = await pollJobUntilComplete(remote.base_url, job_id);
+      const pollResult = await pollJobUntilComplete(remote.base_url, job_id, 10000, remote.api_key);
       if (pollResult === "failed") {
         toast.error("image processing failed");
         return;

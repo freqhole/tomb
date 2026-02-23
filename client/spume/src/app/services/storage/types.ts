@@ -81,7 +81,7 @@ export interface QueueSourceContext {
   image?: ImageMetadata;
 }
 
-// remote server configurations (no credentials - uses cookies)
+// remote server configurations
 export interface Remote {
   remote_id: string; // uuid
   name: string; // user-friendly name (e.g. "home server", "work laptop")
@@ -96,6 +96,8 @@ export interface Remote {
   image_url: string | null; // server image/logo url
   version: string | null; // server version
   last_info_check: number | null; // timestamp of last server info fetch
+  // api key auth (optional - when set, uses Bearer token instead of cookies)
+  api_key?: string;
 }
 
 // database schema version

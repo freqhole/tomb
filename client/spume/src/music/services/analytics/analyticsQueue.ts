@@ -105,19 +105,26 @@ async function syncEvents(): Promise<void> {
 
     for (const event of syncable) {
       let baseUrl: string | null = null;
+      let apiKey: string | undefined = undefined;
 
       if (event.payload.target_base_url) {
-        // use the stored base_url directly
+        // use the stored base_url directly - need to find matching remote for api_key
         baseUrl = event.payload.target_base_url;
+        if (event.payload.target_remote_id) {
+          const remote = await getRemoteById(event.payload.target_remote_id);
+          apiKey = remote?.api_key;
+        }
       } else if (event.payload.target_remote_id) {
         // resolve the remote by id
         const remote = await getRemoteById(event.payload.target_remote_id);
         baseUrl = remote?.base_url ?? null;
+        apiKey = remote?.api_key;
       }
 
       // fall back to current remote
       if (!baseUrl) {
         baseUrl = fallbackRemote?.base_url ?? null;
+        apiKey = fallbackRemote?.api_key;
       }
 
       if (!baseUrl) {
@@ -125,7 +132,7 @@ async function syncEvents(): Promise<void> {
         continue;
       }
 
-      await syncSingleEvent(db, event, baseUrl);
+      await syncSingleEvent(db, event, baseUrl, apiKey);
     }
 
     // cleanup: remove sent events older than 24 hours
@@ -169,6 +176,7 @@ async function syncSingleEvent(
   db: Awaited<ReturnType<typeof initAppDB>>,
   event: AnalyticsEvent,
   baseUrl: string,
+  apiKey?: string,
 ): Promise<void> {
   // mark as sending
   const sending: AnalyticsEvent = {
@@ -191,7 +199,7 @@ async function syncSingleEvent(
           song_id: event.payload.song_id,
           session_id: event.payload.session_id ?? null,
           event_data: event.payload.event_data ?? null,
-        });
+        }, apiKey);
         if (!result.success) {
           throw new Error(`record play failed: ${"error" in result ? result.error.message : "unknown error"}`);
         }

@@ -1,6 +1,10 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, onMount, Show, For } from "solid-js";
-import { getAllRemotes, deleteRemote } from "../../app/services/remotes/remoteManager";
+import {
+  getAllRemotes,
+  deleteRemote,
+  updateRemote,
+} from "../../app/services/remotes/remoteManager";
 import { logout, whoami } from "../../app/services/remotes/authService";
 import { initAppDB } from "../../app/services/storage/db";
 import {
@@ -128,7 +132,7 @@ export function RemotesSettingsView() {
     await Promise.all(
       remoteList.map(async (remote) => {
         try {
-          const result = await whoami(remote.base_url);
+          const result = await whoami(remote.base_url, remote.api_key);
           setAuthStatus((prev) => {
             const next = new Map(prev);
             next.set(remote.remote_id, {
@@ -152,7 +156,7 @@ export function RemotesSettingsView() {
 
   const checkSingleAuthStatus = async (remote: Remote) => {
     try {
-      const result = await whoami(remote.base_url);
+      const result = await whoami(remote.base_url, remote.api_key);
       setAuthStatus((prev) => {
         const next = new Map(prev);
         next.set(remote.remote_id, {
@@ -214,18 +218,32 @@ export function RemotesSettingsView() {
   const handleLogout = async (remote: Remote) => {
     setLoggingOut(remote.remote_id);
     try {
-      const result = await logout(remote.base_url);
-      if (result.success) {
-        toast.success(`logged out from ${remote.name}`);
-        // update auth status
-        setAuthStatus((prev) => {
-          const next = new Map(prev);
-          next.set(remote.remote_id, { loggedIn: false });
-          return next;
-        });
-      } else {
-        toast.error(result.error || "logout failed");
+      // if using api key auth, we just need to clear the key locally (no server logout)
+      // if using session auth, we need to call the logout endpoint
+      if (!remote.api_key) {
+        const result = await logout(remote.base_url);
+        if (!result.success) {
+          toast.error(result.error || "logout failed");
+          return;
+        }
       }
+
+      // clear api_key if it was set (for api key auth, this is the full "logout")
+      if (remote.api_key) {
+        await updateRemote(remote.remote_id, { api_key: undefined });
+      }
+
+      toast.success(`logged out from ${remote.name}`);
+      // update auth status
+      setAuthStatus((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, { loggedIn: false });
+        return next;
+      });
+
+      // refresh remotes list to reflect cleared api_key
+      const updated = await getAllRemotes();
+      setRemotes(updated);
     } catch (err) {
       toast.error("logout failed");
     } finally {
@@ -283,118 +301,121 @@ export function RemotesSettingsView() {
             <For each={remotes()}>
               {(remote) => {
                 // construct full image URL from base_url + relative path
-                const imageUrl = () => remote.image_url 
-                  ? `${remote.base_url}${remote.image_url}` 
-                  : null;
-                
+                const imageUrl = () =>
+                  remote.image_url ? `${remote.base_url}${remote.image_url}` : null;
+
                 return (
-                <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
-                  <div class="flex items-start gap-4">
-                    {/* server image */}
-                    <Show when={imageUrl()} fallback={
-                      <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
-                        <span class="text-xl">🌐</span>
-                      </div>
-                    }>
-                      <img
-                        src={imageUrl()!}
-                        alt={remote.name}
-                        class="w-12 h-12 rounded-lg object-cover shrink-0"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
-                      />
-                    </Show>
-                    
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-2 mb-1">
-                        <h3 class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                          {remote.name}
-                        </h3>
-                        <Show when={remote.is_active}>
-                          <span class="px-1.5 py-0.5 text-xs font-medium bg-green-600/20 text-green-400 rounded">
-                            active
-                          </span>
-                        </Show>
-                      </div>
-                      <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
-                        {remote.base_url}
-                      </p>
-                      {/* logged in user info */}
-                      {(() => {
-                        const info = authStatus().get(remote.remote_id);
-                        if (info?.loggedIn && info.username) {
-                          return (
-                            <p class="text-xs text-[var(--color-text-secondary)] mb-2">
-                              signed in as <span class="font-medium">{info.username}</span>
-                              <Show when={info.role}>
-                                <span class="text-[var(--color-text-muted)]"> ({info.role})</span>
-                              </Show>
-                            </p>
-                          );
+                  <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
+                    <div class="flex items-start gap-4">
+                      {/* server image */}
+                      <Show
+                        when={imageUrl()}
+                        fallback={
+                          <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
+                            <span class="text-xl">🌐</span>
+                          </div>
                         }
-                        return null;
-                      })()}
-                      <div class="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
-                        <span>added {formatDate(remote.created_at)}</span>
-                        <Show when={remote.last_connected_at}>
-                          <span>last connected {formatDate(remote.last_connected_at!)}</span>
-                        </Show>
-                      </div>
-                    </div>
-                    
-                    {/* action buttons */}
-                    <div class="flex flex-col gap-2 shrink-0">
-                      {/* auth status indicator + login/logout button */}
-                      {(() => {
-                        const info = authStatus().get(remote.remote_id);
-                        const isChecking = info === null;
-                        const isLoggedIn = info?.loggedIn === true;
-                        
-                        if (isChecking) {
-                          return (
-                            <button
-                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
-                              disabled
-                            >
-                              checking...
-                            </button>
-                          );
-                        }
-                        
-                        if (isLoggedIn) {
-                          return (
-                            <button
-                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              onClick={() => handleLogout(remote)}
-                              disabled={loggingOut() === remote.remote_id}
-                            >
-                              {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
-                            </button>
-                          );
-                        }
-                        
-                        // not logged in
-                        return (
-                          <button
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
-                            onClick={() => handleLogin(remote)}
-                          >
-                            sign in
-                          </button>
-                        );
-                      })()}
-                      <button
-                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        onClick={() => showDeleteConfirm(remote)}
-                        disabled={deleting() === remote.remote_id}
                       >
-                        {deleting() === remote.remote_id ? "deleting..." : "delete"}
-                      </button>
+                        <img
+                          src={imageUrl()!}
+                          alt={remote.name}
+                          class="w-12 h-12 rounded-lg object-cover shrink-0"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      </Show>
+
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 mb-1">
+                          <h3 class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                            {remote.name}
+                          </h3>
+                          <Show when={remote.is_active}>
+                            <span class="px-1.5 py-0.5 text-xs font-medium bg-green-600/20 text-green-400 rounded">
+                              active
+                            </span>
+                          </Show>
+                        </div>
+                        <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
+                          {remote.base_url}
+                        </p>
+                        {/* logged in user info */}
+                        {(() => {
+                          const info = authStatus().get(remote.remote_id);
+                          if (info?.loggedIn && info.username) {
+                            return (
+                              <p class="text-xs text-[var(--color-text-secondary)] mb-2">
+                                signed in as <span class="font-medium">{info.username}</span>
+                                <Show when={info.role}>
+                                  <span class="text-[var(--color-text-muted)]"> ({info.role})</span>
+                                </Show>
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+                        <div class="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
+                          <span>added {formatDate(remote.created_at)}</span>
+                          <Show when={remote.last_connected_at}>
+                            <span>last connected {formatDate(remote.last_connected_at!)}</span>
+                          </Show>
+                        </div>
+                      </div>
+
+                      {/* action buttons */}
+                      <div class="flex flex-col gap-2 shrink-0">
+                        {/* auth status indicator + login/logout button */}
+                        {(() => {
+                          const info = authStatus().get(remote.remote_id);
+                          const isChecking = info === null;
+                          const isLoggedIn = info?.loggedIn === true;
+
+                          if (isChecking) {
+                            return (
+                              <button
+                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
+                                disabled
+                              >
+                                checking...
+                              </button>
+                            );
+                          }
+
+                          if (isLoggedIn) {
+                            return (
+                              <button
+                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                onClick={() => handleLogout(remote)}
+                                disabled={loggingOut() === remote.remote_id}
+                              >
+                                {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
+                              </button>
+                            );
+                          }
+
+                          // not logged in
+                          return (
+                            <button
+                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                              onClick={() => handleLogin(remote)}
+                            >
+                              sign in
+                            </button>
+                          );
+                        })()}
+                        <button
+                          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => showDeleteConfirm(remote)}
+                          disabled={deleting() === remote.remote_id}
+                        >
+                          {deleting() === remote.remote_id ? "deleting..." : "delete"}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );}}
+                );
+              }}
             </For>
           </div>
         </Show>

@@ -1305,9 +1305,9 @@ export function listListenSessions(
   );
 }
 
-// note: for blobs and uploads, see utils module for additional helpers
-// - utils.getBlobUrl(baseUrl, blobId) - get streaming url for <audio src={...}>
-// - utils.getBlobMetadataUrl(baseUrl, blobId) - get metadata endpoint url
+// note: for media and uploads, see utils module for additional helpers
+// - utils.getMediaUrl(baseUrl, mediaId) - get url for <audio src={...}>, <img src={...}>
+// - utils.getMediaMetadataUrl(baseUrl, mediaId) - get metadata endpoint url
 // - utils.fetchBlobMetadata(baseUrl, blobId, apiKey) - fetch metadata as json
 // - utils.uploadImage(baseUrl, file, apiKey) - upload image with FormData (recommended)
 // - utils.uploadMusic(baseUrl, file, apiKey) - upload music with FormData (recommended)

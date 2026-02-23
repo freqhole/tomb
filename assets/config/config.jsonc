@@ -120,7 +120,11 @@
         {
           "rp_id": "localhost",
           "rp_origin": "http://localhost:3030"
-        }
+        },
+        {
+          "rp_id": "localhost",
+          "rp_origin": "http://localhost:1420"
+        },
       ]
     },
 
@@ -138,7 +142,7 @@
       "enabled": true,
       // Allowed origins (if not specified, uses auth.webauthn_origins)
       // Uncomment to override:
-      "allowed_origins": ["http://localhost:3000", "http://localhost:5173","http://localhost:3030"]
+      "allowed_origins": ["http://localhost:3000", "http://localhost:5173","http://localhost:3030", "http://localhost:1420"]
     },
 
     // Media fetching from external sources (e.g. youtube, soundcloud)

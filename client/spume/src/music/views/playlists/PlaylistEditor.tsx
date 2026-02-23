@@ -71,7 +71,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       // poll for job completion
       const remote = getCurrentRemote();
       if (remote?.base_url) {
-        const pollResult = await pollJobUntilComplete(remote.base_url, job_id);
+        const pollResult = await pollJobUntilComplete(remote.base_url, job_id, 10000, remote.api_key);
         if (pollResult === "failed") {
           toast.error("image processing failed");
           return;

@@ -111,7 +111,7 @@ export async function uploadFilesToRemote(
     // fire off each upload + poll chain without blocking the others
     (async () => {
       try {
-        const result = await apiClient.utils.uploadMusic(remote.base_url, file);
+        const result = await apiClient.utils.uploadMusic(remote.base_url, file, remote.api_key);
         if (!result.success) {
           updateJobStatus(trackId, "failed", { error: "upload request failed" });
           return;
@@ -120,7 +120,7 @@ export async function uploadFilesToRemote(
         const jobId = result.data.job_id;
         updateJobStatus(trackId, "polling", { jobId });
 
-        const pollResult = await pollJobUntilComplete(remote.base_url, jobId, 120_000);
+        const pollResult = await pollJobUntilComplete(remote.base_url, jobId, 120_000, remote.api_key);
         if (pollResult === "completed") {
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
@@ -177,7 +177,7 @@ export async function fetchUrlsOnRemote(
         const result = await apiClient.music.createFetchJob(remote.base_url, {
           url,
           user_id: userId ?? null,
-        });
+        }, remote.api_key);
         if (!result.success) {
           updateJobStatus(trackId, "failed", { error: "failed to create fetch job" });
           return;
@@ -186,7 +186,7 @@ export async function fetchUrlsOnRemote(
         const jobId = result.data.id;
         updateJobStatus(trackId, "polling", { jobId });
 
-        const pollResult = await pollJobUntilComplete(remote.base_url, jobId, 300_000);
+        const pollResult = await pollJobUntilComplete(remote.base_url, jobId, 300_000, remote.api_key);
         if (pollResult === "completed") {
           updateJobStatus(trackId, "completed");
           onJobComplete?.();

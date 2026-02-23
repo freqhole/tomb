@@ -33,18 +33,19 @@ async function getErrorMessage(response: Response): Promise<string> {
 // these are useful for <audio src={...}>, <img src={...}>, etc.
 
 /**
- * get the streaming url for a blob (audio file)
- * use this in <audio src={...}> or for direct downloads
+ * get the url for a media resource (audio file, image)
+ * use this in <audio src={...}>, <img src={...}>, or for direct downloads
  */
-export function getBlobUrl(baseUrl: string, blobId: string): string {
-  return `${baseUrl}/api/blobs/${blobId}`;
+export function getMediaUrl(baseUrl: string, mediaId: string): string {
+  return `${baseUrl}/api/blobs/${mediaId}`;
 }
 
+
 /**
- * get the metadata endpoint url for a blob
+ * get the metadata endpoint url for a media resource
  */
-export function getBlobMetadataUrl(baseUrl: string, blobId: string): string {
-  return `${baseUrl}/api/blobs/${blobId}/metadata`;
+export function getMediaMetadataUrl(baseUrl: string, mediaId: string): string {
+  return `${baseUrl}/api/blobs/${mediaId}/metadata`;
 }
 
 /**
@@ -218,7 +219,7 @@ export async function fetchBlobMetadata(
   }
 
   try {
-    const response = await fetch(getBlobMetadataUrl(baseUrl, blobId), {
+    const response = await fetch(getMediaMetadataUrl(baseUrl, blobId), {
       method: "GET",
       headers: headers,
       credentials: apiKey ? "omit" : "include",

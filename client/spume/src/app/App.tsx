@@ -213,7 +213,7 @@ export function App() {
           });
           // activate and switch to the newly added remote
           void (async () => {
-            await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+            await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
             setHasRemotes(true);
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });
