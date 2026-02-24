@@ -49,7 +49,13 @@ import {
   initCacheNetworkHandlers,
   initCachedAudioURLs,
 } from "../music/services/cache/blobCache";
-import { getAllRemotes } from "./services/remotes/remoteManager";
+import {
+  getAllRemotes,
+  createRemote,
+  setActiveRemote,
+  getRemoteByUrl,
+  updateRemote,
+} from "./services/remotes/remoteManager";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
@@ -65,6 +71,50 @@ export function App() {
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
 
+  // auto-setup remote from URL params (apiKey and port passed from tauri wizard)
+  async function autoSetupRemoteFromUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const apiKey = params.get("apiKey");
+    const portParam = params.get("port");
+
+    if (!apiKey) return;
+
+    // clear the URL params to prevent re-setup on refresh
+    const url = new URL(window.location.href);
+    url.searchParams.delete("apiKey");
+    url.searchParams.delete("port");
+    window.history.replaceState({}, "", url.toString());
+
+    const port = portParam ? parseInt(portParam, 10) : 8081;
+    const localServerUrl = `http://localhost:${port}`;
+    debug(`auto-setup remote from URL params: ${localServerUrl}`);
+
+    try {
+      // check if remote already exists for this URL
+      let remote = await getRemoteByUrl(localServerUrl);
+
+      if (remote) {
+        // update existing remote with new api key
+        await updateRemote(remote.remote_id, { api_key: apiKey });
+        debug(`updated existing remote with new api key: ${remote.name}`);
+      } else {
+        // create new remote
+        remote = await createRemote({
+          name: "local server",
+          base_url: localServerUrl,
+          api_key: apiKey,
+        });
+        debug(`created remote: ${remote.name}`);
+      }
+
+      // set it active
+      await setActiveRemote(remote.remote_id);
+      debug(`activated remote: ${remote.name}`);
+    } catch (error) {
+      console.error("failed to auto-setup remote:", error);
+    }
+  }
+
   // initialize databases on mount
   onMount(async () => {
     // show loading indicator after 1 second if still initializing
@@ -75,6 +125,9 @@ export function App() {
     try {
       await initAppDB();
       await initMusicDB();
+
+      // auto-setup remote from URL params (tauri wizard flow)
+      await autoSetupRemoteFromUrlParams();
 
       // initialize data source (switches to active remote if configured)
       await initializeDataSource();

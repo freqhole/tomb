@@ -345,6 +345,11 @@ pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
     Ok(())
 }
 
+/// Check if config has been initialized
+pub fn is_config_initialized() -> bool {
+    CONFIG.get().is_some()
+}
+
 /// Get global config reference (available after init_config)
 pub fn get_config() -> &'static GrimoireConfig {
     CONFIG
@@ -415,6 +420,12 @@ pub enum ConfigError {
     #[error("Config already initialized")]
     AlreadyInitialized,
 
+    #[error("Config file already exists: {0}")]
+    FileExists(String),
+
+    #[error("Failed to create config: {0}")]
+    CreateFailed(String),
+
     #[error(
         "No config file found. Searched:\n  \
          - ./config.jsonc\n  \
@@ -423,6 +434,180 @@ pub enum ConfigError {
          Run: grimoire config init"
     )]
     NotFound,
+}
+
+/// Create a new config file with default values
+///
+/// # Arguments
+/// * `output_path` - Where to write the config file (default: ./config.jsonc)
+/// * `data_dir` - Data directory to use in config (default: ./data)
+/// * `force` - Overwrite existing file if it exists
+///
+/// # Returns
+/// The path where the config was written
+pub fn create_config(
+    output_path: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    force: bool,
+) -> Result<PathBuf, ConfigError> {
+    create_config_with_server_info(output_path, data_dir, force, None, None, None)
+}
+
+/// Create a config file with custom server info
+///
+/// # Arguments
+/// * `output_path` - Where to write the config
+/// * `data_dir` - Data directory path
+/// * `force` - Overwrite existing file
+/// * `server_name` - Human-readable server name
+/// * `server_id` - Server identifier (lowercase, alphanumeric + hyphens)
+/// * `server_port` - Server listen port
+pub fn create_config_with_server_info(
+    output_path: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    force: bool,
+    server_name: Option<String>,
+    server_id: Option<String>,
+    server_port: Option<u16>,
+) -> Result<PathBuf, ConfigError> {
+    create_config_full(
+        output_path,
+        data_dir,
+        force,
+        server_name,
+        server_id,
+        server_port,
+        None,
+        false,
+    )
+}
+
+/// Create a config file with full customization options
+///
+/// # Arguments
+/// * `output_path` - Where to write the config
+/// * `data_dir` - Data directory path
+/// * `force` - Overwrite existing file
+/// * `server_name` - Human-readable server name
+/// * `server_id` - Server identifier (lowercase, alphanumeric + hyphens)
+/// * `server_port` - Server listen port
+/// * `image_path` - Optional path to server icon image
+/// * `ytdlp_available` - Whether yt-dlp is available for downloads
+pub fn create_config_full(
+    output_path: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
+    force: bool,
+    server_name: Option<String>,
+    server_id: Option<String>,
+    server_port: Option<u16>,
+    image_path: Option<String>,
+    ytdlp_available: bool,
+) -> Result<PathBuf, ConfigError> {
+    let path = output_path.unwrap_or_else(|| PathBuf::from("config.jsonc"));
+    let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
+    let port = server_port.unwrap_or(8081);
+
+    // check if file exists
+    if path.exists() && !force {
+        return Err(ConfigError::FileExists(path.display().to_string()));
+    }
+
+    // create parent directories if needed
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ConfigError::CreateFailed(format!("failed to create directory: {}", e))
+            })?;
+        }
+    }
+
+    // create fetch directory for downloads
+    let fetch_dir = data.join("fetch");
+    std::fs::create_dir_all(&fetch_dir).map_err(|e| {
+        ConfigError::CreateFailed(format!("failed to create fetch directory: {}", e))
+    })?;
+
+    // generate config content
+    let config_content = generate_config_template(
+        &data,
+        server_name.as_deref().unwrap_or("freqhole"),
+        server_id.as_deref().unwrap_or("freqhole-local"),
+        port,
+        image_path.as_deref(),
+        ytdlp_available,
+        &fetch_dir,
+    );
+
+    // write file
+    std::fs::write(&path, config_content)
+        .map_err(|e| ConfigError::CreateFailed(format!("failed to write config: {}", e)))?;
+
+    Ok(path)
+}
+
+/// Generate config file content with given parameters
+fn generate_config_template(
+    data_dir: &Path,
+    server_name: &str,
+    server_id: &str,
+    server_port: u16,
+    image_path: Option<&str>,
+    ytdlp_available: bool,
+    fetch_dir: &Path,
+) -> String {
+    let data_dir_str = data_dir.display();
+    let fetch_dir_str = fetch_dir.display();
+    let downloads_enabled = if ytdlp_available { "true" } else { "false" };
+    let fetch_enabled = if ytdlp_available { "true" } else { "false" };
+
+    // image_path line (optional)
+    let image_line = match image_path {
+        Some(path) => format!("    \"image_path\": \"{}\",\n", path),
+        None => String::new(),
+    };
+
+    format!(
+        r#"// freqhole configuration
+{{
+  "data_dir": "{data_dir_str}",
+  "database": {{ "filename": "grimoire.db", "auto_run_migrations": false }},
+  "media": {{
+    "max_fs_file_size": 1073741824,
+    "supported_audio_formats": ["mp3", "flac", "wav", "m4a", "ogg", "aif", "aiff"],
+    "downloads": {{ "enabled": {downloads_enabled}, "ytdlp_command": "yt-dlp" }}
+  }},
+  "musicbrainz": {{ "enabled": true }},
+  "logging": {{ "level": "info" }},
+  "server": {{
+    "id": "{server_id}",
+    "name": "{server_name}",
+    "version": "0.1.0",
+    "host": "127.0.0.1",
+    "port": {server_port},
+{image_line}    "start_job_runner": true,
+    "auth": {{
+      "webauthn_enabled": true,
+      "session_max_age_seconds": 0,
+      "webauthn_origins": [
+        {{ "rp_id": "localhost", "rp_origin": "http://localhost:{server_port}" }},
+        {{ "rp_id": "localhost", "rp_origin": "http://localhost:1420" }}
+      ]
+    }},
+    "static_files": {{ "enabled": false }},
+    "cors": {{
+      "enabled": true,
+      "allowed_origins": ["http://localhost:{server_port}", "http://localhost:1420"]
+    }},
+    "fetch_music": {{
+      "enabled": {fetch_enabled},
+      "output_dir": "{fetch_dir_str}",
+      "precheck_command": "yt-dlp --print-json --no-download",
+      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
+    }}
+  }}
+}}
+"#
+    )
 }
 
 #[cfg(test)]

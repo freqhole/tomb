@@ -1,5 +1,11 @@
 [workspace]
-members = ["grimoire", "cli", "server", "client-codegen"]
+members = [
+    "grimoire",
+    "cli",
+    "server",
+    "client-codegen",
+    "client/tauri/src-tauri",
+]
 resolver = "2"
 
 [workspace.dependencies]

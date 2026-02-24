@@ -33,33 +33,45 @@ pub async fn initialize() -> GrimoireResult<()> {
     let pool = connect().await?;
 
     if config.database.auto_run_migrations {
-        // run migrations
-        sqlx::migrate!("../migrations").run(&pool).await?;
-
-        // create views in dependency order (each .sql has DROP IF EXISTS + CREATE)
-        sqlx::query(views::ARTIST_QUERY_VIEW).execute(&pool).await?;
-        sqlx::query(views::ALBUM_QUERY_VIEW).execute(&pool).await?;
-        sqlx::query(views::GENRE_QUERY_VIEW).execute(&pool).await?;
-        sqlx::query(views::SONG_QUERY_VIEW).execute(&pool).await?;
-        sqlx::query(views::PLAYLIST_QUERY_VIEW)
-            .execute(&pool)
-            .await?;
-        sqlx::query(views::PLAYLIST_SONG_QUERY_VIEW)
-            .execute(&pool)
-            .await?;
-        sqlx::query(views::FEED_QUERY_VIEW).execute(&pool).await?;
-
-        // initialize blob_data database (separate file for raw binary storage)
-        let blob_pool = connect_blob_data().await?;
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS blob_data (
-                id TEXT PRIMARY KEY,
-                data BLOB NOT NULL
-            )",
-        )
-        .execute(&blob_pool)
-        .await?;
+        run_migrations_internal(&pool).await?;
     }
+
+    Ok(())
+}
+
+/// explicitly run migrations and setup views/blob_data
+/// call this during setup wizard or when you need manual migration control
+pub async fn run_migrations() -> GrimoireResult<()> {
+    let pool = connect().await?;
+    run_migrations_internal(&pool).await
+}
+
+/// internal migration runner - shared by initialize() and run_migrations()
+async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
+    // run migrations
+    sqlx::migrate!("../migrations").run(pool).await?;
+
+    // create views in dependency order (each .sql has DROP IF EXISTS + CREATE)
+    sqlx::query(views::ARTIST_QUERY_VIEW).execute(pool).await?;
+    sqlx::query(views::ALBUM_QUERY_VIEW).execute(pool).await?;
+    sqlx::query(views::GENRE_QUERY_VIEW).execute(pool).await?;
+    sqlx::query(views::SONG_QUERY_VIEW).execute(pool).await?;
+    sqlx::query(views::PLAYLIST_QUERY_VIEW).execute(pool).await?;
+    sqlx::query(views::PLAYLIST_SONG_QUERY_VIEW)
+        .execute(pool)
+        .await?;
+    sqlx::query(views::FEED_QUERY_VIEW).execute(pool).await?;
+
+    // initialize blob_data database (separate file for raw binary storage)
+    let blob_pool = connect_blob_data().await?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS blob_data (
+            id TEXT PRIMARY KEY,
+            data BLOB NOT NULL
+        )",
+    )
+    .execute(&blob_pool)
+    .await?;
 
     Ok(())
 }

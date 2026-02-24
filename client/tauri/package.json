@@ -1,0 +1,31 @@
+{
+  "name": "freqhole-app",
+  "version": "0.1.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "dev:wizard": "vite --port 1421",
+    "dev:all": "concurrently -n wizard,spume -c blue,green \"npm run dev:wizard\" \"cd ../spume && VITE_TAURI_MODE=true npm run dev -- --port 1420\"",
+    "build": "vite build",
+    "build:wizard": "vite build --outDir dist/wizard",
+    "serve": "vite preview",
+    "tauri": "tauri"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@solidjs/router": "^0.15.4",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-opener": "^2",
+    "solid-js": "^1.9.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "concurrently": "^9.0.0",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}

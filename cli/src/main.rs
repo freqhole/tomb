@@ -108,14 +108,37 @@ enum Commands {
         #[arg(long)]
         json_output: bool,
     },
+
+    /// Start the HTTP server
+    Server {
+        /// Path to configuration file (overrides --config global flag)
+        #[arg(long, short = 'c')]
+        config: Option<std::path::PathBuf>,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize config once at startup (unless running setup command which doesn't need it)
-    if !matches!(cli.command, Commands::Setup(_)) {
+    // Server command handles its own initialization
+    if let Commands::Server { config } = cli.command {
+        let config_path = config
+            .or(cli.config)
+            .unwrap_or_else(|| std::path::PathBuf::from("assets/config/config.jsonc"));
+
+        let options = server::ServerOptions { config_path };
+        return server::run_server(options).await;
+    }
+
+    // Check if this command needs config/database initialization
+    let needs_init = !matches!(
+        cli.command,
+        Commands::Setup(_) | Commands::Config { action: plumbing::ConfigAction::Init { .. }, .. }
+    );
+
+    // Initialize config and database for most commands
+    if needs_init {
         grimoire::init_config(cli.config.clone())
             .map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
 
@@ -125,9 +148,12 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?;
     }
 
-    // Initialize tracing
-    let config = grimoire::config::get_config();
-    let log_level = config.logging.level.as_str();
+    // Initialize tracing (use config log level if available, else default to "info")
+    let log_level = if needs_init {
+        grimoire::config::get_config().logging.level.as_str()
+    } else {
+        "info"
+    };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
@@ -193,6 +219,10 @@ async fn main() -> Result<()> {
             json_output,
         } => {
             plumbing::handle_dir_tags(action, json_output).await?;
+        }
+        Commands::Server { .. } => {
+            // handled above with early return
+            unreachable!()
         }
     }
 

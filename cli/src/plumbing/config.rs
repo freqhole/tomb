@@ -2,11 +2,24 @@
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
-use grimoire::config::{find_config, ConfigValidationResponse, GrimoireConfig};
+use grimoire::config::{create_config, find_config, ConfigValidationResponse, GrimoireConfig};
 use grimoire::error::GrimoireError;
+use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
+    /// Initialize a new configuration file
+    Init {
+        /// Output path for config file (default: ./config.jsonc)
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
+        /// Data directory to use (default: ./data)
+        #[arg(long, short = 'd')]
+        data_dir: Option<PathBuf>,
+        /// Overwrite existing config file
+        #[arg(long)]
+        force: bool,
+    },
     /// Validate configuration file
     Validate {
         /// Path to config file (optional, uses default search strategy if not provided)
@@ -18,6 +31,26 @@ pub enum ConfigAction {
 /// Handle config commands
 pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::Value> {
     match action {
+        ConfigAction::Init { output, data_dir, force } => {
+            match create_config(output, data_dir, force) {
+                Ok(path) => {
+                    let message = format!("Config file created: {}", path.display());
+                    CommandOutput::success(message, serde_json::json!({
+                        "path": path.display().to_string()
+                    }))
+                }
+                Err(e) => {
+                    CommandOutput::failure(
+                        "Failed to create config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            }
+        }
         ConfigAction::Validate { config_path } => {
             let path = match find_config(config_path.map(std::path::PathBuf::from)) {
                 Ok(p) => p,

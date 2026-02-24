@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window and setup wizard",
+  "windows": ["main", "setup-wizard"],
+  "remote": {
+    "urls": ["http://localhost:*", "https://localhost:*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-get-all-windows",
+    "core:webview:allow-webview-close",
+    "dialog:default",
+    "opener:default"
+  ]
+}
