@@ -2,23 +2,12 @@
 .env.local
 .DS_Store
 
-# configuration files that might contain secrets
-assets/config/config.local.jsonc
-assets/config/config.production.jsonc
-assets/config/config.secrets.jsonc
-assets/config/config.secrets.*.jsonc
-assets/config/*.secrets.jsonc
-
-# EXCEPT example files (safe to commit)
-!assets/config/config.secrets.example.jsonc
-
 logs/
 *.log
 target/
 *.rlib
 node_modules/
 /generated/
-assets/config/wordlist.txt
 assets/private/uploads/
 logs.txt
 logz.txt
@@ -28,3 +17,4 @@ data/dev.db
 /grimoire/.sqlx/
 /cli/coverage/
 *.profraw
+/config.jsonc

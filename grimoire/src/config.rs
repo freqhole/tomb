@@ -357,50 +357,27 @@ pub fn get_config() -> &'static GrimoireConfig {
         .expect("Config not initialized - call init_config first")
 }
 
-/// Find config file using search strategy
+/// try to find a config file
 ///
-/// Search order:
-/// 1. Explicit path if provided (e.g. from --config flag)
-/// 2. GRIMOIRE_CONFIG env var
-/// 3. ./config.jsonc (current directory)
-/// 4. Walk up directory tree looking for assets/config/config.jsonc (dev mode)
+/// search order:
+/// 1. explicit path if provided (e.g. from --config flag)
+/// 2. ./config.jsonc (current directory)
 pub fn find_config(explicit_path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
-    // 1. Explicit path (e.g. from --config flag)
+    // 1. explicit path (e.g. from --config flag)
     if let Some(path) = explicit_path {
         if path.exists() {
             return Ok(path);
         }
         return Err(ConfigError::FileNotFound {
             path: path.display().to_string(),
-            error: "Specified config file does not exist".to_string(),
+            error: "specified config file does not exist".to_string(),
         });
     }
 
-    // 2. GRIMOIRE_CONFIG env var
-    if let Ok(path_str) = std::env::var("GRIMOIRE_CONFIG") {
-        let path = PathBuf::from(path_str);
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-
-    // 3. ./config.jsonc in current directory
+    // 2. ./config.jsonc in current directory
     let local = PathBuf::from("config.jsonc");
     if local.exists() {
         return Ok(local);
-    }
-
-    // 4. Search up directory tree for assets/config/config.jsonc (dev mode)
-    if let Ok(mut current) = std::env::current_dir() {
-        loop {
-            let candidate = current.join("assets/config/config.jsonc");
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-            if !current.pop() {
-                break;
-            }
-        }
     }
 
     Err(ConfigError::NotFound)
@@ -427,24 +404,22 @@ pub enum ConfigError {
     CreateFailed(String),
 
     #[error(
-        "No config file found. Searched:\n  \
-         - ./config.jsonc\n  \
-         - GRIMOIRE_CONFIG env var\n  \
-         - assets/config/config.jsonc (walking up tree)\n\n\
-         Run: grimoire config init"
+        "no config file found. searched:\n  \
+         - ./config.jsonc\n\n\
+         try runing: config init"
     )]
     NotFound,
 }
 
-/// Create a new config file with default values
+/// create a new config file with default values
 ///
-/// # Arguments
+/// # arguments
 /// * `output_path` - Where to write the config file (default: ./config.jsonc)
 /// * `data_dir` - Data directory to use in config (default: ./data)
 /// * `force` - Overwrite existing file if it exists
 ///
-/// # Returns
-/// The path where the config was written
+/// # returns
+/// the path where the config was written
 pub fn create_config(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,

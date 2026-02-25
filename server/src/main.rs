@@ -8,7 +8,7 @@ use clap::Parser;
 #[command(about = "freqhole music server")]
 struct Args {
     /// path to configuration file
-    #[arg(long, short = 'c', default_value = "assets/config/config.jsonc")]
+    #[arg(long, short = 'c', default_value = "config.jsonc")]
     config: String,
 }
 

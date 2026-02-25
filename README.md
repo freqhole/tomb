@@ -11,7 +11,7 @@ stuff that's here:
 - `sqlx` crate to connect to a sqlite db (see also: [/migrations/](migrations/))
 - `webauthn-rs` optional feature crate for passkey auth
 - `axum` crate for json api, and static file server
-- see [/assets/config/assets/config/config.example.jsonc](/assets/config/config.example.jsonc) to get started (setup cli wizard coming soon! 🧙)
+- see [/assets/config/config.jsonc](/assets/config/config.jsonc) to get started (setup cli wizard coming soon! 🧙)
 
 2. `/cli/` a rust cli `cargo run --bin freqhole` (or just `cargo run`) that:
 

@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     if let Commands::Server { config } = cli.command {
         let config_path = config
             .or(cli.config)
-            .unwrap_or_else(|| std::path::PathBuf::from("assets/config/config.jsonc"));
+            .unwrap_or_else(|| std::path::PathBuf::from("config.jsonc"));
 
         let options = server::ServerOptions { config_path };
         return server::run_server(options).await;
@@ -134,7 +134,11 @@ async fn main() -> Result<()> {
     // Check if this command needs config/database initialization
     let needs_init = !matches!(
         cli.command,
-        Commands::Setup(_) | Commands::Config { action: plumbing::ConfigAction::Init { .. }, .. }
+        Commands::Setup(_)
+            | Commands::Config {
+                action: plumbing::ConfigAction::Init { .. },
+                ..
+            }
     );
 
     // Initialize config and database for most commands

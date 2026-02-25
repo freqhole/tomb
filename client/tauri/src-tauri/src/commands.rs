@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use tauri::Manager;
 
-/// Ensure config is initialized, returns Ok if already initialized or successfully initialized
+/// ensure config is initialized, returns Ok if already initialized or successfully initialized
 fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
     if grimoire::is_config_initialized() {
         return Ok(());
@@ -31,7 +31,7 @@ fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
     }
 }
 
-/// Ensure config and database are ready (call at start of commands that need them)
+/// ensure config and database are ready (call at start of commands that need them)
 async fn ensure_initialized(app_handle: &tauri::AppHandle) -> Result<(), String> {
     let config_path = app_handle
         .path()
@@ -48,7 +48,7 @@ async fn ensure_initialized(app_handle: &tauri::AppHandle) -> Result<(), String>
     Ok(())
 }
 
-/// Result of checking if setup is needed
+/// result of checking if setup is needed
 #[derive(Debug, Serialize)]
 pub struct SetupStatus {
     pub needs_setup: bool,
@@ -58,7 +58,7 @@ pub struct SetupStatus {
     pub data_dir: Option<String>,
 }
 
-/// Result of creating a config file
+/// result of creating a config file
 #[derive(Debug, Serialize)]
 pub struct ConfigCreateResult {
     pub success: bool,
@@ -66,7 +66,7 @@ pub struct ConfigCreateResult {
     pub error: Option<String>,
 }
 
-/// Result of creating a user
+/// result of creating a user
 #[derive(Debug, Serialize)]
 pub struct UserCreateResult {
     pub success: bool,
@@ -76,7 +76,7 @@ pub struct UserCreateResult {
     pub error: Option<String>,
 }
 
-/// Check if setup wizard needs to run
+/// check if setup wizard needs to run
 #[tauri::command]
 pub async fn check_setup_status(app_data_dir: String) -> SetupStatus {
     let config_path = PathBuf::from(&app_data_dir).join("config.jsonc");
@@ -122,7 +122,7 @@ pub async fn check_setup_status(app_data_dir: String) -> SetupStatus {
     }
 }
 
-/// Check if a root user exists in the database
+/// check if a root user exists in the database
 async fn check_has_root_user() -> Result<bool, String> {
     grimoire::database::initialize()
         .await
@@ -155,7 +155,7 @@ async fn check_has_root_user() -> Result<bool, String> {
     }
 }
 
-/// Create a new config file
+/// create a new config file
 #[tauri::command]
 pub async fn create_config(
     output_path: String,
@@ -203,71 +203,17 @@ pub async fn create_config(
     }
 }
 
-/// Default wordlist content for invite code generation (needs at least 50 words)
-const DEFAULT_WORDLIST: &str = r#"bacon
-banana
-blueberry
-bubble
-burp
-cactus
-cheese
-chicken
-clown
-cookie
-cosmic
-disco
-donkey
-dragon
-fart
-fluffy
-funky
-giggle
-goblin
-goose
-gummy
-hamster
-happy
-hippo
-jiggly
-kazoo
-lemon
-llama
-mango
-melon
-monkey
-muffin
-noodle
-octopus
-pancake
-penguin
-pickle
-pizza
-poodle
-potato
-pretzel
-pumpkin
-rainbow
-rubber
-silly
-sloth
-snack
-snail
-sparkle
-spoon
-squirrel
-taco
-tickle
-tofu
-turkey
-waffle
-walrus
-wiggle
-wizard
-yodel
-zebra
-"#;
+/// generate default wordlist content using grimoire's wordlist service
+fn generate_default_wordlist_content() -> String {
+    let service = grimoire::wordlist::WordlistService::new();
+    let config = grimoire::wordlist::WordlistConfig::default();
+    match service.generate_wordlist(&config) {
+        Ok(result) => result.words.join("\n") + "\n",
+        Err(_) => panic!("failed to generate default wordlist"),
+    }
+}
 
-/// Initialize config and database from an existing config file
+/// initialize config and database from an existing config file
 #[tauri::command]
 pub async fn init_from_config(config_path: String) -> Result<(), String> {
     let path = PathBuf::from(&config_path);
@@ -282,7 +228,7 @@ pub async fn init_from_config(config_path: String) -> Result<(), String> {
     // create wordlist file if it doesn't exist
     let wordlist_path = config.wordlist_path();
     if !wordlist_path.exists() {
-        std::fs::write(&wordlist_path, DEFAULT_WORDLIST)
+        std::fs::write(&wordlist_path, generate_default_wordlist_content())
             .map_err(|e| format!("failed to create wordlist file: {}", e))?;
     }
 
@@ -313,7 +259,7 @@ pub async fn init_from_config(config_path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Create a root user with an API key
+/// create a root user with an API key
 #[tauri::command]
 pub async fn create_root_user(username: String) -> UserCreateResult {
     let service = grimoire::users::UserService::new();
@@ -380,7 +326,7 @@ pub async fn create_root_user(username: String) -> UserCreateResult {
     }
 }
 
-/// Get the default app data directory path
+/// get the default app data directory path
 #[tauri::command]
 pub fn get_default_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
     app_handle
@@ -390,7 +336,7 @@ pub fn get_default_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
         .map(|p: PathBuf| p.display().to_string())
 }
 
-/// Get the OS username for default user creation
+/// get the OS username for default user creation
 #[tauri::command]
 pub fn get_os_username() -> String {
     std::env::var("USER")
@@ -398,7 +344,7 @@ pub fn get_os_username() -> String {
         .unwrap_or_else(|_| "freqroot".to_string())
 }
 
-/// Get the config file path (always in app data dir)
+/// get the config file path (always in app data dir)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
     app_handle
@@ -408,7 +354,7 @@ pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
         .map(|p| p.join("config.jsonc").display().to_string())
 }
 
-/// Get the data directory from loaded config
+/// get the data directory from loaded config
 #[tauri::command]
 pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
     let config_path = app_handle.path().app_data_dir().ok()?.join("config.jsonc");
@@ -432,7 +378,7 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
-/// Open the data directory in Finder
+/// open the data directory in Finder
 #[tauri::command]
 pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -451,7 +397,7 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("failed to open directory: {}", e))
 }
 
-/// User info for listing
+/// user info for listing
 #[derive(Debug, Serialize)]
 pub struct UserInfo {
     pub id: String,
@@ -474,7 +420,7 @@ fn admin_user() -> grimoire::users::User {
     }
 }
 
-/// List all users
+/// list all users
 #[tauri::command]
 pub async fn list_users(app_handle: tauri::AppHandle) -> Result<Vec<UserInfo>, String> {
     ensure_initialized(&app_handle).await?;
@@ -505,7 +451,7 @@ pub async fn list_users(app_handle: tauri::AppHandle) -> Result<Vec<UserInfo>, S
     }
 }
 
-/// Update a user's role
+/// update a user's role
 #[tauri::command]
 pub async fn update_user_role(
     app_handle: tauri::AppHandle,
@@ -537,7 +483,7 @@ pub async fn update_user_role(
     }
 }
 
-/// Delete a user (soft delete)
+/// delete a user (soft delete)
 #[tauri::command]
 pub async fn delete_user(app_handle: tauri::AppHandle, user_id: String) -> Result<(), String> {
     ensure_initialized(&app_handle).await?;
@@ -551,7 +497,7 @@ pub async fn delete_user(app_handle: tauri::AppHandle, user_id: String) -> Resul
     }
 }
 
-/// Invite code info for listing
+/// invite code info for listing
 #[derive(Debug, Serialize)]
 pub struct InviteInfo {
     pub code: String,
@@ -564,7 +510,7 @@ pub struct InviteInfo {
     pub is_active: bool,
 }
 
-/// List invite codes
+/// list invite codes
 #[tauri::command]
 pub async fn list_invites(
     app_handle: tauri::AppHandle,
@@ -626,7 +572,7 @@ pub async fn list_invites(
     }
 }
 
-/// Generate invite codes
+/// generate invite codes
 #[tauri::command]
 pub async fn generate_invites(
     app_handle: tauri::AppHandle,
@@ -642,7 +588,7 @@ pub async fn generate_invites(
 
         // check if wordlist file exists, create with defaults if not
         if !wordlist_path.exists() {
-            std::fs::write(&wordlist_path, DEFAULT_WORDLIST)
+            std::fs::write(&wordlist_path, generate_default_wordlist_content())
                 .map_err(|e| format!("failed to create wordlist file: {}", e))?;
         }
 
@@ -677,7 +623,7 @@ pub async fn generate_invites(
     }
 }
 
-/// Deactivate an invite code
+/// deactivate an invite code
 #[tauri::command]
 pub async fn deactivate_invite(app_handle: tauri::AppHandle, code: String) -> Result<(), String> {
     ensure_initialized(&app_handle).await?;
@@ -691,7 +637,7 @@ pub async fn deactivate_invite(app_handle: tauri::AppHandle, code: String) -> Re
     }
 }
 
-/// Scan result
+/// scan result
 #[derive(Debug, Serialize)]
 pub struct ScanResult {
     pub success: bool,
@@ -699,7 +645,7 @@ pub struct ScanResult {
     pub message: String,
 }
 
-/// Scan a directory for music files (creates import jobs)
+/// scan a directory for music files (creates import jobs)
 #[tauri::command]
 pub async fn scan_directory(
     app_handle: tauri::AppHandle,
@@ -771,7 +717,7 @@ pub async fn scan_directory(
     }
 }
 
-/// Scanned directory info for UI
+/// scanned directory info for UI
 #[derive(Debug, Serialize)]
 pub struct ScannedDirInfo {
     pub id: String,
@@ -780,7 +726,7 @@ pub struct ScannedDirInfo {
     pub last_scanned_at: i64,
 }
 
-/// List all scanned directories
+/// list all scanned directories
 #[tauri::command]
 pub async fn list_scanned_directories(
     app_handle: tauri::AppHandle,
@@ -803,7 +749,7 @@ pub async fn list_scanned_directories(
     }
 }
 
-/// Remove a scanned directory from tracking
+/// remove a scanned directory from tracking
 #[tauri::command]
 pub async fn remove_scanned_directory(path: String) -> Result<(), String> {
     let result = grimoire::jobs::remove_scanned_directory(&path).await;

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 #[derive(Args)]
 pub struct SetupArgs {
     /// Config file location
-    #[arg(long, short = 'c', default_value = "assets/config/config.jsonc")]
+    #[arg(long, short = 'c', default_value = "config.jsonc")]
     pub config: PathBuf,
 
     /// Root username to create
