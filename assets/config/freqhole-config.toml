@@ -160,7 +160,7 @@ port = 8080
 #   - displayed in remote client UI when selecting/viewing this server
 #   - recommended: square image, 256x256px or larger, PNG/JPG format
 #   - example: "server-icon.png" → accessible at /api/hello/image
-# image_path = "server-icon.png"
+image_path = ""
 
 # start job processor in the server (OPTIONAL - default: false)
 # when enabled (true):

@@ -332,17 +332,24 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             // process exited immediately - this is a crash
-                            let msg = format!("server process exited immediately with status: {}", status);
+                            let msg = format!(
+                                "server process exited immediately with status: {}",
+                                status
+                            );
                             eprintln!("[sidecar] {}", msg);
                             guard.process = None;
                             guard.started_at = None;
                             // get any captured logs for context
-                            let recent_logs: Vec<String> = guard.logs.iter().rev().take(10).cloned().collect();
+                            let recent_logs: Vec<String> =
+                                guard.logs.iter().rev().take(10).cloned().collect();
                             drop(guard);
                             let log_context = if recent_logs.is_empty() {
                                 String::new()
                             } else {
-                                format!("\nRecent logs:\n{}", recent_logs.into_iter().rev().collect::<Vec<_>>().join("\n"))
+                                format!(
+                                    "\nRecent logs:\n{}",
+                                    recent_logs.into_iter().rev().collect::<Vec<_>>().join("\n")
+                                )
                             };
                             return ServerResult::err(format!("{}{}", msg, log_context));
                         }
@@ -385,15 +392,13 @@ pub async fn stop_server(state: &ServerManager) -> ServerResult {
             // try graceful shutdown first (SIGTERM)
             #[cfg(unix)]
             {
-                use std::os::unix::process::CommandExt;
-                let _ = Command::new("kill")
-                    .arg("-TERM")
-                    .arg(child.id().to_string())
-                    .exec();
+                use nix::sys::signal::{kill, Signal};
+                use nix::unistd::Pid;
+                let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
             }
 
             // wait briefly for graceful shutdown
-            let graceful_timeout = Duration::from_secs(5);
+            let graceful_timeout = Duration::from_secs(10);
             let start = Instant::now();
 
             loop {

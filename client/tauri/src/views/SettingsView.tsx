@@ -1,34 +1,34 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import * as monaco from "monaco-editor";
 
-interface ServerStatus {
-  running: boolean;
-  pid: number | null;
-  uptime_secs: number | null;
-  config_path: string | null;
-  server_url: string | null;
+interface SaveConfigResult {
+  success: boolean;
+  message: string;
+  validation_errors: string[];
 }
 
 export default function SettingsView() {
-  const [serverStatus, setServerStatus] = createSignal<ServerStatus | null>(
-    null,
-  );
   const [configPath, setConfigPath] = createSignal("");
-  const [copied, setCopied] = createSignal(false);
+  const [configContent, setConfigContent] = createSignal("");
+  const [isSaving, setIsSaving] = createSignal(false);
+  const [saveMessage, setSaveMessage] = createSignal("");
+  const [saveErrors, setSaveErrors] = createSignal<string[]>([]);
+  const [isError, setIsError] = createSignal(false);
+  const [editorLoading, setEditorLoading] = createSignal(true);
+  const [wordWrap, setWordWrap] = createSignal(false);
+
+  let editorContainer: HTMLDivElement | undefined;
+  let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 
   onMount(async () => {
-    await loadStatus();
     await loadConfigPath();
+    await loadConfigContent();
   });
 
-  async function loadStatus() {
-    try {
-      const status = await invoke<ServerStatus>("server_status");
-      setServerStatus(status);
-    } catch (e) {
-      console.error("failed to load status:", e);
-    }
-  }
+  onCleanup(() => {
+    editor?.dispose();
+  });
 
   async function loadConfigPath() {
     try {
@@ -39,6 +39,39 @@ export default function SettingsView() {
     }
   }
 
+  async function loadConfigContent() {
+    try {
+      const content = await invoke<string>("read_config_file");
+      setConfigContent(content);
+      initEditor(content);
+    } catch (e) {
+      console.error("failed to load config content:", e);
+      setSaveMessage(`failed to load config: ${e}`);
+      setIsError(true);
+      setEditorLoading(false);
+    }
+  }
+
+  function initEditor(content: string) {
+    if (!editorContainer) return;
+
+    editor = monaco.editor.create(editorContainer, {
+      value: content,
+      language: "ini", // TOML is close to ini syntax
+      theme: "vs-dark",
+      minimap: { enabled: false },
+      lineNumbers: "on",
+      scrollBeyondLastLine: false,
+      automaticLayout: true,
+      fontSize: 13,
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      tabSize: 2,
+      wordWrap: "off",
+    });
+
+    setEditorLoading(false);
+  }
+
   async function openConfigDir() {
     try {
       await invoke("open_config_dir");
@@ -47,77 +80,137 @@ export default function SettingsView() {
     }
   }
 
-  async function copyServerUrl() {
-    const url = serverStatus()?.server_url;
-    if (url) {
-      try {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (e) {
-        console.error("copy failed:", e);
+  async function saveConfig() {
+    if (!editor) return;
+
+    setIsSaving(true);
+    setSaveMessage("");
+    setSaveErrors([]);
+    setIsError(false);
+
+    const content = editor.getValue();
+
+    try {
+      const result = await invoke<SaveConfigResult>("save_config_file", {
+        content,
+      });
+
+      if (result.success) {
+        setSaveMessage(result.message);
+        setIsError(false);
+
+        // restart the server after successful save
+        try {
+          await invoke("server_restart");
+          setSaveMessage(`${result.message} - server restarted`);
+        } catch (e) {
+          setSaveMessage(`${result.message} - failed to restart server: ${e}`);
+          setIsError(true);
+        }
+      } else {
+        setSaveMessage(result.message);
+        setSaveErrors(result.validation_errors);
+        setIsError(true);
       }
+    } catch (e) {
+      setSaveMessage(`failed to save config: ${e}`);
+      setIsError(true);
+    } finally {
+      setIsSaving(false);
     }
   }
 
+  async function reloadConfig() {
+    if (!editor) return;
+
+    try {
+      const content = await invoke<string>("read_config_file");
+      editor.setValue(content);
+      setSaveMessage("config reloaded from disk");
+      setSaveErrors([]);
+      setIsError(false);
+    } catch (e) {
+      setSaveMessage(`failed to reload config: ${e}`);
+      setIsError(true);
+    }
+  }
+
+  function toggleWordWrap() {
+    if (!editor) return;
+    const newValue = !wordWrap();
+    setWordWrap(newValue);
+    editor.updateOptions({ wordWrap: newValue ? "on" : "off" });
+  }
+
   return (
-    <div class="view-content">
+    <div class="view-content settings-view">
       <div class="view-header">
         <h1 class="active">
           setting<span class="pinky">z</span>
         </h1>
       </div>
 
-      <div class="section">
-        <h2>status</h2>
-        <Show when={serverStatus()}>
-          {(status) => (
-            <div class="status-card">
-              <div class="status-indicator">
-                <span
-                  class={`status-dot ${status().running ? "running" : "stopped"}`}
-                />
-                <span>{status().running ? "running" : "stopped"}</span>
-                <Show when={status().running && status().uptime_secs}>
-                  <span class="uptime">
-                    ({Math.floor(status().uptime_secs! / 60)}m uptime)
-                  </span>
-                </Show>
-              </div>
-              <p class="section-desc">
-                <Show when={status().running && status().server_url}>
-                  <span class="server-url-row">
-                    <a
-                      href={status().server_url!}
-                      target="_blank"
-                      class="server-url"
-                    >
-                      {status().server_url}
-                    </a>
-                    <button class="secondary small" onClick={copyServerUrl}>
-                      {copied() ? "copied!" : "copy"}
-                    </button>
-                  </span>
-                </Show>
-              </p>
-            </div>
-          )}
-        </Show>
-      </div>
-
-      <div class="section">
-        <h2>configuration</h2>
-        <Show when={configPath()}>
-          <p class="config-path">
-            <strong>config file:</strong> {configPath()}
-          </p>
-          <button class="secondary" onClick={openConfigDir}>
-            show in finder
+      <div class="editor-section">
+        <div class="editor-toolbar">
+          <button
+            class="primary small"
+            onClick={saveConfig}
+            disabled={isSaving()}
+          >
+            {isSaving() ? "saving..." : "save & restart"}
           </button>
+          <button
+            class="secondary small"
+            onClick={reloadConfig}
+            disabled={isSaving()}
+          >
+            reload
+          </button>
+          <Show when={configPath()}>
+            <button
+              class="secondary small"
+              onClick={openConfigDir}
+              title={configPath()}
+            >
+              show in finder
+            </button>
+          </Show>
+          <div class="flex-spacer" />
+          <button
+            class={`small ${wordWrap() ? "active" : "secondary"}`}
+            onClick={toggleWordWrap}
+            title="toggle word wrap"
+          >
+            wrap
+          </button>
+        </div>
+
+        <Show when={saveMessage()}>
+          <div class={`save-message ${isError() ? "error" : "success"}`}>
+            {saveMessage()}
+          </div>
         </Show>
-        <p class="section-desc">
-          edit the config file directly for advanced options.
-        </p>
+
+        <Show when={saveErrors().length > 0}>
+          <div class="validation-errors">
+            <strong>validation errors:</strong>
+            <ul>
+              {saveErrors().map((err) => (
+                <li>{err}</li>
+              ))}
+            </ul>
+          </div>
+        </Show>
+
+        <Show when={editorLoading()}>
+          <div class="editor-loading">loading editor...</div>
+        </Show>
+
+        <div
+          ref={editorContainer}
+          class="monaco-editor-container"
+          style={{ display: editorLoading() ? "none" : "block" }}
+        />
       </div>
     </div>
   );

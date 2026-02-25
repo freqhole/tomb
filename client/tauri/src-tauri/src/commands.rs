@@ -168,6 +168,9 @@ pub async fn create_config(
     let output = PathBuf::from(&output_path);
     let data = PathBuf::from(&data_dir);
 
+    // convert empty strings to None
+    let image_path = image_path.filter(|s| !s.is_empty());
+
     // create data directory if it doesn't exist
     if let Err(e) = std::fs::create_dir_all(&data) {
         return ConfigCreateResult {
@@ -357,7 +360,11 @@ pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
 /// get the data directory from loaded config
 #[tauri::command]
 pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
-    let config_path = app_handle.path().app_data_dir().ok()?.join("freqhole-config.toml");
+    let config_path = app_handle
+        .path()
+        .app_data_dir()
+        .ok()?
+        .join("freqhole-config.toml");
 
     if config_path.exists() {
         // use existing config if initialized, otherwise try to init
@@ -395,6 +402,93 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
         .opener()
         .reveal_item_in_dir(&path)
         .map_err(|e| format!("failed to open directory: {}", e))
+}
+
+/// read the config file content
+#[tauri::command]
+pub fn read_config_file(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let config_path = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("freqhole-config.toml");
+
+    if !config_path.exists() {
+        return Err("config file does not exist".to_string());
+    }
+
+    std::fs::read_to_string(&config_path).map_err(|e| format!("failed to read config file: {}", e))
+}
+
+/// result of saving config file
+#[derive(Debug, Serialize)]
+pub struct SaveConfigResult {
+    pub success: bool,
+    pub message: String,
+    pub validation_errors: Vec<String>,
+}
+
+/// validate and save the config file content
+#[tauri::command]
+pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveConfigResult {
+    let config_path = match app_handle.path().app_data_dir() {
+        Ok(dir) => dir.join("freqhole-config.toml"),
+        Err(e) => {
+            return SaveConfigResult {
+                success: false,
+                message: format!("failed to get app data dir: {}", e),
+                validation_errors: vec![],
+            }
+        }
+    };
+
+    // first, try to parse the TOML to check syntax
+    let parsed: Result<grimoire::config::GrimoireConfig, _> = toml::from_str(&content);
+    if let Err(e) = parsed {
+        return SaveConfigResult {
+            success: false,
+            message: "invalid TOML syntax".to_string(),
+            validation_errors: vec![e.to_string()],
+        };
+    }
+
+    // write to a temp file first
+    let temp_path = config_path.with_extension("toml.tmp");
+    if let Err(e) = std::fs::write(&temp_path, &content) {
+        return SaveConfigResult {
+            success: false,
+            message: format!("failed to write temp file: {}", e),
+            validation_errors: vec![],
+        };
+    }
+
+    // validate the config using grimoire's validation
+    match grimoire::config::GrimoireConfig::load(&temp_path) {
+        Ok(_) => {
+            // validation passed, move temp file to actual config
+            if let Err(e) = std::fs::rename(&temp_path, &config_path) {
+                let _ = std::fs::remove_file(&temp_path);
+                return SaveConfigResult {
+                    success: false,
+                    message: format!("failed to save config file: {}", e),
+                    validation_errors: vec![],
+                };
+            }
+            SaveConfigResult {
+                success: true,
+                message: "config saved successfully".to_string(),
+                validation_errors: vec![],
+            }
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp_path);
+            SaveConfigResult {
+                success: false,
+                message: "config validation failed".to_string(),
+                validation_errors: vec![e.to_string()],
+            }
+        }
+    }
 }
 
 /// user info for listing

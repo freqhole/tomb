@@ -15,6 +15,7 @@ interface ServerStatus {
   pid: number | null;
   uptime_secs: number | null;
   config_path: string | null;
+  server_url: string | null;
 }
 
 interface SetupStatus {
@@ -47,6 +48,7 @@ function App(props: ParentProps) {
   );
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
+  const [copied, setCopied] = createSignal(false);
 
   // determine if we're on an admin route (not setup)
   const isAdminRoute = () => {
@@ -137,6 +139,19 @@ function App(props: ParentProps) {
     setSetupComplete,
   };
 
+  async function copyServerUrl() {
+    const url = serverStatus()?.server_url;
+    if (url) {
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (e) {
+        console.error("copy failed:", e);
+      }
+    }
+  }
+
   // use Show components for proper SolidJS reactivity (if statements don't re-render)
   return (
     <AppContext.Provider value={contextValue}>
@@ -195,12 +210,37 @@ function App(props: ParentProps) {
                 <Show when={serverStatus()}>
                   {(status) => (
                     <div class="server-status">
-                      <span
-                        class={`status-dot ${status().running ? "running" : "stopped"}`}
-                      />
-                      <span class="status-text">
-                        server {status().running ? "running" : "stopped"}
-                      </span>
+                      <div>
+                        <span
+                          class={`status-dot ${status().running ? "running" : "stopped"}`}
+                        />
+                        <span class="status-text">
+                          server {status().running ? "running" : "stopped"}
+                        </span>
+                        <Show when={status().running && status().uptime_secs}>
+                          <span class="uptime">
+                            ({Math.floor(status().uptime_secs! / 60)}m uptime)
+                          </span>
+                        </Show>
+                      </div>
+
+                      <Show when={status().running && status().server_url}>
+                        <div class="server-url-row">
+                          <a
+                            href={status().server_url!}
+                            target="_blank"
+                            class="server-url"
+                          >
+                            {status().server_url}
+                          </a>
+                          {/* <button
+                            class="secondary small"
+                            onClick={copyServerUrl}
+                          >
+                            {copied() ? "copied!" : "copy"}
+                          </button> */}
+                        </div>
+                      </Show>
                     </div>
                   )}
                 </Show>

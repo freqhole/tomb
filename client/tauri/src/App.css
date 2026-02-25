@@ -133,7 +133,8 @@ body {
 
 .server-status {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.75rem;
   color: #71717a;
@@ -144,6 +145,8 @@ body {
   height: 8px;
   border-radius: 50%;
   background: #52525b;
+  display: inline-block;
+  margin-right: 3px;
 }
 
 .status-dot.running {
@@ -693,7 +696,8 @@ button.small {
 
 .uptime {
   color: #52525b;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  margin-left: 3px;
 }
 
 .config-path {
@@ -824,8 +828,10 @@ button.small {
 /* server url in settings */
 .server-url-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .server-url {
@@ -898,4 +904,92 @@ button.danger:hover {
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+}
+
+/* settings view monaco editor */
+.settings-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.settings-view .editor-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.editor-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.flex-spacer {
+  flex: 1;
+}
+
+.monaco-editor-container {
+  flex: 1;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+}
+
+.editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #71717a;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+}
+
+.save-message {
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.save-message.success {
+  background: #14532d;
+  border: 1px solid #166534;
+  color: #86efac;
+}
+
+.save-message.error {
+  background: #450a0a;
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+}
+
+.validation-errors {
+  padding: 0.75rem;
+  background: #450a0a;
+  border: 1px solid #7f1d1d;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: #fca5a5;
+}
+
+.validation-errors strong {
+  color: #ef4444;
+}
+
+.validation-errors ul {
+  margin-top: 0.5rem;
+  margin-left: 1.25rem;
+}
+
+.validation-errors li {
+  margin-bottom: 0.25rem;
+}
+
+.link:hover {
+  text-decoration: underline;
+  cursor: pointer;
 }
