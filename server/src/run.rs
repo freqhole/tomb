@@ -20,7 +20,7 @@ pub struct ServerOptions {
 impl Default for ServerOptions {
     fn default() -> Self {
         Self {
-            config_path: PathBuf::from("config.jsonc"),
+            config_path: PathBuf::from("freqhole-config.toml"),
         }
     }
 }

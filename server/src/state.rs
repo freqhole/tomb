@@ -57,7 +57,7 @@ impl AppState {
     pub fn validate(&self) -> Result<(), String> {
         // check if server config exists
         let server_config = self.config.server.as_ref().ok_or_else(|| {
-            "server config required (add 'server' section to config.jsonc)".to_string()
+            "server config required (add 'server' section to freqhole-config.toml)".to_string()
         })?;
 
         // webauthn validation: config-based gating with build-time check

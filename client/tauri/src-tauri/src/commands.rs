@@ -37,7 +37,7 @@ async fn ensure_initialized(app_handle: &tauri::AppHandle) -> Result<(), String>
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("config.jsonc");
+        .join("freqhole-config.toml");
 
     ensure_config_initialized(&config_path)?;
 
@@ -79,7 +79,7 @@ pub struct UserCreateResult {
 /// check if setup wizard needs to run
 #[tauri::command]
 pub async fn check_setup_status(app_data_dir: String) -> SetupStatus {
-    let config_path = PathBuf::from(&app_data_dir).join("config.jsonc");
+    let config_path = PathBuf::from(&app_data_dir).join("freqhole-config.toml");
     let config_exists = config_path.exists();
 
     if !config_exists {
@@ -351,13 +351,13 @@ pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
         .path()
         .app_data_dir()
         .ok()
-        .map(|p| p.join("config.jsonc").display().to_string())
+        .map(|p| p.join("freqhole-config.toml").display().to_string())
 }
 
 /// get the data directory from loaded config
 #[tauri::command]
 pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
-    let config_path = app_handle.path().app_data_dir().ok()?.join("config.jsonc");
+    let config_path = app_handle.path().app_data_dir().ok()?.join("freqhole-config.toml");
 
     if config_path.exists() {
         // use existing config if initialized, otherwise try to init

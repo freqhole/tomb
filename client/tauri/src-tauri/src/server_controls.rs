@@ -32,7 +32,7 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
                             app.path()
                                 .app_data_dir()
                                 .ok()
-                                .map(|p| p.join("config.jsonc"))
+                                .map(|p| p.join("freqhole-config.toml"))
                         })
                         .unwrap_or_default()
                 };

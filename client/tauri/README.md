@@ -53,7 +53,7 @@ bundles the app with the `freqhole` binary included. output in `src-tauri/target
 - **setup wizard**: shows on first run (no config) or when setup incomplete (no root user)
 - **sidecar server**: spawns `freqhole server --config <path>` as child process
 - **log capture**: server stdout/stderr captured and viewable in logs view
-- **config location**: always `~/Library/Application Support/com.freqhole.freqhole-app/config.jsonc`
+- **config location**: always `~/Library/Application Support/com.freqhole.freqhole-app/freqhole-config.toml`
 - **migrations**: run explicitly during setup wizard (`auto_run_migrations: false` in config)
 
 ## tauri commands
@@ -61,7 +61,7 @@ bundles the app with the `freqhole` binary included. output in `src-tauri/target
 commands in `commands.rs` are called from JS via `invoke()`. they access grimoire directly (no HTTP):
 
 - `check_setup_status` - determine if wizard needs to run
-- `create_config` - generate config.jsonc
+- `create_config` - generate freqhole-config.toml
 - `init_from_config` - initialize db and run migrations
 - `create_root_user` - create initial admin with API key
 - `list_users`, `list_invites`, etc. - admin operations

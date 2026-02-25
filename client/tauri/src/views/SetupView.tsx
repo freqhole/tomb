@@ -140,7 +140,7 @@ export default function SetupView() {
 
     try {
       // config always lives in the system app data dir
-      const path = `${appDataDir()}/config.jsonc`;
+      const path = `${appDataDir()}/freqhole-config.toml`;
       setConfigPath(path);
 
       const result = await invoke<ConfigResult>("create_config", {

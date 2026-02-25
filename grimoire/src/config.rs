@@ -1,12 +1,13 @@
 //! Configuration module for grimoire
 //!
 //! Provides configuration loading, validation, and global storage.
-//! Config files use JSONC format (JSON with comments).
+//! Config files use TOML format (supports comments).
 
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use toml_edit::{value, Array, DocumentMut};
 
 // Global config - initialized once at startup
 static CONFIG: OnceCell<GrimoireConfig> = OnceCell::new();
@@ -277,7 +278,7 @@ impl GrimoireConfig {
         })?;
 
         let config: GrimoireConfig =
-            json5::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+            toml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
         config.validate()?;
         Ok(config)
@@ -300,6 +301,52 @@ impl GrimoireConfig {
             return Err(ConfigError::InvalidValue(
                 "database.filename cannot be empty".to_string(),
             ));
+        }
+
+        // Validate server config if present
+        if let Some(server) = &self.server {
+            // Validate static_files.directory is absolute when enabled
+            if server.static_files.enabled {
+                if let Some(ref dir) = server.static_files.directory {
+                    if !dir.is_absolute() {
+                        return Err(ConfigError::InvalidValue(format!(
+                            "server.static_files.directory must be an absolute path when enabled, got: {}",
+                            dir.display()
+                        )));
+                    }
+                    if !dir.exists() {
+                        return Err(ConfigError::InvalidValue(format!(
+                            "server.static_files.directory does not exist: {}",
+                            dir.display()
+                        )));
+                    }
+                    if !dir.is_dir() {
+                        return Err(ConfigError::InvalidValue(format!(
+                            "server.static_files.directory is not a directory: {}",
+                            dir.display()
+                        )));
+                    }
+                } else {
+                    return Err(ConfigError::InvalidValue(
+                        "server.static_files.directory must be set when static_files.enabled is true".to_string(),
+                    ));
+                }
+            }
+
+            // Validate fetch_music.output_dir is absolute when enabled
+            if let Some(ref fetch) = server.fetch_music {
+                if fetch.enabled {
+                    if let Some(ref output_dir) = fetch.output_dir {
+                        let path = Path::new(output_dir);
+                        if !path.is_absolute() {
+                            return Err(ConfigError::InvalidValue(format!(
+                                "server.fetch_music.output_dir must be an absolute path when enabled, got: {}",
+                                output_dir
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -361,7 +408,7 @@ pub fn get_config() -> &'static GrimoireConfig {
 ///
 /// search order:
 /// 1. explicit path if provided (e.g. from --config flag)
-/// 2. ./config.jsonc (current directory)
+/// 2. ./freqhole-config.toml (current directory)
 pub fn find_config(explicit_path: Option<PathBuf>) -> Result<PathBuf, ConfigError> {
     // 1. explicit path (e.g. from --config flag)
     if let Some(path) = explicit_path {
@@ -374,8 +421,8 @@ pub fn find_config(explicit_path: Option<PathBuf>) -> Result<PathBuf, ConfigErro
         });
     }
 
-    // 2. ./config.jsonc in current directory
-    let local = PathBuf::from("config.jsonc");
+    // 2. ./freqhole-config.toml in current directory
+    let local = PathBuf::from("freqhole-config.toml");
     if local.exists() {
         return Ok(local);
     }
@@ -405,8 +452,8 @@ pub enum ConfigError {
 
     #[error(
         "no config file found. searched:\n  \
-         - ./config.jsonc\n\n\
-         try runing: config init"
+         - ./freqhole-config.toml\n\n\
+         try running: config init"
     )]
     NotFound,
 }
@@ -414,7 +461,7 @@ pub enum ConfigError {
 /// create a new config file with default values
 ///
 /// # arguments
-/// * `output_path` - Where to write the config file (default: ./config.jsonc)
+/// * `output_path` - Where to write the config file (default: ./freqhole-config.toml)
 /// * `data_dir` - Data directory to use in config (default: ./data)
 /// * `force` - Overwrite existing file if it exists
 ///
@@ -478,7 +525,7 @@ pub fn create_config_full(
     image_path: Option<String>,
     ytdlp_available: bool,
 ) -> Result<PathBuf, ConfigError> {
-    let path = output_path.unwrap_or_else(|| PathBuf::from("config.jsonc"));
+    let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
     let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
     let port = server_port.unwrap_or(8081);
 
@@ -520,7 +567,12 @@ pub fn create_config_full(
     Ok(path)
 }
 
+/// embedded config template (from assets/config/freqhole-config.toml)
+/// this is the base template with all comments preserved
+const CONFIG_TEMPLATE: &str = include_str!("../../assets/config/freqhole-config.toml");
+
 /// Generate config file content with given parameters
+/// uses toml_edit to modify the template while preserving comments
 fn generate_config_template(
     data_dir: &Path,
     server_name: &str,
@@ -530,59 +582,99 @@ fn generate_config_template(
     ytdlp_available: bool,
     fetch_dir: &Path,
 ) -> String {
-    let data_dir_str = data_dir.display();
-    let fetch_dir_str = fetch_dir.display();
-    let downloads_enabled = if ytdlp_available { "true" } else { "false" };
-    let fetch_enabled = if ytdlp_available { "true" } else { "false" };
+    let mut doc = CONFIG_TEMPLATE
+        .parse::<DocumentMut>()
+        .expect("embedded config template should be valid TOML");
 
-    // image_path line (optional)
-    let image_line = match image_path {
-        Some(path) => format!("    \"image_path\": \"{}\",\n", path),
-        None => String::new(),
-    };
+    // update data_dir
+    doc["data_dir"] = value(data_dir.display().to_string());
 
-    format!(
-        r#"// freqhole configuration
-{{
-  "data_dir": "{data_dir_str}",
-  "database": {{ "filename": "grimoire.db", "auto_run_migrations": false }},
-  "media": {{
-    "max_fs_file_size": 1073741824,
-    "supported_audio_formats": ["mp3", "flac", "wav", "m4a", "ogg", "aif", "aiff"],
-    "downloads": {{ "enabled": {downloads_enabled}, "ytdlp_command": "yt-dlp" }}
-  }},
-  "musicbrainz": {{ "enabled": true }},
-  "logging": {{ "level": "info" }},
-  "server": {{
-    "id": "{server_id}",
-    "name": "{server_name}",
-    "version": "0.1.0",
-    "host": "127.0.0.1",
-    "port": {server_port},
-{image_line}    "start_job_runner": true,
-    "auth": {{
-      "webauthn_enabled": true,
-      "session_max_age_seconds": 0,
-      "webauthn_origins": [
-        {{ "rp_id": "localhost", "rp_origin": "http://localhost:{server_port}" }},
-        {{ "rp_id": "localhost", "rp_origin": "http://localhost:1420" }}
-      ]
-    }},
-    "static_files": {{ "enabled": false }},
-    "cors": {{
-      "enabled": true,
-      "allowed_origins": ["http://localhost:{server_port}", "http://localhost:1420"]
-    }},
-    "fetch_music": {{
-      "enabled": {fetch_enabled},
-      "output_dir": "{fetch_dir_str}",
-      "precheck_command": "yt-dlp --print-json --no-download",
-      "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
-    }}
-  }}
-}}
-"#
-    )
+    // update database settings for generated configs (auto_run_migrations = false for setup wizard)
+    doc["database"]["auto_run_migrations"] = value(false);
+
+    // update media.downloads.enabled based on yt-dlp availability
+    doc["media"]["downloads"]["enabled"] = value(ytdlp_available);
+
+    // update server section
+    doc["server"]["id"] = value(server_id);
+    doc["server"]["name"] = value(server_name);
+    doc["server"]["version"] = value(env!("CARGO_PKG_VERSION"));
+    doc["server"]["port"] = value(server_port as i64);
+
+    // set or remove image_path
+    if let Some(path) = image_path {
+        doc["server"]["image_path"] = value(path);
+    } else {
+        // remove the key if no image path provided (template has a commented example)
+        doc["server"].as_table_mut().map(|t| t.remove("image_path"));
+    }
+
+    // clear existing webauthn_origins (will be rebuilt at end of function)
+    if let Some(auth) = doc["server"]["auth"].as_table_mut() {
+        auth.remove("webauthn_origins");
+    }
+
+    // update cors allowed_origins
+    let mut cors_origins = Array::new();
+    cors_origins.push(format!("http://localhost:{}", server_port));
+    cors_origins.push("http://localhost:1420".to_string());
+    doc["server"]["cors"]["allowed_origins"] = value(cors_origins);
+
+    // update fetch_music
+    doc["server"]["fetch_music"]["enabled"] = value(ytdlp_available);
+    doc["server"]["fetch_music"]["output_dir"] = value(fetch_dir.display().to_string());
+
+    // rebuild webauthn_origins as array of tables (TOML's [[array.of.tables]] syntax)
+    // this is tricky with toml_edit, so we'll append the raw TOML
+    let mut output = doc.to_string();
+
+    // remove the placeholder webauthn_origins section and add our own
+    // the template has [[server.auth.webauthn_origins]] entries we need to replace
+    let webauthn_section = format!(
+        r#"
+[[server.auth.webauthn_origins]]
+rp_id = "localhost"
+rp_origin = "http://localhost:{}"
+
+[[server.auth.webauthn_origins]]
+rp_id = "localhost"
+rp_origin = "http://localhost:1420"
+"#,
+        server_port
+    );
+
+    // find and replace existing webauthn_origins entries or append
+    if let Some(pos) = output.find("[[server.auth.webauthn_origins]]") {
+        // find the end of all webauthn_origins entries
+        let mut end_pos = pos;
+        let search_from = pos;
+        for (i, _) in output[search_from..].match_indices("[[server.auth.webauthn_origins]]") {
+            // find the next section or end of file
+            let next_section = output[search_from + i + 1..]
+                .find("\n[")
+                .map(|p| search_from + i + 1 + p)
+                .unwrap_or(output.len());
+            end_pos = next_section;
+        }
+        // find actual end (last webauthn entry)
+        if let Some(last_start) = output.rfind("[[server.auth.webauthn_origins]]") {
+            let after_last = &output[last_start..];
+            if let Some(next) = after_last
+                .find("\n[")
+                .filter(|&p| !after_last[p + 1..].starts_with("[server.auth.webauthn_origins]]"))
+            {
+                end_pos = last_start + next;
+            } else if let Some(next) = after_last.find("\n\n[") {
+                end_pos = last_start + next;
+            } else {
+                // last section in file
+                end_pos = output.len();
+            }
+        }
+        output.replace_range(pos..end_pos, webauthn_section.trim_start());
+    }
+
+    output
 }
 
 #[cfg(test)]

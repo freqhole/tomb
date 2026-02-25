@@ -40,7 +40,8 @@ shell-words = { workspace = true }
 csv = "1.3"
 urlencoding = "2.1"
 once_cell = "1.19"
-json5 = "0.4"
+toml = "0.8"
+toml_edit = "0.22"
 unicode-normalization = "0.1"
 
 clap = { version = "4.4", features = ["derive"] }

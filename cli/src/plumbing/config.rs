@@ -10,7 +10,7 @@ use std::path::PathBuf;
 pub enum ConfigAction {
     /// Initialize a new configuration file
     Init {
-        /// Output path for config file (default: ./config.jsonc)
+        /// Output path for config file (default: ./freqhole-config.toml)
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
         /// Data directory to use (default: ./data)
@@ -30,26 +30,29 @@ pub async fn handle_command(
     global_config: Option<std::path::PathBuf>,
 ) -> CommandOutput<serde_json::Value> {
     match action {
-        ConfigAction::Init { output, data_dir, force } => {
-            match create_config(output, data_dir, force) {
-                Ok(path) => {
-                    let message = format!("Config file created: {}", path.display());
-                    CommandOutput::success(message, serde_json::json!({
+        ConfigAction::Init {
+            output,
+            data_dir,
+            force,
+        } => match create_config(output, data_dir, force) {
+            Ok(path) => {
+                let message = format!("Config file created: {}", path.display());
+                CommandOutput::success(
+                    message,
+                    serde_json::json!({
                         "path": path.display().to_string()
-                    }))
-                }
-                Err(e) => {
-                    CommandOutput::failure(
-                        "Failed to create config",
-                        vec![GrimoireError::ProcessingFailed {
-                            message: e.to_string(),
-                        }
-                        .into()],
-                        (),
-                    )
-                }
+                    }),
+                )
             }
-        }
+            Err(e) => CommandOutput::failure(
+                "Failed to create config",
+                vec![GrimoireError::ProcessingFailed {
+                    message: e.to_string(),
+                }
+                .into()],
+                (),
+            ),
+        },
         ConfigAction::Validate => {
             let path = match find_config(global_config) {
                 Ok(p) => p,

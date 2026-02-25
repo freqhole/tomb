@@ -226,17 +226,22 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
     // find the binary
     let binary = match find_freqhole_binary() {
         Some(path) => path,
-        None => return ServerResult::err("could not find freqhole binary"),
+        None => {
+            eprintln!("[sidecar] could not find freqhole binary");
+            return ServerResult::err("could not find freqhole binary");
+        }
     };
 
     // verify config exists
     if !config_path.exists() {
-        return ServerResult::err(format!("config file not found: {}", config_path.display()));
+        let msg = format!("config file not found: {}", config_path.display());
+        eprintln!("[sidecar] {}", msg);
+        return ServerResult::err(msg);
     }
 
     // parse config to get port
     let port = match std::fs::read_to_string(&config_path) {
-        Ok(content) => match json5::from_str::<PartialConfig>(&content) {
+        Ok(content) => match toml::from_str::<PartialConfig>(&content) {
             Ok(config) => config.server.port,
             Err(_) => DEFAULT_PORT,
         },
@@ -305,17 +310,51 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
                     let reader = BufReader::new(stderr);
                     for line in reader.lines() {
                         if let Ok(line) = line {
+                            let stripped = strip_ansi_codes(&line);
+                            // also print to stderr so it shows in terminal during dev
+                            eprintln!("[server stderr] {}", stripped);
                             if let Ok(mut guard) = state_for_stderr.try_lock() {
                                 if guard.logs.len() >= MAX_LOG_LINES {
                                     guard.logs.pop_front();
                                 }
-                                guard
-                                    .logs
-                                    .push_back(format!("[stderr] {}", strip_ansi_codes(&line)));
+                                guard.logs.push_back(format!("[stderr] {}", stripped));
                             }
                         }
                     }
                 });
+            }
+
+            // wait a moment and check if process exited immediately (crash on startup)
+            std::thread::sleep(Duration::from_millis(500));
+            {
+                let mut guard = state_clone.lock().await;
+                if let Some(ref mut child) = guard.process {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            // process exited immediately - this is a crash
+                            let msg = format!("server process exited immediately with status: {}", status);
+                            eprintln!("[sidecar] {}", msg);
+                            guard.process = None;
+                            guard.started_at = None;
+                            // get any captured logs for context
+                            let recent_logs: Vec<String> = guard.logs.iter().rev().take(10).cloned().collect();
+                            drop(guard);
+                            let log_context = if recent_logs.is_empty() {
+                                String::new()
+                            } else {
+                                format!("\nRecent logs:\n{}", recent_logs.into_iter().rev().collect::<Vec<_>>().join("\n"))
+                            };
+                            return ServerResult::err(format!("{}{}", msg, log_context));
+                        }
+                        Ok(None) => {
+                            // still running - good!
+                            eprintln!("[sidecar] server still running after startup check");
+                        }
+                        Err(e) => {
+                            eprintln!("[sidecar] error checking process status: {}", e);
+                        }
+                    }
+                }
             }
 
             let status = ServerStatus {
@@ -329,7 +368,11 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
 
             ServerResult::ok("server started", status)
         }
-        Err(e) => ServerResult::err(format!("failed to start server: {}", e)),
+        Err(e) => {
+            let msg = format!("failed to spawn server process: {}", e);
+            eprintln!("[sidecar] {}", msg);
+            ServerResult::err(msg)
+        }
     }
 }
 

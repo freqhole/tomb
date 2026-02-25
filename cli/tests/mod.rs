@@ -39,7 +39,7 @@ impl TestContext {
     ///
     /// Verifies that `../data/test.db` exists before running tests.
     pub fn from_snapshot() -> Self {
-        let test_config_path = PathBuf::from("tests/fixtures/test-config.jsonc");
+        let test_config_path = PathBuf::from("tests/fixtures/test-config.toml");
 
         // Verify snapshot exists
         let snapshot_path = PathBuf::from("../data/test.db");
@@ -172,7 +172,7 @@ fn setup() {
 
     println!("\nCreating test database...");
 
-    let test_config_path = PathBuf::from("tests/fixtures/test-config.jsonc");
+    let test_config_path = PathBuf::from("tests/fixtures/test-config.toml");
 
     // Helper to run CLI commands during setup
     let run_setup_command = |args: &[&str]| -> Value {

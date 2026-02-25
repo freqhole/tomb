@@ -55,7 +55,7 @@ The `--nocapture` flag shows `println!` output.
 ### Test Database Location
 
 - Test DB: `data/test.db`
-- Test config: `grimoire/tests/fixtures/test-config.jsonc`
+- Test config: `cli/tests/fixtures/test-config.toml`
 - Each test gets its own temporary copy (no interference between tests)
 
 ### Writing New Tests

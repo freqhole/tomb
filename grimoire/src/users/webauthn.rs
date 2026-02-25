@@ -1,7 +1,11 @@
 //! WebAuthn credential management
 //!
-//! This module handles storage and retrieval of WebAuthn credentials (passkeys).
-//! Credentials are stored as serialized JSON in the database.
+//! this module handles storage and retrieval of WebAuthn credentials (passkeys).
+//! credentials are stored as serialized JSON in the database.
+
+// note: allow dead code and unused imports to suppress warnings about things
+// that are behind crate feature macros
+#![allow(dead_code, unused_imports)]
 
 use crate::database;
 use crate::response::GrimoireResponse;

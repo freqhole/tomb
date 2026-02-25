@@ -462,7 +462,7 @@ results are stored in the `result` column as JSON and can be accessed via API.
 
 ### logging in jobs
 
-use tracing macros (configured via config.jsonc `logging.level`):
+use tracing macros (configured via freqhole-config.toml `logging.level`):
 
 ```rust
 use tracing::{debug, error, info, warn};

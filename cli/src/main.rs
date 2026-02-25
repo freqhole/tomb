@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     if let Commands::Server { config } = cli.command {
         let config_path = config
             .or(cli.config)
-            .unwrap_or_else(|| std::path::PathBuf::from("config.jsonc"));
+            .unwrap_or_else(|| std::path::PathBuf::from("freqhole-config.toml"));
 
         let options = server::ServerOptions { config_path };
         return server::run_server(options).await;

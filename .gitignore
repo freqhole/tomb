@@ -17,4 +17,4 @@ data/dev.db
 /grimoire/.sqlx/
 /cli/coverage/
 *.profraw
-/config.jsonc
+/freqhole-config.toml

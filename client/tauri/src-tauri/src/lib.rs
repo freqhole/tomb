@@ -75,7 +75,7 @@ pub fn run() {
             let needs_setup = app
                 .path()
                 .app_data_dir()
-                .map(|dir| !dir.join("config.jsonc").exists())
+                .map(|dir| !dir.join("freqhole-config.toml").exists())
                 .unwrap_or(true);
 
             if needs_setup {
@@ -99,12 +99,15 @@ pub fn run() {
                 let config_path = app
                     .path()
                     .app_data_dir()
-                    .map(|dir| dir.join("config.jsonc"))
+                    .map(|dir| dir.join("freqhole-config.toml"))
                     .map_err(|e| e.to_string())?;
 
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 tauri::async_runtime::spawn(async move {
-                    sidecar::start_server(&state, config_path).await;
+                    let result = sidecar::start_server(&state, config_path).await;
+                    if !result.success {
+                        eprintln!("[tauri] failed to start server: {}", result.message);
+                    }
                 });
 
                 // show main window
