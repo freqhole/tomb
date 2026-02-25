@@ -9,7 +9,7 @@ use http::{HeaderName, Method};
 use tokio::net::TcpListener;
 use tower_http::{
     compression::CompressionLayer,
-    cors::CorsLayer,
+    cors::{AllowOrigin, CorsLayer},
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
 use tower_sessions::{cookie::SameSite, Expiry, SessionManagerLayer};
@@ -70,42 +70,47 @@ pub async fn start_server(
     // extract session store before building router (needs to be moved)
     let session_store = state.session_store.clone();
 
-    // configure CORS with allowed origins from config
+    // configure CORS with origin reflection
+    // uses predicate to check allowed origins, reflects matching origin back (not *)
     let cors = if let Some(server_config) = &state.config.server {
-        let origins: Vec<_> = server_config
-            .auth
-            .webauthn_origins
-            .iter()
-            .filter_map(|o| o.rp_origin.parse().ok())
-            .collect();
+        if server_config.cors.enabled {
+            let allowed_origins = server_config.auth.allowed_origins.clone();
+            let allow_any = server_config.auth.allows_any_origin();
 
-        CorsLayer::new()
-            .allow_origin(origins)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-                Method::OPTIONS,
-            ])
-            .allow_headers([
-                AUTHORIZATION,
-                CONTENT_TYPE,
-                ACCEPT,
-                HeaderName::from_static("origin"),
-                HeaderName::from_static("x-requested-with"),
-            ])
-            .expose_headers([
-                HeaderName::from_static("content-length"),
-                HeaderName::from_static("content-range"),
-                HeaderName::from_static("accept-ranges"),
-                CONTENT_TYPE,
-                HeaderName::from_static("cache-control"),
-                HeaderName::from_static("content-disposition"),
-                HeaderName::from_static("etag"),
-            ])
-            .allow_credentials(true)
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::predicate(move |origin, _req| {
+                    let origin_str = origin.to_str().unwrap_or("");
+                    allow_any || allowed_origins.iter().any(|o| o == origin_str)
+                }))
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::DELETE,
+                    Method::PATCH,
+                    Method::OPTIONS,
+                ])
+                .allow_headers([
+                    AUTHORIZATION,
+                    CONTENT_TYPE,
+                    ACCEPT,
+                    HeaderName::from_static("origin"),
+                    HeaderName::from_static("x-requested-with"),
+                ])
+                .expose_headers([
+                    HeaderName::from_static("content-length"),
+                    HeaderName::from_static("content-range"),
+                    HeaderName::from_static("accept-ranges"),
+                    CONTENT_TYPE,
+                    HeaderName::from_static("cache-control"),
+                    HeaderName::from_static("content-disposition"),
+                    HeaderName::from_static("etag"),
+                ])
+                .allow_credentials(true)
+        } else {
+            // CORS disabled - no cross-origin requests allowed
+            CorsLayer::new()
+        }
     } else {
         // fallback to permissive if no config (shouldn't happen)
         CorsLayer::permissive()
@@ -131,9 +136,9 @@ pub async fn start_server(
     let (use_secure, same_site) = if let Some(server_config) = &state.config.server {
         let has_https_origin = server_config
             .auth
-            .webauthn_origins
+            .allowed_origins
             .iter()
-            .any(|o| o.rp_origin.starts_with("https://"));
+            .any(|o| o.starts_with("https://"));
         if has_https_origin {
             // cross-origin with https: must use SameSite=None + Secure=true
             (true, SameSite::None)

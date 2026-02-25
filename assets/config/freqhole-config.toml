@@ -5,8 +5,6 @@
 #   - literal strings: 'hello' (no escapes, backslash is literal)
 #   - multi-line strings: """...""" or '''...''' (triple quotes)
 #   - arrays: [1, 2, 3] or ["a", "b", "c"]
-#   - array of tables: [[section]] creates array entries
-#   - nested tables: [parent.child] or [parent.child.grandchild]
 #
 # authentication methods (all available, no config needed):
 #   1. WebAuthn passkeys (if webauthn_enabled=true and feature compiled)
@@ -19,7 +17,7 @@
 #   - member: standard user (upload, edit, create playlists)
 #   - viewer: read-only (browse, play, favorite/rate only)
 
-# data directory - base directory for all grimoire data
+# REQUIRED: data directory - base directory for all grimoire data
 # can be relative (./data) or absolute (/var/lib/freqhole)
 # contains: database file, temp directory, wordlist
 data_dir = "./data"
@@ -28,28 +26,28 @@ data_dir = "./data"
 # database configuration
 # ============================================================================
 [database]
-# SQLite database filename (stored in data_dir)
+# REQUIRED: SQLite database filename (stored in data_dir)
 # the full path will be: {data_dir}/{filename}
 filename = "grimoire.db"
 
-# automatically run database migrations on startup
+# REQUIRED: automatically run database migrations on startup
 # set to false if you want to run migrations manually
 auto_run_migrations = true
 
-# connection pool settings (OPTIONAL - defaults shown)
+# OPTIONAL: connection pool settings
 # each database operation creates a short-lived connection pool.
 # these settings control pool behavior and can help with slow hardware.
 #
-# max_connections: max simultaneous connections to the SQLite file (default: 5)
+# max_connections (default: 5): max simultaneous connections to the SQLite file
 #   SQLite handles one writer at a time, so more connections mostly helps reads.
 #   lowering this can reduce contention on very slow storage.
 #
-# acquire_timeout_seconds: how long to wait for a connection before giving up (default: 120)
+# acquire_timeout_seconds (default: 120): how long to wait for a connection before giving up
 #   if you see "pool timed out while waiting for an open connection" errors,
 #   increase this value. the default 120s should be fine for most cases including
 #   Raspberry Pi, but heavy scan jobs on slow SD cards might need more.
 #
-# idle_timeout_seconds: how long idle connections stay open before closing (default: 300)
+# idle_timeout_seconds (default: 300): how long idle connections stay open before closing
 max_connections = 5
 acquire_timeout_seconds = 120
 idle_timeout_seconds = 300
@@ -58,15 +56,16 @@ idle_timeout_seconds = 300
 # media processing and categorization
 # ============================================================================
 [media]
-# maximum file size for filesystem storage (in bytes)
-# default: 1GB = 1073741824 bytes
+# OPTIONAL: maximum file size for filesystem storage (in bytes)
+# (default: 1073741824 = 1GB)
 max_fs_file_size = 1073741824
 
-# supported audio file formats for music scanning
+# OPTIONAL: supported audio file formats for music scanning
 # files with these extensions will be processed
+# (default: ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"])
 supported_audio_formats = ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"]
 
-# ffmpeg configuration for audio processing (OPTIONAL - defaults shown)
+# OPTIONAL: ffmpeg configuration for audio processing
 # used for extracting album art thumbnails and generating waveform visualizations
 #
 # these settings are optional - if omitted, the defaults below will be used.
@@ -80,13 +79,16 @@ supported_audio_formats = ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"]
 #   {output} - replaced with temporary output file path
 #
 # the command executed will be: <ffmpeg_path> <args with placeholders replaced>
+# OPTIONAL (default: "ffmpeg")
 ffmpeg_path = "ffmpeg"
+# OPTIONAL (default: "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}")
 extract_album_art_args = "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}"
-# note: use triple-quoted literal strings ('''...''') when the value contains double quotes
+# OPTIONAL: use triple-quoted literal strings ('''...''') when the value contains double quotes
 # this avoids escaping hell. TOML also supports multi-line strings with """ or '''
+# (default: '-i {input} -filter_complex "color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto" -frames:v 1 -y {output}')
 generate_waveform_args = '''-i {input} -filter_complex "color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto" -frames:v 1 -y {output}'''
 
-# ffprobe fallback for duration extraction (OPTIONAL)
+# OPTIONAL: ffprobe fallback for duration extraction
 # when lofty can't determine audio duration (e.g. for WMA, some m4a, opus-in-ogg),
 # ffprobe is used as a fallback to extract the duration from the file.
 # if ffprobe_path is omitted or null, the fallback is skipped and duration will be null.
@@ -95,21 +97,26 @@ generate_waveform_args = '''-i {input} -filter_complex "color=black:s=800x200[bg
 # the command executed will be: <ffprobe_path> <args with {input} replaced>
 # ffprobe_duration_args: output must be a single line with duration in seconds (e.g. "234.567")
 # ffprobe_properties_args: output must be JSON with format and streams sections
+# OPTIONAL (default: null - fallback disabled)
 ffprobe_path = "ffprobe"
+# OPTIONAL (default: "-v quiet -show_entries format=duration -of csv=p=0 {input}")
 ffprobe_duration_args = "-v quiet -show_entries format=duration -of csv=p=0 {input}"
+# OPTIONAL (default: "-v quiet -print_format json -show_format -show_streams {input}")
 ffprobe_properties_args = "-v quiet -print_format json -show_format -show_streams {input}"
 
-# duplicate detection during scan
+# OPTIONAL: duplicate detection during scan
 # skip importing songs that match existing songs (same artist, album, title, track/disc number, similar duration)
+# OPTIONAL (default: true)
 skip_duplicates = true
-# generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
+# OPTIONAL: generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
+# (default: false)
 generate_scan_duplicate_report = false
 
 # ============================================================================
 # MusicBrainz integration for metadata enrichment
 # ============================================================================
 [musicbrainz]
-# enable MusicBrainz API integration for enhanced metadata
+# OPTIONAL: enable MusicBrainz API integration for enhanced metadata (default: false)
 # allows searching for album/artist information and cover art
 enabled = true
 # note: user agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
@@ -118,35 +125,36 @@ enabled = true
 # logging configuration
 # ============================================================================
 [logging]
-# log level controls verbosity
+# REQUIRED: log level controls verbosity
 # options: "trace", "debug", "info", "warn", "error"
 # recommended: "info" ("debug" will log a LOT)
 level = "info"
 
 # ============================================================================
-# server configuration (optional)
-# only needed when running the HTTP server
+# OPTIONAL: server configuration
+# this entire section is optional - only needed when running the HTTP server
+# if you only use the CLI, you can omit or comment out this section
 # ============================================================================
 [server]
-# server identification
+# server identification (all REQUIRED when [server] section exists)
 # these fields are exposed via the public /api/hello endpoint (no auth required)
 # remote clients fetch this info when adding your server to their remote list
 
-# unique identifier for this server instance (stable across restarts)
+# REQUIRED: unique identifier for this server instance (stable across restarts)
 id = "freqhole-main"
-# server display name
+# REQUIRED: server display name
 name = "freqhole"
-# server version (semantic versioning recommended)
+# REQUIRED: server version (semantic versioning recommended)
 version = "0.1.0"
-# optional server description
+# OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
-# server host and port
+# REQUIRED: server host and port
 # host: "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
 host = "127.0.0.1"
 port = 8080
 
-# server image (OPTIONAL)
+# OPTIONAL: server image (default: null)
 # path to server image/logo for remote client UI
 #   - can be relative to data_dir or an absolute path
 #   - served publicly at /api/hello/image (no auth required)
@@ -155,7 +163,7 @@ port = 8080
 #   - example: "server-icon.png" → accessible at /api/hello/image
 image_path = ""
 
-# start job processor in the server (OPTIONAL - default: false)
+# OPTIONAL: start job processor in the server (default: false)
 # when enabled (true):
 #   - server spawns a background task that continuously processes jobs
 #   - jobs are processed automatically as they're created
@@ -171,12 +179,12 @@ start_job_runner = true
 # authentication configuration
 # ============================================================================
 [server.auth]
-# enable WebAuthn passkey authentication
+# OPTIONAL: enable WebAuthn passkey authentication (default: false)
 # note: requires binary built with --features webauthn (enabled by default)
 # set to false to disable passkey auth (API keys and invite codes still work)
 webauthn_enabled = true
 
-# session max age in seconds
+# OPTIONAL: session max age in seconds (default: 0 - never expire)
 # controls how long authentication sessions remain valid
 #
 # set to 0 or negative for sessions that never expire (recommended for personal use)
@@ -192,71 +200,79 @@ webauthn_enabled = true
 # this setting controls server-side session expiration only
 session_max_age_seconds = 0
 
-# WebAuthn origin configurations
-# each origin needs its own rp_id (domain) and rp_origin (full URL)
-# middleware validates incoming requests against this list
+# OPTIONAL: allowed origins for CORS and WebAuthn (default: [] - same-origin only)
 #
-# rp_id: domain name (e.g., "example.com", "localhost")
-# rp_origin: full URL (e.g., "https://app.example.com", "http://localhost:3000")
+# this single list is used for both CORS headers and WebAuthn (passkey) origin validation.
+# the server reflects the request's Origin header back (not "*") which is required
+# for credentials and passkey authentication to work.
 #
-# IMPORTANT: support multiple origins for dev/staging/prod environments
-
-[[server.auth.webauthn_origins]]
-rp_id = "localhost"
-rp_origin = "http://localhost:1420"
-
-[[server.auth.webauthn_origins]]
-rp_id = "localhost"
-rp_origin = "http://localhost:5173"
-
-# add more origins as needed:
-# [[server.auth.webauthn_origins]]
-# rp_id = "example.com"
-# rp_origin = "https://music.example.com"
+# the rp_id (relying party ID) for WebAuthn (passkey) is automatically extracted from the
+# origin's hostname. for example:
+#   - "http://localhost:1420"        → rp_id = "localhost"
+#   - "https://music.freqhole.net"   → rp_id = "music.freqhole.net"
+#   - "https://foo.bar.example.com"  → rp_id = "foo.bar.example.com"
+#
+# special value "any":
+#   use "any" to allow any origin. the server will reflect the request's Origin
+#   header back (still not "*"). useful for development, but consider security
+#   implications for production. webauthn will still work because rp_id is
+#   extracted from the request origin.
+#
+# if not specified (empty array or omitted):
+#   - CORS: only same-origin requests work (cross-origin blocked)
+#     note: if you serve the web UI via [server.static_files], it's same-origin
+#     and works fine without configuring allowed_origins but:
+#   - WebAuthn (passkey): will fail validation (webauthn requires at least one origin)
+#
+# examples:
+#   allowed_origins = ["any"]                              # allow any origin
+#   allowed_origins = ["http://localhost:1420"]            # single dev origin
+#   allowed_origins = ["http://localhost:1420", "http://localhost:5173"]
+#   allowed_origins = ["https://music.freqhole.net", "https://staging.freqhole.net"]
+allowed_origins = ["http://localhost:1420", "http://localhost:5173"]
 
 # ============================================================================
 # static file serving
 # ============================================================================
 [server.static_files]
-# enable serving static files (HTML, JS, CSS, etc.)
+# REQUIRED: enable serving static files (HTML, JS, CSS, images, etc.)
 enabled = false
-# directory to serve from (IMPORTANT: must be absolute path)
+# REQUIRED when enabled=true: directory to serve from (must be absolute path)
+# OPTIONAL when enabled=false (can omit)
 # directory = "/path/to/static"
 
 # ============================================================================
 # CORS (Cross-Origin Resource Sharing) configuration
 # ============================================================================
 [server.cors]
-# enable CORS headers
+# REQUIRED: enable CORS headers
+# if enabled with no auth.allowed_origins, only same-origin requests work
 enabled = true
-# allowed origins (if not specified, uses auth.webauthn_origins)
-allowed_origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    # "https://spume.freqhole.net",
-]
 
 # ============================================================================
-# media fetching from external sources
+# OPTIONAL: media fetching from external sources
+# this entire section is optional (default: null - feature disabled)
 # ============================================================================
 [server.fetch_music]
-# enable media fetching functionality
+# REQUIRED when section exists: enable media fetching functionality
 # when disabled, fetch routes will return 404
 enabled = false
 
-# absolute path where fetched files are temporarily stored
+# REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
+# OPTIONAL when enabled=false (can omit)
 # files are downloaded here, then processed and moved to blob storage
-# IMPORTANT: must be an absolute path
+# must be an absolute path
 # example: "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
 output_dir = "/path/to/fetch/directory"
 
-# command to extract metadata without downloading
+# OPTIONAL: command to extract metadata without downloading (default: null)
 # used for precheck/deduplication - checks if content already exists
 # before actually downloading. should output JSON metadata.
 #
 # typically uses yt-dlp or youtube-dl:
 #   --print-json: output metadata as JSON
 #   --no-download: don't download the file
+#   example: "yt-dlp --print-json --no-download"
 #
 # note: --no-playlist removed to support playlists and collections
 # precheck will return metadata for all items in collection
@@ -264,7 +280,7 @@ output_dir = "/path/to/fetch/directory"
 # the command will be invoked as: <command> <url>
 precheck_command = "yt-dlp --print-json --no-download"
 
-# command to actually fetch and download media files
+# OPTIONAL: command to actually fetch and download media files (default: null)
 # should download audio, extract metadata, and output the file path
 #
 # IMPORTANT: supports playlists and collections with best-effort downloading
@@ -299,6 +315,8 @@ precheck_command = "yt-dlp --print-json --no-download"
 #
 # also: avoid spaces and special characters in filenames - use hyphens
 # single quotes in filenames can cause issues with shell commands
+#
+# example: "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
 #
 # the command will be invoked as: <command> --paths <job_id_dir> <url>
 # it should print one downloaded file path per line to stdout

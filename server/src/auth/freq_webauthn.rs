@@ -208,17 +208,11 @@ impl FreqWebauthn {
 /// start webauthn registration - create challenge for new credential
 #[cfg(feature = "webauthn")]
 pub async fn register_start(
-    Extension(state): Extension<AppState>,
+    Extension(_state): Extension<AppState>,
     Extension(origin): Extension<ValidatedOrigin>,
     session: Session,
     Json(request): Json<RegisterStartRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let server_config = state
-        .config
-        .server
-        .as_ref()
-        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
-
     // Validate invite code if required
     let user_service = grimoire::users::UserService::new();
 
@@ -236,12 +230,13 @@ pub async fn register_start(
     // Get existing credentials (none for new user)
     let exclude_credentials = Vec::new();
 
-    // Get rp_id from first origin config (they should all have same rp_id)
-    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    // Extract rp_id (hostname) from the validated origin
+    let rp_id = grimoire::config::extract_rp_id(&origin.0)
+        .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "freqhole"; // TODO: get from config
 
     // Create FreqWebauthn instance
-    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+    let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
     // Start registration
     let (ccr, reg_state) = freq_webauthn.start_registration(
@@ -271,7 +266,7 @@ pub async fn register_start(
 /// finish webauthn registration - validate credential and create user
 #[cfg(feature = "webauthn")]
 pub async fn register_finish(
-    Extension(state): Extension<AppState>,
+    Extension(_state): Extension<AppState>,
     Extension(origin): Extension<ValidatedOrigin>,
     session: Session,
     Json(reg): Json<RegisterPublicKeyCredential>,
@@ -291,18 +286,13 @@ pub async fn register_finish(
     // Remove registration state from session
     let _ = session.remove_value("reg_state").await;
 
-    let server_config = state
-        .config
-        .server
-        .as_ref()
-        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
-
-    // Get rp_id from config
-    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    // Extract rp_id (hostname) from the validated origin
+    let rp_id = grimoire::config::extract_rp_id(&origin.0)
+        .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "Freqhole";
 
     // Create FreqWebauthn instance
-    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+    let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
     // Finish registration
     let passkey = freq_webauthn.finish_registration(&origin.0, &reg, &reg_state)?;
@@ -356,7 +346,7 @@ pub async fn register_finish(
 /// start webauthn authentication - create challenge
 #[cfg(feature = "webauthn")]
 pub async fn login_start(
-    Extension(state): Extension<AppState>,
+    Extension(_state): Extension<AppState>,
     Extension(origin): Extension<ValidatedOrigin>,
     session: Session,
     Json(request): Json<StartLoginRequest>,
@@ -391,18 +381,13 @@ pub async fn login_start(
         return Err(ApiError::BadRequest("User has no credentials".to_string()));
     }
 
-    let server_config = state
-        .config
-        .server
-        .as_ref()
-        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
-
-    // Get rp_id from config
-    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    // Extract rp_id (hostname) from the validated origin
+    let rp_id = grimoire::config::extract_rp_id(&origin.0)
+        .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "Freqhole";
 
     // Create FreqWebauthn instance
-    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+    let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
     // Start authentication
     let (rcr, auth_state) = freq_webauthn.start_authentication(&origin.0, &credentials)?;
@@ -419,7 +404,7 @@ pub async fn login_start(
 /// finish webauthn authentication - validate and create session
 #[cfg(feature = "webauthn")]
 pub async fn login_finish(
-    Extension(state): Extension<AppState>,
+    Extension(_state): Extension<AppState>,
     Extension(origin): Extension<ValidatedOrigin>,
     session: Session,
     Json(auth): Json<PublicKeyCredential>,
@@ -434,18 +419,13 @@ pub async fn login_finish(
     // Remove auth state from session
     let _ = session.remove_value("auth_state").await;
 
-    let server_config = state
-        .config
-        .server
-        .as_ref()
-        .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
-
-    // Get rp_id from config
-    let rp_id = &server_config.auth.webauthn_origins[0].rp_id;
+    // Extract rp_id (hostname) from the validated origin
+    let rp_id = grimoire::config::extract_rp_id(&origin.0)
+        .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "Freqhole";
 
     // Create FreqWebauthn instance
-    let freq_webauthn = FreqWebauthn::new(rp_id.clone(), rp_name.to_string());
+    let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
     // Finish authentication
     let _auth_result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;

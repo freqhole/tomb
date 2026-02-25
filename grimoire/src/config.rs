@@ -53,8 +53,10 @@ pub struct DatabaseConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaConfig {
     /// Maximum file size for filesystem storage (bytes)
+    #[serde(default = "default_max_fs_file_size")]
     pub max_fs_file_size: u64,
     /// Supported audio file formats
+    #[serde(default = "default_supported_audio_formats")]
     pub supported_audio_formats: Vec<String>,
     /// Path to ffmpeg binary
     #[serde(default = "default_ffmpeg_path")]
@@ -126,10 +128,27 @@ fn default_generate_scan_duplicate_report() -> bool {
     false
 }
 
+fn default_max_fs_file_size() -> u64 {
+    1073741824 // 1GB
+}
+
+fn default_supported_audio_formats() -> Vec<String> {
+    vec![
+        "mp3".to_string(),
+        "ogg".to_string(),
+        "wav".to_string(),
+        "flac".to_string(),
+        "m4a".to_string(),
+        "aif".to_string(),
+        "aiff".to_string(),
+    ]
+}
+
 /// MusicBrainz integration configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MusicBrainzConfig {
-    /// Enable MusicBrainz API integration
+    /// Enable MusicBrainz API integration (default: false)
+    #[serde(default)]
     pub enabled: bool,
 }
 
@@ -178,29 +197,42 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
     /// Enable WebAuthn passkey authentication (requires binary built with webauthn feature)
+    #[serde(default)]
     pub webauthn_enabled: bool,
     /// Session max age in seconds (0 or negative = never expire)
     #[serde(default)]
     pub session_max_age_seconds: i64,
-    /// WebAuthn origin configurations (each origin needs its own rp_id and rp_origin)
+    /// Allowed origins for CORS and WebAuthn
+    /// Use "any" to allow any origin (reflects request origin, does not use *)
+    /// If not specified, only same-origin requests work
     #[serde(default)]
-    pub webauthn_origins: Vec<WebAuthnOriginConfig>,
+    pub allowed_origins: Vec<String>,
 }
 
-/// WebAuthn origin configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebAuthnOriginConfig {
-    /// Relying party ID (domain name, e.g., "example.com", "localhost")
-    pub rp_id: String,
-    /// Relying party origin (full URL, e.g., "https://app.example.com", "http://localhost:3000")
-    pub rp_origin: String,
-}
-
-impl WebAuthnOriginConfig {
-    /// Get just the origin string for validation
-    pub fn origin(&self) -> &str {
-        &self.rp_origin
+impl AuthConfig {
+    /// Check if an origin is allowed
+    /// Returns true if:
+    /// - allowed_origins contains "any"
+    /// - allowed_origins contains the exact origin
+    pub fn is_origin_allowed(&self, origin: &str) -> bool {
+        self.allowed_origins
+            .iter()
+            .any(|o| o == "any" || o == origin)
     }
+
+    /// Check if "any" origin is configured
+    pub fn allows_any_origin(&self) -> bool {
+        self.allowed_origins.iter().any(|o| o == "any")
+    }
+}
+
+/// Extract rp_id (hostname) from an origin URL
+/// e.g., "http://localhost:1420" -> "localhost"
+/// e.g., "https://music.freqhole.net" -> "music.freqhole.net"
+pub fn extract_rp_id(origin: &str) -> Option<String> {
+    url::Url::parse(origin)
+        .ok()
+        .and_then(|u| u.host_str().map(|s| s.to_string()))
 }
 
 /// Static file serving configuration
@@ -215,10 +247,9 @@ pub struct StaticFilesConfig {
 /// CORS configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CorsConfig {
-    /// Enable CORS
+    /// Enable CORS headers
+    /// If enabled with no auth.allowed_origins, only same-origin requests work
     pub enabled: bool,
-    /// Allowed origins (if not specified, uses auth.webauthn_origins as allowed origins)
-    pub allowed_origins: Option<Vec<String>>,
 }
 
 /// Fetch music configuration
@@ -235,25 +266,14 @@ pub struct FetchMusicConfig {
 }
 
 impl ServerConfig {
-    /// Get all allowed origins (from webauthn configs or cors config)
-    pub fn get_allowed_origins(&self) -> Vec<String> {
-        if let Some(cors_origins) = &self.cors.allowed_origins {
-            cors_origins.clone()
-        } else {
-            self.auth
-                .webauthn_origins
-                .iter()
-                .map(|c| c.rp_origin.clone())
-                .collect()
-        }
+    /// Get all allowed origins
+    pub fn get_allowed_origins(&self) -> &[String] {
+        &self.auth.allowed_origins
     }
 
-    /// Find webauthn config for a given origin
-    pub fn find_webauthn_config(&self, origin: &str) -> Option<&WebAuthnOriginConfig> {
-        self.auth
-            .webauthn_origins
-            .iter()
-            .find(|c| c.rp_origin == origin)
+    /// Check if an origin is allowed (delegates to AuthConfig)
+    pub fn is_origin_allowed(&self, origin: &str) -> bool {
+        self.auth.is_origin_allowed(origin)
     }
 }
 
@@ -490,6 +510,7 @@ pub fn create_config_with_server_info(
         server_port,
         None,
         false,
+        None,
     )
 }
 
@@ -504,6 +525,7 @@ pub fn create_config_with_server_info(
 /// * `server_port` - Server listen port
 /// * `image_path` - Optional path to server icon image
 /// * `ytdlp_available` - Whether yt-dlp is available for downloads
+/// * `allowed_origins` - Optional list of allowed origins for CORS/WebAuthn (None = derive from port, vec!["any"] = allow any)
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -513,6 +535,7 @@ pub fn create_config_full(
     server_port: Option<u16>,
     image_path: Option<String>,
     ytdlp_available: bool,
+    allowed_origins: Option<Vec<String>>,
 ) -> Result<PathBuf, ConfigError> {
     let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
     let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -547,6 +570,7 @@ pub fn create_config_full(
         image_path.as_deref(),
         ytdlp_available,
         &fetch_dir,
+        allowed_origins.as_deref(),
     );
 
     // write file
@@ -570,6 +594,7 @@ fn generate_config_template(
     image_path: Option<&str>,
     ytdlp_available: bool,
     fetch_dir: &Path,
+    allowed_origins: Option<&[String]>,
 ) -> String {
     let mut doc = CONFIG_TEMPLATE
         .parse::<DocumentMut>()
@@ -595,72 +620,32 @@ fn generate_config_template(
         doc["server"].as_table_mut().map(|t| t.remove("image_path"));
     }
 
-    // clear existing webauthn_origins (will be rebuilt at end of function)
-    if let Some(auth) = doc["server"]["auth"].as_table_mut() {
-        auth.remove("webauthn_origins");
+    // update allowed_origins for both CORS and WebAuthn
+    let mut origins = Array::new();
+    if let Some(custom_origins) = allowed_origins {
+        // use provided origins
+        for origin in custom_origins {
+            origins.push(origin.clone());
+        }
+    } else {
+        // default: server port + localhost:1420 (tauri dev)
+        origins.push(format!("http://localhost:{}", server_port));
+        origins.push("http://localhost:1420".to_string());
     }
-
-    // update cors allowed_origins
-    let mut cors_origins = Array::new();
-    cors_origins.push(format!("http://localhost:{}", server_port));
-    cors_origins.push("http://localhost:1420".to_string());
-    doc["server"]["cors"]["allowed_origins"] = value(cors_origins);
+    if let Some(auth) = doc["server"]["auth"].as_table_mut() {
+        auth["allowed_origins"] = value(origins);
+    }
 
     // update fetch_music
     doc["server"]["fetch_music"]["enabled"] = value(ytdlp_available);
     doc["server"]["fetch_music"]["output_dir"] = value(fetch_dir.display().to_string());
 
-    // rebuild webauthn_origins as array of tables (TOML's [[array.of.tables]] syntax)
-    // this is tricky with toml_edit, so we'll append the raw TOML
-    let mut output = doc.to_string();
-
-    // remove the placeholder webauthn_origins section and add our own
-    // the template has [[server.auth.webauthn_origins]] entries we need to replace
-    let webauthn_section = format!(
-        r#"
-[[server.auth.webauthn_origins]]
-rp_id = "localhost"
-rp_origin = "http://localhost:{}"
-
-[[server.auth.webauthn_origins]]
-rp_id = "localhost"
-rp_origin = "http://localhost:1420"
-"#,
-        server_port
-    );
-
-    // find and replace existing webauthn_origins entries or append
-    if let Some(pos) = output.find("[[server.auth.webauthn_origins]]") {
-        // find the end of all webauthn_origins entries
-        let mut end_pos = pos;
-        let search_from = pos;
-        for (i, _) in output[search_from..].match_indices("[[server.auth.webauthn_origins]]") {
-            // find the next section or end of file
-            let next_section = output[search_from + i + 1..]
-                .find("\n[")
-                .map(|p| search_from + i + 1 + p)
-                .unwrap_or(output.len());
-            end_pos = next_section;
-        }
-        // find actual end (last webauthn entry)
-        if let Some(last_start) = output.rfind("[[server.auth.webauthn_origins]]") {
-            let after_last = &output[last_start..];
-            if let Some(next) = after_last
-                .find("\n[")
-                .filter(|&p| !after_last[p + 1..].starts_with("[server.auth.webauthn_origins]]"))
-            {
-                end_pos = last_start + next;
-            } else if let Some(next) = after_last.find("\n\n[") {
-                end_pos = last_start + next;
-            } else {
-                // last section in file
-                end_pos = output.len();
-            }
-        }
-        output.replace_range(pos..end_pos, webauthn_section.trim_start());
+    // remove cors.allowed_origins since it's now in auth.allowed_origins
+    if let Some(cors) = doc["server"]["cors"].as_table_mut() {
+        cors.remove("allowed_origins");
     }
 
-    output
+    doc.to_string()
 }
 
 #[cfg(test)]

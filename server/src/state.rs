@@ -72,21 +72,22 @@ impl AppState {
             }
         }
 
-        // validate webauthn origins if webauthn is enabled
+        // validate webauthn config if enabled
         if server_config.auth.webauthn_enabled {
-            if server_config.auth.webauthn_origins.is_empty() {
-                return Err("webauthn enabled but no webauthn_origins configured. \
-                     add at least one origin with rp_id and rp_origin"
+            // webauthn needs at least one allowed origin (or "any")
+            if server_config.auth.allowed_origins.is_empty() {
+                return Err("webauthn enabled but no allowed_origins configured. \
+                     add at least one origin or use \"any\" to allow any origin"
                     .to_string());
             }
 
-            // validate each origin config
-            for origin_config in &server_config.auth.webauthn_origins {
-                if origin_config.rp_id.is_empty() {
-                    return Err("webauthn origin config has empty rp_id".to_string());
-                }
-                if origin_config.rp_origin.is_empty() {
-                    return Err("webauthn origin config has empty rp_origin".to_string());
+            // validate each origin is a valid URL (unless it's "any")
+            for origin in &server_config.auth.allowed_origins {
+                if origin != "any" && grimoire::config::extract_rp_id(origin).is_none() {
+                    return Err(format!(
+                        "invalid origin '{}' - must be a valid URL (e.g., http://localhost:1420)",
+                        origin
+                    ));
                 }
             }
         }

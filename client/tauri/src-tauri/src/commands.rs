@@ -102,6 +102,14 @@ pub async fn run_full_setup(
 ) -> grimoire::setup::SetupResult {
     let deps = grimoire::setup::check_dependencies();
 
+    // set allowed origins based on build type
+    // dev builds use http://localhost:1420 (vite dev server for tauri UI)
+    // release builds use tauri://localhost (tauri's internal protocol)
+    #[cfg(debug_assertions)]
+    let allowed_origins = vec!["http://localhost:1420".to_string()];
+    #[cfg(not(debug_assertions))]
+    let allowed_origins = vec!["tauri://localhost".to_string()];
+
     let setup_config = grimoire::setup::SetupConfig {
         config_path: PathBuf::from(&config_path),
         data_dir: PathBuf::from(&data_dir),
@@ -114,6 +122,7 @@ pub async fn run_full_setup(
         generate_invite_code: false, // tauri doesn't need this
         ytdlp_available: deps.has_ytdlp(),
         initial_scan_dirs: Vec::new(), // handled by music step in UI
+        allowed_origins: Some(allowed_origins),
     };
 
     let service = grimoire::setup::SetupService::new();

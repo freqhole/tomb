@@ -76,10 +76,11 @@ pub async fn require_auth(
 
 /// validate origin middleware
 ///
-/// validates request Origin header against config.allowed_origins
+/// validates request Origin header against config.auth.allowed_origins
 /// injects ValidatedOrigin into request extensions for webauthn handlers
 ///
 /// this allows supporting multiple origins (prod, staging, localhost) at runtime
+/// also supports "any" in allowed_origins to accept any origin
 pub async fn validate_origin(
     Extension(state): Extension<AppState>,
     headers: HeaderMap,
@@ -103,14 +104,8 @@ pub async fn validate_origin(
         return Err(ApiError::BadRequest("webauthn not enabled".to_string()));
     }
 
-    // Check if origin matches any configured origin
-    let matching_origin = server_config
-        .auth
-        .webauthn_origins
-        .iter()
-        .find(|o| o.rp_origin == origin);
-
-    if let Some(_origin_config) = matching_origin {
+    // Check if origin matches any configured origin (or "any" is configured)
+    if server_config.auth.is_origin_allowed(origin) {
         // Valid origin - inject into extensions for handler use
         request
             .extensions_mut()

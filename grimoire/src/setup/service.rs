@@ -42,6 +42,8 @@ pub struct SetupConfig {
     pub ytdlp_available: bool,
     /// initial directories to scan with optional tags
     pub initial_scan_dirs: Vec<ScanDir>,
+    /// allowed origins for CORS and WebAuthn (None = derive from server_port, vec!["any"] = allow any)
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 /// a directory to scan with optional tags
@@ -234,6 +236,7 @@ impl SetupService {
             Some(config.server_port),
             image_path,
             config.ytdlp_available,
+            config.allowed_origins.clone(),
         )
     }
 

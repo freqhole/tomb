@@ -54,6 +54,10 @@ pub struct SetupArgs {
     #[arg(long = "scan", value_name = "PATH")]
     pub scan_dirs: Vec<PathBuf>,
 
+    /// allowed origins for CORS/WebAuthn ("none", "any", or URL like http://localhost:5173)
+    #[arg(long)]
+    pub allowed_origins: Option<String>,
+
     /// force setup even if config already exists
     #[arg(long)]
     pub force: bool,
@@ -245,6 +249,59 @@ pub async fn run(args: SetupArgs) -> Result<()> {
             .interact()?
     };
 
+    // allowed origins for CORS and WebAuthn
+    // this determines which browser origins can access the server
+    let allowed_origins: Option<Vec<String>> = if let Some(ref origins) = args.allowed_origins {
+        // from CLI arg
+        match origins.as_str() {
+            "none" => Some(Vec::new()),
+            "any" => Some(vec!["any".to_string()]),
+            url => Some(vec![url.to_string()]),
+        }
+    } else if args.non_interactive {
+        // non-interactive defaults to none (same-origin only)
+        Some(Vec::new())
+    } else {
+        // interactive prompt
+        println!();
+        println!("  allowed origins configuration");
+        println!("  -----------------------------");
+        println!("  this controls which browser origins can access your server via CORS.");
+        println!("  also used for passkey (WebAuthn) authentication.");
+        println!();
+        println!("  options:");
+        println!("    none - same-origin only (works if UI served from this server)");
+        println!("    any  - allow any origin (convenient but less secure)");
+        println!("    URL  - specific origin like http://localhost:5173");
+        println!();
+
+        let options = &[
+            "none (same-origin only)".to_string(),
+            "any (allow any origin)".to_string(),
+            format!("http://localhost:{} (same as server)", server_port),
+            "custom URL...".to_string(),
+        ];
+        let selection = Select::new()
+            .with_prompt("allowed origins")
+            .items(options)
+            .default(2) // default to same port as server
+            .interact()?;
+
+        match selection {
+            0 => Some(Vec::new()), // none
+            1 => Some(vec!["any".to_string()]), // any
+            2 => Some(vec![format!("http://localhost:{}", server_port)]), // server port
+            _ => {
+                // custom URL
+                let url: String = Input::new()
+                    .with_prompt("enter origin URL")
+                    .default("http://localhost:5173".to_string())
+                    .interact_text()?;
+                Some(vec![url])
+            }
+        }
+    };
+
     // collect initial scan directories
     let initial_scan_dirs: Vec<ScanDir> = args
         .scan_dirs
@@ -272,6 +329,7 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         generate_invite_code,
         ytdlp_available: deps.has_ytdlp(),
         initial_scan_dirs,
+        allowed_origins,
     };
 
     let service = SetupService::new();
