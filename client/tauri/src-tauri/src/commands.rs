@@ -58,22 +58,66 @@ pub struct SetupStatus {
     pub data_dir: Option<String>,
 }
 
-/// result of creating a config file
+/// result of checking external dependencies (ffmpeg, yt-dlp)
 #[derive(Debug, Serialize)]
-pub struct ConfigCreateResult {
-    pub success: bool,
-    pub path: String,
-    pub error: Option<String>,
+pub struct DependencyCheckResult {
+    pub ffmpeg_path: Option<String>,
+    pub ffmpeg_installed: bool,
+    pub ytdlp_path: Option<String>,
+    pub ytdlp_installed: bool,
+    pub can_proceed: bool,
 }
 
-/// result of creating a user
-#[derive(Debug, Serialize)]
-pub struct UserCreateResult {
-    pub success: bool,
-    pub user_id: Option<String>,
-    pub username: Option<String>,
-    pub api_key: Option<String>,
-    pub error: Option<String>,
+/// check for required external dependencies (ffmpeg, yt-dlp)
+#[tauri::command]
+pub async fn check_dependencies() -> DependencyCheckResult {
+    let status = grimoire::setup::check_dependencies();
+    DependencyCheckResult {
+        ffmpeg_path: status.ffmpeg_path.as_ref().map(|p| p.display().to_string()),
+        ffmpeg_installed: status.has_ffmpeg(),
+        ytdlp_path: status.ytdlp_path.as_ref().map(|p| p.display().to_string()),
+        ytdlp_installed: status.has_ytdlp(),
+        can_proceed: status.can_proceed(),
+    }
+}
+
+/// get platform-appropriate defaults for setup wizard
+#[tauri::command]
+pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
+    grimoire::setup::get_defaults()
+}
+
+/// run the complete setup wizard using SetupService
+///
+/// this replaces the step-by-step flow (create_config → init_from_config → create_root_user)
+/// with a single unified call that handles everything
+#[tauri::command]
+pub async fn run_full_setup(
+    config_path: String,
+    data_dir: String,
+    server_name: String,
+    server_port: u16,
+    image_path: Option<String>,
+    username: String,
+) -> grimoire::setup::SetupResult {
+    let deps = grimoire::setup::check_dependencies();
+
+    let setup_config = grimoire::setup::SetupConfig {
+        config_path: PathBuf::from(&config_path),
+        data_dir: PathBuf::from(&data_dir),
+        server_name,
+        server_id: None, // derived from server_name
+        server_port,
+        image_path,
+        username,
+        generate_api_key: true,      // always generate for tauri
+        generate_invite_code: false, // tauri doesn't need this
+        ytdlp_available: deps.has_ytdlp(),
+        initial_scan_dirs: Vec::new(), // handled by music step in UI
+    };
+
+    let service = grimoire::setup::SetupService::new();
+    service.run_setup(setup_config).await
 }
 
 /// check if setup wizard needs to run
@@ -152,180 +196,6 @@ async fn check_has_root_user() -> Result<bool, String> {
     match result.data {
         Some(users) => Ok(!users.is_empty()),
         None => Ok(false),
-    }
-}
-
-/// create a new config file
-#[tauri::command]
-pub async fn create_config(
-    output_path: String,
-    data_dir: String,
-    server_name: Option<String>,
-    server_id: Option<String>,
-    server_port: Option<u16>,
-    image_path: Option<String>,
-) -> ConfigCreateResult {
-    let output = PathBuf::from(&output_path);
-    let data = PathBuf::from(&data_dir);
-
-    // convert empty strings to None
-    let image_path = image_path.filter(|s| !s.is_empty());
-
-    // create data directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(&data) {
-        return ConfigCreateResult {
-            success: false,
-            path: output_path,
-            error: Some(format!("failed to create data directory: {}", e)),
-        };
-    }
-
-    // check if yt-dlp is available
-    let ytdlp_available = which::which("yt-dlp").is_ok();
-
-    match grimoire::config::create_config_full(
-        Some(output.clone()),
-        Some(data),
-        false,
-        server_name,
-        server_id,
-        server_port,
-        image_path,
-        ytdlp_available,
-    ) {
-        Ok(path) => ConfigCreateResult {
-            success: true,
-            path: path.display().to_string(),
-            error: None,
-        },
-        Err(e) => ConfigCreateResult {
-            success: false,
-            path: output_path,
-            error: Some(e.to_string()),
-        },
-    }
-}
-
-/// generate default wordlist content using grimoire's wordlist service
-fn generate_default_wordlist_content() -> String {
-    let service = grimoire::wordlist::WordlistService::new();
-    let config = grimoire::wordlist::WordlistConfig::default();
-    match service.generate_wordlist(&config) {
-        Ok(result) => result.words.join("\n") + "\n",
-        Err(_) => panic!("failed to generate default wordlist"),
-    }
-}
-
-/// initialize config and database from an existing config file
-#[tauri::command]
-pub async fn init_from_config(config_path: String) -> Result<(), String> {
-    let path = PathBuf::from(&config_path);
-
-    // only init config if not already initialized
-    if !grimoire::is_config_initialized() {
-        grimoire::config::init_config(Some(path)).map_err(|e| e.to_string())?;
-    }
-
-    let config = grimoire::config::get_config();
-
-    // create wordlist file if it doesn't exist
-    let wordlist_path = config.wordlist_path();
-    if !wordlist_path.exists() {
-        std::fs::write(&wordlist_path, generate_default_wordlist_content())
-            .map_err(|e| format!("failed to create wordlist file: {}", e))?;
-    }
-
-    // create database file if it doesn't exist (for fresh installs)
-    let db_path = config.database_path();
-    if !db_path.exists() {
-        std::fs::File::create(&db_path)
-            .map_err(|e| format!("failed to create database file: {}", e))?;
-    }
-
-    // initialize database connection (does NOT run migrations since auto_run_migrations is false)
-    grimoire::database::initialize()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // explicitly run migrations during setup wizard
-    grimoire::database::run_migrations()
-        .await
-        .map_err(|e| format!("failed to run migrations: {}", e))?;
-
-    // initialize the wordlist after database is ready
-    let wordlist_config = grimoire::wordlist::ManagementWordlistConfig {
-        file_path: wordlist_path.to_string_lossy().to_string(),
-        ..Default::default()
-    };
-    let _ = grimoire::wordlist::initialize_wordlist(&wordlist_config);
-
-    Ok(())
-}
-
-/// create a root user with an API key
-#[tauri::command]
-pub async fn create_root_user(username: String) -> UserCreateResult {
-    let service = grimoire::users::UserService::new();
-
-    // create the user
-    let create_request = grimoire::users::CreateUserRequest {
-        username: username.clone(),
-        role: Some(grimoire::users::UserRole::Root),
-        invite_code: None,
-    };
-
-    let user_response = service.register_user(&create_request).await;
-
-    if !user_response.is_success() {
-        return UserCreateResult {
-            success: false,
-            user_id: None,
-            username: None,
-            api_key: None,
-            error: Some(
-                user_response
-                    .errors
-                    .first()
-                    .map(|e| e.detail.clone())
-                    .unwrap_or_else(|| "unknown error".to_string()),
-            ),
-        };
-    }
-
-    let user = match user_response.data {
-        Some(u) => u,
-        None => {
-            return UserCreateResult {
-                success: false,
-                user_id: None,
-                username: None,
-                api_key: None,
-                error: Some("no user data returned".to_string()),
-            }
-        }
-    };
-
-    // generate API key
-    let api_key_response = service.generate_api_key(&user.id).await;
-
-    if !api_key_response.is_success() {
-        return UserCreateResult {
-            success: true,
-            user_id: Some(user.id),
-            username: Some(user.username),
-            api_key: None,
-            error: Some("user created but failed to generate API key".to_string()),
-        };
-    }
-
-    let api_key = api_key_response.data.and_then(|u| u.api_key);
-
-    UserCreateResult {
-        success: true,
-        user_id: Some(user.id),
-        username: Some(user.username),
-        api_key,
-        error: None,
     }
 }
 
@@ -504,8 +374,8 @@ pub struct UserInfo {
 /// create a fake root user for authorization (admin app has full access)
 fn admin_user() -> grimoire::users::User {
     grimoire::users::User {
-        id: "freqroot".to_string(),
-        username: "freqroot".to_string(),
+        id: "freqadmin".to_string(),
+        username: "freqadmin".to_string(),
         role: grimoire::users::UserRole::Root,
         api_key: None,
         created_at: 0,
@@ -672,31 +542,11 @@ pub async fn generate_invites(
     app_handle: tauri::AppHandle,
     count: u32,
 ) -> Result<Vec<String>, String> {
-    // ensure config and database are initialized
     ensure_initialized(&app_handle).await?;
 
-    // ensure wordlist is initialized (needed for generating word-based codes)
+    // wordlist must be initialized by setup wizard
     if !grimoire::wordlist::is_initialized() {
-        // get wordlist path from config
-        let wordlist_path = grimoire::config::get_config().wordlist_path();
-
-        // check if wordlist file exists, create with defaults if not
-        if !wordlist_path.exists() {
-            std::fs::write(&wordlist_path, generate_default_wordlist_content())
-                .map_err(|e| format!("failed to create wordlist file: {}", e))?;
-        }
-
-        let config = grimoire::wordlist::ManagementWordlistConfig {
-            file_path: wordlist_path.to_string_lossy().to_string(),
-            ..Default::default()
-        };
-        let init_result = grimoire::wordlist::initialize_wordlist(&config);
-        if !init_result.is_success() {
-            return Err(format!(
-                "wordlist initialization failed: {}",
-                init_result.message
-            ));
-        }
+        return Err("wordlist not initialized - please run setup wizard".to_string());
     }
 
     let service = grimoire::users::UserService::new();

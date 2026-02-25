@@ -156,9 +156,9 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             commands::check_setup_status,
-            commands::create_config,
-            commands::init_from_config,
-            commands::create_root_user,
+            commands::check_dependencies,
+            commands::get_setup_defaults,
+            commands::run_full_setup,
             commands::get_default_data_dir,
             commands::get_os_username,
             commands::get_config_path,

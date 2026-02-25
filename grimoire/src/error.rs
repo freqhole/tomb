@@ -3,6 +3,34 @@
 use serde::Serialize;
 use thiserror::Error;
 
+/// setup wizard step identifiers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum SetupStep {
+    Directories,
+    Config,
+    Database,
+    Wordlist,
+    User,
+    ApiKey,
+    InviteCode,
+    Scan,
+}
+
+impl std::fmt::Display for SetupStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SetupStep::Directories => write!(f, "directories"),
+            SetupStep::Config => write!(f, "config"),
+            SetupStep::Database => write!(f, "database"),
+            SetupStep::Wordlist => write!(f, "wordlist"),
+            SetupStep::User => write!(f, "user"),
+            SetupStep::ApiKey => write!(f, "api_key"),
+            SetupStep::InviteCode => write!(f, "invite_code"),
+            SetupStep::Scan => write!(f, "scan"),
+        }
+    }
+}
+
 /// main error type for grimoire operations
 #[derive(Error, Debug)]
 pub enum GrimoireError {
@@ -101,6 +129,9 @@ pub enum GrimoireError {
 
     #[error("invalid event data: {0}")]
     InvalidEventData(String),
+
+    #[error("setup failed at {step}: {message}")]
+    SetupFailed { step: SetupStep, message: String },
 }
 
 /// result type alias for grimoire operations

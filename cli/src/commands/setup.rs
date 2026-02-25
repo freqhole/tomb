@@ -1,203 +1,326 @@
-//! Setup command for initial freqhole configuration
+//! interactive setup wizard for initial freqhole configuration
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
-use grimoire::users::{CreateUserRequest, UserRole, UserService};
-use grimoire::wordlist::{initialize_wordlist, ManagementWordlistConfig};
+use dialoguer::{Confirm, Input, Select};
+use grimoire::setup::{
+    check_dependencies, get_defaults, get_local_defaults, ScanDir, SetupConfig, SetupService,
+};
 use std::path::PathBuf;
 
 #[derive(Args)]
 pub struct SetupArgs {
-    /// Config file location
-    #[arg(long, short = 'c', default_value = "freqhole-config.toml")]
-    pub config: PathBuf,
+    /// skip interactive prompts and use defaults (for scripted installs)
+    #[arg(long)]
+    pub non_interactive: bool,
 
-    /// Root username to create
-    #[arg(long, default_value = "root")]
-    pub root_username: String,
+    /// config file location (default: freqhole-config.toml in current dir)
+    #[arg(long, short = 'c')]
+    pub config: Option<PathBuf>,
 
-    /// Force recreation of root user even if one exists
+    /// data directory
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
+
+    /// use local directory (./data) instead of ~/freqhole
+    #[arg(long)]
+    pub local: bool,
+
+    /// server name
+    #[arg(long)]
+    pub server_name: Option<String>,
+
+    /// server port
+    #[arg(long)]
+    pub server_port: Option<u16>,
+
+    /// server icon image path
+    #[arg(long)]
+    pub image_path: Option<String>,
+
+    /// root username to create
+    #[arg(long)]
+    pub username: Option<String>,
+
+    /// generate API key for root user
+    #[arg(long)]
+    pub generate_api_key: bool,
+
+    /// generate invite code for new user registration
+    #[arg(long)]
+    pub generate_invite_code: bool,
+
+    /// directories to scan for music (can be specified multiple times)
+    #[arg(long = "scan", value_name = "PATH")]
+    pub scan_dirs: Vec<PathBuf>,
+
+    /// force setup even if config already exists
     #[arg(long)]
     pub force: bool,
 }
 
 pub async fn run(args: SetupArgs) -> Result<()> {
-    println!("FREQHOLE SETUP");
+    println!();
+    println!("  freqhole setup wizard");
+    println!("  =====================");
     println!();
 
-    // 1. validate config exists
-    println!("checking configuration...");
-    if !args.config.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun 'cargo run --bin cli config init' to create one",
-            args.config.display()
+    // step 1: check dependencies
+    println!("checking dependencies...");
+    let deps = check_dependencies();
+
+    if deps.has_ffmpeg() {
+        println!(
+            "  ✓ ffmpeg found: {}",
+            deps.ffmpeg_path.as_ref().unwrap().display()
         );
-    }
-    println!("   config file exists: {}", args.config.display());
-
-    // load config to initialize grimoire
-    grimoire::config::init_config(Some(args.config.clone()))
-        .context("failed to initialize config")?;
-
-    // 2. initialize grimoire (connects to database and runs migrations)
-    println!("initializing database...");
-    grimoire::init()
-        .await
-        .context("failed to initialize database")?;
-    println!("   database initialized and migrations applied");
-
-    // 3. validate wordlist exists
-    println!("checking wordlist...");
-    let wordlist_config = ManagementWordlistConfig::default();
-    let wordlist_result = initialize_wordlist(&wordlist_config);
-    if wordlist_result.is_success() {
-        println!("   wordlist loaded successfully");
     } else {
-        println!("   WARNING: wordlist load failed");
-        if let Some(errors) = wordlist_result.errors.first() {
-            println!("   {}", errors.detail);
+        println!("  ✗ ffmpeg not found");
+        println!();
+        println!("  ffmpeg is required for audio processing.");
+        println!("  install it with:");
+        println!("    macOS:  brew install ffmpeg");
+        println!("    debian: sudo apt install ffmpeg");
+        println!("    arch:   sudo pacman -S ffmpeg");
+        println!();
+
+        if args.non_interactive {
+            anyhow::bail!("ffmpeg not found - cannot continue");
         }
-        println!("   wordlist is used for generating invite codes");
+
+        let retry = Confirm::new()
+            .with_prompt("retry after installing ffmpeg?")
+            .default(true)
+            .interact()?;
+
+        if retry {
+            println!("please install ffmpeg and run setup again.");
+            return Ok(());
+        } else {
+            anyhow::bail!("ffmpeg is required - setup cancelled");
+        }
+    }
+
+    if deps.has_ytdlp() {
+        println!(
+            "  ✓ yt-dlp found: {}",
+            deps.ytdlp_path.as_ref().unwrap().display()
+        );
+    } else {
+        println!("  ✗ yt-dlp not found (optional)");
+        println!();
+        println!("  yt-dlp enables downloading music from URLs.");
+        println!("  install it with:");
+        println!("    macOS:  brew install yt-dlp");
+        println!("    pip:    pip install yt-dlp");
+        println!();
+        println!("  continuing without yt-dlp - url downloads will be disabled.");
     }
 
     println!();
-    println!("setting up root user...");
 
-    // 4. check if root user already exists
-    let service = UserService::new();
+    // step 2: get defaults based on --local flag or prompt
+    let defaults = if args.local {
+        get_local_defaults()
+    } else if args.non_interactive {
+        get_defaults()
+    } else {
+        // ask user which defaults to use
+        let options = &[
+            format!("home directory ({})", get_defaults().data_dir.display()),
+            format!(
+                "local directory ({})",
+                get_local_defaults().data_dir.display()
+            ),
+        ];
+        let selection = Select::new()
+            .with_prompt("where should freqhole store data?")
+            .items(options)
+            .default(0)
+            .interact()?;
 
-    // check for any root users
-    let existing_root = service
-        .list_users(
-            &grimoire::users::UserQueryParams {
-                role: Some(UserRole::Root),
-                include_deleted: Some(false),
-                ..Default::default()
-            },
-            &grimoire::users::User {
-                id: "setup".to_string(),
-                username: "setup".to_string(),
-                role: UserRole::Root,
-                api_key: None,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            },
-        )
-        .await;
-
-    if let Some(root_users) = existing_root.data {
-        if !root_users.is_empty() && !args.force {
-            println!("   root user already exists");
-            println!();
-            println!("existing root users:");
-            for user in &root_users {
-                println!("  - {} (id: {})", user.username, user.id);
-            }
-            println!();
-            println!("use --force to create another root user");
-            return Ok(());
+        if selection == 1 {
+            get_local_defaults()
+        } else {
+            get_defaults()
         }
-    }
-
-    // 5. create root user
-    println!("   creating root user '{}'...", args.root_username);
-
-    let create_request = CreateUserRequest {
-        username: args.root_username.clone(),
-        role: Some(UserRole::Root),
-        invite_code: None,
     };
 
-    let user_response = service.register_user(&create_request).await;
+    let config_path = if let Some(p) = args.config {
+        p
+    } else if args.non_interactive {
+        PathBuf::from("freqhole-config.toml")
+    } else {
+        Input::new()
+            .with_prompt("config file path")
+            .default("freqhole-config.toml".to_string())
+            .interact_text()
+            .map(PathBuf::from)?
+    };
 
-    if !user_response.is_success() {
-        anyhow::bail!(
-            "failed to create root user: {}",
-            user_response
-                .errors
-                .first()
-                .map(|e| e.detail.clone())
-                .unwrap_or_else(|| "unknown error".to_string())
+    // check if config already exists
+    if config_path.exists() && !args.force {
+        println!("config file already exists: {}", config_path.display());
+        println!("use --force to overwrite");
+        return Ok(());
+    }
+
+    let data_dir = if let Some(d) = args.data_dir {
+        d
+    } else if args.non_interactive {
+        defaults.data_dir.clone()
+    } else {
+        Input::new()
+            .with_prompt("data directory")
+            .default(defaults.data_dir.display().to_string())
+            .interact_text()
+            .map(PathBuf::from)?
+    };
+
+    let server_name = if let Some(n) = args.server_name {
+        n
+    } else if args.non_interactive {
+        defaults.server_name.clone()
+    } else {
+        Input::new()
+            .with_prompt("server name")
+            .default(defaults.server_name.clone())
+            .interact_text()?
+    };
+
+    let server_port = if let Some(p) = args.server_port {
+        p
+    } else if args.non_interactive {
+        defaults.server_port
+    } else {
+        Input::new()
+            .with_prompt("server port")
+            .default(defaults.server_port)
+            .interact_text()?
+    };
+
+    let image_path = if let Some(p) = args.image_path {
+        Some(p)
+    } else if args.non_interactive {
+        None
+    } else {
+        let input: String = Input::new()
+            .with_prompt("server icon image path (optional, press enter to skip)")
+            .default(String::new())
+            .allow_empty(true)
+            .interact_text()?;
+        if input.is_empty() {
+            None
+        } else {
+            Some(input)
+        }
+    };
+
+    let username = if let Some(u) = args.username {
+        u
+    } else if args.non_interactive {
+        defaults.username.clone()
+    } else {
+        Input::new()
+            .with_prompt("root username")
+            .default(defaults.username.clone())
+            .interact_text()?
+    };
+
+    let generate_api_key = if args.non_interactive {
+        args.generate_api_key
+    } else {
+        Confirm::new()
+            .with_prompt("generate API key for root user?")
+            .default(false)
+            .interact()?
+    };
+
+    let generate_invite_code = if args.non_interactive {
+        args.generate_invite_code
+    } else {
+        Confirm::new()
+            .with_prompt("generate invite code for new user registration?")
+            .default(true)
+            .interact()?
+    };
+
+    // collect initial scan directories
+    let initial_scan_dirs: Vec<ScanDir> = args
+        .scan_dirs
+        .iter()
+        .map(|p| ScanDir {
+            path: p.display().to_string(),
+            tags: Vec::new(),
+        })
+        .collect();
+
+    println!();
+    println!("running setup...");
+    println!();
+
+    // use SetupService to run everything
+    let setup_config = SetupConfig {
+        config_path: config_path.clone(),
+        data_dir: data_dir.clone(),
+        server_name: server_name.clone(),
+        server_id: None, // will be derived from server_name
+        server_port,
+        image_path,
+        username: username.clone(),
+        generate_api_key,
+        generate_invite_code,
+        ytdlp_available: deps.has_ytdlp(),
+        initial_scan_dirs,
+    };
+
+    let service = SetupService::new();
+    let result = service.run_setup(setup_config).await;
+
+    if result.success {
+        println!("  ✓ config created: {}", result.config_path);
+        println!("  ✓ database initialized");
+        println!(
+            "  ✓ root user '{}' created",
+            result.username.as_deref().unwrap_or(&username)
         );
-    }
 
-    let user = user_response
-        .data
-        .context("no user data returned after creation")?;
-
-    println!("   root user created");
-    println!();
-    println!("user details:");
-    println!("   username: {}", user.username);
-    println!("   user id:  {}", user.id);
-    println!("   role:     {}", user.role);
-
-    // 6. generate api key for root user
-    println!();
-    println!("generating api key...");
-
-    let api_key_response = service.generate_api_key(&user.id).await;
-
-    if !api_key_response.is_success() {
-        println!("   WARNING: failed to generate api key");
-        if let Some(error) = api_key_response.errors.first() {
-            println!("   {}", error.detail);
+        if let Some(api_key) = &result.api_key {
+            println!();
+            println!("  API KEY: {}", api_key);
+            println!();
+            println!("  save this key securely - it won't be shown again!");
         }
-    } else if let Some(updated_user) = api_key_response.data {
-        if let Some(api_key) = &updated_user.api_key {
-            println!("   api key generated");
+
+        if let Some(invite_code) = &result.invite_code {
             println!();
-            println!("API KEY:");
+            println!("  INVITE CODE: {}", invite_code);
             println!();
-            println!("   {}", api_key);
-            println!();
-            println!("   IMPORTANT: Save this API key securely!");
-            println!("   You can use it to authenticate API requests:");
-            println!(
-                "   curl -H 'Authorization: Bearer {}' http://localhost:8080/auth/whoami",
-                api_key
-            );
-            println!();
+            println!("  share this code with users to allow registration");
         }
-    }
 
-    // 7. generate one invite code
-    println!();
-    println!("generating invite code...");
-
-    let invite_response = service
-        .generate_invite_codes(
-            &grimoire::users::CreateInviteCodeRequest {
-                code_type: Some(grimoire::users::InviteCodeType::Invite),
-                link_for_user_id: None,
-                expires_hours: None,
-            },
-            1,
-            3, // 3-word code
-            &user,
-        )
-        .await;
-
-    if !invite_response.is_success() {
-        println!("   WARNING: failed to generate invite code");
-    } else if let Some(codes) = invite_response.data {
-        if let Some(code) = codes.first() {
-            println!("   invite code generated");
-            println!();
-            println!("INVITE CODE:");
-            println!();
-            println!("   {}", code.code);
-            println!();
-            println!("   share this code with users to allow registration");
+        if result.scan_jobs_created > 0 {
+            println!("  ✓ {} scan jobs queued", result.scan_jobs_created);
         }
-    }
 
-    println!();
-    println!("setup complete!");
-    println!();
-    println!("(start the server: cargo run --bin server)");
-    println!();
+        // report non-fatal errors (like wordlist issues)
+        for error in &result.errors {
+            println!("  ! {}", error);
+        }
+
+        println!();
+        println!("setup complete!");
+        println!();
+        println!("start the server with:");
+        println!("  freqhole server start -c {}", config_path.display());
+        println!();
+    } else {
+        println!("setup failed:");
+        for error in &result.errors {
+            println!("  ✗ {}", error);
+        }
+        anyhow::bail!("setup failed");
+    }
 
     Ok(())
 }

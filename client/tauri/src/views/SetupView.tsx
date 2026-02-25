@@ -3,7 +3,27 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
 
-type SetupStep = "welcome" | "config" | "init" | "user" | "music" | "done";
+// simplified step flow: welcome → config → running → music → done
+type SetupStep = "welcome" | "config" | "running" | "music" | "done";
+
+interface DependencyCheckResult {
+  ffmpeg_path: string | null;
+  ffmpeg_installed: boolean;
+  ytdlp_path: string | null;
+  ytdlp_installed: boolean;
+  can_proceed: boolean;
+}
+
+interface SetupResult {
+  success: boolean;
+  config_path: string;
+  data_dir: string;
+  user_id: string | null;
+  username: string | null;
+  api_key: string | null;
+  invite_code: string | null;
+  errors: string[];
+}
 
 interface ScanResult {
   success: boolean;
@@ -25,20 +45,6 @@ interface SetupStatus {
   data_dir: string | null;
 }
 
-interface ConfigResult {
-  success: boolean;
-  path: string;
-  error: string | null;
-}
-
-interface UserResult {
-  success: boolean;
-  user_id: string | null;
-  username: string | null;
-  api_key: string | null;
-  error: string | null;
-}
-
 // transform server name to valid server ID (lowercase, a-z and hyphens only)
 function nameToId(name: string): string {
   return name
@@ -56,11 +62,11 @@ export default function SetupView() {
   const [appDataDir, setAppDataDir] = createSignal("");
   // dataDir is customizable - where database/cache/media live (defaults to appDataDir)
   const [dataDir, setDataDir] = createSignal("");
-  const [configPath, setConfigPath] = createSignal("");
   const [serverName, setServerName] = createSignal("my music server");
   const [serverPort, setServerPort] = createSignal(8081);
   const [serverImage, setServerImage] = createSignal<string | null>(null);
   const [username, setUsername] = createSignal("");
+  // setup results
   const [apiKey, setApiKey] = createSignal("");
   const [error, setError] = createSignal("");
   const [loading, setLoading] = createSignal(false);
@@ -69,12 +75,22 @@ export default function SetupView() {
   const [scanning, setScanning] = createSignal(false);
   // advanced config toggle
   const [showAdvanced, setShowAdvanced] = createSignal(false);
+  // dependency check state
+  const [depCheck, setDepCheck] = createSignal<DependencyCheckResult | null>(
+    null,
+  );
+  const [depCheckLoading, setDepCheckLoading] = createSignal(true);
 
   // auto-generate server ID from name
   const serverId = createMemo(() => nameToId(serverName()) || "freqhole");
 
   onMount(async () => {
     try {
+      // check external dependencies (ffmpeg, yt-dlp)
+      const deps = await invoke<DependencyCheckResult>("check_dependencies");
+      setDepCheck(deps);
+      setDepCheckLoading(false);
+
       // get default data directory (system app data dir)
       const dir = await invoke<string | null>("get_default_data_dir");
       setAppDataDir(dir || "");
@@ -97,6 +113,7 @@ export default function SetupView() {
       }
     } catch (e) {
       console.error("init error:", e);
+      setDepCheckLoading(false);
     }
   });
 
@@ -134,70 +151,37 @@ export default function SetupView() {
     }
   }
 
-  async function createConfig() {
+  // unified setup function that handles everything in one call
+  async function runSetup() {
     setLoading(true);
     setError("");
+    setStep("running");
 
     try {
-      // config always lives in the system app data dir
-      const path = `${appDataDir()}/freqhole-config.toml`;
-      setConfigPath(path);
+      const configPath = `${appDataDir()}/freqhole-config.toml`;
 
-      const result = await invoke<ConfigResult>("create_config", {
-        outputPath: path,
-        dataDir: dataDir(), // user-customizable data dir
+      const result = await invoke<SetupResult>("run_full_setup", {
+        configPath,
+        dataDir: dataDir(),
         serverName: serverName(),
-        serverId: serverId(),
         serverPort: serverPort(),
         imagePath: serverImage(),
-      });
-
-      if (result.success) {
-        setStep("init");
-        await initializeDatabase();
-      } else {
-        throw new Error(result.error || "failed to create config");
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function initializeDatabase() {
-    setLoading(true);
-    setError("");
-
-    try {
-      await invoke("init_from_config", { configPath: configPath() });
-      // brief delay for ux
-      await new Promise((r) => setTimeout(r, 500));
-      setStep("user");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function createUser() {
-    setLoading(true);
-    setError("");
-
-    try {
-      const result = await invoke<UserResult>("create_root_user", {
         username: username() || "admin",
       });
 
-      if (result.success && result.api_key) {
-        setApiKey(result.api_key);
+      if (result.success) {
+        if (result.api_key) {
+          setApiKey(result.api_key);
+        }
         setStep("music");
       } else {
-        throw new Error(result.error || "failed to create user");
+        const errorMsg = result.errors.join("; ") || "setup failed";
+        throw new Error(errorMsg);
       }
     } catch (e) {
       setError(String(e));
+      // go back to config step on error so user can retry
+      setStep("config");
     } finally {
       setLoading(false);
     }
@@ -265,9 +249,10 @@ export default function SetupView() {
     try {
       // close wizard and open main window with api key and port
       // server will be started by the Tauri command
+      const configPath = `${appDataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
         apiKey: apiKey(),
-        configPath: configPath(),
+        configPath,
         serverPort: serverPort(),
       });
     } catch (e) {
@@ -296,8 +281,154 @@ export default function SetupView() {
             <li>import some music</li>
           </ul>
 
+          {/* dependency check section */}
+          <div
+            style={{
+              "margin-top": "1.5rem",
+              padding: "1rem",
+              background: "#27272a",
+              "border-radius": "0.5rem",
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 0.75rem 0",
+                "font-size": "0.9rem",
+                color: "#a1a1aa",
+              }}
+            >
+              system requirements
+            </h3>
+
+            <Show when={depCheckLoading()}>
+              <p style={{ color: "#71717a", "font-size": "0.875rem" }}>
+                checking dependencies...
+              </p>
+            </Show>
+
+            <Show when={!depCheckLoading() && depCheck()}>
+              <div style={{ "font-size": "0.875rem" }}>
+                {/* ffmpeg status */}
+                <div
+                  style={{
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "0.5rem",
+                    "margin-bottom": "0.5rem",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: depCheck()!.ffmpeg_installed
+                        ? "#4ade80"
+                        : "#f87171",
+                    }}
+                  >
+                    {depCheck()!.ffmpeg_installed ? "✓" : "✕"}
+                  </span>
+                  <span>ffmpeg</span>
+                  <Show when={depCheck()!.ffmpeg_installed}>
+                    <span style={{ color: "#71717a", "font-size": "0.75rem" }}>
+                      ({depCheck()!.ffmpeg_path})
+                    </span>
+                  </Show>
+                  <Show when={!depCheck()!.ffmpeg_installed}>
+                    <span style={{ color: "#f87171" }}>(required)</span>
+                  </Show>
+                </div>
+
+                {/* yt-dlp status */}
+                <div
+                  style={{
+                    display: "flex",
+                    "align-items": "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: depCheck()!.ytdlp_installed
+                        ? "#4ade80"
+                        : "#fbbf24",
+                    }}
+                  >
+                    {depCheck()!.ytdlp_installed ? "✓" : "○"}
+                  </span>
+                  <span>yt-dlp</span>
+                  <Show when={depCheck()!.ytdlp_installed}>
+                    <span style={{ color: "#71717a", "font-size": "0.75rem" }}>
+                      ({depCheck()!.ytdlp_path})
+                    </span>
+                  </Show>
+                  <Show when={!depCheck()!.ytdlp_installed}>
+                    <span style={{ color: "#fbbf24" }}>(optional)</span>
+                  </Show>
+                </div>
+
+                {/* warning if ffmpeg missing */}
+                <Show when={!depCheck()!.can_proceed}>
+                  <div
+                    style={{
+                      "margin-top": "1rem",
+                      padding: "0.75rem",
+                      background: "#7f1d1d",
+                      "border-radius": "0.375rem",
+                      color: "#fecaca",
+                    }}
+                  >
+                    <strong>ffmpeg is required</strong>
+                    <p
+                      style={{
+                        margin: "0.5rem 0 0 0",
+                        "font-size": "0.8125rem",
+                      }}
+                    >
+                      install ffmpeg to continue. on macOS: brew install ffmpeg
+                    </p>
+                  </div>
+                </Show>
+
+                {/* info if yt-dlp missing */}
+                <Show
+                  when={depCheck()!.can_proceed && !depCheck()!.ytdlp_installed}
+                >
+                  <div
+                    style={{
+                      "margin-top": "1rem",
+                      padding: "0.75rem",
+                      background: "#422006",
+                      "border-radius": "0.375rem",
+                      color: "#fef3c7",
+                    }}
+                  >
+                    <strong>yt-dlp not found</strong>
+                    <p
+                      style={{
+                        margin: "0.5rem 0 0 0",
+                        "font-size": "0.8125rem",
+                      }}
+                    >
+                      URL downloading requires yt-dlp.
+                      <a
+                        href="https://github.com/yt-dlp/yt-dlp/wiki/Installation"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        see yt-dlp installation docs for more info.
+                      </a>
+                    </p>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </div>
+
           <div class="button-row">
-            <button class="primary" onClick={() => setStep("config")}>
+            <button
+              class="primary"
+              onClick={() => setStep("config")}
+              disabled={depCheckLoading() || !depCheck()?.can_proceed}
+            >
               get started
             </button>
           </div>
@@ -413,50 +544,8 @@ export default function SetupView() {
             </div>
           </Show>
 
-          <div class="button-row">
-            <button class="secondary" onClick={() => setStep("welcome")}>
-              back
-            </button>
-            <button
-              class="primary"
-              onClick={createConfig}
-              disabled={loading() || !dataDir() || !serverName()}
-            >
-              {loading() ? "creating..." : "continue"}
-            </button>
-          </div>
-
-          <Show when={error()}>
-            <p class="error">{error()}</p>
-          </Show>
-        </div>
-      </Show>
-
-      {/* init */}
-      <Show when={step() === "init"}>
-        <div class="step">
-          <h1>setting up</h1>
-          <p class="subtitle">initializing your freqhole instance...</p>
-
-          <div class="loading">
-            <div class="spinner" />
-            <span>creating database and running migrations...</span>
-          </div>
-
-          <Show when={error()}>
-            <p class="error">{error()}</p>
-          </Show>
-        </div>
-      </Show>
-
-      {/* user */}
-      <Show when={step() === "user"}>
-        <div class="step">
-          <h1>create admin account</h1>
-          <p class="subtitle">set up your administrator account.</p>
-
           <div class="form-group">
-            <label for="username">username</label>
+            <label for="username">admin username</label>
             <input
               type="text"
               id="username"
@@ -464,18 +553,38 @@ export default function SetupView() {
               value={username()}
               onInput={(e) => setUsername(e.currentTarget.value)}
             />
-            <p class="hint">this will be your login name.</p>
+            <p class="hint">username for the root administrator account.</p>
           </div>
 
           <div class="button-row">
-            <button class="primary" onClick={createUser} disabled={loading()}>
-              {loading() ? "creating..." : "create account"}
+            <button class="secondary" onClick={() => setStep("welcome")}>
+              back
+            </button>
+            <button
+              class="primary"
+              onClick={runSetup}
+              disabled={loading() || !dataDir() || !serverName()}
+            >
+              {loading() ? "setting up..." : "run setup"}
             </button>
           </div>
 
           <Show when={error()}>
             <p class="error">{error()}</p>
           </Show>
+        </div>
+      </Show>
+
+      {/* running setup */}
+      <Show when={step() === "running"}>
+        <div class="step">
+          <h1>setting up</h1>
+          <p class="subtitle">initializing your freqhole instance...</p>
+
+          <div class="loading">
+            <div class="spinner" />
+            <span>creating config, database, and admin account...</span>
+          </div>
         </div>
       </Show>
 
