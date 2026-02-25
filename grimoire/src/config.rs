@@ -56,8 +56,6 @@ pub struct MediaConfig {
     pub max_fs_file_size: u64,
     /// Supported audio file formats
     pub supported_audio_formats: Vec<String>,
-    /// Download configuration
-    pub downloads: DownloadsConfig,
     /// Path to ffmpeg binary
     #[serde(default = "default_ffmpeg_path")]
     pub ffmpeg_path: String,
@@ -126,15 +124,6 @@ fn default_skip_duplicates() -> bool {
 
 fn default_generate_scan_duplicate_report() -> bool {
     false
-}
-
-/// Download configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DownloadsConfig {
-    /// Enable downloading from URLs
-    pub enabled: bool,
-    /// Command to use for downloads
-    pub ytdlp_command: String,
 }
 
 /// MusicBrainz integration configuration
@@ -592,9 +581,6 @@ fn generate_config_template(
     // update database settings for generated configs (auto_run_migrations = false for setup wizard)
     doc["database"]["auto_run_migrations"] = value(false);
 
-    // update media.downloads.enabled based on yt-dlp availability
-    doc["media"]["downloads"]["enabled"] = value(ytdlp_available);
-
     // update server section
     doc["server"]["id"] = value(server_id);
     doc["server"]["name"] = value(server_name);
@@ -695,10 +681,6 @@ mod tests {
             media: MediaConfig {
                 max_fs_file_size: 1000,
                 supported_audio_formats: vec!["mp3".to_string()],
-                downloads: DownloadsConfig {
-                    enabled: false,
-                    ytdlp_command: "yt-dlp".to_string(),
-                },
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
                 ffprobe_duration_args: default_ffprobe_duration_args(),
@@ -734,10 +716,6 @@ mod tests {
             media: MediaConfig {
                 max_fs_file_size: 1000,
                 supported_audio_formats: vec![],
-                downloads: DownloadsConfig {
-                    enabled: false,
-                    ytdlp_command: "yt-dlp".to_string(),
-                },
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
                 ffprobe_duration_args: default_ffprobe_duration_args(),
@@ -771,10 +749,6 @@ mod tests {
             media: MediaConfig {
                 max_fs_file_size: 1000,
                 supported_audio_formats: vec![],
-                downloads: DownloadsConfig {
-                    enabled: false,
-                    ytdlp_command: "yt-dlp".to_string(),
-                },
                 ffmpeg_path: "ffmpeg".to_string(),
                 ffprobe_path: None,
                 ffprobe_duration_args: default_ffprobe_duration_args(),

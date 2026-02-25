@@ -215,7 +215,7 @@ function App(props: ParentProps) {
                           class={`status-dot ${status().running ? "running" : "stopped"}`}
                         />
                         <span class="status-text">
-                          server {status().running ? "running" : "stopped"}
+                          {status().running ? "running" : "stopped"}
                         </span>
                         <Show when={status().running && status().uptime_secs}>
                           <span class="uptime">

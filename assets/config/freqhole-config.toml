@@ -105,13 +105,6 @@ skip_duplicates = true
 # generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
 generate_scan_duplicate_report = false
 
-# URL download configuration using yt-dlp
-[media.downloads]
-# enable downloading from URLs (requires yt-dlp installed)
-enabled = true
-# command to use for downloads (must be in PATH)
-ytdlp_command = "yt-dlp"
-
 # ============================================================================
 # MusicBrainz integration for metadata enrichment
 # ============================================================================

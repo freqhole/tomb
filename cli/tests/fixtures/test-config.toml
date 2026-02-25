@@ -9,10 +9,6 @@ auto_run_migrations = true
 max_fs_file_size = 104857600
 supported_audio_formats = ["mp3", "flac", "m4a", "ogg", "wav", "opus"]
 
-[media.downloads]
-enabled = false
-ytdlp_command = "yt-dlp"
-
 [musicbrainz]
 enabled = false
 
