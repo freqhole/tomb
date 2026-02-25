@@ -127,7 +127,7 @@ enabled = true
 [logging]
 # log level controls verbosity
 # options: "trace", "debug", "info", "warn", "error"
-# recommended: "info" for production, "debug" for development
+# recommended: "info" ("debug" will log a LOT)
 level = "info"
 
 # ============================================================================
@@ -170,10 +170,8 @@ port = 8080
 # when disabled (false):
 #   - jobs must be processed separately via CLI
 #   - run: freqhole jobs run-processor
-#   - allows running job processor on a different machine/process
-#   - better for production: separate concerns, easier to scale
 #
-# recommendation: keep false for production, use true for simple dev setups
+# recommendation: true
 start_job_runner = true
 
 # ============================================================================
@@ -197,7 +195,7 @@ webauthn_enabled = true
 #   86400: 1 day
 #   604800: 1 week
 #
-# note: Safari and some browsers may still clear cookies on restart
+# note: Safari and some browsers may still clear cookies willy-nilly
 # this setting controls server-side session expiration only
 session_max_age_seconds = 0
 
@@ -242,7 +240,7 @@ enabled = true
 allowed_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://music.example.com",
+    # "https://spume.freqhole.net",
 ]
 
 # ============================================================================
