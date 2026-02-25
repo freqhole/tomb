@@ -12,6 +12,7 @@ mod wizard;
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 use tauri::http::{Request, Response};
+use tauri::webview::Color;
 use tauri::{Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 
 /// proxy a blob request with authorization header (blocking)
@@ -91,6 +92,7 @@ pub fn run() {
                     .inner_size(800.0, 600.0)
                     .resizable(true)
                     .center()
+                    .background_color(Color(0, 0, 0, 255))
                     .build()?;
 
                 // wizard will start server when setup completes
@@ -113,7 +115,8 @@ pub fn run() {
                 // show main window
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("")
-                    .inner_size(800.0, 600.0);
+                    .inner_size(800.0, 600.0)
+                    .background_color(Color(0, 0, 0, 255));
 
                 #[cfg(target_os = "macos")]
                 let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);

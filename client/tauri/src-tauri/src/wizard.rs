@@ -2,6 +2,7 @@
 //!
 //! commands for opening/closing the setup wizard window
 
+use tauri::webview::Color;
 use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
 
 #[cfg(not(debug_assertions))]
@@ -28,7 +29,7 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
         let url: url::Url = url_str.parse().unwrap();
         #[cfg(not(debug_assertions))]
         let url: url::Url = format!("tauri://localhost/{}", url_str).parse().unwrap();
-        
+
         let _ = window.navigate(url);
         let _ = window.show();
         let _ = window.set_focus();
@@ -46,6 +47,7 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
         .inner_size(800.0, 600.0)
         .resizable(true)
         .center()
+        .background_color(Color(0, 0, 0, 255))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -79,11 +81,15 @@ pub async fn close_setup_wizard(
             let url_str = format!("http://localhost:1420?apiKey={}&port={}", key, port);
             #[cfg(not(debug_assertions))]
             let url_str = format!("index.html?apiKey={}&port={}", key, port);
-            
+
             #[cfg(debug_assertions)]
-            { WebviewUrl::External(url_str.parse().unwrap()) }
+            {
+                WebviewUrl::External(url_str.parse().unwrap())
+            }
             #[cfg(not(debug_assertions))]
-            { WebviewUrl::App(std::path::PathBuf::from(url_str)) }
+            {
+                WebviewUrl::App(std::path::PathBuf::from(url_str))
+            }
         } else {
             WebviewUrl::default()
         };
