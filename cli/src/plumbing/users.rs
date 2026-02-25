@@ -68,6 +68,9 @@ pub enum UserAction {
         /// Expiration time in hours
         #[arg(long)]
         expires_hours: Option<i64>,
+        /// Role granted to users who register with this code (admin, member, viewer)
+        #[arg(long)]
+        role: Option<String>,
     },
     /// List invite codes
     ListInvites {
@@ -101,16 +104,17 @@ pub enum ApiKeyAction {
     },
 }
 
-/// Create a CLI admin user for authorization (used internally)
-fn cli_admin_user() -> User {
-    User {
-        id: "cli-admin".to_string(),
-        username: "cli".to_string(),
-        role: UserRole::Admin,
-        api_key: None,
-        created_at: 0,
-        updated_at: 0,
-        deleted_at: None,
+/// Get the first root user for CLI authorization.
+/// Returns an error if no root user exists (setup not complete).
+async fn get_root_user(service: &UserService) -> Result<User, CommandOutput<serde_json::Value>> {
+    let response = service.get_first_root_user().await;
+    match response.data {
+        Some(user) => Ok(user),
+        None => Err(CommandOutput::failure(
+            "No root user found - run setup first",
+            response.errors,
+            (),
+        )),
     }
 }
 
@@ -118,7 +122,8 @@ fn cli_admin_user() -> User {
 fn parse_role(role_str: &str) -> UserRole {
     match role_str.to_lowercase().as_str() {
         "admin" => UserRole::Admin,
-        _ => UserRole::Member,
+        "member" => UserRole::Member,
+        _ => UserRole::Viewer,
     }
 }
 
@@ -181,7 +186,10 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                 offset: Some(offset as u32),
             };
 
-            let admin_user = cli_admin_user();
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
 
             let response = service.list_users(&params, &admin_user).await;
             if !response.success {
@@ -219,7 +227,10 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
 
             let request = UpdateUserRequest { role: user_role };
 
-            let admin_user = cli_admin_user();
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
 
             let response = service.update_user(&user_id, &request, &admin_user).await;
             if !response.success {
@@ -242,7 +253,10 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             CommandOutput::success(message, data)
         }
         UserAction::Delete { user_id } => {
-            let admin_user = cli_admin_user();
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
 
             let response = service.delete_user(&user_id, &admin_user).await;
             if !response.success {
@@ -257,6 +271,7 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             word_count,
             code_type,
             expires_hours,
+            role,
         } => {
             // If wordlist not initialized, initialize with default config (uses grimoire config path)
             if !is_initialized() {
@@ -274,13 +289,48 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                 })
                 .unwrap_or_default();
 
+            // prompt for role if not specified
+            let grants_role = match role.as_deref().map(|r| r.to_lowercase()).as_deref() {
+                Some("root") => {
+                    return CommandOutput::failure(
+                        "cannot create invite codes that grant root role",
+                        vec![],
+                        (),
+                    );
+                }
+                Some("admin") => UserRole::Admin,
+                Some("member") => UserRole::Member,
+                Some("viewer") => UserRole::Viewer,
+                Some(_) => UserRole::Member,
+                None => {
+                    // interactive prompt for role
+                    use dialoguer::Select;
+                    let roles = ["member", "admin", "viewer"];
+                    let selection = Select::new()
+                        .with_prompt("role to grant")
+                        .items(&roles)
+                        .default(0)
+                        .interact()
+                        .unwrap_or(0);
+                    match roles[selection] {
+                        "admin" => UserRole::Admin,
+                        "viewer" => UserRole::Viewer,
+                        _ => UserRole::Member,
+                    }
+                }
+            };
+
             let request = CreateInviteCodeRequest {
                 code_type: Some(invite_type),
                 link_for_user_id: None,
                 expires_hours: expires_hours.map(|h| h as u32),
+                grants_role: Some(grants_role),
             };
 
-            let admin_user = cli_admin_user();
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
 
             let response = service
                 .generate_invite_codes(&request, count as u32, word_count, &admin_user)
@@ -314,7 +364,10 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             CommandOutput::success(message, data)
         }
         UserAction::ListInvites { active_only } => {
-            let admin_user = cli_admin_user();
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
 
             let response = service.list_invite_codes(active_only, &admin_user).await;
             if !response.success {
@@ -333,7 +386,10 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             CommandOutput::success(message, codes)
         }
         UserAction::DeactivateInvite { code } => {
-            let admin_user = cli_admin_user();
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
 
             let response = service.deactivate_invite_code(&code, &admin_user).await;
             if !response.success {

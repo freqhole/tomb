@@ -172,6 +172,7 @@ pub fn run() {
             commands::list_invites,
             commands::generate_invites,
             commands::deactivate_invite,
+            commands::update_invite_role,
             commands::scan_directory,
             commands::list_scanned_directories,
             commands::remove_scanned_directory,

@@ -36,6 +36,7 @@ CREATE TABLE invite_codez (
   code_type TEXT DEFAULT 'invite' CHECK (code_type IN ('invite', 'account-link')),
   link_for_user_id TEXT,
   link_expires_at INTEGER,
+  grants_role TEXT DEFAULT 'member' CHECK (grants_role IN ('admin', 'member', 'viewer')),
   FOREIGN KEY (used_by_id) REFERENCES user_accountz(id),
   FOREIGN KEY (link_for_user_id) REFERENCES user_accountz(id)
 );
@@ -46,6 +47,7 @@ CREATE INDEX idx_invite_codez_used_at ON invite_codez(used_at);
 CREATE INDEX idx_invite_codez_active ON invite_codez(is_active) WHERE is_active = 1;
 CREATE INDEX idx_invite_codez_type ON invite_codez(code_type);
 CREATE INDEX idx_invite_codez_expires ON invite_codez(link_expires_at) WHERE link_expires_at IS NOT NULL;
+CREATE INDEX idx_invite_codez_grants_role ON invite_codez(grants_role);
 
 -- webauthn credentials
 CREATE TABLE user_credentialz (

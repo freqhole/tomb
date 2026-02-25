@@ -173,30 +173,8 @@ async fn check_has_root_user() -> Result<bool, String> {
         .map_err(|e| e.to_string())?;
 
     let service = grimoire::users::UserService::new();
-
-    let result = service
-        .list_users(
-            &grimoire::users::UserQueryParams {
-                role: Some(grimoire::users::UserRole::Root),
-                include_deleted: Some(false),
-                ..Default::default()
-            },
-            &grimoire::users::User {
-                id: "setup".to_string(),
-                username: "setup".to_string(),
-                role: grimoire::users::UserRole::Root,
-                api_key: None,
-                created_at: 0,
-                updated_at: 0,
-                deleted_at: None,
-            },
-        )
-        .await;
-
-    match result.data {
-        Some(users) => Ok(!users.is_empty()),
-        None => Ok(false),
-    }
+    let result = service.get_first_root_user().await;
+    Ok(result.is_success())
 }
 
 /// get the default app data directory path
@@ -371,17 +349,13 @@ pub struct UserInfo {
     pub created_at: i64,
 }
 
-/// create a fake root user for authorization (admin app has full access)
-fn admin_user() -> grimoire::users::User {
-    grimoire::users::User {
-        id: "freqadmin".to_string(),
-        username: "freqadmin".to_string(),
-        role: grimoire::users::UserRole::Root,
-        api_key: None,
-        created_at: 0,
-        updated_at: 0,
-        deleted_at: None,
-    }
+/// get the first root user for Tauri admin operations
+async fn get_root_user() -> Result<grimoire::users::User, String> {
+    let service = grimoire::users::UserService::new();
+    let response = service.get_first_root_user().await;
+    response
+        .data
+        .ok_or_else(|| "no root user found - run setup first".to_string())
 }
 
 /// list all users
@@ -389,6 +363,7 @@ fn admin_user() -> grimoire::users::User {
 pub async fn list_users(app_handle: tauri::AppHandle) -> Result<Vec<UserInfo>, String> {
     ensure_initialized(&app_handle).await?;
     let service = grimoire::users::UserService::new();
+    let root_user = get_root_user().await?;
 
     let result = service
         .list_users(
@@ -396,7 +371,7 @@ pub async fn list_users(app_handle: tauri::AppHandle) -> Result<Vec<UserInfo>, S
                 include_deleted: Some(false),
                 ..Default::default()
             },
-            &admin_user(),
+            &root_user,
         )
         .await;
 
@@ -425,8 +400,9 @@ pub async fn update_user_role(
     ensure_initialized(&app_handle).await?;
     let service = grimoire::users::UserService::new();
 
+    // prevent setting role to root via UI
     let user_role = match role.to_lowercase().as_str() {
-        "root" => grimoire::users::UserRole::Root,
+        "root" => return Err("cannot set user role to root".to_string()),
         "admin" => grimoire::users::UserRole::Admin,
         "viewer" => grimoire::users::UserRole::Viewer,
         _ => grimoire::users::UserRole::Member,
@@ -436,8 +412,9 @@ pub async fn update_user_role(
         role: Some(user_role),
     };
 
+    let root_user = get_root_user().await?;
     let result = service
-        .update_user(&user_id, &update_request, &admin_user())
+        .update_user(&user_id, &update_request, &root_user)
         .await;
 
     if result.is_success() {
@@ -452,7 +429,8 @@ pub async fn update_user_role(
 pub async fn delete_user(app_handle: tauri::AppHandle, user_id: String) -> Result<(), String> {
     ensure_initialized(&app_handle).await?;
     let service = grimoire::users::UserService::new();
-    let result = service.delete_user(&user_id, &admin_user()).await;
+    let root_user = get_root_user().await?;
+    let result = service.delete_user(&user_id, &root_user).await;
 
     if result.is_success() {
         Ok(())
@@ -466,6 +444,7 @@ pub async fn delete_user(app_handle: tauri::AppHandle, user_id: String) -> Resul
 pub struct InviteInfo {
     pub code: String,
     pub code_type: String,
+    pub grants_role: String,
     pub created_at: i64,
     pub expires_at: Option<i64>,
     pub used_at: Option<i64>,
@@ -482,8 +461,9 @@ pub async fn list_invites(
 ) -> Result<Vec<InviteInfo>, String> {
     ensure_initialized(&app_handle).await?;
     let service = grimoire::users::UserService::new();
+    let root_user = get_root_user().await?;
 
-    let result = service.list_invite_codes(active_only, &admin_user()).await;
+    let result = service.list_invite_codes(active_only, &root_user).await;
 
     match result.data {
         Some(codes) => {
@@ -502,7 +482,7 @@ pub async fn list_invites(
                             include_deleted: Some(true),
                             ..Default::default()
                         },
-                        &admin_user(),
+                        &root_user,
                     )
                     .await;
                 if let Some(users) = users_result.data {
@@ -522,6 +502,7 @@ pub async fn list_invites(
                     InviteInfo {
                         code: c.code,
                         code_type: format!("{:?}", c.code_type).to_lowercase(),
+                        grants_role: c.grants_role.to_string(),
                         created_at: c.created_at,
                         expires_at: c.link_expires_at,
                         used_at: c.used_at,
@@ -541,6 +522,7 @@ pub async fn list_invites(
 pub async fn generate_invites(
     app_handle: tauri::AppHandle,
     count: u32,
+    role: Option<String>,
 ) -> Result<Vec<String>, String> {
     ensure_initialized(&app_handle).await?;
 
@@ -549,16 +531,27 @@ pub async fn generate_invites(
         return Err("wordlist not initialized - please run setup wizard".to_string());
     }
 
+    // prevent granting root role via invites
+    let grants_role = match role.as_deref().map(|r| r.to_lowercase()).as_deref() {
+        Some("root") => return Err("cannot create invite codes that grant root role".to_string()),
+        Some("admin") => Some(grimoire::users::UserRole::Admin),
+        Some("viewer") => Some(grimoire::users::UserRole::Viewer),
+        Some("member") | None => Some(grimoire::users::UserRole::Member),
+        Some(_) => Some(grimoire::users::UserRole::Member),
+    };
+
     let service = grimoire::users::UserService::new();
 
     let request = grimoire::users::CreateInviteCodeRequest {
         code_type: None,
         link_for_user_id: None,
         expires_hours: None,
+        grants_role,
     };
 
+    let root_user = get_root_user().await?;
     let result = service
-        .generate_invite_codes(&request, count, 3, &admin_user())
+        .generate_invite_codes(&request, count, 3, &root_user)
         .await;
 
     match result.data {
@@ -572,7 +565,33 @@ pub async fn generate_invites(
 pub async fn deactivate_invite(app_handle: tauri::AppHandle, code: String) -> Result<(), String> {
     ensure_initialized(&app_handle).await?;
     let service = grimoire::users::UserService::new();
-    let result = service.deactivate_invite_code(&code, &admin_user()).await;
+    let root_user = get_root_user().await?;
+    let result = service.deactivate_invite_code(&code, &root_user).await;
+
+    if result.is_success() {
+        Ok(())
+    } else {
+        Err(result.message)
+    }
+}
+
+/// update the role granted by an invite code
+#[tauri::command]
+pub async fn update_invite_role(
+    app_handle: tauri::AppHandle,
+    code: String,
+    role: String,
+) -> Result<(), String> {
+    ensure_initialized(&app_handle).await?;
+    let service = grimoire::users::UserService::new();
+    let root_user = get_root_user().await?;
+
+    let role: grimoire::users::models::UserRole = role.as_str().into();
+    if role == grimoire::users::models::UserRole::Root {
+        return Err("cannot set invite to grant root role".to_string());
+    }
+
+    let result = service.update_invite_role(&code, role, &root_user).await;
 
     if result.is_success() {
         Ok(())

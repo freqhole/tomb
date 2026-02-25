@@ -11,6 +11,7 @@ interface User {
 interface InviteCode {
   code: string;
   code_type: string;
+  grants_role: string;
   created_at: number;
   expires_at: number | null;
   used_at: number | null;
@@ -111,6 +112,15 @@ export default function UsersView() {
   async function deactivateInvite(code: string) {
     try {
       await invoke("deactivate_invite", { code });
+      await loadInvites();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function updateInviteRole(code: string, role: string) {
+    try {
+      await invoke("update_invite_role", { code, role });
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -239,6 +249,7 @@ export default function UsersView() {
                         <strong>
                           {invite.used_by_username || invite.used_by}
                         </strong>
+                        {" "}(granted {invite.grants_role})
                       </>
                     ) : invite.is_active ? (
                       <>active</>
@@ -253,6 +264,16 @@ export default function UsersView() {
                 </div>
                 <div class="item-actions">
                   <Show when={invite.is_active && !invite.used_by}>
+                    <select
+                      value={invite.grants_role}
+                      onChange={(e) =>
+                        updateInviteRole(invite.code, e.currentTarget.value)
+                      }
+                    >
+                      <option value="admin">admin</option>
+                      <option value="member">member</option>
+                      <option value="viewer">viewer</option>
+                    </select>
                     <button
                       class="danger small"
                       onClick={() => deactivateInvite(invite.code)}

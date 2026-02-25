@@ -45,6 +45,7 @@ struct InviteCodeRow {
     code_type: String,
     link_for_user_id: Option<String>,
     link_expires_at: Option<i64>,
+    grants_role: String,
 }
 
 impl From<InviteCodeRow> for InviteCode {
@@ -59,6 +60,7 @@ impl From<InviteCodeRow> for InviteCode {
             code_type: InviteCodeType::from(row.code_type),
             link_for_user_id: row.link_for_user_id,
             link_expires_at: row.link_expires_at,
+            grants_role: UserRole::from(row.grants_role.as_str()),
         }
     }
 }
@@ -147,6 +149,26 @@ impl UserRepository {
             WHERE api_key = ?1 AND deleted_at IS NULL
             "#,
             api_key
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(user.map(User::from))
+    }
+
+    /// Find the first root user (oldest by created_at)
+    pub async fn find_first_root_user(&self) -> AuthResult<Option<User>> {
+        let pool = database::connect().await?;
+
+        let user = sqlx::query_as!(
+            UserRow,
+            r#"
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            FROM user_accountz
+            WHERE role = 'root' AND deleted_at IS NULL
+            ORDER BY created_at ASC
+            LIMIT 1
+            "#,
         )
         .fetch_optional(&pool)
         .await?;
@@ -294,19 +316,21 @@ impl UserRepository {
         let expires_at = request
             .expires_hours
             .map(|hours| now + (hours as i64 * 3600));
+        let grants_role = request.grants_role.unwrap_or(UserRole::Member).to_string();
 
         let row = sqlx::query_as!(
             InviteCodeRow,
             r#"
-            INSERT INTO invite_codez (code, created_at, is_active, code_type, link_for_user_id, link_expires_at)
-            VALUES (?1, ?2, 1, ?3, ?4, ?5)
-            RETURNING id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at
+            INSERT INTO invite_codez (code, created_at, is_active, code_type, link_for_user_id, link_expires_at, grants_role)
+            VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)
+            RETURNING id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
             "#,
             code,
             now,
             code_type,
             request.link_for_user_id,
-            expires_at
+            expires_at,
+            grants_role
         )
         .fetch_one(&pool)
         .await?;
@@ -321,7 +345,7 @@ impl UserRepository {
         let invite_code = sqlx::query_as!(
             InviteCodeRow,
             r#"
-            SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at
+            SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
             FROM invite_codez
             WHERE code = ?1
             "#,
@@ -363,7 +387,7 @@ impl UserRepository {
             sqlx::query_as!(
                 InviteCodeRow,
                 r#"
-                SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at
+                SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
                 FROM invite_codez
                 WHERE is_active = 1 AND used_at IS NULL
                 ORDER BY created_at DESC
@@ -373,7 +397,7 @@ impl UserRepository {
             sqlx::query_as!(
                 InviteCodeRow,
                 r#"
-                SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at
+                SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
                 FROM invite_codez
                 ORDER BY created_at DESC
                 "#
@@ -395,6 +419,27 @@ impl UserRepository {
             SET is_active = 0
             WHERE code = ?1
             "#,
+            code
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Update the role granted by an invite code
+    pub async fn update_invite_role(&self, code: &str, role: &UserRole) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        let role_str = role.to_string();
+
+        sqlx::query!(
+            r#"
+            UPDATE invite_codez
+            SET grants_role = ?1
+            WHERE code = ?2 AND is_active = 1 AND used_at IS NULL
+            "#,
+            role_str,
             code
         )
         .execute(&pool)

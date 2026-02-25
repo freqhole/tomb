@@ -141,13 +141,13 @@ impl SetupService {
 
         // step 5: create root user
         match self.create_root_user(&config).await {
-            Ok((user_id, username)) => {
-                result.user_id = Some(user_id.clone());
-                result.username = Some(username);
+            Ok(root_user) => {
+                result.user_id = Some(root_user.id.clone());
+                result.username = Some(root_user.username.clone());
 
                 // step 6: optionally generate API key
                 if config.generate_api_key {
-                    match self.generate_api_key(&user_id).await {
+                    match self.generate_api_key(&root_user.id).await {
                         Ok(key) => result.api_key = Some(key),
                         Err(e) => result
                             .errors
@@ -157,7 +157,7 @@ impl SetupService {
 
                 // step 7: optionally generate invite code
                 if config.generate_invite_code {
-                    match self.generate_invite_code(&user_id).await {
+                    match self.generate_invite_code(&root_user).await {
                         Ok(code) => result.invite_code = Some(code),
                         Err(e) => result
                             .errors
@@ -298,10 +298,7 @@ impl SetupService {
     }
 
     /// step 5: create root user
-    async fn create_root_user(
-        &self,
-        config: &SetupConfig,
-    ) -> Result<(String, String), GrimoireError> {
+    async fn create_root_user(&self, config: &SetupConfig) -> Result<User, GrimoireError> {
         let service = UserService::new();
 
         let request = CreateUserRequest {
@@ -313,7 +310,7 @@ impl SetupService {
         let response = service.register_user(&request).await;
 
         match response.data {
-            Some(user) => Ok((user.id, user.username)),
+            Some(user) => Ok(user),
             None => {
                 let error = response
                     .errors
@@ -342,28 +339,18 @@ impl SetupService {
         }
     }
 
-    /// step 7: generate invite code
-    async fn generate_invite_code(&self, user_id: &str) -> Result<String, GrimoireError> {
+    /// step 7: generate invite code (grants admin role for CLI setup)
+    async fn generate_invite_code(&self, user: &User) -> Result<String, GrimoireError> {
         let service = UserService::new();
-
-        // create a minimal user for the request (we just need the ID)
-        let user = User {
-            id: user_id.to_string(),
-            username: "setup".to_string(),
-            role: UserRole::Root,
-            api_key: None,
-            created_at: 0,
-            updated_at: 0,
-            deleted_at: None,
-        };
 
         let request = CreateInviteCodeRequest {
             code_type: Some(InviteCodeType::Invite),
             link_for_user_id: None,
             expires_hours: None,
+            grants_role: Some(UserRole::Admin), // CLI setup generates admin invites
         };
 
-        let response = service.generate_invite_codes(&request, 1, 3, &user).await;
+        let response = service.generate_invite_codes(&request, 1, 3, user).await;
 
         match response.data.and_then(|codes| codes.into_iter().next()) {
             Some(code) => Ok(code.code),

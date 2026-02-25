@@ -53,18 +53,27 @@ impl UserService {
             Ok(None) => {}
         }
 
-        // Validate invite code if provided
+        // Validate invite code if provided and determine role from it
+        let mut role_from_invite: Option<UserRole> = None;
         if let Some(invite_code) = &request.invite_code {
             match self.validate_invite_code(invite_code).await {
-                Ok(_) => {}
+                Ok(code) => {
+                    role_from_invite = Some(code.grants_role);
+                }
                 Err(err) => {
                     return GrimoireResponse::failure("Invalid invite code", vec![err.into()]);
                 }
             }
         }
 
-        // Create the user
-        let user = match self.repository.create_user(request).await {
+        // Create the user - use explicit role if provided, otherwise use invite code's role
+        let effective_role = request.role.or(role_from_invite);
+        let create_request = CreateUserRequest {
+            username: request.username.clone(),
+            role: effective_role,
+            invite_code: request.invite_code.clone(),
+        };
+        let user = match self.repository.create_user(&create_request).await {
             Ok(user) => user,
             Err(err) => {
                 return GrimoireResponse::failure("Failed to create user", vec![err.into()]);
@@ -92,6 +101,20 @@ impl UserService {
                 GrimoireResponse::failure("User not found", vec![AuthError::UserNotFound.into()])
             }
             Err(err) => GrimoireResponse::failure("Failed to get user", vec![err.into()]),
+        }
+    }
+
+    /// Get first root user (oldest created)
+    ///
+    /// Used by CLI/Tauri for service operations that require a real user.
+    pub async fn get_first_root_user(&self) -> GrimoireResponse<User> {
+        match self.repository.find_first_root_user().await {
+            Ok(Some(user)) => GrimoireResponse::success("Root user found", user),
+            Ok(None) => GrimoireResponse::failure(
+                "No root user exists",
+                vec![AuthError::UserNotFound.into()],
+            ),
+            Err(err) => GrimoireResponse::failure("Failed to get root user", vec![err.into()]),
         }
     }
 
@@ -329,6 +352,37 @@ impl UserService {
             Ok(_) => GrimoireResponse::success("Invite code deactivated successfully", ()),
             Err(err) => {
                 GrimoireResponse::failure("Failed to deactivate invite code", vec![err.into()])
+            }
+        }
+    }
+
+    /// Update the role granted by an active invite code
+    pub async fn update_invite_role(
+        &self,
+        code: &str,
+        role: UserRole,
+        requesting_user: &User,
+    ) -> GrimoireResponse<()> {
+        // Only admins can update invite codes
+        if !requesting_user.is_admin() {
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        // Cannot grant root role via invites
+        if role == UserRole::Root {
+            return GrimoireResponse::failure(
+                "Cannot create invite codes that grant root role",
+                vec![],
+            );
+        }
+
+        match self.repository.update_invite_role(code, &role).await {
+            Ok(_) => GrimoireResponse::success("Invite code role updated successfully", ()),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to update invite code role", vec![err.into()])
             }
         }
     }

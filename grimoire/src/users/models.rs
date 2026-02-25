@@ -105,6 +105,17 @@ impl From<String> for UserRole {
     }
 }
 
+impl From<&str> for UserRole {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "root" => UserRole::Root,
+            "admin" => UserRole::Admin,
+            "viewer" => UserRole::Viewer,
+            _ => UserRole::Member,
+        }
+    }
+}
+
 /// User account information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -175,6 +186,8 @@ pub struct InviteCode {
     pub code_type: InviteCodeType,
     pub link_for_user_id: Option<String>,
     pub link_expires_at: Option<i64>,
+    /// role granted to users who register with this code
+    pub grants_role: UserRole,
 }
 
 impl InviteCode {
@@ -289,6 +302,8 @@ pub struct CreateInviteCodeRequest {
     pub code_type: Option<InviteCodeType>,
     pub link_for_user_id: Option<String>,
     pub expires_hours: Option<u32>,
+    /// role granted to users who register with this code (default: Member)
+    pub grants_role: Option<UserRole>,
 }
 
 // Music-specific request types (SetFavoriteRequest, SetRatingRequest)
