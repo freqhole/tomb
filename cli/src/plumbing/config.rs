@@ -20,16 +20,15 @@ pub enum ConfigAction {
         #[arg(long)]
         force: bool,
     },
-    /// Validate configuration file
-    Validate {
-        /// Path to config file (optional, uses default search strategy if not provided)
-        #[arg(long)]
-        config_path: Option<String>,
-    },
+    /// Validate configuration file (uses global --config flag)
+    Validate,
 }
 
 /// Handle config commands
-pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::Value> {
+pub async fn handle_command(
+    action: ConfigAction,
+    global_config: Option<std::path::PathBuf>,
+) -> CommandOutput<serde_json::Value> {
     match action {
         ConfigAction::Init { output, data_dir, force } => {
             match create_config(output, data_dir, force) {
@@ -51,8 +50,8 @@ pub async fn handle_command(action: ConfigAction) -> CommandOutput<serde_json::V
                 }
             }
         }
-        ConfigAction::Validate { config_path } => {
-            let path = match find_config(config_path.map(std::path::PathBuf::from)) {
+        ConfigAction::Validate => {
+            let path = match find_config(global_config) {
                 Ok(p) => p,
                 Err(e) => {
                     return CommandOutput::failure(

@@ -129,9 +129,13 @@ pub enum Commands {
 // Public handler functions for use in main.rs
 // Config must be initialized before calling these handlers (done in main.rs)
 
-pub async fn handle_config(action: ConfigAction, json_output: bool) -> anyhow::Result<()> {
+pub async fn handle_config(
+    action: ConfigAction,
+    json_output: bool,
+    global_config: Option<std::path::PathBuf>,
+) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
-    let output = config::handle_command(action).await;
+    let output = config::handle_command(action, global_config).await;
     utils::print_and_exit(output, format);
 }
 

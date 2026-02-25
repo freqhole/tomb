@@ -1,31 +1,38 @@
-// Grimoire Configuration File (Example/Template)
+// freqhole configuration file
 //
-// This is a template configuration file for grimoire.
-// Copy this to config.jsonc and customize for your environment.
+// usage:
+//   grimoire config init                    # creates config.jsonc from this template
+//   grimoire config init --data-dir /path   # custom data directory
 //
-// Usage:
-//   grimoire config init                    # Creates config.jsonc from this template
-//   grimoire config init --data-dir /path   # Custom data directory
+// this file is embedded in the grimoire binary and used by `config init`.
 //
-// This file is embedded in the grimoire binary and used by `config init`.
+// authentication methods (all available, no config needed):
+//   1. WebAuthn passkeys (if webauthn_enabled=true and feature compiled)
+//   2. API keys (stored in user_accountz.api_key column)
+//   3. invite codes (creates session cookie after redemption)
+//
+// user roles:
+//   - admin: full access (user management, analytics, etc.)
+//   - member: standard user (upload, edit, create playlists)
+//   - viewer: read-only (browse, play, favorite/rate only)
 
 {
-  // Data directory - base directory for all grimoire data
-  // Can be relative (./data) or absolute (/var/lib/freqhole)
-  // Contains: database file, temp directory, wordlist
+  // data directory - base directory for all grimoire data
+  // can be relative (./data) or absolute (/var/lib/freqhole)
+  // contains: database file, temp directory, wordlist
   "data_dir": "./data",
 
-  // Database configuration
+  // database configuration
   "database": {
     // SQLite database filename (stored in data_dir)
-    // The full path will be: {data_dir}/{filename}
+    // the full path will be: {data_dir}/{filename}
     "filename": "grimoire.db",
 
-    // Automatically run database migrations on startup
-    // Set to false if you want to run migrations manually
+    // automatically run database migrations on startup
+    // set to false if you want to run migrations manually
     "auto_run_migrations": true,
 
-    // Connection pool settings (OPTIONAL - defaults shown)
+    // connection pool settings (OPTIONAL - defaults shown)
     // each database operation creates a short-lived connection pool.
     // these settings control pool behavior and can help with slow hardware.
     //
@@ -44,30 +51,30 @@
     "idle_timeout_seconds": 300
   },
 
-  // Media processing and categorization
+  // media processing and categorization
   "media": {
-    // Maximum file size for filesystem storage (in bytes)
-    // Default: 1GB = 1073741824 bytes
+    // maximum file size for filesystem storage (in bytes)
+    // default: 1GB = 1073741824 bytes
     "max_fs_file_size": 1073741824,
 
-    // Supported audio file formats for music scanning
-    // Files with these extensions will be processed
+    // supported audio file formats for music scanning
+    // files with these extensions will be processed
     "supported_audio_formats": ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"],
 
-    // FFmpeg configuration for audio processing (OPTIONAL - defaults shown)
-    // Used for extracting album art thumbnails and generating waveform visualizations
+    // ffmpeg configuration for audio processing (OPTIONAL - defaults shown)
+    // used for extracting album art thumbnails and generating waveform visualizations
     //
-    // These settings are optional - if omitted, the defaults below will be used.
-    // Customize if you need to:
-    //   - Use a different path to ffmpeg (e.g., "/usr/local/bin/ffmpeg")
-    //   - Change ffmpeg arguments (quality, size, filters, etc.)
-    //   - Swap in alternative tools (avconv, custom scripts, etc.)
+    // these settings are optional - if omitted, the defaults below will be used.
+    // customize if you need to:
+    //   - use a different path to ffmpeg (e.g., "/usr/local/bin/ffmpeg")
+    //   - change ffmpeg arguments (quality, size, filters, etc.)
+    //   - swap in alternative tools (avconv, custom scripts, etc.)
     //
-    // Placeholders in args strings:
+    // placeholders in args strings:
     //   {input}  - replaced with input audio file path
     //   {output} - replaced with temporary output file path
     //
-    // The command executed will be: <ffmpeg_path> <args with placeholders replaced>
+    // the command executed will be: <ffmpeg_path> <args with placeholders replaced>
     "ffmpeg_path": "ffmpeg",
     "extract_album_art_args": "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}",
     "generate_waveform_args": "-i {input} -filter_complex \"color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto\" -frames:v 1 -y {output}",
@@ -85,115 +92,115 @@
     "ffprobe_duration_args": "-v quiet -show_entries format=duration -of csv=p=0 {input}",
     "ffprobe_properties_args": "-v quiet -print_format json -show_format -show_streams {input}",
 
-    // Duplicate detection during scan
-    // Skip importing songs that match existing songs (same artist, album, title, track/disc number, similar duration)
+    // duplicate detection during scan
+    // skip importing songs that match existing songs (same artist, album, title, track/disc number, similar duration)
     "skip_duplicates": true,
-    // Generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
+    // generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
     "generate_scan_duplicate_report": false,
 
     // URL download configuration using yt-dlp
     "downloads": {
-      // Enable downloading from URLs (requires yt-dlp installed)
+      // enable downloading from URLs (requires yt-dlp installed)
       "enabled": true,
-      // Command to use for downloads (must be in PATH)
+      // command to use for downloads (must be in PATH)
       "ytdlp_command": "yt-dlp"
     }
   },
 
   // MusicBrainz integration for metadata enrichment
   "musicbrainz": {
-    // Enable MusicBrainz API integration for enhanced metadata
-    // Allows searching for album/artist information and cover art
+    // enable MusicBrainz API integration for enhanced metadata
+    // allows searching for album/artist information and cover art
     "enabled": true
-    // Note: User agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
+    // note: user agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
   },
 
-  // Logging configuration
+  // logging configuration
   "logging": {
-    // Log level controls verbosity
-    // Options: "trace", "debug", "info", "warn", "error"
-    // Recommended: "info" for production, "debug" for development
+    // log level controls verbosity
+    // options: "trace", "debug", "info", "warn", "error"
+    // recommended: "info" for production, "debug" for development
     "level": "info"
   },
 
   // ========================================
-  // Server configuration (optional)
-  // Only needed when running the HTTP server
+  // server configuration (optional)
+  // only needed when running the HTTP server
   // ========================================
 
   "server": {
-    // Server identification
-    // These fields are exposed via the public /api/hello endpoint (no auth required)
-    // Remote clients fetch this info when adding your server to their remote list
+    // server identification
+    // these fields are exposed via the public /api/hello endpoint (no auth required)
+    // remote clients fetch this info when adding your server to their remote list
 
-    // Unique identifier for this server instance (stable across restarts)
+    // unique identifier for this server instance (stable across restarts)
     "id": "freqhole-main",
-    // Server display name
+    // server display name
     "name": "freqhole",
-    // Server version (semantic versioning recommended)
+    // server version (semantic versioning recommended)
     "version": "0.1.0",
-    // Optional server description
-    "description": "Music library server",
+    // optional server description
+    "description": "get yr freq on",
 
-    // Server host and port
+    // server host and port
     // host: "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
-    "host": "0.0.0.0",
-    "port": 3000,
+    "host": "127.0.0.1",
+    "port": 8080,
 
-    // Server image (OPTIONAL)
-    // Path to server image/logo for remote client UI
-    //   - Can be relative to data_dir or an absolute path
-    //   - Served publicly at /api/hello/image (no auth required)
-    //   - Displayed in remote client UI when selecting/viewing this server
-    //   - Recommended: square image, 256x256px or larger, PNG/JPG format
-    //   - Example: "server-icon.png" → accessible at /api/hello/image
+    // server image (OPTIONAL)
+    // path to server image/logo for remote client UI
+    //   - can be relative to data_dir or an absolute path
+    //   - served publicly at /api/hello/image (no auth required)
+    //   - displayed in remote client UI when selecting/viewing this server
+    //   - recommended: square image, 256x256px or larger, PNG/JPG format
+    //   - example: "server-icon.png" → accessible at /api/hello/image
     // "image_path": "server-icon.png",
 
-    // Start job processor in the server (OPTIONAL - default: false)
-    // When enabled (true):
-    //   - Server spawns a background task that continuously processes jobs
-    //   - Jobs are processed automatically as they're created
-    //   - Graceful shutdown on SIGTERM/SIGINT
-    // When disabled (false):
-    //   - Jobs must be processed separately via CLI
-    //   - Run: freqhole jobs run-processor
-    //   - Allows running job processor on a different machine/process
-    //   - Better for production: separate concerns, easier to scale
+    // start job processor in the server (OPTIONAL - default: false)
+    // when enabled (true):
+    //   - server spawns a background task that continuously processes jobs
+    //   - jobs are processed automatically as they're created
+    //   - graceful shutdown on SIGTERM/SIGINT
+    // when disabled (false):
+    //   - jobs must be processed separately via CLI
+    //   - run: freqhole jobs run-processor
+    //   - allows running job processor on a different machine/process
+    //   - better for production: separate concerns, easier to scale
     //
-    // Recommendation: Keep false for production, use true for simple dev setups
+    // recommendation: keep false for production, use true for simple dev setups
     "start_job_runner": true,
 
-    // Authentication configuration
+    // authentication configuration
     "auth": {
-      // Enable WebAuthn passkey authentication
-      // Note: requires binary built with --features webauthn (enabled by default)
-      // Set to false to disable passkey auth (API keys and invite codes still work)
+      // enable WebAuthn passkey authentication
+      // note: requires binary built with --features webauthn (enabled by default)
+      // set to false to disable passkey auth (API keys and invite codes still work)
       "webauthn_enabled": true,
 
-      // Session max age in seconds
-      // Controls how long authentication sessions remain valid
+      // session max age in seconds
+      // controls how long authentication sessions remain valid
       //
-      // Set to 0 or negative for sessions that never expire (recommended for personal use)
-      // Set to positive number for automatic logout after inactivity
+      // set to 0 or negative for sessions that never expire (recommended for personal use)
+      // set to positive number for automatic logout after inactivity
       //
-      // Examples:
+      // examples:
       //   0 or -1: never expire (sessions last forever)
       //   3600: 1 hour
       //   86400: 1 day
       //   604800: 1 week
       //
-      // Note: Safari and some browsers may still clear cookies on restart
-      // This setting controls server-side session expiration only
+      // note: Safari and some browsers may still clear cookies on restart
+      // this setting controls server-side session expiration only
       "session_max_age_seconds": 0,
 
       // WebAuthn origin configurations
-      // Each origin needs its own rp_id (domain) and rp_origin (full URL)
-      // Middleware validates incoming requests against this list
+      // each origin needs its own rp_id (domain) and rp_origin (full URL)
+      // middleware validates incoming requests against this list
       //
       // rp_id: domain name (e.g., "example.com", "localhost")
       // rp_origin: full URL (e.g., "https://app.example.com", "http://localhost:3000")
       //
-      // IMPORTANT: Support multiple origins for dev/staging/prod environments
+      // IMPORTANT: support multiple origins for dev/staging/prod environments
       "webauthn_origins": [
         {
           "rp_id": "localhost",
@@ -203,7 +210,7 @@
           "rp_id": "localhost",
           "rp_origin": "http://localhost:5173"
         }
-        // Add more origins as needed:
+        // add more origins as needed:
         // {
         //   "rp_id": "example.com",
         //   "rp_origin": "https://music.example.com"
@@ -211,62 +218,62 @@
       ]
     },
 
-    // Static file serving
+    // static file serving
     "static_files": {
-      // Enable serving static files (HTML, JS, CSS, etc.)
+      // enable serving static files (HTML, JS, CSS, etc.)
       "enabled": true,
-      // Directory to serve from (relative to data_dir or absolute path)
+      // directory to serve from (relative to data_dir or absolute path)
       "directory": "./static"
     },
 
     // CORS (Cross-Origin Resource Sharing) configuration
     "cors": {
-      // Enable CORS headers
-      "enabled": true
-      // Allowed origins (if not specified, uses auth.webauthn_origins)
-      // Uncomment to override:
-      // "allowed_origins": [
-      //   "http://localhost:3000",
-      //   "http://localhost:5173",
-      //   "https://music.example.com"
-      // ]
+      // enable CORS headers
+      "enabled": true,
+      // allowed origins (if not specified, uses auth.webauthn_origins)
+      // uncomment to override:
+      "allowed_origins": [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://music.example.com"
+      ]
     },
 
-    // Media fetching from external sources (youtube, soundcloud, etc.)
+    // media fetching from external sources
     "fetch_music": {
-      // Enable media fetching functionality
-      // When disabled, fetch routes will return 404
+      // enable media fetching functionality
+      // when disabled, fetch routes will return 404
       "enabled": false,
 
-      // Absolute path where fetched files are temporarily stored
-      // Files are downloaded here, then processed and moved to blob storage
-      // IMPORTANT: Must be an absolute path for security
-      // Example: "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
+      // absolute path where fetched files are temporarily stored
+      // files are downloaded here, then processed and moved to blob storage
+      // IMPORTANT: must be an absolute path for security
+      // example: "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
       "output_dir": "/path/to/fetch/directory",
 
-      // Command to extract metadata without downloading
-      // Used for precheck/deduplication - checks if content already exists
-      // before actually downloading. Should output JSON metadata.
+      // command to extract metadata without downloading
+      // used for precheck/deduplication - checks if content already exists
+      // before actually downloading. should output JSON metadata.
       //
-      // Typically uses yt-dlp or youtube-dl:
+      // typically uses yt-dlp or youtube-dl:
       //   --print-json: output metadata as JSON
       //   --no-download: don't download the file
       //
-      // Note: --no-playlist removed to support playlists and collections
-      // Precheck will return metadata for all items in collection
+      // note: --no-playlist removed to support playlists and collections
+      // precheck will return metadata for all items in collection
       //
-      // The command will be invoked as: <command> <url>
+      // the command will be invoked as: <command> <url>
       "precheck_command": "yt-dlp --print-json --no-download",
 
-      // Command to actually fetch and download media files
-      // Should download audio, extract metadata, and output the file path
+      // command to actually fetch and download media files
+      // should download audio, extract metadata, and output the file path
       //
-      // IMPORTANT: Supports playlists and collections with best-effort downloading
+      // IMPORTANT: supports playlists and collections with best-effort downloading
       //   --ignore-errors: continue if one item fails, don't abort entire job
-      //   Job only fails if NOTHING could be downloaded
-      //   Successfully downloaded items are processed even if others failed
+      //   job only fails if NOTHING could be downloaded
+      //   successfully downloaded items are processed even if others failed
       //
-      // Recommended yt-dlp arguments:
+      // recommended yt-dlp arguments:
       //   --ignore-errors: continue on errors (critical for playlists)
       //   --extract-audio: extract audio from video
       //   --audio-format mp3: convert to mp3
@@ -277,44 +284,26 @@
       //   --output: filename template (include %(id)s to prevent duplicates)
       //   --print after_move:filepath: output final file path for each download
       //
-      // Output pattern explained:
+      // output pattern explained:
       //   %(uploader)s: channel/artist name
       //   %(title)s: video/track title
       //   %(id)s: unique content ID (prevents duplicates!)
       //   %(ext)s: file extension
       //
-      // CRITICAL: Do NOT wrap the --output template in quotes!
+      // CRITICAL: do NOT wrap the --output template in quotes!
       //   BAD:  --output '%(uploader)s - %(title)s.%(ext)s'
       //   GOOD: --output %(uploader)s-%(title)s-[%(id)s].%(ext)s
       //
-      // Why: Quotes prevent yt-dlp from expanding template variables, causing
+      // why: quotes prevent yt-dlp from expanding template variables, causing
       // all files to have literal filenames like "'%(title)s.mp3" which results
       // in all downloads overwriting the same file!
       //
-      // Also: Avoid spaces and special characters in filenames - use hyphens
-      // Single quotes in filenames can cause issues with shell commands
+      // also: avoid spaces and special characters in filenames - use hyphens
+      // single quotes in filenames can cause issues with shell commands
       //
-      // The command will be invoked as: <command> --paths <job_id_dir> <url>
-      // It should print one downloaded file path per line to stdout
+      // the command will be invoked as: <command> --paths <job_id_dir> <url>
+      // it should print one downloaded file path per line to stdout
       "fetch_command": "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
     }
   }
 }
-
-// Data directory structure:
-//   {data_dir}/
-//   ├── grimoire.db          # SQLite database
-//   ├── wordlist.txt         # User invite code wordlist
-//   └── tmp/                 # Temporary files (created automatically)
-//       ├── uploads/
-//       └── processing/
-//
-// Authentication methods (all available, no config needed):
-//   1. WebAuthn passkeys (if webauthn_enabled=true and feature compiled)
-//   2. API keys (stored in user_accountz.api_key column)
-//   3. Invite codes (creates session cookie after redemption)
-//
-// User roles:
-//   - admin: full access (user management, analytics, etc.)
-//   - member: standard user (upload, edit, create playlists)
-//   - viewer: read-only (browse, play, favorite/rate only)

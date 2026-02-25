@@ -139,6 +139,10 @@ async fn main() -> Result<()> {
                 action: plumbing::ConfigAction::Init { .. },
                 ..
             }
+            | Commands::Config {
+                action: plumbing::ConfigAction::Validate { .. },
+                ..
+            }
     );
 
     // Initialize config and database for most commands
@@ -174,7 +178,7 @@ async fn main() -> Result<()> {
             action,
             json_output,
         } => {
-            plumbing::handle_config(action, json_output).await?;
+            plumbing::handle_config(action, json_output, cli.config.clone()).await?;
         }
         Commands::Jobs {
             action,
