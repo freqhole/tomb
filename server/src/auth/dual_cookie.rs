@@ -1,8 +1,11 @@
 //! dual cookie middleware for "auto" session_cookie_mode
 //!
 //! sets two session cookies with different SameSite policies:
-//! - `freqhole_session` with SameSite=Lax (for HTTP same-site)
-//! - `__Secure-freqhole_session` with SameSite=None + Secure (for HTTPS cross-site)
+//! - `freqhole_session_{server_id}` with SameSite=Lax (for HTTP same-site)
+//! - `__Secure-freqhole_session_{server_id}` with SameSite=None + Secure (for HTTPS cross-site)
+//!
+//! the server_id in the cookie name prevents session conflicts when running
+//! multiple freqhole servers on the same domain (e.g., localhost with different ports).
 //!
 //! this allows browser authentication to work in both HTTP dev environments
 //! and HTTPS cross-site production deployments.
@@ -12,23 +15,47 @@ use axum::{
     http::{header, Request, Response},
 };
 use futures_util::future::BoxFuture;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
 
-/// main cookie name used by tower-sessions
-pub const MAIN_COOKIE_NAME: &str = "freqhole_session";
-/// secure cookie name for HTTPS cross-site
-pub const SECURE_COOKIE_NAME: &str = "__Secure-freqhole_session";
+/// base cookie name prefix
+const COOKIE_PREFIX: &str = "freqhole";
+/// secure cookie name prefix
+const SECURE_COOKIE_PREFIX: &str = "__Secure-freqhole";
+
+/// generate main cookie name for a server
+pub fn main_cookie_name(server_id: &str) -> String {
+    format!("{}_{}", COOKIE_PREFIX, server_id)
+}
+
+/// generate secure cookie name for a server
+pub fn secure_cookie_name(server_id: &str) -> String {
+    format!("{}_{}", SECURE_COOKIE_PREFIX, server_id)
+}
 
 /// layer that adds dual cookie support
 #[derive(Clone)]
-pub struct DualCookieLayer;
+pub struct DualCookieLayer {
+    server_id: Arc<String>,
+}
+
+impl DualCookieLayer {
+    pub fn new(server_id: impl Into<String>) -> Self {
+        Self {
+            server_id: Arc::new(server_id.into()),
+        }
+    }
+}
 
 impl<S> Layer<S> for DualCookieLayer {
     type Service = DualCookieMiddleware<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        DualCookieMiddleware { inner }
+        DualCookieMiddleware {
+            inner,
+            server_id: self.server_id.clone(),
+        }
     }
 }
 
@@ -36,6 +63,7 @@ impl<S> Layer<S> for DualCookieLayer {
 #[derive(Clone)]
 pub struct DualCookieMiddleware<S> {
     inner: S,
+    server_id: Arc<String>,
 }
 
 impl<S> Service<Request<Body>> for DualCookieMiddleware<S>
@@ -53,17 +81,21 @@ where
 
     fn call(&mut self, mut request: Request<Body>) -> Self::Future {
         let mut inner = self.inner.clone();
+        let server_id = self.server_id.clone();
 
         Box::pin(async move {
+            let main_name = main_cookie_name(&server_id);
+            let secure_name = secure_cookie_name(&server_id);
+
             // before request: if secure cookie exists but main cookie doesn't,
             // inject the secure cookie's value as the main cookie so tower-sessions can read it
-            maybe_inject_cookie(&mut request);
+            maybe_inject_cookie(&mut request, &main_name, &secure_name);
 
             // process the request through the session layer
             let response = inner.call(request).await?;
 
             // after response: if main cookie was set, duplicate it as secure cookie
-            let response = maybe_add_secure_cookie(response);
+            let response = maybe_add_secure_cookie(response, &main_name, &secure_name);
 
             Ok(response)
         })
@@ -72,7 +104,7 @@ where
 
 /// check if the secure cookie exists and main cookie doesn't;
 /// if so, copy the secure cookie's value to the main cookie header
-fn maybe_inject_cookie(request: &mut Request<Body>) {
+fn maybe_inject_cookie(request: &mut Request<Body>, main_name: &str, secure_name: &str) {
     let cookie_header = match request.headers().get(header::COOKIE) {
         Some(h) => match h.to_str() {
             Ok(s) => s.to_string(),
@@ -82,12 +114,12 @@ fn maybe_inject_cookie(request: &mut Request<Body>) {
     };
 
     // check if main cookie already exists
-    if cookie_header.contains(&format!("{}=", MAIN_COOKIE_NAME)) {
+    if cookie_header.contains(&format!("{}=", main_name)) {
         return;
     }
 
     // check if secure cookie exists and extract its value
-    let secure_prefix = format!("{}=", SECURE_COOKIE_NAME);
+    let secure_prefix = format!("{}=", secure_name);
     if let Some(start) = cookie_header.find(&secure_prefix) {
         let value_start = start + secure_prefix.len();
         let value_end = cookie_header[value_start..]
@@ -97,7 +129,7 @@ fn maybe_inject_cookie(request: &mut Request<Body>) {
         let session_value = &cookie_header[value_start..value_end];
 
         // add main cookie to the header
-        let new_cookie = format!("{}; {}={}", cookie_header, MAIN_COOKIE_NAME, session_value);
+        let new_cookie = format!("{}; {}={}", cookie_header, main_name, session_value);
         if let Ok(new_header) = new_cookie.parse() {
             request.headers_mut().insert(header::COOKIE, new_header);
         }
@@ -105,7 +137,11 @@ fn maybe_inject_cookie(request: &mut Request<Body>) {
 }
 
 /// if the response sets the main cookie, add a duplicate secure cookie
-fn maybe_add_secure_cookie(mut response: Response<Body>) -> Response<Body> {
+fn maybe_add_secure_cookie(
+    mut response: Response<Body>,
+    main_name: &str,
+    secure_name: &str,
+) -> Response<Body> {
     // collect all set-cookie headers
     let set_cookies: Vec<_> = response
         .headers()
@@ -116,7 +152,7 @@ fn maybe_add_secure_cookie(mut response: Response<Body>) -> Response<Body> {
         .collect();
 
     // look for main cookie being set
-    let main_prefix = format!("{}=", MAIN_COOKIE_NAME);
+    let main_prefix = format!("{}=", main_name);
     for cookie_str in &set_cookies {
         if cookie_str.starts_with(&main_prefix) {
             // extract the session ID value (everything between = and first ;)
@@ -129,7 +165,7 @@ fn maybe_add_secure_cookie(mut response: Response<Body>) -> Response<Body> {
 
             // build the secure cookie with SameSite=None and Secure
             // preserve path and expiry from original, but change name and add secure attributes
-            let secure_cookie = build_secure_cookie(session_value, cookie_str);
+            let secure_cookie = build_secure_cookie(session_value, cookie_str, secure_name);
 
             if let Ok(header_value) = secure_cookie.parse() {
                 response
@@ -144,9 +180,9 @@ fn maybe_add_secure_cookie(mut response: Response<Body>) -> Response<Body> {
 }
 
 /// build the secure cookie string from the session value and original cookie
-fn build_secure_cookie(session_value: &str, original_cookie: &str) -> String {
+fn build_secure_cookie(session_value: &str, original_cookie: &str, secure_name: &str) -> String {
     // start with the secure cookie name and value
-    let mut parts = vec![format!("{}={}", SECURE_COOKIE_NAME, session_value)];
+    let mut parts = vec![format!("{}={}", secure_name, session_value)];
 
     // extract and preserve certain attributes from the original cookie
     let original_lower = original_cookie.to_lowercase();

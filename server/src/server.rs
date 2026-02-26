@@ -16,7 +16,7 @@ use tower_http::{
 use tower_sessions::{cookie::SameSite, Expiry, SessionManagerLayer};
 use tracing::Level;
 
-use crate::auth::dual_cookie::{DualCookieLayer, MAIN_COOKIE_NAME};
+use crate::auth::dual_cookie::{main_cookie_name, DualCookieLayer};
 use crate::{routes, state::AppState, ApiError};
 
 /// start the http server
@@ -133,6 +133,16 @@ pub async fn start_server(
         Expiry::OnInactivity(tower_sessions::cookie::time::Duration::hours(24))
     };
 
+    // get server_id for cookie name scoping (prevents conflicts between instances)
+    let server_id = state
+        .config
+        .server
+        .as_ref()
+        .map(|s| s.id.clone())
+        .unwrap_or_else(|| "default".to_string());
+
+    let cookie_name = main_cookie_name(&server_id);
+
     // determine cookie mode from config
     let cookie_mode = if let Some(server_config) = &state.config.server {
         SessionCookieMode::from_str(&server_config.auth.session_cookie_mode)
@@ -159,7 +169,7 @@ pub async fn start_server(
     };
 
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_name(MAIN_COOKIE_NAME)
+        .with_name(cookie_name.clone())
         .with_secure(use_secure)
         .with_same_site(same_site)
         .with_expiry(session_expiry);
@@ -168,8 +178,9 @@ pub async fn start_server(
     // not critical since session IDs are cryptographically random and server-side stored
 
     tracing::info!(
-        "[session] configured session layer: mode={:?}, secure={}, same_site={:?}, expiry={:?}",
+        "[session] configured session layer: mode={:?}, cookie={}, secure={}, same_site={:?}, expiry={:?}",
         cookie_mode,
+        cookie_name,
         use_secure,
         same_site,
         session_expiry
@@ -180,7 +191,7 @@ pub async fn start_server(
     let app = if cookie_mode == SessionCookieMode::Auto {
         routes::build_router()
             .layer(Extension(state.clone()))
-            .layer(DualCookieLayer)
+            .layer(DualCookieLayer::new(&server_id))
             .layer(session_layer)
             .layer(
                 TraceLayer::new_for_http()
