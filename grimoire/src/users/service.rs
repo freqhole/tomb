@@ -23,7 +23,70 @@ impl UserService {
     }
 
     /// Register a new user with optional invite code validation
+    ///
+    /// If invite code is an account-link code, returns the existing user
+    /// instead of creating a new one. This allows adding new auth methods
+    /// (like passkeys) to existing accounts.
     pub async fn register_user(&self, request: &CreateUserRequest) -> GrimoireResponse<User> {
+        // Validate invite code first if provided
+        let invite_code_data = if let Some(invite_code) = &request.invite_code {
+            match self.validate_invite_code(invite_code).await {
+                Ok(code) => Some(code),
+                Err(err) => {
+                    return GrimoireResponse::failure("Invalid invite code", vec![err.into()]);
+                }
+            }
+        } else {
+            None
+        };
+
+        // Check if this is an account-link code
+        if let Some(ref code) = invite_code_data {
+            if code.is_account_link_code() {
+                // Account-link code: return existing user instead of creating new one
+                let target_user_id = match code.get_target_user_id() {
+                    Some(id) => id,
+                    None => {
+                        return GrimoireResponse::failure(
+                            "Account-link code has no target user",
+                            vec![AuthError::InvalidInviteCode.into()],
+                        );
+                    }
+                };
+
+                // Get the existing user
+                let user = match self.repository.find_user_by_id(target_user_id).await {
+                    Ok(Some(user)) => user,
+                    Ok(None) => {
+                        return GrimoireResponse::failure(
+                            "Target user not found",
+                            vec![AuthError::UserNotFound.into()],
+                        );
+                    }
+                    Err(err) => {
+                        return GrimoireResponse::failure(
+                            "Failed to find target user",
+                            vec![err.into()],
+                        );
+                    }
+                };
+
+                // Mark code as used
+                if let Some(invite_code) = &request.invite_code {
+                    if let Err(err) = self.repository.use_invite_code(invite_code, &user.id).await {
+                        return GrimoireResponse::failure(
+                            "Failed to mark invite code as used",
+                            vec![err.into()],
+                        );
+                    }
+                }
+
+                return GrimoireResponse::success("Account linked successfully", user);
+            }
+        }
+
+        // Regular invite code or no invite code: create new user
+
         // Validate username
         if let Err(err) = self.validate_username(&request.username) {
             return GrimoireResponse::failure("Failed to register user", vec![err.into()]);
@@ -53,21 +116,20 @@ impl UserService {
             Ok(None) => {}
         }
 
-        // Validate invite code if provided and determine role from it
-        let mut role_from_invite: Option<UserRole> = None;
-        if let Some(invite_code) = &request.invite_code {
-            match self.validate_invite_code(invite_code).await {
-                Ok(code) => {
-                    role_from_invite = Some(code.grants_role);
-                }
-                Err(err) => {
-                    return GrimoireResponse::failure("Invalid invite code", vec![err.into()]);
-                }
-            }
-        }
+        // Determine role from invite code
+        let role_from_invite = invite_code_data.map(|c| c.grants_role);
 
         // Create the user - use explicit role if provided, otherwise use invite code's role
         let effective_role = request.role.or(role_from_invite);
+
+        // Prevent creating root users through registration
+        if effective_role == Some(UserRole::Root) {
+            return GrimoireResponse::failure(
+                "cannot register users with root role",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
         let create_request = CreateUserRequest {
             username: request.username.clone(),
             role: effective_role,
@@ -159,10 +221,27 @@ impl UserService {
             );
         }
 
-        // Ensure user exists
+        // Prevent assigning root role
+        if request.role == Some(UserRole::Root) {
+            return GrimoireResponse::failure(
+                "cannot assign root role",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        // Ensure user exists and check if they're root
         let get_response = self.get_user(user_id).await;
-        if !get_response.is_success() {
-            return GrimoireResponse::failure("User not found", get_response.errors);
+        match &get_response.data {
+            Some(user) if user.role == UserRole::Root => {
+                return GrimoireResponse::failure(
+                    "cannot modify root user",
+                    vec![AuthError::InsufficientPermissions.into()],
+                );
+            }
+            None => {
+                return GrimoireResponse::failure("User not found", get_response.errors);
+            }
+            _ => {}
         }
 
         match self.repository.update_user(user_id, request).await {
@@ -253,6 +332,34 @@ impl UserService {
                 "Insufficient permissions",
                 vec![AuthError::InsufficientPermissions.into()],
             );
+        }
+
+        // Prevent creating invite codes that grant root role
+        if request.grants_role == Some(UserRole::Root) {
+            return GrimoireResponse::failure(
+                "cannot create invite codes that grant root role",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        // For account-link codes, verify target user exists and is not root
+        if let Some(ref target_user_id) = request.link_for_user_id {
+            let user_response = self.get_user(target_user_id).await;
+            match &user_response.data {
+                Some(user) if user.role == UserRole::Root => {
+                    return GrimoireResponse::failure(
+                        "cannot create account-link codes for root user",
+                        vec![AuthError::InsufficientPermissions.into()],
+                    );
+                }
+                None => {
+                    return GrimoireResponse::failure(
+                        "target user not found",
+                        user_response.errors,
+                    );
+                }
+                _ => {}
+            }
         }
 
         let mut invite_codes = Vec::new();

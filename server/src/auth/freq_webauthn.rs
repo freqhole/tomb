@@ -298,9 +298,10 @@ pub async fn register_finish(
     let passkey = freq_webauthn.finish_registration(&origin.0, &reg, &reg_state)?;
 
     // Create user account
+    // role is None to let the invite code's grants_role be used
     let create_request = grimoire::users::CreateUserRequest {
         username: username.clone(),
-        role: Some(grimoire::users::UserRole::Member),
+        role: None,
         invite_code: invite_code.clone(),
     };
 

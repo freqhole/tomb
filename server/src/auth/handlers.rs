@@ -166,9 +166,10 @@ pub async fn redeem_invite(
     Json(request): Json<RedeemInviteRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Create user via grimoire
+    // role is None to let the invite code's grants_role be used
     let create_request = grimoire::users::CreateUserRequest {
         username: request.username.clone(),
-        role: Some(grimoire::users::UserRole::Member),
+        role: None,
         invite_code: Some(request.invite_code),
     };
 

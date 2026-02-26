@@ -282,47 +282,103 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                 }
             }
 
-            let invite_type = code_type
-                .map(|ct| match ct.to_lowercase().as_str() {
+            // determine code type - prompt if not specified
+            let invite_type = if let Some(ct) = code_type {
+                match ct.to_lowercase().as_str() {
                     "account-link" => InviteCodeType::AccountLink,
                     _ => InviteCodeType::Invite,
-                })
-                .unwrap_or_default();
-
-            // prompt for role if not specified
-            let grants_role = match role.as_deref().map(|r| r.to_lowercase()).as_deref() {
-                Some("root") => {
-                    return CommandOutput::failure(
-                        "cannot create invite codes that grant root role",
-                        vec![],
-                        (),
-                    );
                 }
-                Some("admin") => UserRole::Admin,
-                Some("member") => UserRole::Member,
-                Some("viewer") => UserRole::Viewer,
-                Some(_) => UserRole::Member,
-                None => {
-                    // interactive prompt for role
-                    use dialoguer::Select;
-                    let roles = ["member", "admin", "viewer"];
-                    let selection = Select::new()
-                        .with_prompt("role to grant")
-                        .items(&roles)
-                        .default(0)
-                        .interact()
-                        .unwrap_or(0);
-                    match roles[selection] {
-                        "admin" => UserRole::Admin,
-                        "viewer" => UserRole::Viewer,
-                        _ => UserRole::Member,
+            } else {
+                // interactive prompt for code type
+                use dialoguer::Select;
+                let types = ["invite (new user registration)", "account-link (add passkey to existing user)"];
+                let selection = Select::new()
+                    .with_prompt("code type")
+                    .items(&types)
+                    .default(0)
+                    .interact()
+                    .unwrap_or(0);
+                match selection {
+                    1 => InviteCodeType::AccountLink,
+                    _ => InviteCodeType::Invite,
+                }
+            };
+
+            // for account-link codes, we need to select a target user
+            let link_for_user_id = if invite_type == InviteCodeType::AccountLink {
+                // fetch users list
+                let admin_user = match get_root_user(&service).await {
+                    Ok(user) => user,
+                    Err(e) => return e,
+                };
+
+                let users_response = service.list_users(&UserQueryParams::default(), &admin_user).await;
+                if !users_response.success {
+                    return CommandOutput::failure(users_response.message, users_response.errors, ());
+                }
+
+                let users = users_response.data.unwrap_or_default();
+                if users.is_empty() {
+                    return CommandOutput::failure("No users found to link to", vec![], ());
+                }
+
+                // build display list: username (role)
+                let user_items: Vec<String> = users.iter()
+                    .map(|u| format!("{} ({})", u.username, u.role))
+                    .collect();
+
+                use dialoguer::Select;
+                let selection = Select::new()
+                    .with_prompt("select user to generate account-link code for")
+                    .items(&user_items)
+                    .default(0)
+                    .interact()
+                    .unwrap_or(0);
+
+                Some(users[selection].id.clone())
+            } else {
+                None
+            };
+
+            // for regular invite codes, prompt for role to grant
+            let grants_role = if invite_type == InviteCodeType::Invite {
+                match role.as_deref().map(|r| r.to_lowercase()).as_deref() {
+                    Some("root") => {
+                        return CommandOutput::failure(
+                            "cannot create invite codes that grant root role",
+                            vec![],
+                            (),
+                        );
+                    }
+                    Some("admin") => UserRole::Admin,
+                    Some("member") => UserRole::Member,
+                    Some("viewer") => UserRole::Viewer,
+                    Some(_) => UserRole::Member,
+                    None => {
+                        // interactive prompt for role
+                        use dialoguer::Select;
+                        let roles = ["member", "admin", "viewer"];
+                        let selection = Select::new()
+                            .with_prompt("role to grant")
+                            .items(&roles)
+                            .default(0)
+                            .interact()
+                            .unwrap_or(0);
+                        match roles[selection] {
+                            "admin" => UserRole::Admin,
+                            "viewer" => UserRole::Viewer,
+                            _ => UserRole::Member,
+                        }
                     }
                 }
+            } else {
+                // account-link codes don't grant a role (user already has one)
+                UserRole::Member // placeholder, won't be used
             };
 
             let request = CreateInviteCodeRequest {
                 code_type: Some(invite_type),
-                link_for_user_id: None,
+                link_for_user_id,
                 expires_hours: expires_hours.map(|h| h as u32),
                 grants_role: Some(grants_role),
             };

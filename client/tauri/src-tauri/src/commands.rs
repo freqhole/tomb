@@ -48,6 +48,20 @@ async fn ensure_initialized(app_handle: &tauri::AppHandle) -> Result<(), String>
     Ok(())
 }
 
+/// ensure wordlist is initialized (only needed for invite code generation)
+fn ensure_wordlist() -> Result<(), String> {
+    if grimoire::wordlist::is_initialized() {
+        return Ok(());
+    }
+    let wordlist_config = grimoire::wordlist::ManagementWordlistConfig::default();
+    let result = grimoire::wordlist::initialize_wordlist(&wordlist_config);
+    if result.is_success() {
+        Ok(())
+    } else {
+        Err(format!("failed to initialize wordlist: {}", result.message))
+    }
+}
+
 /// result of checking if setup is needed
 #[derive(Debug, Serialize)]
 pub struct SetupStatus {
@@ -459,6 +473,8 @@ pub struct InviteInfo {
     pub used_at: Option<i64>,
     pub used_by: Option<String>,
     pub used_by_username: Option<String>,
+    pub link_for_user_id: Option<String>,
+    pub link_for_username: Option<String>,
     pub is_active: bool,
 }
 
@@ -476,10 +492,14 @@ pub async fn list_invites(
 
     match result.data {
         Some(codes) => {
-            // collect all user ids that we need to look up
+            // collect all user ids that we need to look up (used_by and link_for)
             let user_ids: Vec<&str> = codes
                 .iter()
-                .filter_map(|c| c.used_by_id.as_deref())
+                .flat_map(|c| {
+                    vec![c.used_by_id.as_deref(), c.link_for_user_id.as_deref()]
+                        .into_iter()
+                        .flatten()
+                })
                 .collect();
 
             // look up usernames for used_by_id
@@ -508,6 +528,10 @@ pub async fn list_invites(
                         .used_by_id
                         .as_ref()
                         .and_then(|id| username_map.get(id).cloned());
+                    let link_for_username = c
+                        .link_for_user_id
+                        .as_ref()
+                        .and_then(|id| username_map.get(id).cloned());
                     InviteInfo {
                         code: c.code,
                         code_type: format!("{:?}", c.code_type).to_lowercase(),
@@ -517,6 +541,8 @@ pub async fn list_invites(
                         used_at: c.used_at,
                         used_by: c.used_by_id,
                         used_by_username,
+                        link_for_user_id: c.link_for_user_id,
+                        link_for_username,
                         is_active: c.is_active,
                     }
                 })
@@ -534,11 +560,7 @@ pub async fn generate_invites(
     role: Option<String>,
 ) -> Result<Vec<String>, String> {
     ensure_initialized(&app_handle).await?;
-
-    // wordlist must be initialized by setup wizard
-    if !grimoire::wordlist::is_initialized() {
-        return Err("wordlist not initialized - please run setup wizard".to_string());
-    }
+    ensure_wordlist()?;
 
     // prevent granting root role via invites
     let grants_role = match role.as_deref().map(|r| r.to_lowercase()).as_deref() {
@@ -606,6 +628,48 @@ pub async fn update_invite_role(
         Ok(())
     } else {
         Err(result.message)
+    }
+}
+
+/// generate an account-link code for an existing user
+/// this allows the user to add a new passkey to their account
+#[tauri::command]
+pub async fn generate_account_link_code(
+    app_handle: tauri::AppHandle,
+    user_id: String,
+) -> Result<String, String> {
+    ensure_initialized(&app_handle).await?;
+    ensure_wordlist()?;
+
+    let service = grimoire::users::UserService::new();
+    let root_user = get_root_user().await?;
+
+    // check if target user is root - can't create account-link codes for root
+    let user_result = service.get_user(&user_id).await;
+    match &user_result.data {
+        Some(user) if user.role == grimoire::users::UserRole::Root => {
+            return Err("cannot create account-link codes for root user".to_string());
+        }
+        None => {
+            return Err("user not found".to_string());
+        }
+        _ => {}
+    }
+
+    let request = grimoire::users::CreateInviteCodeRequest {
+        code_type: Some(grimoire::users::InviteCodeType::AccountLink),
+        link_for_user_id: Some(user_id),
+        expires_hours: Some(24), // account-link codes expire after 24 hours
+        grants_role: None,       // not used for account-link codes
+    };
+
+    let result = service
+        .generate_invite_codes(&request, 1, 4, &root_user)
+        .await;
+
+    match result.data {
+        Some(codes) if !codes.is_empty() => Ok(codes[0].code.clone()),
+        _ => Err(result.message),
     }
 }
 

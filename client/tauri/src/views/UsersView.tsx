@@ -17,6 +17,8 @@ interface InviteCode {
   used_at: number | null;
   used_by: string | null;
   used_by_username: string | null;
+  link_for_user_id: string | null;
+  link_for_username: string | null;
   is_active: boolean;
 }
 
@@ -135,6 +137,18 @@ export default function UsersView() {
     }
   }
 
+  async function generateAccountLink(userId: string) {
+    try {
+      const code = await invoke<string>("generate_account_link_code", {
+        userId,
+      });
+      await copyToClipboard(code);
+      await loadInvites();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <div class="view-content">
       <div class="view-header">
@@ -166,33 +180,45 @@ export default function UsersView() {
           </Show>
           <For each={users()}>
             {(user) => (
-              <div class="list-item">
-                <div class="item-info">
-                  <span class="item-name">{user.username}</span>
-                  <span class="item-meta">
-                    {user.role} · <span class="user-id">{user.id}</span> ·
-                    joined {formatDate(user.created_at)}
-                  </span>
+              <div class="list-item user-item">
+                <div class="user-row">
+                  <div class="item-info">
+                    <span class="item-name">{user.username}</span>
+                    <span class="item-meta">
+                      {user.role} · joined {formatDate(user.created_at)}
+                    </span>
+                  </div>
+                  <div class="item-actions">
+                    <Show when={user.role !== "root"}>
+                      <select
+                        value={user.role}
+                        onChange={(e) => updateRole(user.id, e.currentTarget.value)}
+                      >
+                        <option value="admin">admin</option>
+                        <option value="member">member</option>
+                        <option value="guest">guest</option>
+                      </select>
+                      <button
+                        class="danger small"
+                        onClick={() => deleteUser(user.id, user.username)}
+                      >
+                        delete
+                      </button>
+                    </Show>
+                  </div>
                 </div>
-                <div class="item-actions">
-                  <select
-                    value={user.role}
-                    onChange={(e) => updateRole(user.id, e.currentTarget.value)}
-                  >
-                    <option value="root">root</option>
-                    <option value="admin">admin</option>
-                    <option value="member">member</option>
-                    <option value="guest">guest</option>
-                  </select>
-                  <Show when={user.role !== "root"}>
+                <Show when={user.role !== "root"}>
+                  <div class="user-actions-row">
                     <button
-                      class="danger small"
-                      onClick={() => deleteUser(user.id, user.username)}
+                      class="secondary small"
+                      onClick={() => generateAccountLink(user.id)}
+                      title="generate account-link code (copies to clipboard)"
                     >
-                      delete
+                      + link
                     </button>
-                  </Show>
-                </div>
+                    <span class="user-id">{user.id}</span>
+                  </div>
+                </Show>
               </div>
             )}
           </For>
@@ -232,6 +258,7 @@ export default function UsersView() {
               >
                 <div class="item-info invite-info">
                   <div class="invite-main">
+                    <span class="invite-type">{invite.code_type}</span>
                     <code class="invite-code">{invite.code}</code>
                     <Show when={invite.is_active && !invite.used_by}>
                       <button
@@ -249,10 +276,14 @@ export default function UsersView() {
                         <strong>
                           {invite.used_by_username || invite.used_by}
                         </strong>
-                        {" "}(granted {invite.grants_role})
+                        <Show when={invite.code_type === "invite"}>
+                          {" "}(granted {invite.grants_role})
+                        </Show>
                       </>
+                    ) : invite.code_type === "accountlink" && invite.link_for_username ? (
+                      <>for <strong>{invite.link_for_username}</strong></>
                     ) : invite.is_active ? (
-                      <>active</>
+                      <>grants {invite.grants_role}</>
                     ) : (
                       <>inactive</>
                     )}
@@ -263,7 +294,7 @@ export default function UsersView() {
                   </span>
                 </div>
                 <div class="item-actions">
-                  <Show when={invite.is_active && !invite.used_by}>
+                  <Show when={invite.is_active && !invite.used_by && invite.code_type === "invite"}>
                     <select
                       value={invite.grants_role}
                       onChange={(e) =>
@@ -274,6 +305,8 @@ export default function UsersView() {
                       <option value="member">member</option>
                       <option value="viewer">viewer</option>
                     </select>
+                  </Show>
+                  <Show when={invite.is_active && !invite.used_by}>
                     <button
                       class="danger small"
                       onClick={() => deactivateInvite(invite.code)}

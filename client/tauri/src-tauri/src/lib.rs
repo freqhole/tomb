@@ -171,6 +171,7 @@ pub fn run() {
             commands::delete_user,
             commands::list_invites,
             commands::generate_invites,
+            commands::generate_account_link_code,
             commands::deactivate_invite,
             commands::update_invite_role,
             commands::scan_directory,
