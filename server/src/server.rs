@@ -187,33 +187,20 @@ pub async fn start_server(
     );
 
     // build router with state
-    // apply dual cookie layer only for "auto" mode
-    let app = if cookie_mode == SessionCookieMode::Auto {
-        routes::build_router()
-            .layer(Extension(state.clone()))
-            .layer(DualCookieLayer::new(&server_id))
-            .layer(session_layer)
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
-            )
-            .layer(CompressionLayer::new())
-            .layer(cors)
-            .with_state(state)
-    } else {
-        routes::build_router()
-            .layer(Extension(state.clone()))
-            .layer(session_layer)
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
-            )
-            .layer(CompressionLayer::new())
-            .layer(cors)
-            .with_state(state)
-    };
+    // dual cookie layer is always present but only active in "auto" mode
+    let dual_cookie_enabled = cookie_mode == SessionCookieMode::Auto;
+    let app = routes::build_router()
+        .layer(Extension(state.clone()))
+        .layer(DualCookieLayer::new(&server_id, dual_cookie_enabled))
+        .layer(session_layer)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
+        .layer(CompressionLayer::new())
+        .layer(cors)
+        .with_state(state);
 
     // bind to address
     let addr = format!("{}:{}", host, port)

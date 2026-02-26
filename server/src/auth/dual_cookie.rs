@@ -38,12 +38,14 @@ pub fn secure_cookie_name(server_id: &str) -> String {
 #[derive(Clone)]
 pub struct DualCookieLayer {
     server_id: Arc<String>,
+    enabled: bool,
 }
 
 impl DualCookieLayer {
-    pub fn new(server_id: impl Into<String>) -> Self {
+    pub fn new(server_id: impl Into<String>, enabled: bool) -> Self {
         Self {
             server_id: Arc::new(server_id.into()),
+            enabled,
         }
     }
 }
@@ -55,6 +57,7 @@ impl<S> Layer<S> for DualCookieLayer {
         DualCookieMiddleware {
             inner,
             server_id: self.server_id.clone(),
+            enabled: self.enabled,
         }
     }
 }
@@ -64,6 +67,7 @@ impl<S> Layer<S> for DualCookieLayer {
 pub struct DualCookieMiddleware<S> {
     inner: S,
     server_id: Arc<String>,
+    enabled: bool,
 }
 
 impl<S> Service<Request<Body>> for DualCookieMiddleware<S>
@@ -82,8 +86,14 @@ where
     fn call(&mut self, mut request: Request<Body>) -> Self::Future {
         let mut inner = self.inner.clone();
         let server_id = self.server_id.clone();
+        let enabled = self.enabled;
 
         Box::pin(async move {
+            // if disabled, just pass through
+            if !enabled {
+                return inner.call(request).await;
+            }
+
             let main_name = main_cookie_name(&server_id);
             let secure_name = secure_cookie_name(&server_id);
 
