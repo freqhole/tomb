@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use axum::extract::Extension;
+use grimoire::config::SessionCookieMode;
 use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use http::{HeaderName, Method};
 use tokio::net::TcpListener;
@@ -15,6 +16,7 @@ use tower_http::{
 use tower_sessions::{cookie::SameSite, Expiry, SessionManagerLayer};
 use tracing::Level;
 
+use crate::auth::dual_cookie::{DualCookieLayer, MAIN_COOKIE_NAME};
 use crate::{routes, state::AppState, ApiError};
 
 /// start the http server
@@ -131,26 +133,33 @@ pub async fn start_server(
         Expiry::OnInactivity(tower_sessions::cookie::time::Duration::hours(24))
     };
 
-    // determine secure/samesite settings based on whether any origin uses https
-    // for cross-origin requests (e.g., localhost:5173 -> tailscale), we need SameSite=None + Secure
-    let (use_secure, same_site) = if let Some(server_config) = &state.config.server {
-        let has_https_origin = server_config
-            .auth
-            .allowed_origins
-            .iter()
-            .any(|o| o.starts_with("https://"));
-        if has_https_origin {
-            // cross-origin with https: must use SameSite=None + Secure=true
-            (true, SameSite::None)
-        } else {
-            // local http only: use Lax for safari compatibility
+    // determine cookie mode from config
+    let cookie_mode = if let Some(server_config) = &state.config.server {
+        SessionCookieMode::from_str(&server_config.auth.session_cookie_mode)
+            .unwrap_or(SessionCookieMode::Auto)
+    } else {
+        SessionCookieMode::Auto
+    };
+
+    // configure session layer based on cookie mode
+    // for "auto" mode, we use SameSite=Lax as the base and the dual cookie layer adds the secure variant
+    let (use_secure, same_site) = match cookie_mode {
+        SessionCookieMode::Auto => {
+            // base cookie uses Lax; dual cookie layer adds the Secure variant
             (false, SameSite::Lax)
         }
-    } else {
-        (false, SameSite::Lax)
+        SessionCookieMode::Lax => {
+            // single cookie with SameSite=Lax
+            (false, SameSite::Lax)
+        }
+        SessionCookieMode::None => {
+            // single cookie with SameSite=None + Secure (for HTTPS only)
+            (true, SameSite::None)
+        }
     };
 
     let session_layer = SessionManagerLayer::new(session_store)
+        .with_name(MAIN_COOKIE_NAME)
         .with_secure(use_secure)
         .with_same_site(same_site)
         .with_expiry(session_expiry);
@@ -159,24 +168,41 @@ pub async fn start_server(
     // not critical since session IDs are cryptographically random and server-side stored
 
     tracing::info!(
-        "[session] configured session layer: secure={}, same_site={:?}, expiry={:?}",
+        "[session] configured session layer: mode={:?}, secure={}, same_site={:?}, expiry={:?}",
+        cookie_mode,
         use_secure,
         same_site,
         session_expiry
     );
 
     // build router with state
-    let app = routes::build_router()
-        .layer(Extension(state.clone())) // Add state as extension for middleware
-        .layer(session_layer) // Enable session extraction with cookie config
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-                .on_response(DefaultOnResponse::new().level(Level::INFO)),
-        )
-        .layer(CompressionLayer::new())
-        .layer(cors)
-        .with_state(state);
+    // apply dual cookie layer only for "auto" mode
+    let app = if cookie_mode == SessionCookieMode::Auto {
+        routes::build_router()
+            .layer(Extension(state.clone()))
+            .layer(DualCookieLayer)
+            .layer(session_layer)
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
+            )
+            .layer(CompressionLayer::new())
+            .layer(cors)
+            .with_state(state)
+    } else {
+        routes::build_router()
+            .layer(Extension(state.clone()))
+            .layer(session_layer)
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
+            )
+            .layer(CompressionLayer::new())
+            .layer(cors)
+            .with_state(state)
+    };
 
     // bind to address
     let addr = format!("{}:{}", host, port)

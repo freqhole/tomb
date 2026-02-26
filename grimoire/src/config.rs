@@ -202,11 +202,43 @@ pub struct AuthConfig {
     /// Session max age in seconds (0 or negative = never expire)
     #[serde(default)]
     pub session_max_age_seconds: i64,
+    /// Session cookie mode: "auto", "lax", or "none" (default: "auto")
+    /// - auto: dual cookies for maximum compatibility (HTTP same-site + HTTPS cross-site)
+    /// - lax: single cookie with SameSite=Lax (same-site only)
+    /// - none: single cookie with SameSite=None + Secure (HTTPS cross-site only)
+    #[serde(default = "default_session_cookie_mode")]
+    pub session_cookie_mode: String,
     /// Allowed origins for CORS and WebAuthn
     /// Use "any" to allow any origin (reflects request origin, does not use *)
     /// If not specified, only same-origin requests work
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+}
+
+fn default_session_cookie_mode() -> String {
+    "auto".to_string()
+}
+
+/// Session cookie mode for browser authentication
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionCookieMode {
+    /// Dual cookies: SameSite=Lax for HTTP + SameSite=None+Secure for HTTPS
+    Auto,
+    /// Single cookie with SameSite=Lax
+    Lax,
+    /// Single cookie with SameSite=None + Secure=true
+    None,
+}
+
+impl SessionCookieMode {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "lax" => Some(Self::Lax),
+            "none" => Some(Self::None),
+            _ => Option::None,
+        }
+    }
 }
 
 impl AuthConfig {
@@ -355,6 +387,14 @@ impl GrimoireConfig {
                         }
                     }
                 }
+            }
+
+            // Validate session_cookie_mode
+            if SessionCookieMode::from_str(&server.auth.session_cookie_mode).is_none() {
+                return Err(ConfigError::InvalidValue(format!(
+                    "server.auth.session_cookie_mode must be 'auto', 'lax', or 'none', got: '{}'",
+                    server.auth.session_cookie_mode
+                )));
             }
         }
 
