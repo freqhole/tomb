@@ -987,9 +987,6 @@ export const FullAppDemo: Story = {
             },
           }))}
           onViewAllPlaylists={() => navigateTo("playlists")}
-          queueOpen={queueOpen()}
-          onQueueToggle={() => setQueueOpen(!queueOpen())}
-          queueLength={queueSongs().length}
           pageTitle={pageInfo().title}
           pageCount={pageInfo().count}
         />
@@ -1047,7 +1044,6 @@ export const FullAppDemo: Story = {
               onVolumeChange={(vol) => setVolume(vol)}
               onQueueToggle={() => setQueueOpen(!queueOpen())}
               queueLength={queueSongs().length}
-              hideQueueToggle={isNarrow()}
             />
           )}
         </Show>

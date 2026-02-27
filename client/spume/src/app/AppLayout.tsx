@@ -467,9 +467,6 @@ export function AppLayout(props: AppLayoutProps) {
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
         onAddMusic={() => openAddMusic()}
-        queueOpen={queueOpen()}
-        onQueueToggle={handleQueueToggle}
-        queueLength={appState()?.queue.length || 0}
         pageTitle={getPageInfo().title}
         pageCount={getPageInfo().count}
         viewOptions={viewOptions()}
@@ -663,7 +660,6 @@ export function AppLayout(props: AppLayoutProps) {
           onFavoriteToggle={handleSongFavoriteToggle}
           onImageClick={handlePlayerImageClick}
           queueLength={appState()?.queue.length || 0}
-          hideQueueToggle={isNarrow()}
           canGoNext={canGoNext()}
           canGoPrevious={canGoPrevious()}
         />

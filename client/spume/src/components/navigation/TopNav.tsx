@@ -3,7 +3,6 @@ import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Icon } from "../icons/registry";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import MediaImage from "../media/MediaImage";
-import { TopNavMobile } from "./TopNavMobile";
 import { ViewSelector, type ViewOption } from "./ViewSelector";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { Badge } from "../badges/Badge";
@@ -12,7 +11,7 @@ import { routes } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
 import { isTauriMode } from "../../utils/tauri";
-import { isNarrowViewport, isWideViewport } from "../../config/breakpoints";
+import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -95,12 +94,6 @@ export interface TopNavProps {
   rightContent?: JSX.Element;
   /** custom search component (optional - if not provided, uses TopNavSearchContainer) */
   searchComponent?: JSX.Element;
-  /** whether queue drawer is open */
-  queueOpen?: boolean;
-  /** callback to toggle queue drawer */
-  onQueueToggle?: () => void;
-  /** number of items in queue (for badge) */
-  queueLength?: number;
   /** page title to show in nav bar (e.g. "songs", "playlists") */
   pageTitle?: string;
   /** page item count to show with title */
@@ -113,11 +106,11 @@ export interface TopNavProps {
   class?: string;
 }
 
-// compact top nav with brand icon + search, 3-column flyout menu
+// compact top nav with brand icon + search, responsive flyout menu
 export function TopNav(props: TopNavProps) {
-  // responsive: track if viewport is narrow (<= 800px)
+  // responsive: track viewport sizes
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
-  const [mobileMenuOpen, setMobileMenuOpen] = createSignal(false);
+  const [isSmall, setIsSmall] = createSignal(isSmallViewport());
   const [searchExpanded, setSearchExpanded] = createSignal(false);
   const [sortOpen, setSortOpen] = createSignal(false);
   const [sortLocked, setSortLocked] = createSignal(false);
@@ -150,10 +143,7 @@ export function TopNav(props: TopNavProps) {
   onMount(() => {
     const handleResize = () => {
       setIsNarrow(isNarrowViewport());
-      // close mobile menu if viewport becomes wide
-      if (isWideViewport()) {
-        setMobileMenuOpen(false);
-      }
+      setIsSmall(isSmallViewport());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
@@ -182,32 +172,6 @@ export function TopNav(props: TopNavProps) {
 
   return (
     <>
-      {/* mobile menu overlay - slides from top */}
-      <Show when={isNarrow()}>
-        <TopNavMobile
-          isOpen={mobileMenuOpen()}
-          onClose={() => setMobileMenuOpen(false)}
-          brandName={props.brandName}
-          brandTagline={props.brandTagline}
-          currentUsername={props.currentUsername}
-          currentUserRole={props.currentUserRole}
-          version={props.version}
-          currentSourceName={props.currentSourceName}
-          remotes={props.remotes}
-          onSwitchToLocal={props.onSwitchToLocal}
-          onSwitchToRemote={props.onSwitchToRemote}
-          onAddRemote={props.onAddRemote}
-          mainNavSections={props.mainNavSections}
-          storageUsage={props.storageUsage}
-          storageQuota={props.storageQuota}
-          recentPlaylists={props.recentPlaylists}
-          onViewAllPlaylists={props.onViewAllPlaylists}
-          onCreatePlaylist={props.onCreatePlaylist}
-          onNavigate={props.onNavigate}
-          onAddMusic={props.onAddMusic}
-        />
-      </Show>
-
       <nav
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
@@ -223,327 +187,304 @@ export function TopNav(props: TopNavProps) {
         onMouseLeave={() => setNavHovered(false)}
       >
         <div class="flex items-center gap-3">
-          {/* back button + menu trigger - only rendered on narrow */}
-          <Show when={isNarrow()}>
-            <button
-              class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
-              classList={{ "bg-white/10": mobileMenuOpen() }}
-              aria-label="menu"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen())}
-            >
-              <Show
-                when={currentRemote()}
-                fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
+          {/* menu trigger */}
+          <KobalteNav>
+            <KobalteNav.Menu>
+              <KobalteNav.Trigger
+                class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
+                aria-label="menu"
               >
-                {(remote) => (
-                  <MediaImage
-                    imageUrl={remote().imageUrl ? `${remote().url}${remote().imageUrl}` : null}
-                    alt=""
-                    class="w-7 h-7 rounded object-cover flex-shrink-0"
-                  />
-                )}
-              </Show>
-            </button>
-          </Show>
-
-          {/* desktop menu - kobalte navigation, only rendered on wide */}
-          <Show when={!isNarrow()}>
-            <KobalteNav>
-              <KobalteNav.Menu>
-                <KobalteNav.Trigger
-                  class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
-                  aria-label="menu"
+                <Show
+                  when={currentRemote()}
+                  fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
                 >
-                  <Show
-                    when={currentRemote()}
-                    fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
-                  >
-                    {(remote) => (
-                      <MediaImage
-                        imageUrl={remote().imageUrl ? `${remote().url}${remote().imageUrl}` : null}
-                        alt=""
-                        class="w-7 h-7 rounded object-cover flex-shrink-0"
-                      />
-                    )}
-                  </Show>
-                </KobalteNav.Trigger>
+                  {(remote) => (
+                    <MediaImage
+                      imageUrl={remote().imageUrl ? `${remote().url}${remote().imageUrl}` : null}
+                      alt=""
+                      class="w-7 h-7 rounded object-cover flex-shrink-0"
+                    />
+                  )}
+                </Show>
+              </KobalteNav.Trigger>
 
-                <KobalteNav.Portal>
-                  <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out">
-                    <div class="grid grid-cols-2 gap-6 min-w-[560px] max-h-[70dvh]">
-                      {/* column 1: brand info + source management */}
-                      <div class="flex flex-col p-6">
-                        <div class="flex items-start justify-between mb-6">
-                          <div class="space-y-3">
-                            <div>
-                              <h3 class="text-lg font-bold m-0">
-                                <span>freqh</span>
-                                <Icon
-                                  name="freqhole"
-                                  size={24}
-                                  color="var(--color-accent-500)"
-                                  className="inline"
-                                />
-                                <span>le</span>
-                              </h3>
-                              <Show
-                                when={props.currentUsername && props.currentUserRole}
-                                fallback={
-                                  <Show when={props.brandTagline}>
-                                    <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
-                                      {props.brandTagline}
-                                    </p>
-                                  </Show>
-                                }
-                              >
-                                <div class="flex items-center gap-2 mt-1">
-                                  <span class="text-xs text-[var(--color-text-secondary)]">
-                                    {props.currentUsername}
-                                  </span>
-                                  <Badge variant="default" size="sm">
-                                    {props.currentUserRole}
-                                  </Badge>
-                                </div>
-                              </Show>
-                            </div>
-                            <Show when={props.version}>
-                              <div class="px-2 py-1 bg-[var(--color-bg-tertiary)] rounded text-xs text-[var(--color-text-muted)] inline-block">
-                                {props.version}
+              <KobalteNav.Portal>
+                <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out overflow-y-auto">
+                  <div class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px] max-h-[70dvh]">
+                    {/* column 1: brand info + source management */}
+                    <div class="flex flex-col p-4 wide:p-6">
+                      <div class="flex items-start justify-between mb-6">
+                        <div class="space-y-3">
+                          <div>
+                            <h3 class="text-lg font-bold m-0">
+                              <span>freqh</span>
+                              <Icon
+                                name="freqhole"
+                                size={24}
+                                color="var(--color-accent-500)"
+                                className="inline"
+                              />
+                              <span>le</span>
+                            </h3>
+                            <Show
+                              when={props.currentUsername && props.currentUserRole}
+                              fallback={
+                                <Show when={props.brandTagline}>
+                                  <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
+                                    {props.brandTagline}
+                                  </p>
+                                </Show>
+                              }
+                            >
+                              <div class="flex items-center gap-2 mt-1">
+                                <span class="text-xs text-[var(--color-text-secondary)]">
+                                  {props.currentUsername}
+                                </span>
+                                <Badge variant="default" size="sm">
+                                  {props.currentUserRole}
+                                </Badge>
                               </div>
                             </Show>
                           </div>
-                          <Show when={props.onAddMusic && canUploadMusic()}>
-                            <button
-                              class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
-                              onClick={() => props.onAddMusic?.()}
-                            >
-                              add music
-                            </button>
+                          <Show when={props.version}>
+                            <div class="px-2 py-1 bg-[var(--color-bg-tertiary)] rounded text-xs text-[var(--color-text-muted)] inline-block">
+                              {props.version}
+                            </div>
                           </Show>
                         </div>
+                        <Show when={props.onAddMusic && canUploadMusic()}>
+                          <button
+                            class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
+                            onClick={() => props.onAddMusic?.()}
+                          >
+                            add music
+                          </button>
+                        </Show>
+                      </div>
 
-                        {/* source selector */}
-                        <div class="mb-4">
-                          <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">
-                            music source
-                          </h4>
-                          <div class="space-y-1">
-                            {/* local library option - hidden in tauri mode */}
-                            <Show when={!isTauriMode()}>
-                              <button
-                                class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
-                                classList={{
-                                  "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                    props.currentSourceName === "local library" ||
-                                    !props.currentSourceName,
-                                  "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                    !!props.currentSourceName &&
-                                    props.currentSourceName !== "local library",
-                                }}
-                                disabled={
-                                  !!(
-                                    props.currentSourceName === "local library" ||
-                                    !props.currentSourceName
-                                  )
-                                }
-                                onClick={() => props.onSwitchToLocal?.()}
-                              >
-                                <Show
-                                  when={
-                                    props.currentSourceName === "local library" ||
-                                    !props.currentSourceName
-                                  }
-                                  fallback={
-                                    <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
-                                  }
-                                >
-                                  <Icon name="check" size={14} color="var(--color-accent-500)" />
-                                </Show>
-                                <span>local library</span>
-                              </button>
-                            </Show>
-
-                            {/* remote sources */}
-                            <Show when={props.remotes && props.remotes.length > 0}>
-                              <div class="pt-1 border-t border-[var(--color-border-subtle)] mt-2">
-                                <For each={props.remotes}>
-                                  {(remote) => (
-                                    <button
-                                      class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
-                                      classList={{
-                                        "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                          props.currentSourceName === remote.name,
-                                        "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                          props.currentSourceName !== remote.name,
-                                      }}
-                                      disabled={props.currentSourceName === remote.name}
-                                      onClick={() => props.onSwitchToRemote?.(remote.id)}
-                                    >
-                                      <Show
-                                        when={props.currentSourceName === remote.name}
-                                        fallback={
-                                          <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
-                                        }
-                                      >
-                                        <Icon
-                                          name="check"
-                                          size={14}
-                                          color="var(--color-accent-500)"
-                                        />
-                                      </Show>
-                                      <MediaImage
-                                        imageUrl={
-                                          remote.imageUrl ? `${remote.url}${remote.imageUrl}` : null
-                                        }
-                                        alt=""
-                                        class="w-4 h-4 rounded object-cover flex-shrink-0"
-                                      />
-                                      <span class="truncate">{remote.name}</span>
-                                    </button>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-
-                            {/* add remote button */}
+                      {/* source selector */}
+                      <div class="mb-4">
+                        <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">
+                          music source
+                        </h4>
+                        <div class="space-y-1">
+                          {/* local library option - hidden in tauri mode */}
+                          <Show when={!isTauriMode()}>
                             <button
-                              class="w-full px-3 py-2 text-left text-sm text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer flex items-center gap-2 mt-2"
-                              onClick={() => props.onAddRemote?.()}
+                              class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                              classList={{
+                                "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
+                                  props.currentSourceName === "local library" ||
+                                  !props.currentSourceName,
+                                "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
+                                  !!props.currentSourceName &&
+                                  props.currentSourceName !== "local library",
+                              }}
+                              disabled={
+                                !!(
+                                  props.currentSourceName === "local library" ||
+                                  !props.currentSourceName
+                                )
+                              }
+                              onClick={() => props.onSwitchToLocal?.()}
                             >
-                              <span>+</span>
-                              <span>add remote server</span>
+                              <Show
+                                when={
+                                  props.currentSourceName === "local library" ||
+                                  !props.currentSourceName
+                                }
+                                fallback={
+                                  <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                                }
+                              >
+                                <Icon name="check" size={14} color="var(--color-accent-500)" />
+                              </Show>
+                              <span>local library</span>
                             </button>
-                          </div>
-                        </div>
+                          </Show>
 
-                        <div class="mt-auto space-y-1 pt-4 border-t border-[var(--color-border-subtle)]">
-                          <For each={props.mainNavSections.slice(1)}>
-                            {(section) => (
-                              <For each={section.items}>
-                                {(item) => (
+                          {/* remote sources */}
+                          <Show when={props.remotes && props.remotes.length > 0}>
+                            <div class="pt-1 border-t border-[var(--color-border-subtle)] mt-2">
+                              <For each={props.remotes}>
+                                {(remote) => (
                                   <button
-                                    class="w-full px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50"
-                                    disabled={item.disabled}
-                                    onClick={item.onClick}
+                                    class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                                    classList={{
+                                      "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
+                                        props.currentSourceName === remote.name,
+                                      "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
+                                        props.currentSourceName !== remote.name,
+                                    }}
+                                    disabled={props.currentSourceName === remote.name}
+                                    onClick={() => props.onSwitchToRemote?.(remote.id)}
                                   >
-                                    {item.label}
+                                    <Show
+                                      when={props.currentSourceName === remote.name}
+                                      fallback={
+                                        <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
+                                      }
+                                    >
+                                      <Icon
+                                        name="check"
+                                        size={14}
+                                        color="var(--color-accent-500)"
+                                      />
+                                    </Show>
+                                    <MediaImage
+                                      imageUrl={
+                                        remote.imageUrl ? `${remote.url}${remote.imageUrl}` : null
+                                      }
+                                      alt=""
+                                      class="w-4 h-4 rounded object-cover flex-shrink-0"
+                                    />
+                                    <span class="truncate">{remote.name}</span>
                                   </button>
                                 )}
                               </For>
-                            )}
-                          </For>
-
-                          {/* storage usage */}
-                          <Show
-                            when={
-                              props.storageUsage !== undefined && props.storageQuota !== undefined
-                            }
-                          >
-                            <button
-                              class="w-full flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-xs text-left transition-colors border-none cursor-pointer"
-                              onClick={() => props.onNavigate?.(routes.settingsStorage())}
-                            >
-                              <Icon name="database" size={14} />
-                              <div class="flex flex-col">
-                                <span class="text-[var(--color-text-secondary)]">
-                                  {formatBytes(props.storageUsage)} /{" "}
-                                  {formatBytes(props.storageQuota)}
-                                </span>
-                                <span class="text-[var(--color-text-tertiary)]">
-                                  {storagePercent()}% used
-                                </span>
-                              </div>
-                            </button>
+                            </div>
                           </Show>
+
+                          {/* add remote button */}
+                          <button
+                            class="w-full px-3 py-2 text-left text-sm text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer flex items-center gap-2 mt-2"
+                            onClick={() => props.onAddRemote?.()}
+                          >
+                            <span>+</span>
+                            <span>add remote server</span>
+                          </button>
                         </div>
                       </div>
 
-                      {/* column 2: recent playlists */}
-                      <div class="flex flex-col p-6 border-l border-[var(--color-border-subtle)]">
-                        <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-3">
-                          recent playlists
-                        </h4>
-                        <KobalteNav.Group>
-                          <div class="flex-1 space-y-0.5 overflow-y-auto min-h-0">
-                            <Show when={props.recentPlaylists?.length}>
-                              <For each={props.recentPlaylists}>
-                                {(playlist) => (
-                                  <KobalteNav.Item
-                                    class="w-full hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10 flex items-center gap-2 px-2 py-1"
-                                    style={{ "min-height": "0", height: "auto" }}
-                                    closeOnSelect={true}
-                                    onSelect={playlist.onClick}
-                                  >
-                                    <MediaImage
-                                      images={playlist.images}
-                                      imageUrl={playlist.thumbnailUrl || null}
-                                      blobId={playlist.thumbnailBlobId}
-                                      alt=""
-                                      class="w-8 h-8 object-cover rounded flex-shrink-0"
-                                      domainType="playlist"
-                                    />
-                                    <div class="flex-1 min-w-0">
-                                      <div class="text-sm text-[var(--color-text-primary)] truncate">
-                                        {playlist.name}
-                                      </div>
-                                      <div class="text-xs text-[var(--color-text-tertiary)]">
-                                        {formatRelativeTime(playlist.updatedAt)}
-                                      </div>
-                                    </div>
-                                  </KobalteNav.Item>
-                                )}
-                              </For>
-                            </Show>
-                            <Show when={!props.recentPlaylists?.length}>
-                              <div class="text-xs text-[var(--color-text-muted)] px-3 py-2">
-                                no recent playlists
-                              </div>
-                            </Show>
-                          </div>
-                        </KobalteNav.Group>
+                      <div class="mt-auto space-y-1 pt-4 border-t border-[var(--color-border-subtle)]">
+                        <For each={props.mainNavSections.slice(1)}>
+                          {(section) => (
+                            <For each={section.items}>
+                              {(item) => (
+                                <button
+                                  class="w-full px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50"
+                                  disabled={item.disabled}
+                                  onClick={item.onClick}
+                                >
+                                  {item.label}
+                                </button>
+                              )}
+                            </For>
+                          )}
+                        </For>
 
-                        <div class="flex gap-2 pt-3 mt-3 border-t border-[var(--color-border-subtle)]">
+                        {/* storage usage */}
+                        <Show
+                          when={
+                            props.storageUsage !== undefined && props.storageQuota !== undefined
+                          }
+                        >
                           <button
-                            class="flex-1 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer"
-                            onClick={() => {
-                              props.onViewAllPlaylists?.();
-                            }}
+                            class="w-full flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-xs text-left transition-colors border-none cursor-pointer"
+                            onClick={() => props.onNavigate?.(routes.settingsStorage())}
                           >
-                            view all
+                            <Icon name="database" size={14} />
+                            <div class="flex flex-col">
+                              <span class="text-[var(--color-text-secondary)]">
+                                {formatBytes(props.storageUsage)} /{" "}
+                                {formatBytes(props.storageQuota)}
+                              </span>
+                              <span class="text-[var(--color-text-tertiary)]">
+                                {storagePercent()}% used
+                              </span>
+                            </div>
                           </button>
-                          <Show when={canCreatePlaylist()}>
-                            <button
-                              class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer font-medium"
-                              onClick={() => {
-                                props.onCreatePlaylist?.();
-                              }}
-                            >
-                              + create
-                            </button>
-                          </Show>
-                        </div>
+                        </Show>
                       </div>
                     </div>
-                  </KobalteNav.Content>
-                </KobalteNav.Portal>
-              </KobalteNav.Menu>
 
-              <KobalteNav.Viewport />
-            </KobalteNav>
+                    {/* column 2: recent playlists */}
+                    <div class="flex flex-col p-4 wide:p-6 border-t wide:border-t-0 wide:border-l border-[var(--color-border-subtle)]">
+                      <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-3">
+                        recent playlists
+                      </h4>
+                      <KobalteNav.Group>
+                        <div class="flex-1 space-y-0.5 overflow-y-auto min-h-0">
+                          <Show when={props.recentPlaylists?.length}>
+                            <For each={props.recentPlaylists}>
+                              {(playlist) => (
+                                <KobalteNav.Item
+                                  class="w-full hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10 flex items-center gap-2 px-2 py-1"
+                                  style={{ "min-height": "0", height: "auto" }}
+                                  closeOnSelect={true}
+                                  onSelect={playlist.onClick}
+                                >
+                                  <MediaImage
+                                    images={playlist.images}
+                                    imageUrl={playlist.thumbnailUrl || null}
+                                    blobId={playlist.thumbnailBlobId}
+                                    alt=""
+                                    class="w-8 h-8 object-cover rounded flex-shrink-0"
+                                    domainType="playlist"
+                                  />
+                                  <div class="flex-1 min-w-0">
+                                    <div class="text-sm text-[var(--color-text-primary)] truncate">
+                                      {playlist.name}
+                                    </div>
+                                    <div class="text-xs text-[var(--color-text-tertiary)]">
+                                      {formatRelativeTime(playlist.updatedAt)}
+                                    </div>
+                                  </div>
+                                </KobalteNav.Item>
+                              )}
+                            </For>
+                          </Show>
+                          <Show when={!props.recentPlaylists?.length}>
+                            <div class="text-xs text-[var(--color-text-muted)] px-3 py-2">
+                              no recent playlists
+                            </div>
+                          </Show>
+                        </div>
+                      </KobalteNav.Group>
 
-            {/* view selector flyout - desktop only */}
-            <Show when={props.viewOptions?.length}>
+                      <div class="flex gap-2 pt-3 mt-3 border-t border-[var(--color-border-subtle)]">
+                        <button
+                          class="flex-1 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer"
+                          onClick={() => {
+                            props.onViewAllPlaylists?.();
+                          }}
+                        >
+                          view all
+                        </button>
+                        <Show when={canCreatePlaylist()}>
+                          <button
+                            class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer font-medium"
+                            onClick={() => {
+                              props.onCreatePlaylist?.();
+                            }}
+                          >
+                            + create
+                          </button>
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+                </KobalteNav.Content>
+              </KobalteNav.Portal>
+            </KobalteNav.Menu>
+
+            <KobalteNav.Viewport />
+          </KobalteNav>
+
+          {/* view selector flyout - hidden when search is expanded on small screens, appears after search on small */}
+          <Show when={props.viewOptions?.length && (!isSmall() || !searchExpanded())}>
+            <div class="order-2 sm:order-1">
               <ViewSelector
                 views={props.viewOptions!}
                 currentTitle={props.pageTitle}
                 currentCount={props.pageCount}
                 onNavigate={(path) => props.onNavigate?.(path)}
               />
-            </Show>
+            </div>
           </Show>
 
-          {/* search - grows to fill space */}
-          <div class="flex-1">
+          {/* search - grows to fill space, appears before view selector on small */}
+          <div class="flex-1 order-1 sm:order-2">
             <Show
               when={props.searchComponent !== undefined}
               fallback={
@@ -560,10 +501,10 @@ export function TopNav(props: TopNavProps) {
             </Show>
           </div>
 
-          {/* sort controls - desktop only, when view has sorting */}
-          <Show when={!isNarrow() && info().sortFields?.length}>
+          {/* sort controls - when view has sorting, hidden when search expanded on small */}
+          <Show when={info().sortFields?.length && (!isSmall() || !searchExpanded())}>
             <div
-              class="relative flex-shrink-0"
+              class="relative flex-shrink-0 order-3"
               onMouseEnter={() => {
                 clearTimeout(sortCloseTimeout);
                 if (!sortOpen()) setSortOpen(true);
@@ -626,10 +567,10 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* tag filter icon - desktop only, when view has tags */}
-          <Show when={!isNarrow() && info().availableTags?.length}>
+          {/* tag filter icon - when view has tags, hidden when search expanded on small */}
+          <Show when={info().availableTags?.length && (!isSmall() || !searchExpanded())}>
             <div
-              class="relative flex-shrink-0"
+              class="relative flex-shrink-0 order-3"
               onMouseEnter={() => {
                 clearTimeout(tagCloseTimeout);
                 if (!tagOpen()) setTagOpen(true);
@@ -712,10 +653,10 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* feed type filter icon - when view has feed types */}
-          <Show when={info().feedTypeOptions?.length}>
+          {/* feed type filter icon - when view has feed types, hidden when search expanded on small */}
+          <Show when={info().feedTypeOptions?.length && (!isSmall() || !searchExpanded())}>
             <div
-              class="relative flex-shrink-0"
+              class="relative flex-shrink-0 order-3"
               onMouseEnter={() => {
                 clearTimeout(feedFilterCloseTimeout);
                 if (!feedFilterOpen()) setFeedFilterOpen(true);
@@ -787,10 +728,10 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* my items toggle - when view supports it */}
-          <Show when={info().onToggleMyItems}>
+          {/* my items toggle - when view supports it, hidden when search expanded on small */}
+          <Show when={info().onToggleMyItems && (!isSmall() || !searchExpanded())}>
             <button
-              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0"
+              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-3"
               classList={{
                 "text-[var(--color-accent-500)]": info().myItemsOnly,
                 "text-white/60 hover:text-white": !info().myItemsOnly,
@@ -802,44 +743,16 @@ export function TopNav(props: TopNavProps) {
             </button>
           </Show>
 
-          {/* back to top - shown after scroll threshold, after all filter controls */}
-          <Show when={info().showBackToTop && info().onBackToTop}>
+          {/* back to top - shown after scroll threshold, after all filter controls, hidden when search expanded on small */}
+          <Show
+            when={info().showBackToTop && info().onBackToTop && (!isSmall() || !searchExpanded())}
+          >
             <button
-              class="p-1.5 rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200"
+              class="p-1.5 rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200 order-3"
               onClick={() => info().onBackToTop?.()}
               title="back to top"
             >
               <Icon name="chevronUp" size={16} />
-            </button>
-          </Show>
-
-          {/* page title - only on narrow views, hidden when search is expanded */}
-          <Show when={isNarrow() && props.pageTitle && !searchExpanded()}>
-            <div class="flex-shrink-0 text-sm text-white/70 truncate max-w-[120px]">
-              {props.pageTitle}
-              <Show when={props.pageCount !== undefined}>
-                <span class="text-white/40 ml-1">({props.pageCount})</span>
-              </Show>
-            </div>
-          </Show>
-
-          {/* right side: queue toggle - only on narrow views */}
-          <Show when={isNarrow() && props.onQueueToggle}>
-            <button
-              class="p-2 rounded-lg hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer ml-auto relative"
-              classList={{
-                "text-[var(--color-accent-500)]": props.queueOpen,
-                "text-white/70 hover:text-white": !props.queueOpen,
-              }}
-              aria-label={props.queueOpen ? "close queue" : "open queue"}
-              onClick={props.onQueueToggle}
-            >
-              <Icon name="queue" size={20} />
-              <Show when={(props.queueLength || 0) > 0}>
-                <span class="absolute -top-0.5 -right-0.5 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] text-[10px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-medium px-1">
-                  {props.queueLength}
-                </span>
-              </Show>
             </button>
           </Show>
         </div>
