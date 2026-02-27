@@ -8,7 +8,7 @@ import { appState } from "../../../app/services/storage/db";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
 import { advanceServerProgress, reconnectServerSession } from "./serverSession";
 import { saveProgressToIDB } from "./queueProgress";
-import { setVisualPosition } from "../audio/player";
+import { isPlaying, setVisualPosition } from "../audio/player";
 import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked
@@ -28,7 +28,7 @@ const FLUSH_INTERVAL_MS = 5_000; // flush to IDB every 5 seconds
 export function startTracking(historyEntryId: string): void {
   // flush any previous tracking before starting new
   if (activeHistoryEntryId()) {
-    void flushProgress();
+    void flushProgress(true);
   }
 
   setActiveHistoryEntryId(historyEntryId);
@@ -55,7 +55,7 @@ export function resumeTracking(
   },
 ): void {
   if (activeHistoryEntryId()) {
-    void flushProgress();
+    void flushProgress(true);
   }
 
   setActiveHistoryEntryId(historyEntryId);
@@ -77,7 +77,7 @@ export function resumeTracking(
 // stop tracking (called when queue is cleared or playback stops completely)
 export function stopTracking(): void {
   if (activeHistoryEntryId()) {
-    void flushProgress();
+    void flushProgress(true);
   }
 
   setActiveHistoryEntryId(null);
@@ -146,9 +146,13 @@ export function getCurrentProgress(): {
 }
 
 // flush accumulated progress to IDB
-async function flushProgress(): Promise<void> {
+// force=true bypasses the isPlaying check (used for explicit flushes like stop/clear)
+async function flushProgress(force = false): Promise<void> {
   const entryId = activeHistoryEntryId();
   if (!entryId) return;
+  
+  // skip periodic flushes if player is not playing (no new progress to save)
+  if (!force && !isPlaying()) return;
 
   try {
     await updateHistoryProgress(entryId, {

@@ -810,5 +810,4 @@ export async function preCacheNextSongs(
 // clear in-progress tracking (useful when queue changes)
 export function clearInProgressTracking(): void {
   inProgressFetches.clear();
-  debug("cleared in-progress cache tracking");
 }

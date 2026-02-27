@@ -4,7 +4,6 @@
 // - persisted on song.queue_max_progress in IDB via queue save
 import { createSignal } from "solid-js";
 import { appState, setQueue } from "../../../app/services/storage/db";
-import { debug } from "../../../utils/logger";
 
 // reactive signal for live progress updates (queue_entry_id -> max progress 0-1)
 const [progressMap, setProgressMap] = createSignal<Map<string, number>>(new Map());
@@ -43,7 +42,6 @@ export function clearQueueItemProgress(queueEntryId: string): void {
 // clear all progress (called on queue clear)
 export function clearAllQueueProgress(): void {
   setProgressMap(new Map());
-  debug("[queueProgress] cleared all progress");
 }
 
 // save progress to IDB by syncing to songs and persisting the queue
@@ -62,7 +60,6 @@ export async function saveProgressToIDB(): Promise<void> {
     });
     
     await setQueue(updatedQueue);
-    debug("[queueProgress] saved progress to IDB", { entries: map.size });
   } catch (err) {
     console.error("[queueProgress] failed to save progress:", err);
   }
@@ -82,6 +79,5 @@ export function loadProgressFromStorage(): void {
   
   if (map.size > 0) {
     setProgressMap(map);
-    debug("[queueProgress] loaded progress from IDB", { entries: map.size });
   }
 }
