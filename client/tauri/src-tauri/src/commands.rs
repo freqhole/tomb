@@ -858,6 +858,19 @@ pub async fn scan_directory(
         };
     }
 
+    // set up directory tag rules if tags were specified
+    if !tags.is_empty() {
+        let tag_response =
+            grimoire::jobs::add_directory_tags(&path, tags.clone(), Some("tauri-scan".to_string()))
+                .await;
+        if !tag_response.success {
+            eprintln!(
+                "[scan] warning: failed to set up directory tags: {}",
+                tag_response.message
+            );
+        }
+    }
+
     // create a job session first (required for foreign key constraint)
     let session_request = grimoire::jobs::CreateJobSessionRequest {
         job_type: grimoire::jobs::JobType::ProcessFile,
@@ -874,9 +887,6 @@ pub async fn scan_directory(
     }
     let session = session_response.data.unwrap();
     let session_id = &session.id;
-
-    // TODO: pass tags to scanner when grimoire supports it
-    let _ = tags;
 
     let result = grimoire::music::scanner::scan_directory(
         &path, session_id, true,  // recursive
@@ -918,6 +928,167 @@ pub async fn scan_directory(
             message: result.message,
         },
     }
+}
+
+/// rescan all tracked directories and detect orphaned files (deleted from disk)
+///
+/// unlike scan_directory which only finds new files, this creates a RescanDirectories
+/// job that has two phases:
+/// 1. scan all tracked directories for new files
+/// 2. orphan detection: check all blobs, soft delete if file missing from disk
+#[tauri::command]
+pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
+    use grimoire::jobs::{create_job, CreateJobRequest, JobType};
+
+    // ensure config and database are initialized
+    if let Err(e) = ensure_initialized(&app_handle).await {
+        return ScanResult {
+            success: false,
+            jobs_created: 0,
+            message: format!("initialization failed: {}", e),
+        };
+    }
+
+    // create a RescanDirectories job
+    let job_request = CreateJobRequest {
+        job_type: JobType::RescanDirectories,
+        session_id: None,
+        parameters: serde_json::json!({}),
+        max_retries: Some(0), // no retries for rescan
+        scheduled_at: None,   // immediate
+        created_by: Some("tauri-wizard".to_string()),
+    };
+
+    let response = create_job(job_request).await;
+
+    if !response.success {
+        return ScanResult {
+            success: false,
+            jobs_created: 0,
+            message: format!("failed to create rescan job: {}", response.message),
+        };
+    }
+
+    let job = response.data.unwrap();
+
+    // start background polling for job completion
+    let app_handle_clone = app_handle.clone();
+    let job_id = job.id.clone();
+    let shutdown_token = app_handle.state::<crate::ShutdownToken>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        poll_rescan_job_until_complete(app_handle_clone, job_id, shutdown_token).await;
+    });
+
+    ScanResult {
+        success: true,
+        jobs_created: 1,
+        message: format!("rescan job created: {}", job.id),
+    }
+}
+
+/// poll for rescan job completion and notify spume with progress updates
+async fn poll_rescan_job_until_complete(
+    app_handle: tauri::AppHandle,
+    job_id: String,
+    shutdown_token: crate::ShutdownToken,
+) {
+    use grimoire::jobs::{list_jobs, JobStatus};
+    use grimoire::music::analytics::admin::get_overview_stats;
+    use std::time::Duration;
+
+    // get baseline counts before job is processed
+    let baseline = match get_overview_stats().await.data {
+        Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
+        None => {
+            eprintln!("[rescan-poll] failed to get baseline stats");
+            (0, 0, 0)
+        }
+    };
+
+    let poll_interval = Duration::from_secs(3);
+    let max_polls = 1200; // 60 minutes max (1200 * 3s) - rescan can take longer
+    let mut last_songs = 0i64;
+
+    for _ in 0..max_polls {
+        // wait for poll interval or shutdown
+        tokio::select! {
+            _ = tokio::time::sleep(poll_interval) => {}
+            _ = shutdown_token.cancelled() => {
+                eprintln!("[rescan-poll] shutdown requested, stopping poll");
+                return;
+            }
+        }
+
+        // check all jobs status (rescan creates sub-jobs)
+        let jobs_response = list_jobs(None, None, Some(1000), None).await;
+
+        match jobs_response.data {
+            Some(jobs) => {
+                let jobs_total = jobs.len() as u32;
+                let pending = jobs
+                    .iter()
+                    .filter(|j| {
+                        j.status()
+                            .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                            .unwrap_or(false)
+                    })
+                    .count() as u32;
+
+                // get current stats to track progress
+                let current_stats = get_overview_stats().await.data;
+                let (songs_added, albums_added, artists_added) = match &current_stats {
+                    Some(stats) => (
+                        (stats.total_songs - baseline.0).max(0) as u32,
+                        (stats.total_albums - baseline.1).max(0) as u32,
+                        (stats.total_artists - baseline.2).max(0) as u32,
+                    ),
+                    None => (0, 0, 0),
+                };
+
+                // send progress update if songs changed
+                let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
+                if current_songs != last_songs {
+                    last_songs = current_songs;
+                    if let Err(e) = crate::spume_bridge::notify_scan_progress(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                        pending,
+                        jobs_total,
+                    ) {
+                        eprintln!("[rescan-poll] failed to send progress: {}", e);
+                    }
+                }
+
+                if pending == 0 && !jobs.is_empty() {
+                    // all jobs complete - send final notification
+                    if let Err(e) = crate::spume_bridge::notify_scan_jobs_complete(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                    ) {
+                        eprintln!("[rescan-poll] failed to notify spume: {}", e);
+                    }
+
+                    eprintln!(
+                        "[rescan-poll] complete: {} songs, {} albums, {} artists added",
+                        songs_added, albums_added, artists_added
+                    );
+                    return;
+                }
+            }
+            None => {
+                eprintln!(
+                    "[rescan-poll] failed to get job list for rescan job {}",
+                    job_id
+                );
+            }
+        }
+    }
+
+    eprintln!("[rescan-poll] polling timed out after 60 minutes");
 }
 
 /// poll for scan job completion and notify spume with progress updates
@@ -1146,6 +1317,7 @@ pub struct ScannedDirInfo {
     pub path: String,
     pub file_count: i64,
     pub last_scanned_at: i64,
+    pub tags: Vec<String>,
 }
 
 /// list all scanned directories
@@ -1158,15 +1330,28 @@ pub async fn list_scanned_directories(
     let result = grimoire::jobs::list_scanned_directories().await;
 
     match result.data {
-        Some(dirs) => Ok(dirs
-            .into_iter()
-            .map(|d| ScannedDirInfo {
-                id: d.id,
-                path: d.path,
-                file_count: d.file_count,
-                last_scanned_at: d.last_scanned_at,
-            })
-            .collect()),
+        Some(dirs) => {
+            let mut dirs_with_tags = Vec::new();
+            for d in dirs {
+                // get tags for this directory
+                let tags_result = grimoire::jobs::list_directory_tags(&d.path).await;
+                let tags: Vec<String> = tags_result
+                    .data
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|rule| rule.tag_name)
+                    .collect();
+
+                dirs_with_tags.push(ScannedDirInfo {
+                    id: d.id,
+                    path: d.path,
+                    file_count: d.file_count,
+                    last_scanned_at: d.last_scanned_at,
+                    tags,
+                });
+            }
+            Ok(dirs_with_tags)
+        }
         None => Err(result.message),
     }
 }

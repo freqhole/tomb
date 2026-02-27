@@ -50,7 +50,6 @@ function App(props: ParentProps) {
   );
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
-  const [copied, setCopied] = createSignal(false);
 
   // track restart count to detect server restarts
   let lastRestartCount: number | null = null;
@@ -156,19 +155,6 @@ function App(props: ParentProps) {
     setSetupComplete,
   };
 
-  async function copyServerUrl() {
-    const url = serverStatus()?.server_url;
-    if (url) {
-      try {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (e) {
-        console.error("copy failed:", e);
-      }
-    }
-  }
-
   // use Show components for proper SolidJS reactivity (if statements don't re-render)
   return (
     <AppContext.Provider value={contextValue}>
@@ -250,12 +236,6 @@ function App(props: ParentProps) {
                           >
                             {status().server_url}
                           </a>
-                          {/* <button
-                            class="secondary small"
-                            onClick={copyServerUrl}
-                          >
-                            {copied() ? "copied!" : "copy"}
-                          </button> */}
                         </div>
                       </Show>
                     </div>

@@ -10,7 +10,6 @@ interface SaveConfigResult {
 
 export default function SettingsView() {
   const [configPath, setConfigPath] = createSignal("");
-  const [configContent, setConfigContent] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
   const [saveMessage, setSaveMessage] = createSignal("");
   const [saveErrors, setSaveErrors] = createSignal<string[]>([]);
@@ -42,7 +41,6 @@ export default function SettingsView() {
   async function loadConfigContent() {
     try {
       const content = await invoke<string>("read_config_file");
-      setConfigContent(content);
       initEditor(content);
     } catch (e) {
       console.error("failed to load config content:", e);

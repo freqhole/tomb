@@ -209,6 +209,7 @@ pub fn run() {
             commands::deactivate_invite,
             commands::update_invite_role,
             commands::scan_directory,
+            commands::rescan_directories,
             commands::list_scanned_directories,
             commands::remove_scanned_directory,
             sidecar::server_status,

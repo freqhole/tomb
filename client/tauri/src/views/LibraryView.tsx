@@ -7,6 +7,7 @@ interface ScannedDir {
   path: string;
   file_count: number;
   last_scanned_at: number;
+  tags: string[];
 }
 
 interface ScanResult {
@@ -107,6 +108,22 @@ export default function LibraryView() {
     }
   }
 
+  async function rescanAll() {
+    setScanning("__all__");
+    setLastResult("");
+
+    try {
+      const result = await invoke<ScanResult>("rescan_directories");
+      setLastResult(result.message);
+      // reload directories to show updated file count
+      await loadDirectories();
+    } catch (e) {
+      setLastResult(`error: ${e}`);
+    } finally {
+      setScanning(null);
+    }
+  }
+
   return (
     <div class="view-content">
       <div class="view-header">
@@ -136,15 +153,22 @@ export default function LibraryView() {
                 <div class="directory-item">
                   <div class="directory-info">
                     <span class="directory-path">{dir.path}</span>
-                    <span class="directory-meta">{dir.file_count} files</span>
+                    <span class="directory-meta">
+                      {dir.file_count} files
+                      <Show when={dir.tags.length > 0}>
+                        <span class="directory-tags">
+                          {dir.tags.map((tag) => `#${tag}`).join(" ")}
+                        </span>
+                      </Show>
+                    </span>
                   </div>
                   <div class="directory-actions">
                     <button
                       class="secondary small"
                       onClick={() => scanDirectory(dir.path, [])}
-                      disabled={scanning() === dir.path}
+                      disabled={scanning() !== null}
                     >
-                      {scanning() === dir.path ? "scanning..." : "rescan"}
+                      {scanning() === dir.path ? "scanning..." : "scan"}
                     </button>
                     <Show when={confirmRemove() === dir.path}>
                       <button
@@ -179,7 +203,22 @@ export default function LibraryView() {
           <button class="secondary" onClick={browseDirectory}>
             add directory
           </button>
+          <Show when={directories().length > 0}>
+            <button
+              class="secondary"
+              onClick={rescanAll}
+              disabled={scanning() !== null}
+            >
+              {scanning() === "__all__" ? "rescanning..." : "rescan all"}
+            </button>
+          </Show>
         </div>
+
+        <Show when={directories().length > 0}>
+          <p class="hint">
+            "scan" finds new files. "rescan all" also finds deleted files.
+          </p>
+        </Show>
 
         <Show when={lastResult()}>
           <p class="scan-progress">{lastResult()}</p>
