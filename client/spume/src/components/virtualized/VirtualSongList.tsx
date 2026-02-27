@@ -9,15 +9,13 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 // row heights for different layouts
 const TABLE_ROW_HEIGHT = 48;
 const COMPACT_ROW_HEIGHT = 64; // taller for 2-line content
 const OVERSCAN = 5;
 const IMAGE_SIZE = 40;
-
-// breakpoint for switching layouts (matches Tailwind md)
-const NARROW_BREAKPOINT = 768;
 
 // horizontal padding for cells - adjust this value to change spacing
 const CELL_PAD = "px-2";
@@ -65,9 +63,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
   const [hoveredRowIndex, setHoveredRowIndex] = createSignal<number | null>(null);
 
   // responsive: track if we're in narrow mode
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   // current row height based on layout mode
   const rowHeight = () => (isNarrow() ? COMPACT_ROW_HEIGHT : TABLE_ROW_HEIGHT);
@@ -87,7 +83,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
   // listen for resize to update layout mode
   onMount(() => {
     const handleResize = () => {
-      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      const narrow = isNarrowViewport();
       if (narrow !== isNarrow()) {
         setIsNarrow(narrow);
         // force virtualizer to recalculate with new row height

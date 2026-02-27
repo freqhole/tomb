@@ -5,6 +5,7 @@
 
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { debug } from "./logger";
+import { isNarrowViewport } from "../config/breakpoints";
 
 // debug logging - set to true to diagnose viewport issues
 const DEBUG_VIEWPORT = true;
@@ -99,7 +100,6 @@ export function getViewportHeight(): number {
   return window.visualViewport?.height ?? window.innerHeight;
 }
 
-const NARROW_BREAKPOINT = 768;
 const NAV_HEIGHT = 56;
 
 /**
@@ -109,5 +109,5 @@ const NAV_HEIGHT = 56;
  */
 export function getNavHeight(): number {
   if (typeof window === "undefined") return 0;
-  return window.innerWidth < NARROW_BREAKPOINT ? NAV_HEIGHT : 0;
+  return isNarrowViewport() ? NAV_HEIGHT : 0;
 }

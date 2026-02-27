@@ -17,8 +17,7 @@ import { useScrollRestore } from "../../utils/scrollRestore";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import type { ImageMetadata } from "../../music/services/storage/types";
-
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface VirtualGenreDetailSong {
   sha256: string;
@@ -80,7 +79,7 @@ export interface VirtualGenreDetailProps {
 export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element {
   // component OWNS its scroll container - this is the key pattern from working virtualizers
   let parentRef: HTMLDivElement | undefined;
-  const [isNarrow, setIsNarrow] = createSignal(window.innerWidth < NARROW_BREAKPOINT);
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   const [containerWidth, setContainerWidth] = createSignal(0);
   const gap = 16;
 
@@ -237,7 +236,7 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
   // listen for window resize to update narrow state
   onMount(() => {
     const handleResize = () => {
-      const nowNarrow = window.innerWidth < NARROW_BREAKPOINT;
+      const nowNarrow = isNarrowViewport();
       if (isNarrow() !== nowNarrow) {
         setIsNarrow(nowNarrow);
       }
@@ -286,16 +285,16 @@ export function VirtualGenreDetail(props: VirtualGenreDetailProps): JSX.Element 
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div class="px-4 md:px-6 py-4">
+                  <div class="px-4 wide:px-6 py-4">
                     {/* artist header */}
-                    <div class="flex flex-col md:flex-row md:items-center gap-1 md:gap-3 mb-4">
+                    <div class="flex flex-col wide:flex-row wide:items-center gap-1 wide:gap-3 mb-4">
                       <button
                         onClick={() => props.onArtistClick?.(artist().artistId)}
-                        class="min-w-0 overflow-hidden text-lg md:text-xl font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-500)] transition-colors text-left"
+                        class="min-w-0 overflow-hidden text-lg wide:text-xl font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-accent-500)] transition-colors text-left"
                       >
                         <MarqueeText text={artist().artistName} hoverOnly={true} />
                       </button>
-                      <span class="text-xs md:text-sm text-[var(--color-text-tertiary)] shrink-0">
+                      <span class="text-xs wide:text-sm text-[var(--color-text-tertiary)] shrink-0">
                         {artist().albums.length} {artist().albums.length === 1 ? "album" : "albums"}
                       </span>
                     </div>

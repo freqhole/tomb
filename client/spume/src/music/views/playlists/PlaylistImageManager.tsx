@@ -55,7 +55,12 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
       // poll for job completion if remote
       const remote = getCurrentRemote();
       if (remote?.base_url && job_id) {
-        const pollResult = await pollJobUntilComplete(remote.base_url, job_id, 10000, remote.api_key);
+        const pollResult = await pollJobUntilComplete(
+          remote.base_url,
+          job_id,
+          10000,
+          remote.api_key
+        );
         if (pollResult === "failed") {
           toast.error("image processing failed");
           return;
@@ -137,7 +142,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
           <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
             playlist images ({props.images.length})
           </h3>
-          <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+          <div class="grid grid-cols-3 sm:grid-cols-4 wide:grid-cols-5 gap-2">
             <For each={props.images}>
               {(image, index) => (
                 <div class="relative group">

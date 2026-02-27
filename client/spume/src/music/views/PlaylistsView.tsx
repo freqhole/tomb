@@ -55,13 +55,11 @@ import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
 import { debug, error as errorLog } from "../../utils/logger";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
 }
-
-// narrow breakpoint for responsive layout
-const NARROW_BREAKPOINT = 768;
 
 export function PlaylistsView(_props: PlaylistsViewProps) {
   const params = useParams<{ id?: string }>();
@@ -76,9 +74,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       : params.id || null;
 
   // responsive: track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
@@ -95,7 +91,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // track whether detail is showing on narrow (for back navigation)
   // initialize to true if we have an initial ID and are on a narrow screen
   const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
-    typeof window !== "undefined" && window.innerWidth < NARROW_BREAKPOINT && !!initialPlaylistId
+    isNarrowViewport() && !!initialPlaylistId
   );
 
   const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<string | null>(
@@ -114,7 +110,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   onMount(() => {
     const handleResize = () => {
-      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      const narrow = isNarrowViewport();
       setIsNarrow(narrow);
       // reset detail view state when going from narrow to wide
       if (!narrow) {
@@ -970,7 +966,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 <span>{formatHumanDuration(totalDuration())}</span>
                               </Show>
                               {/* line break on narrow screens */}
-                              <div class="basis-full md:hidden" />
+                              <div class="basis-full wide:hidden" />
                               <Show when={selectedPlaylist()?.created_at}>
                                 <span>
                                   created {formatRelativeTime(selectedPlaylist()!.created_at)}

@@ -8,6 +8,7 @@ import {
   type ParentProps,
 } from "solid-js";
 import { Icon } from "../icons/registry";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface HeadingSectionProps extends ParentProps {
   /** main heading text */
@@ -63,14 +64,11 @@ export interface HeadingSectionProps extends ParentProps {
  * used in: song list, artist list, album grid, detail panels, any collection view
  */
 export function HeadingSection(props: HeadingSectionProps) {
-  const NARROW_BREAKPOINT = 768;
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const handleResize = () => {
-      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      setIsNarrow(isNarrowViewport());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
@@ -125,7 +123,7 @@ export function HeadingSection(props: HeadingSectionProps) {
 
     // padding - detail variant uses responsive padding
     if (isDetail()) {
-      classes.push("px-3 md:px-6 py-2 md:py-4");
+      classes.push("px-3 wide:px-6 py-2 wide:py-4");
     }
     // else if (local.compact) {
     //   classes.push("p-2");
@@ -143,7 +141,7 @@ export function HeadingSection(props: HeadingSectionProps) {
   // title text size
   const titleClasses = () => {
     if (isDetail()) {
-      return "text-xl md:text-3xl font-bold text-[var(--color-text-primary)] truncate";
+      return "text-xl wide:text-3xl font-bold text-[var(--color-text-primary)] truncate";
     }
     return `${local.compact ? "text-xl" : "text-2xl"} font-semibold text-[var(--color-text-primary)]`;
   };

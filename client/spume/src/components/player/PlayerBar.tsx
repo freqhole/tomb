@@ -138,7 +138,7 @@ export function PlayerBar(props: PlayerBarProps) {
       style={{ height: "var(--player-height)" }}
     >
       {/* narrow layout: 2 rows */}
-      <div class="flex flex-col h-full md:hidden p-2 gap-1">
+      <div class="flex flex-col h-full wide:hidden p-2 gap-1">
         {/* row 1: thumbnail, fav, title/artist, controls, queue */}
         <div class="flex items-center gap-2 flex-1 min-h-0">
           {/* thumbnail */}
@@ -286,7 +286,7 @@ export function PlayerBar(props: PlayerBarProps) {
       </div>
 
       {/* wide layout: single row (hidden on narrow) */}
-      <div class="hidden md:flex items-center gap-6 h-full p-4">
+      <div class="hidden wide:flex items-center gap-6 h-full p-4">
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
           {/* thumbnail */}

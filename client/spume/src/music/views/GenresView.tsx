@@ -17,9 +17,7 @@ import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { useAlbumContextMenu, useGenreContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
-
-// narrow breakpoint for responsive layout
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface GenresViewProps {
   onAddMusic: () => void;
@@ -49,13 +47,11 @@ export function GenresView(props: GenresViewProps) {
       : null);
 
   // responsive: track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   // track whether detail is showing on narrow (for back navigation)
   // initialize to true if we have an initial ID and are on a narrow screen
   const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
-    typeof window !== "undefined" && window.innerWidth < NARROW_BREAKPOINT && !!initialGenreId
+    isNarrowViewport() && !!initialGenreId
   );
 
   const [selectedGenreId, setSelectedGenreId] = createSignal<string | null>(initialGenreId);
@@ -76,7 +72,7 @@ export function GenresView(props: GenresViewProps) {
 
   onMount(() => {
     const handleResize = () => {
-      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      const narrow = isNarrowViewport();
       setIsNarrow(narrow);
       // reset detail view state when going from narrow to wide
       if (!narrow) {

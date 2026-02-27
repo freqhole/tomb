@@ -150,7 +150,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     const isActive = () => activeFilters().has(buttonProps.type);
     return (
       <button
-        class={`px-2 py-1.5 md:px-4 md:py-2 text-sm md:text-base rounded-lg transition-all ${
+        class={`px-2 py-1.5 wide:px-4 wide:py-2 text-sm wide:text-base rounded-lg transition-all ${
           isActive()
             ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
             : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
@@ -160,7 +160,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
         {buttonProps.label}
         <Show when={buttonProps.count > 0}>
           <span
-            class={`ml-1 md:ml-2 px-1.5 md:px-2 py-0.5 rounded-full text-xs ${
+            class={`ml-1 wide:ml-2 px-1.5 wide:px-2 py-0.5 rounded-full text-xs ${
               isActive() ? "bg-[var(--color-text-on-accent)]/20" : "bg-[var(--color-bg-primary)]"
             }`}
           >
@@ -253,9 +253,9 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
       ref={scrollContainerRef!}
       onScroll={(e) => saveScroll(e.currentTarget)}
     >
-      <div class="px-4 md:px-6 pb-6">
+      <div class="px-4 wide:px-6 pb-6">
         {/* filter toggles */}
-        <div class="flex gap-2 overflow-x-auto md:overflow-x-visible md:flex-wrap scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-end">
+        <div class="flex gap-2 overflow-x-auto wide:overflow-x-visible wide:flex-wrap scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-end">
           <ToggleButton type="songs" label="songs" count={counts().songs} />
           <ToggleButton type="albums" label="albums" count={counts().albums} />
           <ToggleButton type="artists" label="artists" count={counts().artists} />
@@ -288,7 +288,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
           <Show
             when={isSongsOnly()}
             fallback={
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+              <div class="grid grid-cols-2 wide:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
                 <For each={filteredFavorites()}>{(item) => renderFavoriteCard(item)}</For>
               </div>
             }

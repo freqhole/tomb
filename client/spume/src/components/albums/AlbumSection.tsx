@@ -95,7 +95,7 @@ function AlbumHeader(props: {
   return (
     <div class="bg-[var(--color-bg-elevated)] rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors">
       {/* narrow layout: title full width, then artwork with info/actions */}
-      <div class="md:hidden px-3 py-3">
+      <div class="wide:hidden px-3 py-3">
         {/* row 1: title full width */}
         <button
           onClick={props.onAlbumClick}
@@ -171,7 +171,7 @@ function AlbumHeader(props: {
       </div>
 
       {/* wide layout: horizontal with image on left */}
-      <div class="hidden md:flex items-start gap-4 p-4">
+      <div class="hidden wide:flex items-start gap-4 p-4">
         {/* album artwork */}
         <button
           onClick={props.onAlbumClick}

@@ -241,13 +241,13 @@ export function AlbumDetailView() {
           {(info) => (
             <>
               {/* header with album info - responsive layout */}
-              <div class="flex flex justify-between px-1 md:gap-6 md:p-6">
+              <div class="flex flex justify-between px-1 wide:gap-6 wide:p-6">
                 {/* album info */}
-                <div class="flex flex-col justify-center min-w-0 md:mt-[50px] md:gap-2 md:text-left">
-                  <h1 class="text-2xl md:text-5xl font-bold text-[var(--color-text-primary)]">
+                <div class="flex flex-col justify-center min-w-0 wide:mt-[50px] wide:gap-2 wide:text-left">
+                  <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
                     <MarqueeText text={info().title} class="pb-1" />
                   </h1>
-                  <div class="flex flex-col md:flex-wrap gap-y-0.5 md:gap-x-2 md:gap-y-1 md:text-xl text-[var(--color-text-secondary)]">
+                  <div class="flex flex-col wide:flex-wrap gap-y-0.5 wide:gap-x-2 wide:gap-y-1 wide:text-xl text-[var(--color-text-secondary)]">
                     <button
                       onClick={handleArtistClick}
                       class="hover:text-[var(--color-text-primary)] hover:underline text-left"
@@ -285,8 +285,8 @@ export function AlbumDetailView() {
                           const obs = new ResizeObserver(check);
                           obs.observe(el);
                         }}
-                        class={`flex flex-wrap gap-1.5 md:justify-start ${
-                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden md:max-h-none" : ""
+                        class={`flex flex-wrap gap-1.5 wide:justify-start ${
+                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden wide:max-h-none" : ""
                         }`}
                       >
                         <For each={songs()[0]?.album_genres ?? []}>
@@ -311,7 +311,7 @@ export function AlbumDetailView() {
                       <Show when={tagsOverflowing() || tagsExpanded()}>
                         <button
                           onClick={() => setTagsExpanded((v) => !v)}
-                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] md:hidden"
+                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] wide:hidden"
                         >
                           {tagsExpanded() ? "see less" : "see more"}
                         </button>
@@ -320,10 +320,10 @@ export function AlbumDetailView() {
                   </Show>
 
                   {/* play button, edit button, and favorite toggle */}
-                  <div class="mt-0 md:mt-4 flex items-center md:justify-start gap-2 md:gap-3">
+                  <div class="mt-0 wide:mt-4 flex items-center wide:justify-start gap-2 wide:gap-3">
                     <Button variant="primary" onClick={handlePlayAlbum}>
-                      <span class="hidden md:inline">play album</span>
-                      <span class="md:hidden">play</span>
+                      <span class="hidden wide:inline">play album</span>
+                      <span class="wide:hidden">play</span>
                     </Button>
                     <Show when={canUpdateAlbum()}>
                       <button
@@ -360,7 +360,7 @@ export function AlbumDetailView() {
                 {/* album artwork */}
                 <ContextMenu actions={albumContextMenuActions()}>
                   <div
-                    class="relative group w-32 h-32 md:w-64 md:h-64 mx-auto md:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
+                    class="relative group w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 bg-[var(--color-bg-elevated)] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden cursor-pointer hover:border-l-[var(--color-accent-500)] border-transparent border-2"
                     title="view album images"
                     onClick={handleAlbumImageClick}
                   >
@@ -384,7 +384,7 @@ export function AlbumDetailView() {
 
               {/* songs list */}
               <div class="flex-1 overflow-auto">
-                <div class="px-4 md:px-6 py-2 md:py-4 space-y-1">
+                <div class="px-4 wide:px-6 py-2 wide:py-4 space-y-1">
                   <For each={songs()}>
                     {(song) => {
                       const trackDisplay =

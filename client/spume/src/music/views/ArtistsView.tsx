@@ -23,9 +23,7 @@ import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
-
-// narrow breakpoint for responsive layout
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface ArtistsViewProps {
   onAddMusic: () => void;
@@ -56,13 +54,11 @@ export function ArtistsView(props: ArtistsViewProps) {
       : null);
 
   // responsive: track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   // track whether detail is showing on narrow (for back navigation)
   // initialize to true if we have an initial ID and are on a narrow screen
   const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
-    typeof window !== "undefined" && window.innerWidth < NARROW_BREAKPOINT && !!initialArtistId
+    isNarrowViewport() && !!initialArtistId
   );
 
   const [selectedArtistId, setSelectedArtistId] = createSignal<string | null>(initialArtistId);
@@ -80,7 +76,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   onMount(() => {
     const handleResize = () => {
-      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      const narrow = isNarrowViewport();
       setIsNarrow(narrow);
       // reset detail view state when going from narrow to wide
       if (!narrow) {

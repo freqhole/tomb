@@ -266,7 +266,7 @@ export function RemotesSettingsView() {
   };
 
   return (
-    <div class="p-4 md:p-6">
+    <div class="p-4 wide:p-6">
       <div class="mb-6">
         <h1 class="text-xl font-semibold text-[var(--color-text-primary)] mb-1">remotes</h1>
         <p class="text-sm text-[var(--color-text-muted)]">manage your connected music servers</p>

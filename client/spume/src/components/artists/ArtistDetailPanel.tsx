@@ -209,12 +209,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           sticky
           showBackButton={props.showBackButton}
           onBack={props.onBack}
-          class="px-4 py-3 md:hidden"
+          class="px-4 py-3 wide:hidden"
         />
       </Show>
 
       {/* DESKTOP: fixed header with artist info, stats, and buttons */}
-      <div class="hidden md:block flex-shrink-0 border-b border-[var(--color-bg-tertiary)]">
+      <div class="hidden wide:block flex-shrink-0 border-b border-[var(--color-bg-tertiary)]">
         <div class="p-6 space-y-4">
           <div class="flex gap-6 items-start">
             {/* artist avatar */}
@@ -352,7 +352,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       {/* scrollable content */}
       <div class="flex-1 overflow-y-auto">
         {/* MOBILE: artist header with image, info, stats, and buttons - scrolls */}
-        <div class="md:hidden p-4 space-y-4">
+        <div class="wide:hidden p-4 space-y-4">
           <div class="flex flex-col gap-4 items-center">
             {/* artist avatar */}
             <ContextMenu actions={artistContextMenuActions()}>
@@ -480,7 +480,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         </div>
 
         {/* albums list with songs */}
-        <div class="flex-1 px-4 md:px-6 py-3 md:py-4">
+        <div class="flex-1 px-4 wide:px-6 py-3 wide:py-4">
           <Show
             when={albumGroups().length > 0}
             fallback={<p class="text-[var(--color-text-tertiary)] text-sm">no albums found</p>}

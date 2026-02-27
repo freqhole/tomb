@@ -135,6 +135,18 @@
     --letter-spacing-wide: 0.025em;
     --letter-spacing-wider: 0.05em;
     --letter-spacing-widest: 0.1em;
+
+    /* ---------------------------------------------------------------------------
+     responsive breakpoints
+     --------------------------------------------------------------------------- */
+
+    /* wide breakpoint: 801px+ (narrow mode is 0-800px)
+       use wide: prefix in classes, e.g. wide:flex-row */
+    --breakpoint-wide: 801px;
+
+    /* override Tailwind's default md breakpoint (768px -> 801px)
+       this keeps md: and wide: in sync so either can be used (but do prefer using wide) */
+    --breakpoint-md: 801px;
 }
 
 /* =============================================================================
@@ -148,7 +160,7 @@
     --nav-height: 56px;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 801px) {
     :root {
         /* single row on wider screens */
         --player-height: 72px;

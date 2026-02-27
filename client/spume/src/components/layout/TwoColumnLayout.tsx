@@ -8,8 +8,7 @@ import {
   type JSX,
   type Accessor,
 } from "solid-js";
-
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface TwoColumnLayoutProps {
   /** content for the left column (list/navigation) */
@@ -61,7 +60,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on narrow: shown alongside list, hidden when detail showing */}
       {/* on wide: always visible */}
       <Show when={local.alphabetNav}>
-        <div class={`flex-shrink-0 ${local.showDetail ? "hidden md:block" : "block"}`}>
+        <div class={`flex-shrink-0 ${local.showDetail ? "hidden wide:block" : "block"}`}>
           {local.alphabetNav}
         </div>
       </Show>
@@ -71,13 +70,13 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on wide: fixed width sidebar */}
       <div
         class={`flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] overflow-hidden
-          flex-1 md:flex-none md:w-auto
-          ${local.showDetail ? "hidden md:flex" : "flex"}`}
+          flex-1 wide:flex-none wide:w-auto
+          ${local.showDetail ? "hidden wide:flex" : "flex"}`}
         style={{
           "--left-width": `${leftWidth()}px`,
         }}
       >
-        <div class="md:w-[var(--left-width)] md:min-w-[var(--left-width)] h-full overflow-hidden">
+        <div class="wide:w-[var(--left-width)] wide:min-w-[var(--left-width)] h-full overflow-hidden">
           {local.leftColumn}
         </div>
       </div>
@@ -88,8 +87,8 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* back button is now rendered by the detail view itself for better layout control */}
       <div
         class={`flex-1 flex flex-col min-w-0
-          ${local.showDetail ? "flex" : "hidden md:flex"}
-          md:relative`}
+          ${local.showDetail ? "flex" : "hidden wide:flex"}
+          wide:relative`}
       >
         {local.rightColumn}
       </div>
@@ -203,13 +202,11 @@ export interface ResponsiveMasterDetailProps<T> {
  */
 export function ResponsiveMasterDetail<T>(props: ResponsiveMasterDetailProps<T>) {
   // track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const handleResize = () => {
-      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      setIsNarrow(isNarrowViewport());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));

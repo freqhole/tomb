@@ -70,9 +70,7 @@ import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analyti
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
 import { saveRoute } from "../utils/tauri/routePersistence";
 import { debug } from "../utils/logger";
-
-// responsive breakpoint
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../config/breakpoints";
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -91,9 +89,7 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
 
   // responsive: track narrow viewport
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
@@ -108,7 +104,7 @@ export function AppLayout(props: AppLayoutProps) {
 
   // resize handler for narrow viewport detection (hoisted so cleanup can reference it)
   const handleResize = () => {
-    setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+    setIsNarrow(isNarrowViewport());
   };
 
   // register cleanups in synchronous component body so solid can track them

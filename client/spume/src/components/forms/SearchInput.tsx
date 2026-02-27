@@ -7,8 +7,7 @@ import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 import { Icon } from "../icons/registry";
-
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface SearchSuggestion {
   id: string;
@@ -57,9 +56,7 @@ export function SearchInput(props: SearchInputProps) {
   const [highlightedIndex, setHighlightedIndex] = createSignal(-1);
   const [isHoveringDropdown, setIsHoveringDropdown] = createSignal(false);
   const [showLoadingMore, setShowLoadingMore] = createSignal(false);
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   let listRef: HTMLDivElement | undefined;
   let inputEl: HTMLInputElement | undefined;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -67,7 +64,7 @@ export function SearchInput(props: SearchInputProps) {
 
   // track viewport width changes for responsive flyout
   onMount(() => {
-    const handleResize = () => setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+    const handleResize = () => setIsNarrow(isNarrowViewport());
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });

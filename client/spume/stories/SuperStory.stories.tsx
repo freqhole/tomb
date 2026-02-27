@@ -20,6 +20,7 @@ import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import type { Song as DomainSong } from "../src/music/data/types";
+import { isNarrowViewport } from "../src/config/breakpoints";
 import {
   generateBulkSongs,
   mockAlbums,
@@ -90,15 +91,12 @@ export const FullAppDemo: Story = {
     const [queueSongs, setQueueSongs] = createSignal<Song[]>(generatedSongs.slice(0, 20));
     const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
 
-    // responsive: track if viewport is narrow (< 768px)
-    const NARROW_BREAKPOINT = 768;
-    const [isNarrow, setIsNarrow] = createSignal(
-      typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-    );
+    // responsive: track if viewport is narrow (<= 800px)
+    const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
     onMount(() => {
       const handleResize = () => {
-        setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+        setIsNarrow(isNarrowViewport());
       };
       window.addEventListener("resize", handleResize);
       onCleanup(() => window.removeEventListener("resize", handleResize));
@@ -353,7 +351,7 @@ export const FullAppDemo: Story = {
         getItemKey={(a) => a.id}
         alphabetNav={
           artistSortBy() === "name" ? (
-            <div class="mt-2 md:mt-[60px]">
+            <div class="mt-2 wide:mt-[60px]">
               <AlphabetNav
                 currentLetter={currentLetter()}
                 disabledLetters={disabledLetters()}
@@ -367,7 +365,7 @@ export const FullAppDemo: Story = {
           ) : undefined
         }
         renderList={(ctx) => (
-          <div class="flex flex-col h-full mt-2 md:mt-[60px]">
+          <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
             <HeadingSection
               title="artists"
               count={sortedArtists().length}
@@ -426,8 +424,8 @@ export const FullAppDemo: Story = {
                 {/* scrollable content area */}
                 <div class="flex-1 overflow-y-auto">
                   {/* stats section */}
-                  <div class="p-3 md:p-6">
-                    <StatsGrid columns={5} gap="md" class="mb-3 md:mb-6">
+                  <div class="p-3 wide:p-6">
+                    <StatsGrid columns={5} gap="md" class="mb-3 wide:mb-6">
                       <StatsCard
                         label="songs"
                         value={formatNumber(artist().songCount)}
@@ -458,7 +456,7 @@ export const FullAppDemo: Story = {
                   </div>
 
                   {/* top songs list */}
-                  <div class="px-3 md:px-6 pb-4">
+                  <div class="px-3 wide:px-6 pb-4">
                     <div class="mb-3 flex items-center justify-between">
                       <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
                         top songs
@@ -491,17 +489,17 @@ export const FullAppDemo: Story = {
                 </div>
 
                 {/* sticky action buttons */}
-                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
                   <Button variant="primary" onClick={() => console.log("play all songs")}>
-                    <span class="hidden md:inline">play all</span>
-                    <span class="md:hidden">play</span>
+                    <span class="hidden wide:inline">play all</span>
+                    <span class="wide:hidden">play</span>
                   </Button>
                   <Button variant="secondary" onClick={() => console.log("shuffle")}>
                     shuffle
                   </Button>
                   <Button variant="ghost" onClick={() => console.log("add to queue")}>
-                    <span class="hidden md:inline">add to queue</span>
-                    <span class="md:hidden">+queue</span>
+                    <span class="hidden wide:inline">add to queue</span>
+                    <span class="wide:hidden">+queue</span>
                   </Button>
                 </div>
               </div>
@@ -536,7 +534,7 @@ export const FullAppDemo: Story = {
         getItemKey={(g) => g.id}
         renderList={(ctx) => (
           <div class="flex flex-col h-full">
-            <div class="mt-2 md:mt-[60px]">
+            <div class="mt-2 wide:mt-[60px]">
               <HeadingSection
                 title="genres"
                 count={sortedGenres().length}
@@ -596,7 +594,7 @@ export const FullAppDemo: Story = {
                 {/* scrollable content area */}
                 <div class="flex-1 overflow-y-auto">
                   {/* stats section */}
-                  <div class="p-3 md:p-6">
+                  <div class="p-3 wide:p-6">
                     <StatsGrid columns={4} gap="md">
                       <StatsCard
                         label="songs"
@@ -622,7 +620,7 @@ export const FullAppDemo: Story = {
                   </div>
 
                   {/* top songs */}
-                  <div class="px-3 md:px-6 pb-4">
+                  <div class="px-3 wide:px-6 pb-4">
                     <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
                       top songs
                     </h3>
@@ -648,15 +646,15 @@ export const FullAppDemo: Story = {
                 </div>
 
                 {/* sticky action buttons */}
-                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
                   <Button variant="primary">
-                    <span class="hidden md:inline">play all</span>
-                    <span class="md:hidden">play</span>
+                    <span class="hidden wide:inline">play all</span>
+                    <span class="wide:hidden">play</span>
                   </Button>
                   <Button variant="secondary">shuffle</Button>
                   <Button variant="ghost">
-                    <span class="hidden md:inline">add to queue</span>
-                    <span class="md:hidden">+queue</span>
+                    <span class="hidden wide:inline">add to queue</span>
+                    <span class="wide:hidden">+queue</span>
                   </Button>
                 </div>
               </div>
@@ -684,7 +682,7 @@ export const FullAppDemo: Story = {
         getItemKey={(p) => p.id}
         renderList={(ctx) => (
           <div class="flex flex-col h-full">
-            <div class="mt-2 md:mt-[60px]">
+            <div class="mt-2 wide:mt-[60px]">
               <HeadingSection title="playlists" count={mockPlaylists.length} hideOnNarrow />
             </div>
 
@@ -729,7 +727,7 @@ export const FullAppDemo: Story = {
                 {/* scrollable content area */}
                 <div class="flex-1 overflow-y-auto">
                   {/* stats section */}
-                  <div class="p-3 md:p-6 flex gap-4">
+                  <div class="p-3 wide:p-6 flex gap-4">
                     <StatsCard
                       label="songs"
                       value={formatNumber(playlist().songCount)}
@@ -748,7 +746,7 @@ export const FullAppDemo: Story = {
                   </div>
 
                   {/* songs list */}
-                  <div class="px-3 md:px-6 pb-4">
+                  <div class="px-3 wide:px-6 pb-4">
                     <div class="mb-3 flex items-center justify-between">
                       <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">songs</h3>
                       <div class="text-sm text-[var(--color-text-secondary)]">drag to reorder</div>
@@ -805,7 +803,7 @@ export const FullAppDemo: Story = {
                 </div>
 
                 {/* sticky action buttons */}
-                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 md:px-6 py-2 md:py-3 flex gap-2 md:gap-3">
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
                   <Button variant="primary">play</Button>
                   <Button variant="secondary">shuffle</Button>
                   <Button variant="ghost">edit</Button>
@@ -828,10 +826,10 @@ export const FullAppDemo: Story = {
     // ===== SONGS VIEW =====
     const songsView = () => (
       <div class="p-3">
-        <div class="ml-0 md:ml-[100px]">
+        <div class="ml-0 wide:ml-[100px]">
           <HeadingSection title="songs" count={generatedSongs.length} hideOnNarrow />
         </div>
-        <div class="mt-2 md:mt-6">
+        <div class="mt-2 wide:mt-6">
           <VirtualSongList
             songs={generatedSongs}
             height={window.innerHeight - 240}
@@ -850,10 +848,10 @@ export const FullAppDemo: Story = {
     // ===== ALBUMS VIEW =====
     const albumsView = () => (
       <div class="p-3">
-        <div class="ml-0 md:ml-[100px]">
+        <div class="ml-0 wide:ml-[100px]">
           <HeadingSection title="albums" count={mockAlbums.length} hideOnNarrow />
         </div>
-        <div class="mt-2 md:mt-0">
+        <div class="mt-2 wide:mt-0">
           <VirtualAlbumGrid
             albums={mockAlbums.map((a) => ({
               id: a.id,
@@ -886,10 +884,10 @@ export const FullAppDemo: Story = {
     const favoriteSongs = generatedSongs.slice(0, 25); // mock: first 25 songs as favorites
     const favoritesView = () => (
       <div class="p-3">
-        <div class="ml-0 md:ml-[100px]">
+        <div class="ml-0 wide:ml-[100px]">
           <HeadingSection title="favorites" count={favoriteSongs.length} hideOnNarrow />
         </div>
-        <div class="mt-2 md:mt-6">
+        <div class="mt-2 wide:mt-6">
           <VirtualSongList
             songs={favoriteSongs}
             height={window.innerHeight - 240}

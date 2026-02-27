@@ -12,6 +12,7 @@ import { routes } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
 import { isTauriMode } from "../../utils/tauri";
+import { isNarrowViewport, isWideViewport } from "../../config/breakpoints";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -114,11 +115,8 @@ export interface TopNavProps {
 
 // compact top nav with brand icon + search, 3-column flyout menu
 export function TopNav(props: TopNavProps) {
-  // responsive: track if viewport is narrow (< 768px)
-  const NARROW_BREAKPOINT = 768;
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  // responsive: track if viewport is narrow (<= 800px)
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   const [mobileMenuOpen, setMobileMenuOpen] = createSignal(false);
   const [searchExpanded, setSearchExpanded] = createSignal(false);
   const [sortOpen, setSortOpen] = createSignal(false);
@@ -151,9 +149,9 @@ export function TopNav(props: TopNavProps) {
 
   onMount(() => {
     const handleResize = () => {
-      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      setIsNarrow(isNarrowViewport());
       // close mobile menu if viewport becomes wide
-      if (window.innerWidth >= NARROW_BREAKPOINT) {
+      if (isWideViewport()) {
         setMobileMenuOpen(false);
       }
     };

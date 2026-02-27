@@ -1,8 +1,7 @@
 // detail view wrapper - handles common mobile patterns for standalone detail views
 import { createSignal, onCleanup, onMount, createEffect, type ParentProps } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
-
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface DetailViewWrapperProps extends ParentProps {
   /** page title for TopNav on narrow (e.g. "album", "artist") */
@@ -35,13 +34,11 @@ export interface DetailViewWrapperProps extends ParentProps {
  */
 export function DetailViewWrapper(props: DetailViewWrapperProps) {
   // narrow viewport detection
-  const [_isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [_isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const handleResize = () => {
-      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      setIsNarrow(isNarrowViewport());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => {
@@ -74,13 +71,11 @@ export function useDetailViewSetup(options: {
   pageTitle: string;
   getCount?: () => number | undefined;
 }) {
-  const [isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const handleResize = () => {
-      setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+      setIsNarrow(isNarrowViewport());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => {

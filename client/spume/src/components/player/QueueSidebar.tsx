@@ -168,15 +168,15 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const isOverlay = () => props.variant !== "inline";
 
   // responsive: bottom sheet on narrow, sidebar on wide
-  // narrow (<768px): full-width bottom sheet that slides up
-  // wide (>=768px): right sidebar
+  // narrow (<=800px): full-width bottom sheet that slides up
+  // wide (>=801px): right sidebar
 
   return (
     <>
       {/* backdrop for overlay mode */}
       <Show when={isOverlay() && props.isOpen}>
         <div
-          class="fixed inset-0 bg-black/50 z-1130 md:hidden"
+          class="fixed inset-0 bg-black/50 z-1130 wide:hidden"
           style={{ "touch-action": "none" }}
           onClick={() => props.onClose()}
         />
@@ -188,11 +188,11 @@ export function QueueSidebar(props: QueueSidebarProps) {
             ? /* narrow: bottom sheet above player bar */
               `fixed z-1140 transition-transform duration-300 ease-out
                inset-x-0 bottom-[var(--player-height)] top-0
-               md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:h-auto md:w-96
+               wide:inset-x-auto wide:top-0 wide:right-0 wide:bottom-0 wide:h-auto wide:w-96
                ${
                  props.isOpen
-                   ? "translate-y-0 md:translate-y-0 md:translate-x-0"
-                   : "invisible translate-y-full md:visible md:translate-y-0 md:translate-x-full"
+                   ? "translate-y-0 wide:translate-y-0 wide:translate-x-0"
+                   : "invisible translate-y-full wide:visible wide:translate-y-0 wide:translate-x-full"
                }`
             : props.isOpen
               ? "w-96 flex-shrink-0"
@@ -201,7 +201,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
       >
         {/* drag handle for bottom sheet (narrow only) #TODO: enable swipe gesture for this or yank. */}
         {/* <Show when={isOverlay()}>
-          <div class="md:hidden flex justify-center py-2">
+          <div class="wide:hidden flex justify-center py-2">
             <div class="w-12 h-1 bg-[var(--color-border-strong)] rounded-full" />
           </div>
         </Show> */}

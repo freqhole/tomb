@@ -7,6 +7,7 @@ import { type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { VirtualGenreDetail } from "../virtualized/VirtualGenreDetail";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface GenreDetailPanelGenre {
   genre_id: string;
@@ -90,7 +91,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
       if (!containerRef) return;
       // on desktop: header with stats+buttons is fixed (~160px)
       // on mobile: header is small (~60px), stats+buttons scroll with content
-      const isNarrow = window.innerWidth < 768;
+      const isNarrow = isNarrowViewport();
       const headerHeight = isNarrow ? 60 : 160;
       const padding = 16;
       const available = containerRef.clientHeight - headerHeight - padding;
@@ -114,10 +115,10 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
         variant="detail"
         showBackButton={props.showBackButton}
         onBack={props.onBack}
-        class="px-4 md:px-6 py-2 md:py-4"
+        class="px-4 wide:px-6 py-2 wide:py-4"
       >
         {/* stats + buttons in header on desktop only - on mobile they scroll with content */}
-        <div class="hidden md:block">
+        <div class="hidden wide:block">
           <StatsGrid columns={3} gap="md" class="mb-3">
             <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
             <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
@@ -151,7 +152,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
           scrollRestoreKey={`genre-detail-${props.genre.genre_id}`}
           header={
             // stats + buttons on mobile only - scrolls with content
-            <div class="md:hidden px-4 py-3 space-y-3">
+            <div class="wide:hidden px-4 py-3 space-y-3">
               <StatsGrid columns={3} gap="sm">
                 <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
                 <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />

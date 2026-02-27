@@ -25,9 +25,7 @@ import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
 import { playQueue } from "../services/queue/queue";
 import { useSongContextMenu } from "../hooks/contextMenu";
-
-// narrow breakpoint for responsive layout
-const NARROW_BREAKPOINT = 768;
+import { isNarrowViewport } from "../../config/breakpoints";
 
 const songSortFields = [
   { value: "added_at", label: "date added", description: "sort by date added" },
@@ -48,9 +46,7 @@ export function SongsView(props: SongsViewProps) {
   const [searchParams] = useSearchParams();
 
   // responsive: track narrow viewport
-  const [_isNarrow, setIsNarrow] = createSignal(
-    typeof window !== "undefined" ? window.innerWidth < NARROW_BREAKPOINT : false
-  );
+  const [_isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   // responsive list height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
@@ -59,7 +55,7 @@ export function SongsView(props: SongsViewProps) {
 
   onMount(() => {
     const handleResize = () => {
-      const narrow = window.innerWidth < NARROW_BREAKPOINT;
+      const narrow = isNarrowViewport();
       setIsNarrow(narrow);
     };
     window.addEventListener("resize", handleResize);
