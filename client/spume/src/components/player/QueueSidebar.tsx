@@ -428,7 +428,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       {/* song info */}
                       <div class="flex-1 min-w-0 relative z-10">
                         <h4
-                          class={`text-sm font-medium m-0 ${
+                          class={`text-sm font-medium m-0 text-shadow-glow ${
                             isCurrentlyPlaying()
                               ? "text-[var(--color-accent-500)] font-semibold"
                               : "text-[var(--color-text-primary)]"
@@ -440,7 +440,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           />
                         </h4>
                         <p
-                          class={`text-xs m-0 ${
+                          class={`text-xs m-0 text-shadow-glow ${
                             isCurrentlyPlaying()
                               ? "text-[var(--color-text-primary)] font-semibold"
                               : "text-[var(--color-text-secondary)]"
@@ -457,7 +457,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         </p>
                         <Show when={song()?.album_title}>
                           <p
-                            class={`text-xs m-0 ${
+                            class={`text-xs m-0 text-shadow-glow ${
                               isCurrentlyPlaying()
                                 ? "text-[var(--color-text-secondary)] font-semibold"
                                 : "text-[var(--color-text-tertiary)]"
@@ -474,7 +474,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       {/* duration and favorite indicator */}
                       <div class="flex items-center gap-2 ml-3 flex-shrink-0 relative z-10">
                         <div
-                          class="text-xs"
+                          class="text-xs text-shadow-glow"
                           style={{
                             color:
                               isBlobCachedReactive(song()?.source_url) &&
