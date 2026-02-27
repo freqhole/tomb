@@ -106,7 +106,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
       return props.songs.length;
     },
     getScrollElement: () => scrollElementRef ?? null,
-    estimateSize: () => 60,
+    estimateSize: () => 68,
     overscan: 5,
   });
 
@@ -334,7 +334,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const songRow = (
                     <div
                       draggable={true}
-                      class={`absolute top-0 left-0 w-full flex items-center my-3 group transition-all duration-200 cursor-move overflow-hidden ${
+                      class={`absolute top-0 left-0 w-full flex items-center py-2 group transition-all duration-200 cursor-move overflow-hidden ${
                         isDropTarget()
                           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
                           : isDragging()
@@ -374,29 +374,42 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     >
                       {/* progress fill background - behind all content */}
                       <Show when={progress() > 0}>
-                        {/* solid color fill layer */}
+                        {/* static background behind thumbnail */}
                         <div
-                          class="absolute inset-0 pointer-events-none z-0"
+                          class="absolute inset-y-0 left-0 pointer-events-none z-0"
                           style={{
-                            width: `${Math.min(progress() * 100, 100)}%`,
+                            width: "60px",
                             "background-color": isCurrentlyPlaying()
-                              ? "rgba(102, 0, 59, 0.4)"
-                              : "rgba(102, 0, 59, 0.25)",
+                              ? "rgba(102, 0, 59, 0.55)"
+                              : "rgba(102, 0, 59, 0.22)",
                           }}
                         />
-                        {/* waveform overlay layer (starts after thumbnail) */}
+                        {/* progress fill layer (starts after thumbnail, reveals progressively) */}
+                        <div
+                          class="absolute inset-y-0 pointer-events-none z-0"
+                          style={{
+                            left: "60px",
+                            right: "0",
+                            "background-color": isCurrentlyPlaying()
+                              ? "rgba(102, 0, 59, 0.55)"
+                              : "rgba(102, 0, 59, 0.22)",
+                            "clip-path": `inset(0 ${100 - Math.min(progress() * 100, 100)}% 0 0)`,
+                          }}
+                        />
+                        {/* waveform overlay layer (starts after thumbnail, reveals progressively) */}
                         <Show when={waveformUrl()}>
                           <div
                             class="absolute inset-y-0 pointer-events-none z-0"
                             style={{
                               left: "60px",
-                              width: `calc(${Math.min(progress() * 100, 100)}% - 60px)`,
+                              right: "0",
                               "background-image": `url(${waveformUrl()})`,
                               "background-position": "left center",
-                              "background-size": "cover",
+                              "background-size": "100% 100%",
                               "background-repeat": "no-repeat",
-                              opacity: isCurrentlyPlaying() ? 0.5 : 0.3,
+                              opacity: isCurrentlyPlaying() ? 0.5 : 0.15,
                               "mix-blend-mode": "screen",
+                              "clip-path": `inset(0 ${100 - Math.min(progress() * 100, 100)}% 0 0)`,
                             }}
                           />
                         </Show>
@@ -429,7 +442,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         <p
                           class={`text-xs m-0 ${
                             isCurrentlyPlaying()
-                              ? "text-[var(--color-text-primary)]"
+                              ? "text-[var(--color-text-primary)] font-semibold"
                               : "text-[var(--color-text-secondary)]"
                           }`}
                         >
@@ -446,7 +459,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           <p
                             class={`text-xs m-0 ${
                               isCurrentlyPlaying()
-                                ? "text-[var(--color-text-secondary)]"
+                                ? "text-[var(--color-text-secondary)] font-semibold"
                                 : "text-[var(--color-text-tertiary)]"
                             }`}
                           >
