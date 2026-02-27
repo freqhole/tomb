@@ -1029,6 +1029,116 @@ async fn poll_scan_jobs_until_complete(
     eprintln!("[scan-poll] polling timed out after 30 minutes");
 }
 
+/// check for pending jobs on startup and resume polling if needed
+///
+/// called when app starts to resume polling for any jobs that were
+/// in progress when the app was previously closed.
+pub async fn resume_pending_jobs_polling(
+    app_handle: tauri::AppHandle,
+    shutdown_token: crate::ShutdownToken,
+) {
+    use grimoire::jobs::{list_jobs, JobStatus};
+    use grimoire::music::analytics::admin::get_overview_stats;
+    use std::time::Duration;
+
+    // brief delay to let server fully start
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // check if there are any pending jobs (no session filter)
+    let jobs_response = list_jobs(None, None, Some(100), None).await;
+    let has_pending = match &jobs_response.data {
+        Some(jobs) => jobs.iter().any(|j| {
+            j.status()
+                .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                .unwrap_or(false)
+        }),
+        None => false,
+    };
+
+    if !has_pending {
+        eprintln!("[scan-poll] no pending jobs on startup");
+        return;
+    }
+
+    eprintln!("[scan-poll] found pending jobs on startup, resuming polling...");
+
+    // get baseline counts
+    let baseline = match get_overview_stats().await.data {
+        Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
+        None => (0, 0, 0),
+    };
+
+    let poll_interval = Duration::from_secs(3);
+    let max_polls = 600;
+    let mut last_songs = 0i64;
+
+    for _ in 0..max_polls {
+        tokio::select! {
+            _ = tokio::time::sleep(poll_interval) => {}
+            _ = shutdown_token.cancelled() => {
+                eprintln!("[scan-poll] shutdown requested during resume poll");
+                return;
+            }
+        }
+
+        let jobs_response = list_jobs(None, None, Some(1000), None).await;
+
+        match jobs_response.data {
+            Some(jobs) => {
+                let jobs_total = jobs.len() as u32;
+                let pending = jobs
+                    .iter()
+                    .filter(|j| {
+                        j.status()
+                            .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                            .unwrap_or(false)
+                    })
+                    .count() as u32;
+
+                let current_stats = get_overview_stats().await.data;
+                let (songs_added, albums_added, artists_added) = match &current_stats {
+                    Some(stats) => (
+                        (stats.total_songs - baseline.0).max(0) as u32,
+                        (stats.total_albums - baseline.1).max(0) as u32,
+                        (stats.total_artists - baseline.2).max(0) as u32,
+                    ),
+                    None => (0, 0, 0),
+                };
+
+                let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
+                if current_songs != last_songs {
+                    last_songs = current_songs;
+                    let _ = crate::spume_bridge::notify_scan_progress(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                        pending,
+                        jobs_total,
+                    );
+                }
+
+                if pending == 0 {
+                    let _ = crate::spume_bridge::notify_scan_jobs_complete(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                    );
+                    eprintln!(
+                        "[scan-poll] resume complete: {} songs, {} albums, {} artists",
+                        songs_added, albums_added, artists_added
+                    );
+                    return;
+                }
+            }
+            None => {}
+        }
+    }
+
+    eprintln!("[scan-poll] resume polling timed out");
+}
+
 /// scanned directory info for UI
 #[derive(Debug, Serialize)]
 pub struct ScannedDirInfo {

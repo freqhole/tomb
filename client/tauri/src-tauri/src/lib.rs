@@ -131,10 +131,15 @@ pub fn run() {
                     .map_err(|e| e.to_string())?;
 
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
+                let app_handle = app.handle().clone();
+                let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     let result = sidecar::start_server(&state, config_path).await;
                     if !result.success {
                         eprintln!("[tauri] failed to start server: {}", result.message);
+                    } else {
+                        // server started - check for pending jobs and resume polling
+                        commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
                     }
                 });
 
