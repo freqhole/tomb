@@ -84,6 +84,12 @@ export interface QueueSidebarProps {
   getHistoryContextMenuActions?: (entry: QueueHistoryEntry) => MenuAction[];
   /** additional classes */
   class?: string;
+  /** current playback time in seconds (for progress fill) */
+  currentTime?: number;
+  /** current song duration in seconds (for progress fill) */
+  duration?: number;
+  /** max progress per queue_entry_id for played songs (reactive signal) */
+  progressMap?: Map<string, number>;
 }
 
 // queue sidebar component
@@ -297,17 +303,47 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const isDropTarget = () => dropTargetIndex() === itemIndex;
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
 
+                  // calculate progress for this song row
+                  const progress = (): number => {
+                    const s = song();
+                    if (!s) return 0;
+
+                    if (isCurrentlyPlaying()) {
+                      // currently playing: use live progress
+                      const dur = props.duration ?? 0;
+                      const ct = props.currentTime ?? 0;
+                      return dur > 0 ? ct / dur : 0;
+                    } else {
+                      // not playing: use stored max progress from signal
+                      const queueEntryId = s.queue_entry_id;
+                      if (queueEntryId && props.progressMap) {
+                        return props.progressMap.get(queueEntryId) ?? 0;
+                      }
+                      return 0;
+                    }
+                  };
+
+                  // check for waveform image
+                  const waveformUrl = (): string | undefined => {
+                    const s = song();
+                    if (!s?.images) return undefined;
+                    const waveformImg = s.images.find((img) => img.blob_type === "waveform");
+                    return waveformImg?.remote_url;
+                  };
+
                   const songRow = (
                     <div
                       draggable={true}
-                      class={`absolute top-0 left-0 w-full flex items-center my-3 group transition-all duration-200 cursor-move ${
+                      class={`absolute top-0 left-0 w-full flex items-center my-3 group transition-all duration-200 cursor-move overflow-hidden ${
                         isDropTarget()
                           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
                           : isDragging()
                             ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
                             : isCurrentlyPlaying()
-                              ? "bg-[#66003b]/20 rounded-lg border-l-2 border-l-[var(--color-accent-500)]"
-                              : "hover:bg-[var(--color-accent-500)]/10"
+                              ? "rounded-lg border-l-2 border-l-[var(--color-accent-500)]"
+                              : progress() > 0
+                                ? "rounded-lg"
+                                : "hover:bg-[var(--color-accent-500)]/10"
                       }`}
                       style={{
                         transform: `translateY(${virtualItem.start}px)`,
@@ -336,6 +372,36 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             : "double-click to play"
                       }
                     >
+                      {/* progress fill background - behind all content */}
+                      <Show when={progress() > 0}>
+                        {/* solid color fill layer */}
+                        <div
+                          class="absolute inset-0 pointer-events-none z-0"
+                          style={{
+                            width: `${Math.min(progress() * 100, 100)}%`,
+                            "background-color": isCurrentlyPlaying()
+                              ? "rgba(102, 0, 59, 0.4)"
+                              : "rgba(102, 0, 59, 0.25)",
+                          }}
+                        />
+                        {/* waveform overlay layer (starts after thumbnail) */}
+                        <Show when={waveformUrl()}>
+                          <div
+                            class="absolute inset-y-0 pointer-events-none z-0"
+                            style={{
+                              left: "60px",
+                              width: `calc(${Math.min(progress() * 100, 100)}% - 60px)`,
+                              "background-image": `url(${waveformUrl()})`,
+                              "background-position": "left center",
+                              "background-size": "cover",
+                              "background-repeat": "no-repeat",
+                              opacity: isCurrentlyPlaying() ? 0.5 : 0.3,
+                              "mix-blend-mode": "screen",
+                            }}
+                          />
+                        </Show>
+                      </Show>
+
                       {/* thumbnail with index overlay */}
                       <MediaThumbnail
                         images={song() ? getSongDisplayImages(song()!) : undefined}
@@ -343,15 +409,15 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         hideIndex={isRowHovered()}
                         onPlayClick={() => handleSongDoubleClick(itemIndex)}
                         size={48}
-                        class="mr-3"
+                        class="mr-3 relative z-10"
                       />
 
                       {/* song info */}
-                      <div class="flex-1 min-w-0">
+                      <div class="flex-1 min-w-0 relative z-10">
                         <h4
                           class={`text-sm font-medium m-0 ${
                             isCurrentlyPlaying()
-                              ? "text-[var(--color-accent-500)]"
+                              ? "text-[var(--color-accent-500)] font-semibold"
                               : "text-[var(--color-text-primary)]"
                           }`}
                         >
@@ -360,7 +426,13 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             isHovering={() => isRowHovered() || isCurrentlyPlaying()}
                           />
                         </h4>
-                        <p class="text-xs text-[var(--color-text-secondary)] m-0">
+                        <p
+                          class={`text-xs m-0 ${
+                            isCurrentlyPlaying()
+                              ? "text-[var(--color-text-primary)]"
+                              : "text-[var(--color-text-secondary)]"
+                          }`}
+                        >
                           <MarqueeText
                             text={
                               song()?.album_type === "compilation" && song()?.track_artist?.trim()
@@ -371,7 +443,13 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           />
                         </p>
                         <Show when={song()?.album_title}>
-                          <p class="text-xs text-[var(--color-text-tertiary)] m-0">
+                          <p
+                            class={`text-xs m-0 ${
+                              isCurrentlyPlaying()
+                                ? "text-[var(--color-text-secondary)]"
+                                : "text-[var(--color-text-tertiary)]"
+                            }`}
+                          >
                             <MarqueeText
                               text={song()?.album_title || ""}
                               isHovering={() => isRowHovered() || isCurrentlyPlaying()}
@@ -381,7 +459,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       </div>
 
                       {/* duration and favorite indicator */}
-                      <div class="flex items-center gap-2 ml-3 flex-shrink-0">
+                      <div class="flex items-center gap-2 ml-3 flex-shrink-0 relative z-10">
                         <div
                           class="text-xs"
                           style={{
@@ -403,7 +481,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                       {/* remove button */}
                       <button
-                        class={`${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
+                        class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
                         onClick={(e) => handleRemove(e, itemIndex)}
                         title="remove from queue"
                         aria-label="remove from queue"

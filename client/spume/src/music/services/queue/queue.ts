@@ -13,6 +13,7 @@ import { playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
+import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
 import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, reconnectServerSession } from "./serverSession";
 import type { Song } from "../storage/types";
 
@@ -153,6 +154,11 @@ export async function removeFromQueue(index: number): Promise<void> {
   const newQueue = state.queue.filter((_, i) => i !== index);
   await setQueue(newQueue);
 
+  // clear progress for the removed song
+  if (removedSong?.queue_entry_id) {
+    clearQueueItemProgress(removedSong.queue_entry_id);
+  }
+
   // if we removed the currently playing song, stop playback and clear it
   if (removedSong?.sha256 === state.current_sha256) {
     stop();
@@ -208,6 +214,7 @@ export async function clearQueue(): Promise<void> {
 
   stop();
   stopTracking();
+  clearAllQueueProgress();
   void stopServerSession("abandoned");
   await setCurrentSong(null);
 

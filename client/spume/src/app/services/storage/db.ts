@@ -13,6 +13,7 @@ import {
   type AppState,
 } from "./types";
 import { debug } from "../../../utils/logger";
+import { generateUUID } from "../../../utils/uuid";
 
 let dbInstance: IDBPDatabase | null = null;
 
@@ -115,8 +116,12 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 // update queue
 async function setQueue(songs: Song[]): Promise<void> {
   // unwrap proxy arrays before storing in IndexedDB
+  // assign queue_entry_id to songs that don't have one
   const plainSongs = songs.map((song) => {
     const plain: Song = { ...song };
+    if (!plain.queue_entry_id) {
+      plain.queue_entry_id = generateUUID();
+    }
     if (song.album_tags) plain.album_tags = [...song.album_tags];
     if (song.album_genres) plain.album_genres = song.album_genres.map(g => ({ ...g }));
     if (song.album_images) plain.album_images = song.album_images.map(img => ({ ...img }));

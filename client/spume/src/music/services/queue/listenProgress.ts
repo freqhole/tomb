@@ -7,6 +7,8 @@ import { createSignal } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
 import { advanceServerProgress, reconnectServerSession } from "./serverSession";
+import { saveProgressToIDB } from "./queueProgress";
+import { setVisualPosition } from "../audio/player";
 import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked
@@ -20,7 +22,7 @@ let currentSongPosition = 0;
 let completedSongs = new Set<number>(); // track completed song indices
 let flushIntervalId: ReturnType<typeof setInterval> | null = null;
 
-const FLUSH_INTERVAL_MS = 30_000; // flush to IDB every 30 seconds
+const FLUSH_INTERVAL_MS = 5_000; // flush to IDB every 5 seconds
 
 // start tracking a history entry (called when playQueue/addToQueue sets songs)
 export function startTracking(historyEntryId: string): void {
@@ -155,6 +157,9 @@ async function flushProgress(): Promise<void> {
       current_song_index: currentSongIndex,
       current_song_position: currentSongPosition,
     });
+    
+    // also save queue item progress for visual fill
+    await saveProgressToIDB();
   } catch (error) {
     console.error("failed to flush listen progress:", error);
   }
@@ -182,6 +187,12 @@ export function reconnectProgressTracking(): void {
   });
 
   if (!entry) return;
+
+  // set the visual position in the player bar (without starting playback)
+  const currentSong = state.queue.find(s => s.sha256 === state.current_sha256);
+  if (currentSong && entry.current_song_position > 0) {
+    setVisualPosition(entry.current_song_position, currentSong.duration_seconds ?? undefined);
+  }
 
   // resume tracking with the entry's persisted progress
   resumeTracking(entry.id, {

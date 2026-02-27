@@ -18,6 +18,7 @@ import {
   markSongCompleted,
   recordTimeProgress,
 } from "../queue/listenProgress";
+import { updateQueueItemProgress } from "../queue/queueProgress";
 import { stopServerSession } from "../queue/serverSession";
 import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySwapToCachedURL } from "../storage/audioAccess";
@@ -83,6 +84,18 @@ function initAudio(): HTMLAudioElement {
       }
     }
     lastTimeUpdateValue = ct;
+
+    // update queue item progress for visual fill
+    if (audioElement!.duration > 0) {
+      const progress = ct / audioElement!.duration;
+      const state = appState();
+      if (state?.current_sha256) {
+        const currentSong = state.queue.find((s) => s.sha256 === state.current_sha256);
+        if (currentSong?.queue_entry_id) {
+          updateQueueItemProgress(currentSong.queue_entry_id, progress);
+        }
+      }
+    }
 
     // check for song completion (>90% listened)
     if (
@@ -511,11 +524,19 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
       
       // if no src (page reload), reload the song
       if (!audio.src && current_sha256) {
+        const savedPosition = currentTime(); // get the restored position from setVisualPosition
+        const savedDuration = duration(); // save duration too
         const songInQueue = queue.find((s) => s.sha256 === current_sha256);
         if (songInQueue) {
           await playSong(songInQueue);
         } else {
           await playSong(current_sha256);
+        }
+        // seek to the restored position - audio is ready after playSong returns
+        if (savedPosition > 0) {
+          setCurrentTime(savedPosition); // restore visual immediately (playSong resets to 0)
+          if (savedDuration > 0) setDuration(savedDuration);
+          seek(savedPosition);
         }
         return;
       }
@@ -715,6 +736,14 @@ export function cleanup(): void {
   if (currentSongId) {
     cleanupAudioURL(currentSongId);
     currentSongId = null;
+  }
+}
+
+// set visual position without affecting audio (for restoring position on page load)
+export function setVisualPosition(position: number, dur?: number): void {
+  setCurrentTime(position);
+  if (dur !== undefined) {
+    setDuration(dur);
   }
 }
 

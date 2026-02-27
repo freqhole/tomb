@@ -65,6 +65,7 @@ import {
   clearQueueHistory,
 } from "../music/services/queue/queueHistory";
 import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
+import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
 import { saveRoute } from "../utils/tauri/routePersistence";
@@ -122,6 +123,9 @@ export function AppLayout(props: AppLayoutProps) {
 
     // load queue history from idb
     await loadQueueHistory();
+
+    // load queue progress from storage
+    loadProgressFromStorage();
 
     // reconnect progress tracking if there's an active queue from a previous page load
     reconnectProgressTracking();
@@ -555,6 +559,9 @@ export function AppLayout(props: AppLayoutProps) {
               ? appState()!.queue.findIndex((s) => s.sha256 === appState()!.current_sha256)
               : -1
           }
+          currentTime={currentTime()}
+          duration={duration()}
+          progressMap={progressMap()}
           onClose={() => void setQueueOpen(false)}
           onSongClick={(index) => {
             const state = appState();
