@@ -17,6 +17,9 @@ use crate::wordlist::{
 };
 use crate::GrimoireError;
 
+/// system root username - always created during setup
+pub const SYSTEM_ROOT_USERNAME: &str = "freqroot";
+
 /// configuration for setup wizard
 #[derive(Debug, Clone)]
 pub struct SetupConfig {
@@ -32,14 +35,16 @@ pub struct SetupConfig {
     pub server_port: u16,
     /// optional server icon image path
     pub image_path: Option<String>,
-    /// root username to create
-    pub username: String,
-    /// generate API key for root user (optional, typically for Tauri)
+    /// admin username to create (optional - if provided, creates admin user with API key)
+    pub admin_username: Option<String>,
+    /// generate API key for admin user (requires admin_username)
     pub generate_api_key: bool,
     /// generate invite code (optional, typically for CLI)
     pub generate_invite_code: bool,
     /// whether yt-dlp is available (enables fetch download config)
     pub ytdlp_available: bool,
+    /// directory for fetched/uploaded music files (defaults to data_dir/fetch)
+    pub fetch_music_dir: Option<PathBuf>,
     /// initial directories to scan with optional tags
     pub initial_scan_dirs: Vec<ScanDir>,
     /// allowed origins for CORS and WebAuthn (None = derive from server_port, vec!["any"] = allow any)
@@ -75,8 +80,13 @@ pub struct SetupResult {
     pub success: bool,
     pub config_path: String,
     pub data_dir: String,
-    pub user_id: Option<String>,
-    pub username: Option<String>,
+    /// system root user (always created)
+    pub root_user_id: Option<String>,
+    pub root_username: Option<String>,
+    /// admin user (created if admin_username provided)
+    pub admin_user_id: Option<String>,
+    pub admin_username: Option<String>,
+    /// API key for admin user
     pub api_key: Option<String>,
     pub invite_code: Option<String>,
     pub scan_jobs_created: usize,
@@ -102,8 +112,10 @@ impl SetupService {
             success: false,
             config_path: config.config_path.display().to_string(),
             data_dir: config.data_dir.display().to_string(),
-            user_id: None,
-            username: None,
+            root_user_id: None,
+            root_username: None,
+            admin_user_id: None,
+            admin_username: None,
             api_key: None,
             invite_code: None,
             scan_jobs_created: 0,
@@ -141,37 +153,54 @@ impl SetupService {
                 .push(format!("wordlist initialization failed (non-fatal): {}", e));
         }
 
-        // step 5: create root user
-        match self.create_root_user(&config).await {
-            Ok(root_user) => {
-                result.user_id = Some(root_user.id.clone());
-                result.username = Some(root_user.username.clone());
-
-                // step 6: optionally generate API key
-                if config.generate_api_key {
-                    match self.generate_api_key(&root_user.id).await {
-                        Ok(key) => result.api_key = Some(key),
-                        Err(e) => result
-                            .errors
-                            .push(format!("failed to generate API key: {}", e)),
-                    }
-                }
-
-                // step 7: optionally generate invite code
-                if config.generate_invite_code {
-                    match self.generate_invite_code(&root_user).await {
-                        Ok(code) => result.invite_code = Some(code),
-                        Err(e) => result
-                            .errors
-                            .push(format!("failed to generate invite code: {}", e)),
-                    }
-                }
+        // step 5: create system root user (always created)
+        let root_user = match self.create_system_root_user().await {
+            Ok(user) => {
+                result.root_user_id = Some(user.id.clone());
+                result.root_username = Some(user.username.clone());
+                user
             }
             Err(e) => {
                 result
                     .errors
-                    .push(format!("failed to create root user: {}", e));
+                    .push(format!("failed to create system root user: {}", e));
                 return result;
+            }
+        };
+
+        // step 6: optionally create admin user (if admin_username provided)
+        if let Some(admin_username) = &config.admin_username {
+            match self.create_admin_user(admin_username).await {
+                Ok(admin_user) => {
+                    result.admin_user_id = Some(admin_user.id.clone());
+                    result.admin_username = Some(admin_user.username.clone());
+
+                    // step 6b: optionally generate API key for admin user
+                    if config.generate_api_key {
+                        match self.generate_api_key(&admin_user.id).await {
+                            Ok(key) => result.api_key = Some(key),
+                            Err(e) => result
+                                .errors
+                                .push(format!("failed to generate API key: {}", e)),
+                        }
+                    }
+                }
+                Err(e) => {
+                    result
+                        .errors
+                        .push(format!("failed to create admin user: {}", e));
+                    return result;
+                }
+            }
+        }
+
+        // step 7: optionally generate invite code (using root user)
+        if config.generate_invite_code {
+            match self.generate_invite_code(&root_user).await {
+                Ok(code) => result.invite_code = Some(code),
+                Err(e) => result
+                    .errors
+                    .push(format!("failed to generate invite code: {}", e)),
             }
         }
 
@@ -201,7 +230,8 @@ impl SetupService {
         }
 
         // create fetch subdirectory for music downloads
-        let fetch_dir = config.data_dir.join("fetch");
+        let fetch_dir = config.fetch_music_dir.clone()
+            .unwrap_or_else(|| config.data_dir.join("fetch"));
         if !fetch_dir.exists() {
             std::fs::create_dir_all(&fetch_dir)?;
         }
@@ -227,6 +257,10 @@ impl SetupService {
         // convert empty image_path to None
         let image_path = config.image_path.clone().filter(|s| !s.is_empty());
 
+        // use custom fetch_music_dir or default to data_dir/fetch
+        let fetch_music_dir = config.fetch_music_dir.clone()
+            .unwrap_or_else(|| config.data_dir.join("fetch"));
+
         create_config_full(
             Some(config.config_path.clone()),
             Some(config.data_dir.clone()),
@@ -236,6 +270,7 @@ impl SetupService {
             Some(config.server_port),
             image_path,
             config.ytdlp_available,
+            Some(fetch_music_dir),
             config.allowed_origins.clone(),
         )
     }
@@ -300,13 +335,36 @@ impl SetupService {
         }
     }
 
-    /// step 5: create root user
-    async fn create_root_user(&self, config: &SetupConfig) -> Result<User, GrimoireError> {
+    /// step 5: create system root user (hardcoded username)
+    async fn create_system_root_user(&self) -> Result<User, GrimoireError> {
+        let service = UserService::new();
+
+        // use bootstrap method which bypasses the permission check
+        let response = service.bootstrap_root_user(SYSTEM_ROOT_USERNAME).await;
+
+        match response.data {
+            Some(user) => Ok(user),
+            None => {
+                let error = response
+                    .errors
+                    .first()
+                    .map(|e| e.detail.clone())
+                    .unwrap_or_else(|| "unknown error".to_string());
+                Err(GrimoireError::SetupFailed {
+                    step: SetupStep::User,
+                    message: error,
+                })
+            }
+        }
+    }
+
+    /// step 6: create admin user with provided username
+    async fn create_admin_user(&self, username: &str) -> Result<User, GrimoireError> {
         let service = UserService::new();
 
         let request = CreateUserRequest {
-            username: config.username.clone(),
-            role: Some(UserRole::Root),
+            username: username.to_string(),
+            role: Some(UserRole::Admin),
             invite_code: None,
         };
 

@@ -548,9 +548,10 @@ pub fn create_config_with_server_info(
         server_name,
         server_id,
         server_port,
-        None,
-        false,
-        None,
+        None,  // image_path
+        false, // ytdlp_available
+        None,  // fetch_music_dir
+        None,  // allowed_origins
     )
 }
 
@@ -565,6 +566,7 @@ pub fn create_config_with_server_info(
 /// * `server_port` - Server listen port
 /// * `image_path` - Optional path to server icon image
 /// * `ytdlp_available` - Whether yt-dlp is available for downloads
+/// * `fetch_music_dir` - Optional custom directory for fetched/uploaded music (defaults to data_dir/fetch)
 /// * `allowed_origins` - Optional list of allowed origins for CORS/WebAuthn (None = derive from port, vec!["any"] = allow any)
 pub fn create_config_full(
     output_path: Option<PathBuf>,
@@ -575,6 +577,7 @@ pub fn create_config_full(
     server_port: Option<u16>,
     image_path: Option<String>,
     ytdlp_available: bool,
+    fetch_music_dir: Option<PathBuf>,
     allowed_origins: Option<Vec<String>>,
 ) -> Result<PathBuf, ConfigError> {
     let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
@@ -596,7 +599,7 @@ pub fn create_config_full(
     }
 
     // create fetch directory for downloads
-    let fetch_dir = data.join("fetch");
+    let fetch_dir = fetch_music_dir.unwrap_or_else(|| data.join("fetch"));
     std::fs::create_dir_all(&fetch_dir).map_err(|e| {
         ConfigError::CreateFailed(format!("failed to create fetch directory: {}", e))
     })?;

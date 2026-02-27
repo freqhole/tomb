@@ -5,6 +5,7 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { routes } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
+import { isTauriMode } from "../../utils/tauri";
 
 // re-export shared types
 export type { NavMenuItem, NavMenuSection, RecentPlaylist } from "./TopNav";
@@ -172,30 +173,34 @@ export function TopNavMobile(props: TopNavMobileProps) {
                   music source
                 </h4>
                 <div class="space-y-1">
-                  {/* local library option */}
-                  <button
-                    class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors bg-transparent"
-                    classList={{
-                      "text-white bg-white/10 cursor-default":
-                        props.currentSourceName === "local library" || !props.currentSourceName,
-                      "text-white/70 cursor-pointer hover:bg-white/10 hover:text-white":
-                        !!props.currentSourceName && props.currentSourceName !== "local library",
-                    }}
-                    disabled={
-                      !!(props.currentSourceName === "local library" || !props.currentSourceName)
-                    }
-                    onClick={() => handleMenuItemClick(() => props.onSwitchToLocal?.())}
-                  >
-                    <Show
-                      when={props.currentSourceName === "local library" || !props.currentSourceName}
-                      fallback={
-                        <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                  {/* local library option - hidden in tauri mode */}
+                  <Show when={!isTauriMode()}>
+                    <button
+                      class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors bg-transparent"
+                      classList={{
+                        "text-white bg-white/10 cursor-default":
+                          props.currentSourceName === "local library" || !props.currentSourceName,
+                        "text-white/70 cursor-pointer hover:bg-white/10 hover:text-white":
+                          !!props.currentSourceName && props.currentSourceName !== "local library",
+                      }}
+                      disabled={
+                        !!(props.currentSourceName === "local library" || !props.currentSourceName)
                       }
+                      onClick={() => handleMenuItemClick(() => props.onSwitchToLocal?.())}
                     >
-                      <Icon name="check" size={14} color="var(--color-accent-500)" />
-                    </Show>
-                    <span>local library</span>
-                  </button>
+                      <Show
+                        when={
+                          props.currentSourceName === "local library" || !props.currentSourceName
+                        }
+                        fallback={
+                          <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                        }
+                      >
+                        <Icon name="check" size={14} color="var(--color-accent-500)" />
+                      </Show>
+                      <span>local library</span>
+                    </button>
+                  </Show>
 
                   {/* remote sources */}
                   <Show when={props.remotes && props.remotes.length > 0}>

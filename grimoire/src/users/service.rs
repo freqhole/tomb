@@ -22,6 +22,69 @@ impl UserService {
         }
     }
 
+    /// Bootstrap the initial root user during setup
+    ///
+    /// This bypasses the normal permission check that prevents creating root users
+    /// through registration. Only use this during initial setup when no root user exists.
+    pub async fn bootstrap_root_user(&self, username: &str) -> GrimoireResponse<User> {
+        // Check if a root user already exists
+        match self.repository.find_first_root_user().await {
+            Ok(Some(existing)) => {
+                return GrimoireResponse::failure(
+                    "Root user already exists",
+                    vec![AuthError::UserAlreadyExists {
+                        username: existing.username,
+                    }
+                    .into()],
+                );
+            }
+            Err(err) => {
+                return GrimoireResponse::failure(
+                    "Failed to check for existing root user",
+                    vec![err.into()],
+                );
+            }
+            Ok(None) => {}
+        }
+
+        // Validate username
+        if let Err(err) = self.validate_username(username) {
+            return GrimoireResponse::failure("Invalid username", vec![err.into()]);
+        }
+
+        // Check if username already exists
+        match self.repository.find_user_by_username(username).await {
+            Ok(Some(_)) => {
+                return GrimoireResponse::failure(
+                    "Username already exists",
+                    vec![AuthError::UserAlreadyExists {
+                        username: username.to_string(),
+                    }
+                    .into()],
+                );
+            }
+            Err(err) => {
+                return GrimoireResponse::failure(
+                    "Failed to check username availability",
+                    vec![err.into()],
+                );
+            }
+            Ok(None) => {}
+        }
+
+        // Create root user directly
+        let request = CreateUserRequest {
+            username: username.to_string(),
+            role: Some(UserRole::Root),
+            invite_code: None,
+        };
+
+        match self.repository.create_user(&request).await {
+            Ok(user) => GrimoireResponse::success("Root user created successfully", user),
+            Err(err) => GrimoireResponse::failure("Failed to create root user", vec![err.into()]),
+        }
+    }
+
     /// Register a new user with optional invite code validation
     ///
     /// If invite code is an account-link code, returns the existing user

@@ -324,10 +324,11 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         server_id: None, // will be derived from server_name
         server_port,
         image_path,
-        username: username.clone(),
+        admin_username: Some(username.clone()), // user-provided username becomes admin
         generate_api_key,
         generate_invite_code,
         ytdlp_available: deps.has_ytdlp(),
+        fetch_music_dir: None, // defaults to data_dir/fetch
         initial_scan_dirs,
         allowed_origins,
     };
@@ -339,9 +340,12 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         println!("  ✓ config created: {}", result.config_path);
         println!("  ✓ database initialized");
         println!(
-            "  ✓ root user '{}' created",
-            result.username.as_deref().unwrap_or(&username)
+            "  ✓ system root user '{}' created",
+            result.root_username.as_deref().unwrap_or("freqroot")
         );
+        if let Some(admin_name) = &result.admin_username {
+            println!("  ✓ admin user '{}' created", admin_name);
+        }
 
         if let Some(api_key) = &result.api_key {
             println!();

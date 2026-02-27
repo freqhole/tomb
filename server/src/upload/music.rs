@@ -6,9 +6,9 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
+use grimoire::media_blobz::CreateMediaBlobRequest;
 use grimoire::media_blobz::{create_media_blob, BlobType};
 use grimoire::upload::{MusicMetadataHints, MusicUploadResponse};
-use grimoire::media_blobz::CreateMediaBlobRequest;
 use grimoire::users::UserRole;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -136,9 +136,19 @@ pub async fn upload_music_handler(
     // check if this was a deduplicated blob
     let existing = blob.created_at < (time::OffsetDateTime::now_utc().unix_timestamp() - 1);
 
-    // generate path with blob id
-    let rel_path = format!("media/{:04}/{:02}/{}.{}", year, month, blob.id, ext);
-    let full_path = PathBuf::from("data").join(&rel_path);
+    // get output directory from config (fetch_music.output_dir or fallback to data_dir/fetch)
+    let output_dir = state
+        .config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.as_ref())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.config.data_dir.join("fetch"));
+
+    // generate path with date-based subdirectory and blob id
+    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
+    let full_path = output_dir.join(&rel_path);
 
     // ensure directory exists
     if let Some(parent) = full_path.parent() {

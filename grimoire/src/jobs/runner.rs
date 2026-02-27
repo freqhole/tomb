@@ -72,14 +72,16 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
 
 /// Job processor that runs continuously with signal handling for graceful shutdown
 /// Processes jobs one at a time, checking for SIGTERM/SIGINT to stop gracefully
+///
+/// This version manages its own signal handlers - use for standalone CLI operation.
+/// For embedded use (e.g. server), use `run_job_processor_with_token` instead.
 pub async fn run_job_processor() -> GrimoireResponse<()> {
     use tokio::signal::unix::{signal, SignalKind};
 
-    info!("job processor started");
+    info!("job processor started (with internal signal handlers)");
 
     let cancellation_token = CancellationToken::new();
     let cancellation_token_clone = cancellation_token.clone();
-    let current_job_id = Arc::new(RwLock::new(None::<String>));
 
     // Spawn signal handlers
     tokio::spawn(async move {
@@ -97,6 +99,23 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
             }
         }
     });
+
+    run_job_processor_loop(cancellation_token).await
+}
+
+/// Job processor that runs with an externally-provided cancellation token
+///
+/// Use this when embedding the job processor in a server or other host that
+/// manages its own signal handling. The caller is responsible for cancelling
+/// the token when shutdown is requested.
+pub async fn run_job_processor_with_token(cancellation_token: CancellationToken) -> GrimoireResponse<()> {
+    info!("job processor started (with external cancellation token)");
+    run_job_processor_loop(cancellation_token).await
+}
+
+/// Internal job processing loop shared by both entry points
+async fn run_job_processor_loop(cancellation_token: CancellationToken) -> GrimoireResponse<()> {
+    let current_job_id = Arc::new(RwLock::new(None::<String>));
 
     loop {
         // Check if shutdown requested
@@ -141,7 +160,13 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
                 }
 
                 debug!("processing job: {}", job.id);
+                
+                // Process job with cancellation check - if cancelled during job,
+                // let the job finish but exit immediately after
                 let result = process_job(job.clone()).await;
+                
+                // Check cancellation after job completes
+                let should_exit = cancellation_token.is_cancelled();
 
                 // Clear current job ID
                 {
@@ -154,6 +179,12 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
                     debug!("job completed successfully: {}", job.id);
                 } else {
                     warn!("job failed: {}", job.id);
+                }
+                
+                // Exit if shutdown was requested during job processing
+                if should_exit {
+                    info!("shutdown was requested during job processing, stopping now");
+                    return GrimoireResponse::success("job processor stopped gracefully", ());
                 }
             }
             None => {

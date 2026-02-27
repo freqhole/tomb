@@ -101,18 +101,18 @@ pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
     grimoire::setup::get_defaults()
 }
 
-/// run the complete setup wizard using SetupService
+/// run core setup - creates config, database, and root user (no admin)
 ///
-/// this replaces the step-by-step flow (create_config → init_from_config → create_root_user)
-/// with a single unified call that handles everything
+/// this handles the infrastructure setup without creating an admin user.
+/// use create_admin_user after this to create the admin user with API key.
 #[tauri::command]
-pub async fn run_full_setup(
+pub async fn run_setup_core(
     config_path: String,
     data_dir: String,
     server_name: String,
     server_port: u16,
     image_path: Option<String>,
-    username: String,
+    fetch_music_dir: Option<String>,
 ) -> grimoire::setup::SetupResult {
     let deps = grimoire::setup::check_dependencies();
 
@@ -124,23 +124,104 @@ pub async fn run_full_setup(
     #[cfg(not(debug_assertions))]
     let allowed_origins = vec!["tauri://localhost".to_string()];
 
+    // if image_path provided, copy to data_dir as freqhole-icon with original extension
+    let final_image_path = if let Some(src_path) = image_path {
+        let src = std::path::Path::new(&src_path);
+        if src.exists() {
+            let extension = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
+            let dest_filename = format!("freqhole-icon.{}", extension);
+            let dest = PathBuf::from(&data_dir).join(&dest_filename);
+
+            // ensure data_dir exists before copying
+            let _ = std::fs::create_dir_all(&data_dir);
+
+            match std::fs::copy(&src_path, &dest) {
+                Ok(_) => Some(dest.to_string_lossy().to_string()),
+                Err(e) => {
+                    eprintln!("failed to copy icon: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let setup_config = grimoire::setup::SetupConfig {
         config_path: PathBuf::from(&config_path),
         data_dir: PathBuf::from(&data_dir),
         server_name,
         server_id: None, // derived from server_name
         server_port,
-        image_path,
-        username,
-        generate_api_key: true,      // always generate for tauri
+        image_path: final_image_path,
+        admin_username: None,        // no admin user in core setup
+        generate_api_key: false,     // no API key without admin user
         generate_invite_code: false, // tauri doesn't need this
         ytdlp_available: deps.has_ytdlp(),
+        fetch_music_dir: fetch_music_dir.map(PathBuf::from),
         initial_scan_dirs: Vec::new(), // handled by music step in UI
         allowed_origins: Some(allowed_origins),
     };
 
     let service = grimoire::setup::SetupService::new();
     service.run_setup(setup_config).await
+}
+
+/// result of creating an admin user
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateAdminResult {
+    pub success: bool,
+    pub user_id: Option<String>,
+    pub username: Option<String>,
+    pub api_key: Option<String>,
+    pub error: Option<String>,
+}
+
+/// create admin user with API key (call after run_setup_core)
+#[tauri::command]
+pub async fn create_admin_user(username: String) -> CreateAdminResult {
+    let service = grimoire::users::UserService::new();
+
+    // create admin user
+    let request = grimoire::users::CreateUserRequest {
+        username: username.clone(),
+        role: Some(grimoire::users::UserRole::Admin),
+        invite_code: None,
+    };
+
+    let response = service.register_user(&request).await;
+
+    match response.data {
+        Some(user) => {
+            // generate API key for admin user
+            let key_response = service.generate_api_key(&user.id).await;
+            let api_key = key_response.data.and_then(|u| u.api_key);
+
+            CreateAdminResult {
+                success: true,
+                user_id: Some(user.id),
+                username: Some(user.username),
+                api_key,
+                error: None,
+            }
+        }
+        None => {
+            let error = response
+                .errors
+                .first()
+                .map(|e| e.detail.clone())
+                .unwrap_or_else(|| "unknown error".to_string());
+            CreateAdminResult {
+                success: false,
+                user_id: None,
+                username: None,
+                api_key: None,
+                error: Some(error),
+            }
+        }
+    }
 }
 
 /// check if setup wizard needs to run
@@ -256,6 +337,70 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
+/// freqhole config info for the bridge (exposed to frontend via CustomEvent)
+#[derive(Debug, Clone, Serialize)]
+pub struct FreqholeConfig {
+    /// server unique identifier
+    pub server_id: String,
+    /// server display name
+    pub server_name: String,
+    /// server URL (e.g. http://localhost:8686)
+    pub server_url: String,
+    /// api key for authentication (if available)
+    pub api_key: Option<String>,
+}
+
+/// save api key to file for persistent storage
+pub fn save_api_key(app_handle: &tauri::AppHandle, api_key: &str) -> Result<(), String> {
+    let api_key_path = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join(".api_key");
+    std::fs::write(&api_key_path, api_key).map_err(|e| format!("failed to save api key: {}", e))?;
+    Ok(())
+}
+
+/// read api key from file
+fn read_api_key(app_handle: &tauri::AppHandle) -> Option<String> {
+    let api_key_path = app_handle.path().app_data_dir().ok()?.join(".api_key");
+    std::fs::read_to_string(&api_key_path).ok()
+}
+
+/// get freqhole server config (for bridge communication with spume)
+///
+/// returns server_id, server_name, server_url from the loaded config
+/// returns None if config is not initialized
+pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfig> {
+    let config_path = app_handle
+        .path()
+        .app_data_dir()
+        .ok()?
+        .join("freqhole-config.toml");
+
+    // try to initialize config if needed
+    if !grimoire::is_config_initialized() {
+        if !config_path.exists() {
+            return None;
+        }
+        if grimoire::config::init_config(Some(config_path)).is_err() {
+            return None;
+        }
+    }
+
+    let config = grimoire::config::get_config();
+    let server = config.server.as_ref()?;
+    let api_key = read_api_key(&app_handle);
+
+    Some(FreqholeConfig {
+        server_id: server.id.clone(),
+        server_name: server.name.clone(),
+        // always use localhost for the client URL (not the bind address like 0.0.0.0)
+        server_url: format!("http://localhost:{}", server.port),
+        api_key,
+    })
+}
+
 /// open the data directory in Finder
 #[tauri::command]
 pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
@@ -345,6 +490,13 @@ pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveCo
                     validation_errors: vec![],
                 };
             }
+
+            // notify spume that config changed (requires reload)
+            let _ = crate::spume_bridge::notify_config_changed(
+                &app_handle,
+                "config was updated - reload to apply changes",
+            );
+
             SaveConfigResult {
                 success: true,
                 message: "config saved successfully".to_string(),
@@ -739,6 +891,21 @@ pub async fn scan_directory(
             // record the scanned directory in the database
             let _ = grimoire::jobs::record_scanned_directory(&path, count as i64, None).await;
 
+            if count > 0 {
+                // start background polling for job completion
+                let app_handle_clone = app_handle.clone();
+                let session_id_clone = session_id.clone();
+                let shutdown_token = app_handle.state::<crate::ShutdownToken>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    poll_scan_jobs_until_complete(
+                        app_handle_clone,
+                        session_id_clone,
+                        shutdown_token,
+                    )
+                    .await;
+                });
+            }
+
             ScanResult {
                 success: true,
                 jobs_created: count as u32,
@@ -751,6 +918,115 @@ pub async fn scan_directory(
             message: result.message,
         },
     }
+}
+
+/// poll for scan job completion and notify spume with progress updates
+///
+/// this runs in the background after scan_directory creates jobs.
+/// polls every 3 seconds and sends progress updates on each poll.
+/// exits early if shutdown_token is cancelled.
+async fn poll_scan_jobs_until_complete(
+    app_handle: tauri::AppHandle,
+    session_id: String,
+    shutdown_token: crate::ShutdownToken,
+) {
+    use grimoire::jobs::{list_jobs, JobStatus};
+    use grimoire::music::analytics::admin::get_overview_stats;
+    use std::time::Duration;
+
+    // get baseline counts before jobs are processed
+    let baseline = match get_overview_stats().await.data {
+        Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
+        None => {
+            eprintln!("[scan-poll] failed to get baseline stats");
+            (0, 0, 0)
+        }
+    };
+
+    let poll_interval = Duration::from_secs(3);
+    let max_polls = 600; // 30 minutes max (600 * 3s)
+    let mut last_songs = 0i64;
+
+    for _ in 0..max_polls {
+        // wait for poll interval or shutdown
+        tokio::select! {
+            _ = tokio::time::sleep(poll_interval) => {}
+            _ = shutdown_token.cancelled() => {
+                eprintln!("[scan-poll] shutdown requested, stopping poll");
+                return;
+            }
+        }
+
+        // check job status for this session
+        let jobs_response = list_jobs(Some(&session_id), None, Some(1000), None).await;
+
+        match jobs_response.data {
+            Some(jobs) => {
+                let jobs_total = jobs.len() as u32;
+                let pending = jobs
+                    .iter()
+                    .filter(|j| {
+                        j.status()
+                            .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                            .unwrap_or(false)
+                    })
+                    .count() as u32;
+
+                // get current stats to track progress
+                let current_stats = get_overview_stats().await.data;
+                let (songs_added, albums_added, artists_added) = match &current_stats {
+                    Some(stats) => (
+                        (stats.total_songs - baseline.0).max(0) as u32,
+                        (stats.total_albums - baseline.1).max(0) as u32,
+                        (stats.total_artists - baseline.2).max(0) as u32,
+                    ),
+                    None => (0, 0, 0),
+                };
+
+                // send progress update if songs changed
+                let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
+                if current_songs != last_songs {
+                    last_songs = current_songs;
+                    if let Err(e) = crate::spume_bridge::notify_scan_progress(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                        pending,
+                        jobs_total,
+                    ) {
+                        eprintln!("[scan-poll] failed to send progress: {}", e);
+                    }
+                }
+
+                if pending == 0 && !jobs.is_empty() {
+                    // all jobs complete - send final notification
+                    if let Err(e) = crate::spume_bridge::notify_scan_jobs_complete(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                    ) {
+                        eprintln!("[scan-poll] failed to notify spume: {}", e);
+                    }
+
+                    eprintln!(
+                        "[scan-poll] complete: {} songs, {} albums, {} artists added",
+                        songs_added, albums_added, artists_added
+                    );
+                    return;
+                }
+            }
+            None => {
+                eprintln!(
+                    "[scan-poll] failed to get job list for session {}",
+                    session_id
+                );
+            }
+        }
+    }
+
+    eprintln!("[scan-poll] polling timed out after 30 minutes");
 }
 
 /// scanned directory info for UI

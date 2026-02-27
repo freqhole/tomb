@@ -2,7 +2,7 @@ import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { whoami } from "../../app/services/remotes/authService";
-import { useLocalSource, useRemoteSource } from "../../music/data";
+import { useLocalSource, useRemoteSource, getCurrentRemote } from "../../music/data";
 import { getActiveRemote, getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
@@ -20,6 +20,7 @@ import { AppLayout } from "../AppLayout";
 import { SettingsLayout, StorageSettingsView, RemotesSettingsView } from "../../settings";
 import { getSavedRoute } from "../../utils/tauri/routePersistence";
 import { debug } from "../../utils/logger";
+import { isTauriMode } from "../../utils/tauri";
 
 interface RoutesProps {
   onAddMusic: () => void;
@@ -31,6 +32,17 @@ function RootRedirect() {
   const queryClient = useQueryClient();
 
   onMount(async () => {
+    // tauri remote setup is now done in App.tsx before initializeDataSource()
+    // here we just need to redirect to the appropriate route
+
+    // if already have an active remote from initialization, navigate to it
+    const currentRemote = getCurrentRemote();
+    if (currentRemote) {
+      debug("routes", "current remote from init:", currentRemote.name);
+      navigate(`/${currentRemote.remote_id}/songs`, { replace: true });
+      return;
+    }
+
     // check for saved route from previous tauri session
     const savedRoute = getSavedRoute();
     if (savedRoute) {
@@ -47,7 +59,8 @@ function RootRedirect() {
           navigate(savedRoute, { replace: true });
           return;
         }
-      } else if (routeContext === "local") {
+      } else if (routeContext === "local" && !isTauriMode()) {
+        // skip local route restoration in tauri mode
         await useLocalSource();
         queryClient.invalidateQueries();
         navigate(savedRoute, { replace: true });
@@ -68,12 +81,13 @@ function RootRedirect() {
       );
       queryClient.invalidateQueries();
       navigate(`/${activeRemote.remote_id}/songs`, { replace: true });
-    } else {
-      // no active remote, use local
+    } else if (!isTauriMode()) {
+      // no active remote, use local (skip in tauri mode - wait for server)
       await useLocalSource();
       queryClient.invalidateQueries();
       navigate("/local/songs", { replace: true });
     }
+    // in tauri mode with no active remote, stay on root and wait for server
   });
 
   return null;
@@ -101,44 +115,46 @@ export function routes(props: RoutesProps) {
         {/* root redirect - goes to last active remote or local */}
         <Route path="/" component={RootRedirect} />
 
-        {/* local context routes */}
-        <Route path="/local" component={LocalContextHandler}>
-          <Route path="/feed" component={FeedView} />
-          <Route
-            path="/songs"
-            component={() => (
-              <SongsView
-                onAddMusic={props.onAddMusic}
-                onSongDoubleClick={props.onSongDoubleClick}
-              />
-            )}
-          />
-          <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
-          <Route path="/albums/:id" component={AlbumDetailView} />
-          <Route
-            path="/artists/:id?"
-            component={() => (
-              <ArtistsView
-                onAddMusic={props.onAddMusic}
-                onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
-              />
-            )}
-          />
-          <Route path="/genres" component={() => <GenresView onAddMusic={props.onAddMusic} />} />
-          <Route
-            path="/playlists/:id?"
-            component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
-          />
-          <Route
-            path="/favorites"
-            component={() => (
-              <FavoritesView
-                onAddMusic={props.onAddMusic}
-                onSongDoubleClick={props.onSongDoubleClick}
-              />
-            )}
-          />
-        </Route>
+        {/* local context routes - hidden in tauri mode (always uses remote server) */}
+        {!isTauriMode() && (
+          <Route path="/local" component={LocalContextHandler}>
+            <Route path="/feed" component={FeedView} />
+            <Route
+              path="/songs"
+              component={() => (
+                <SongsView
+                  onAddMusic={props.onAddMusic}
+                  onSongDoubleClick={props.onSongDoubleClick}
+                />
+              )}
+            />
+            <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+            <Route path="/albums/:id" component={AlbumDetailView} />
+            <Route
+              path="/artists/:id?"
+              component={() => (
+                <ArtistsView
+                  onAddMusic={props.onAddMusic}
+                  onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
+                />
+              )}
+            />
+            <Route path="/genres" component={() => <GenresView onAddMusic={props.onAddMusic} />} />
+            <Route
+              path="/playlists/:id?"
+              component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+            />
+            <Route
+              path="/favorites"
+              component={() => (
+                <FavoritesView
+                  onAddMusic={props.onAddMusic}
+                  onSongDoubleClick={props.onSongDoubleClick}
+                />
+              )}
+            />
+          </Route>
+        )}
 
         {/* remote context routes */}
         <Route path="/:remoteId" component={RemoteContextHandler}>

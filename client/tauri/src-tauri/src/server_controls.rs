@@ -24,7 +24,7 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
         match action {
             ServerAction::Start => {
                 let config_path = {
-                    let guard = state.lock().await;
+                    let guard = state.lock().unwrap();
                     guard
                         .config_path
                         .clone()
@@ -38,14 +38,22 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
                 };
 
                 if config_path.exists() {
-                    let _ = sidecar::start_server(&state, config_path).await;
+                    let result = sidecar::start_server(&state, config_path).await;
+                    if result.success {
+                        // push updated config to spume window
+                        let _ = crate::spume_bridge::push_config_to_spume(&app);
+                    }
                 }
             }
             ServerAction::Stop => {
                 let _ = sidecar::stop_server(&state).await;
             }
             ServerAction::Restart => {
-                let _ = sidecar::restart_server(&state).await;
+                let result = sidecar::restart_server(&state).await;
+                if result.success {
+                    // push updated config to spume window
+                    let _ = crate::spume_bridge::push_config_to_spume(&app);
+                }
             }
         }
     });

@@ -1,9 +1,11 @@
 // main app entry point with routing
 import { HashRouter } from "@solidjs/router";
+import { toaster } from "@kobalte/core/toast";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/feedback/Toast";
+import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
@@ -42,7 +44,6 @@ import {
   openAddMusic,
   closeAddMusic,
 } from "../music/hooks/modals";
-import { queryKeys } from "../music/queries/queryKeys";
 import { addToQueue } from "../music/services/queue/queue";
 import {
   cleanupCacheNetworkHandlers,
@@ -51,16 +52,21 @@ import {
 } from "../music/services/cache/blobCache";
 import {
   getAllRemotes,
-  createRemote,
   setActiveRemote,
-  getRemoteByUrl,
-  updateRemote,
+  upsertTauriRemote,
 } from "./services/remotes/remoteManager";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
 import { initAppDB } from "./services/storage/db";
 import { debug } from "../utils/logger";
+import { isTauriMode } from "../utils/tauri";
+import {
+  requestFreqholeConfig,
+  onConfigUpdated,
+  onMessage,
+  type SpumeMessage,
+} from "../utils/tauri/freqhole-bridge";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -71,47 +77,99 @@ export function App() {
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
 
-  // auto-setup remote from URL params (apiKey and port passed from tauri wizard)
-  async function autoSetupRemoteFromUrlParams() {
-    const params = new URLSearchParams(window.location.search);
-    const apiKey = params.get("apiKey");
-    const portParam = params.get("port");
+  // handle messages from tauri (config changes, scan completion)
+  function handleTauriMessage(msg: SpumeMessage) {
+    debug(`tauri message: ${msg.type}`, msg.data);
 
-    if (!apiKey) return;
+    switch (msg.type) {
+      case "config-changed":
+        // show persistent toast with reload button
+        toaster.show((props) => (
+          <ConfigChangedToast
+            toastId={props.toastId}
+            message={msg.data.message}
+            onReload={() => window.location.reload()}
+          />
+        ));
+        break;
 
-    // clear the URL params to prevent re-setup on refresh
-    const url = new URL(window.location.href);
-    url.searchParams.delete("apiKey");
-    url.searchParams.delete("port");
-    window.history.replaceState({}, "", url.toString());
+      case "scan-progress":
+        // invalidate queries to refresh music data as songs are added
+        queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey[0];
+            return key === "songs" || key === "albums" || key === "artists" || key === "genres";
+          },
+        });
+        break;
 
-    const port = portParam ? parseInt(portParam, 10) : 8081;
-    const localServerUrl = `http://localhost:${port}`;
-    debug(`auto-setup remote from URL params: ${localServerUrl}`);
+      case "scan-jobs-complete":
+        // final invalidation when scan is complete
+        queryClient.invalidateQueries({
+          predicate: (query) => {
+            const key = query.queryKey[0];
+            return key === "songs" || key === "albums" || key === "artists" || key === "genres";
+          },
+        });
+        // show toast notification
+        toast.success(
+          `Scan complete: ${msg.data.songs_added} songs, ${msg.data.albums_added} albums, ${msg.data.artists_added} artists added`
+        );
+        break;
+
+      case "config-updated":
+        // handled by onConfigUpdated callback (auto-applies)
+        break;
+    }
+  }
+
+  // auto-setup remote from tauri bridge (for tauri desktop app)
+  async function autoSetupRemoteFromTauriBridge() {
+    if (!isTauriMode()) {
+      debug("not in tauri mode, skipping bridge setup");
+      return;
+    }
+
+    debug("tauri mode detected, requesting config from bridge...");
+    const config = requestFreqholeConfig();
+
+    if (!config) {
+      debug("no config from tauri bridge, server may not be ready yet");
+      return;
+    }
+
+    debug(`got config from tauri bridge: ${config.server_name} @ ${config.server_url}`);
 
     try {
-      // check if remote already exists for this URL
-      let remote = await getRemoteByUrl(localServerUrl);
-
-      if (remote) {
-        // update existing remote with new api key
-        await updateRemote(remote.remote_id, { api_key: apiKey });
-        debug(`updated existing remote with new api key: ${remote.name}`);
-      } else {
-        // create new remote
-        remote = await createRemote({
-          name: "local server",
-          base_url: localServerUrl,
-          api_key: apiKey,
-        });
-        debug(`created remote: ${remote.name}`);
-      }
-
-      // set it active
+      // upsert creates or updates the tauri-managed remote
+      const remote = await upsertTauriRemote({
+        server_id: config.server_id,
+        name: config.server_name,
+        base_url: config.server_url,
+        api_key: config.api_key,
+      });
       await setActiveRemote(remote.remote_id);
-      debug(`activated remote: ${remote.name}`);
+      debug(`activated tauri remote: ${remote.name} (${remote.base_url})`);
+
+      // subscribe to config updates (server restarts)
+      onConfigUpdated(async (newConfig) => {
+        debug("tauri: config updated event received, refreshing remote...");
+        const updatedRemote = await upsertTauriRemote({
+          server_id: newConfig.server_id,
+          name: newConfig.server_name,
+          base_url: newConfig.server_url,
+          api_key: newConfig.api_key,
+        });
+        await setActiveRemote(updatedRemote.remote_id);
+        await useRemoteSource(updatedRemote.remote_id, updatedRemote.name, updatedRemote.base_url);
+        queryClient.invalidateQueries();
+        debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
+      });
+
+      // subscribe to all tauri messages (config changes, scan progress, etc.)
+      onMessage((msg: SpumeMessage) => handleTauriMessage(msg));
     } catch (error) {
-      console.error("failed to auto-setup remote:", error);
+      console.error("failed to setup tauri remote:", error);
     }
   }
 
@@ -126,8 +184,8 @@ export function App() {
       await initAppDB();
       await initMusicDB();
 
-      // auto-setup remote from URL params (tauri wizard flow)
-      await autoSetupRemoteFromUrlParams();
+      // auto-setup remote from tauri bridge (for desktop app)
+      await autoSetupRemoteFromTauriBridge();
 
       // initialize data source (switches to active remote if configured)
       await initializeDataSource();
@@ -161,7 +219,9 @@ export function App() {
   // callback for when any remote job completes — invalidate song queries
   const onRemoteJobComplete = () => {
     setHasSongs(true);
-    queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+    queryClient.invalidateQueries({
+      predicate: (query) => query.queryKey[0] === "songs",
+    });
   };
 
   const handleFilesSelected = async (files: FileList) => {
@@ -177,9 +237,12 @@ export function App() {
         const result = await importMusicFiles(files);
         if (result.addedCount > 0) {
           setHasSongs(true);
-          queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-          queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-          queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+          queryClient.invalidateQueries({
+            predicate: (query) => {
+              const key = query.queryKey[0];
+              return key === "songs" || key === "albums" || key === "artists";
+            },
+          });
         }
       } catch (error) {
         console.error("failed to process files:", error);

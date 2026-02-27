@@ -8,12 +8,14 @@ import {
 } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import "./App.css";
 
 interface ServerStatus {
   running: boolean;
   pid: number | null;
   uptime_secs: number | null;
+  restart_count: number;
   config_path: string | null;
   server_url: string | null;
 }
@@ -49,6 +51,9 @@ function App(props: ParentProps) {
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
   const [copied, setCopied] = createSignal(false);
+
+  // track restart count to detect server restarts
+  let lastRestartCount: number | null = null;
 
   // determine if we're on an admin route (not setup)
   const isAdminRoute = () => {
@@ -114,6 +119,18 @@ function App(props: ParentProps) {
     try {
       const status = await invoke<ServerStatus>("server_status");
       setServerStatus(status);
+
+      // detect server restart and notify spume via tauri event system
+      if (
+        lastRestartCount !== null &&
+        status.restart_count > lastRestartCount
+      ) {
+        console.log(
+          "[App] server restart detected, emitting config-updated event",
+        );
+        emit("freqhole:config-updated");
+      }
+      lastRestartCount = status.restart_count;
     } catch (e) {
       console.error("failed to get status:", e);
     }

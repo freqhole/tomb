@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
 
-// simplified step flow: welcome → config → running → music → done
-type SetupStep = "welcome" | "config" | "running" | "music" | "done";
+// step flow: welcome → config → running → admin → music → done
+type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
 
 interface DependencyCheckResult {
   ffmpeg_path: string | null;
@@ -18,11 +18,21 @@ interface SetupResult {
   success: boolean;
   config_path: string;
   data_dir: string;
-  user_id: string | null;
-  username: string | null;
+  root_user_id: string | null;
+  root_username: string | null;
+  admin_user_id: string | null;
+  admin_username: string | null;
   api_key: string | null;
   invite_code: string | null;
   errors: string[];
+}
+
+interface CreateAdminResult {
+  success: boolean;
+  user_id: string | null;
+  username: string | null;
+  api_key: string | null;
+  error: string | null;
 }
 
 interface ScanResult {
@@ -62,6 +72,8 @@ export default function SetupView() {
   const [appDataDir, setAppDataDir] = createSignal("");
   // dataDir is customizable - where database/cache/media live (defaults to appDataDir)
   const [dataDir, setDataDir] = createSignal("");
+  // fetchMusicDir is where fetched/uploaded music files are stored
+  const [fetchMusicDir, setFetchMusicDir] = createSignal("");
   const [serverName, setServerName] = createSignal("my music server");
   const [serverPort, setServerPort] = createSignal(8081);
   const [serverImage, setServerImage] = createSignal<string | null>(null);
@@ -95,6 +107,10 @@ export default function SetupView() {
       const dir = await invoke<string | null>("get_default_data_dir");
       setAppDataDir(dir || "");
       setDataDir(dir || ""); // default data dir to same location
+      // default fetch music dir to data_dir/Music
+      if (dir) {
+        setFetchMusicDir(`${dir}/Music`);
+      }
 
       // get os username for default
       const osUser = await invoke<string>("get_os_username");
@@ -133,6 +149,22 @@ export default function SetupView() {
     }
   }
 
+  async function browseFetchMusicDir() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "choose music storage directory",
+        defaultPath: fetchMusicDir() || dataDir() || undefined,
+      });
+      if (selected) {
+        setFetchMusicDir(selected as string);
+      }
+    } catch (e) {
+      console.error("browse fetch music dir error:", e);
+    }
+  }
+
   async function browseImage() {
     try {
       const selected = await open({
@@ -151,7 +183,7 @@ export default function SetupView() {
     }
   }
 
-  // unified setup function that handles everything in one call
+  // core setup - creates config, database, and root user (no admin)
   async function runSetup() {
     setLoading(true);
     setError("");
@@ -160,12 +192,38 @@ export default function SetupView() {
     try {
       const configPath = `${appDataDir()}/freqhole-config.toml`;
 
-      const result = await invoke<SetupResult>("run_full_setup", {
+      const result = await invoke<SetupResult>("run_setup_core", {
         configPath,
         dataDir: dataDir(),
         serverName: serverName(),
         serverPort: serverPort(),
         imagePath: serverImage(),
+        fetchMusicDir: fetchMusicDir() || null,
+      });
+
+      if (result.success) {
+        // core setup done, now go to admin user step
+        setStep("admin");
+      } else {
+        const errorMsg = result.errors.join("; ") || "setup failed";
+        throw new Error(errorMsg);
+      }
+    } catch (e) {
+      setError(String(e));
+      // go back to config step on error so user can retry
+      setStep("config");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // create admin user with API key
+  async function createAdmin() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const result = await invoke<CreateAdminResult>("create_admin_user", {
         username: username() || "admin",
       });
 
@@ -175,13 +233,10 @@ export default function SetupView() {
         }
         setStep("music");
       } else {
-        const errorMsg = result.errors.join("; ") || "setup failed";
-        throw new Error(errorMsg);
+        throw new Error(result.error || "failed to create admin user");
       }
     } catch (e) {
       setError(String(e));
-      // go back to config step on error so user can retry
-      setStep("config");
     } finally {
       setLoading(false);
     }
@@ -483,6 +538,29 @@ export default function SetupView() {
             </p>
           </div>
 
+          <div class="form-group">
+            <label for="fetch-music-dir">music storage directory</label>
+            <div class="input-with-button">
+              <input
+                type="text"
+                id="fetch-music-dir"
+                value={fetchMusicDir()}
+                onInput={(e) => setFetchMusicDir(e.currentTarget.value)}
+                placeholder="/path/to/music"
+              />
+              <button
+                type="button"
+                class="browse-btn"
+                onClick={browseFetchMusicDir}
+              >
+                browse
+              </button>
+            </div>
+            <p class="hint">
+              where downloaded and uploaded music files are stored.
+            </p>
+          </div>
+
           {/* advanced toggle */}
           <button
             type="button"
@@ -544,18 +622,6 @@ export default function SetupView() {
             </div>
           </Show>
 
-          <div class="form-group">
-            <label for="username">admin username</label>
-            <input
-              type="text"
-              id="username"
-              placeholder="admin"
-              value={username()}
-              onInput={(e) => setUsername(e.currentTarget.value)}
-            />
-            <p class="hint">username for the root administrator account.</p>
-          </div>
-
           <div class="button-row">
             <button class="secondary" onClick={() => setStep("welcome")}>
               back
@@ -583,8 +649,43 @@ export default function SetupView() {
 
           <div class="loading">
             <div class="spinner" />
-            <span>creating config, database, and admin account...</span>
+            <span>creating config and database...</span>
           </div>
+        </div>
+      </Show>
+
+      {/* admin user */}
+      <Show when={step() === "admin"}>
+        <div class="step">
+          <h1>create admin account</h1>
+          <p class="subtitle">
+            create an administrator account to manage your server.
+          </p>
+
+          <div class="form-group">
+            <label for="username">admin username</label>
+            <input
+              type="text"
+              id="username"
+              placeholder="admin"
+              value={username()}
+              onInput={(e) => setUsername(e.currentTarget.value)}
+            />
+            <p class="hint">
+              choose a username for your admin account. this account will have
+              full access to manage your server.
+            </p>
+          </div>
+
+          <div class="button-row">
+            <button class="primary" onClick={createAdmin} disabled={loading()}>
+              {loading() ? "creating..." : "create admin"}
+            </button>
+          </div>
+
+          <Show when={error()}>
+            <p class="error">{error()}</p>
+          </Show>
         </div>
       </Show>
 

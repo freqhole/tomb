@@ -6,14 +6,39 @@ mod commands;
 mod menu;
 mod server_controls;
 mod sidecar;
+mod spume_bridge;
 mod tray;
 mod wizard;
 
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
+use std::sync::Arc;
 use tauri::http::{Request, Response};
 use tauri::webview::Color;
 use tauri::{Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tokio_util::sync::CancellationToken;
+
+/// shutdown token for cancelling background tasks on app exit
+#[derive(Clone)]
+pub struct ShutdownToken(pub Arc<CancellationToken>);
+
+impl ShutdownToken {
+    pub fn new() -> Self {
+        Self(Arc::new(CancellationToken::new()))
+    }
+
+    pub fn cancel(&self) {
+        self.0.cancel();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+
+    pub async fn cancelled(&self) {
+        self.0.cancelled().await
+    }
+}
 
 /// proxy a blob request with authorization header (blocking)
 ///
@@ -71,6 +96,7 @@ fn proxy_blob_request(
 pub fn run() {
     tauri::Builder::default()
         .manage(sidecar::new_server_manager())
+        .manage(ShutdownToken::new())
         .setup(|app| {
             // check if setup wizard should run
             let needs_setup = app
@@ -112,11 +138,13 @@ pub fn run() {
                     }
                 });
 
-                // show main window
+                // show main window with config injected
+                let init_script = spume_bridge::get_init_script(app.handle());
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("")
                     .inner_size(800.0, 600.0)
-                    .background_color(Color(0, 0, 0, 255));
+                    .background_color(Color(0, 0, 0, 255))
+                    .initialization_script(&init_script);
 
                 #[cfg(target_os = "macos")]
                 let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
@@ -158,7 +186,8 @@ pub fn run() {
             commands::check_setup_status,
             commands::check_dependencies,
             commands::get_setup_defaults,
-            commands::run_full_setup,
+            commands::run_setup_core,
+            commands::create_admin_user,
             commands::get_default_data_dir,
             commands::get_os_username,
             commands::get_config_path,
@@ -205,11 +234,26 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                eprintln!("[shutdown] RunEvent::Exit received");
+
+                // cancel all background tasks first
+                let shutdown_token = app.state::<ShutdownToken>().inner().clone();
+                shutdown_token.cancel();
+                eprintln!("[shutdown] shutdown token cancelled");
+
+                // brief pause to let poll tasks exit
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                eprintln!("[shutdown] poll tasks should be stopped");
+
                 // stop server on app exit
+                eprintln!("[shutdown] about to call stop_server...");
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 tauri::async_runtime::block_on(async move {
-                    let _ = sidecar::stop_server(&state).await;
+                    eprintln!("[shutdown] inside block_on, calling stop_server");
+                    let result = sidecar::stop_server(&state).await;
+                    eprintln!("[shutdown] stop_server returned: {}", result.message);
                 });
+                eprintln!("[shutdown] cleanup complete");
             }
         });
 }

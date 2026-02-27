@@ -60,8 +60,13 @@ pub async fn close_setup_wizard(
     app: AppHandle<Wry>,
     api_key: Option<String>,
     config_path: Option<String>,
-    server_port: Option<u16>,
+    _server_port: Option<u16>,
 ) -> Result<(), String> {
+    // save api key to file for persistent storage (used by get_freqhole_config)
+    if let Some(key) = &api_key {
+        crate::commands::save_api_key(&app, key)?;
+    }
+
     // start server if config path provided
     if let Some(path) = config_path {
         let state = app.state::<crate::sidecar::ServerManager>();
@@ -74,29 +79,18 @@ pub async fn close_setup_wizard(
 
     // create main window if it doesn't exist
     if app.get_webview_window("main").is_none() {
-        // build URL with optional api key and port query params
-        let port = server_port.unwrap_or(8081);
-        let webview_url = if let Some(key) = api_key {
-            #[cfg(debug_assertions)]
-            let url_str = format!("http://localhost:1420?apiKey={}&port={}", key, port);
-            #[cfg(not(debug_assertions))]
-            let url_str = format!("index.html?apiKey={}&port={}", key, port);
+        // inject config via initialization script (works in dev + release)
+        let init_script = crate::spume_bridge::get_init_script(&app);
 
-            #[cfg(debug_assertions)]
-            {
-                WebviewUrl::External(url_str.parse().unwrap())
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                WebviewUrl::App(std::path::PathBuf::from(url_str))
-            }
-        } else {
-            WebviewUrl::default()
-        };
+        #[cfg(debug_assertions)]
+        let webview_url = WebviewUrl::External("http://localhost:1420".parse().unwrap());
+        #[cfg(not(debug_assertions))]
+        let webview_url = WebviewUrl::App(std::path::PathBuf::from("index.html"));
 
         let win_builder = WebviewWindowBuilder::new(&app, "main", webview_url)
             .title("")
-            .inner_size(800.0, 600.0);
+            .inner_size(800.0, 600.0)
+            .initialization_script(&init_script);
 
         #[cfg(target_os = "macos")]
         let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);

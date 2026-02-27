@@ -12,9 +12,8 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
 
 /// strip ANSI escape codes from a string
 fn strip_ansi_codes(s: &str) -> String {
@@ -171,7 +170,7 @@ fn find_freqhole_binary() -> Option<PathBuf> {
 
 /// get current server status
 pub async fn get_status(state: &ServerManager) -> ServerStatus {
-    let mut guard = state.lock().await;
+    let mut guard = state.lock().unwrap();
 
     // check if process is still running
     if let Some(ref mut child) = guard.process {
@@ -214,7 +213,7 @@ pub async fn get_status(state: &ServerManager) -> ServerStatus {
 pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> ServerResult {
     let state_clone = Arc::clone(state);
 
-    let mut guard = state.lock().await;
+    let mut guard = state.lock().unwrap();
 
     // check if already running
     if let Some(ref mut child) = guard.process {
@@ -327,7 +326,7 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
             // wait a moment and check if process exited immediately (crash on startup)
             std::thread::sleep(Duration::from_millis(500));
             {
-                let mut guard = state_clone.lock().await;
+                let mut guard = state_clone.lock().unwrap();
                 if let Some(ref mut child) = guard.process {
                     match child.try_wait() {
                         Ok(Some(status)) => {
@@ -385,16 +384,22 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
 
 /// stop the server
 pub async fn stop_server(state: &ServerManager) -> ServerResult {
-    let mut guard = state.lock().await;
+    eprintln!("[stop_server] acquiring lock...");
+    let mut guard = state.lock().unwrap();
+    eprintln!("[stop_server] lock acquired");
 
     match guard.process.take() {
         Some(mut child) => {
+            let pid = child.id();
+            eprintln!("[stop_server] stopping process pid={}", pid);
+
             // try graceful shutdown first (SIGTERM)
             #[cfg(unix)]
             {
                 use nix::sys::signal::{kill, Signal};
                 use nix::unistd::Pid;
-                let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
+                eprintln!("[stop_server] sending SIGTERM");
+                let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
             }
 
             // wait briefly for graceful shutdown
@@ -403,17 +408,24 @@ pub async fn stop_server(state: &ServerManager) -> ServerResult {
 
             loop {
                 match child.try_wait() {
-                    Ok(Some(_)) => break,
+                    Ok(Some(status)) => {
+                        eprintln!("[stop_server] process exited with status: {:?}", status);
+                        break;
+                    }
                     Ok(None) => {
-                        if start.elapsed() > graceful_timeout {
-                            // force kill
+                        let elapsed = start.elapsed();
+                        if elapsed > graceful_timeout {
+                            eprintln!("[stop_server] timeout after {:?}, force killing", elapsed);
                             let _ = child.kill();
                             let _ = child.wait();
                             break;
                         }
                         std::thread::sleep(Duration::from_millis(100));
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        eprintln!("[stop_server] try_wait error: {}", e);
+                        break;
+                    }
                 }
             }
 
@@ -437,7 +449,7 @@ pub async fn stop_server(state: &ServerManager) -> ServerResult {
 /// restart the server
 pub async fn restart_server(state: &ServerManager) -> ServerResult {
     let config_path = {
-        let guard = state.lock().await;
+        let guard = state.lock().unwrap();
         guard.config_path.clone()
     };
 
@@ -451,7 +463,7 @@ pub async fn restart_server(state: &ServerManager) -> ServerResult {
 
             // track restart
             {
-                let mut guard = state.lock().await;
+                let mut guard = state.lock().unwrap();
                 guard.restart_count += 1;
                 guard.last_restart = Some(Instant::now());
             }
@@ -493,11 +505,17 @@ pub async fn server_status(state: tauri::State<'_, ServerManager>) -> Result<Ser
 /// start the server with config path
 #[tauri::command]
 pub async fn server_start(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, ServerManager>,
     config_path: String,
 ) -> Result<ServerResult, String> {
     let path = PathBuf::from(config_path);
-    Ok(start_server(&state, path).await)
+    let result = start_server(&state, path).await;
+    if result.success {
+        // push updated config to spume window
+        let _ = crate::spume_bridge::push_config_to_spume(&app_handle);
+    }
+    Ok(result)
 }
 
 /// stop the server
@@ -509,17 +527,24 @@ pub async fn server_stop(state: tauri::State<'_, ServerManager>) -> Result<Serve
 /// restart the server
 #[tauri::command]
 pub async fn server_restart(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, ServerManager>,
 ) -> Result<ServerResult, String> {
-    Ok(restart_server(&state).await)
+    let result = restart_server(&state).await;
+    if result.success {
+        // push updated config to spume window
+        let _ = crate::spume_bridge::push_config_to_spume(&app_handle);
+    }
+    Ok(result)
 }
 
 /// check if server is healthy
 #[tauri::command]
 pub async fn server_health_check(state: tauri::State<'_, ServerManager>) -> Result<bool, String> {
-    let guard = state.lock().await;
-    let port = guard.port;
-    drop(guard);
+    let port = {
+        let guard = state.lock().unwrap();
+        guard.port
+    };
     Ok(check_health(&format!("http://localhost:{}", port)).await)
 }
 
@@ -529,7 +554,7 @@ pub async fn get_server_logs(
     state: tauri::State<'_, ServerManager>,
     max_lines: Option<usize>,
 ) -> Result<Vec<String>, String> {
-    let guard = state.lock().await;
+    let guard = state.lock().unwrap();
     let max = max_lines.unwrap_or(100).min(MAX_LOG_LINES);
     let logs: Vec<String> = guard.logs.iter().rev().take(max).cloned().collect();
     Ok(logs.into_iter().rev().collect())

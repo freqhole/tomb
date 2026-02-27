@@ -13,6 +13,64 @@ export async function getAllRemotes(): Promise<Remote[]> {
   return remotes.sort((a, b) => b.created_at - a.created_at);
 }
 
+// get the tauri-managed remote (if exists)
+export async function getTauriManagedRemote(): Promise<Remote | null> {
+  const db = await initAppDB();
+  const remotes = await db.getAll(STORE_REMOTES);
+  return remotes.find((r) => r.is_tauri_managed) ?? null;
+}
+
+// create or update the tauri-managed remote
+export async function upsertTauriRemote(config: {
+  server_id: string;
+  name: string;
+  base_url: string;
+  api_key?: string;
+}): Promise<Remote> {
+  const db = await initAppDB();
+  const existing = await getTauriManagedRemote();
+
+  if (existing) {
+    // update existing remote with new config
+    const updated: Remote = {
+      ...existing,
+      name: config.name,
+      base_url: config.base_url.replace(/\/$/, ""),
+      server_id: config.server_id,
+      api_key: config.api_key ?? existing.api_key,
+      // always set image_url for tauri remotes (server serves at /api/hello/image)
+      image_url: "/api/hello/image",
+      updated_at: Date.now(),
+    };
+    await db.put(STORE_REMOTES, updated);
+    debug(`updated tauri remote: ${updated.name} (${updated.base_url})`);
+    return updated;
+  }
+
+  // create new tauri-managed remote
+  const remoteId = sanitizeServerId(config.server_id);
+  const remote: Remote = {
+    remote_id: remoteId,
+    name: config.name,
+    base_url: config.base_url.replace(/\/$/, ""),
+    is_active: false,
+    last_connected_at: null,
+    created_at: Date.now(),
+    updated_at: Date.now(),
+    server_id: config.server_id,
+    description: null,
+    // server image is served at /api/hello/image
+    image_url: "/api/hello/image",
+    version: null,
+    last_info_check: null,
+    api_key: config.api_key,
+    is_tauri_managed: true,
+  };
+  await db.put(STORE_REMOTES, remote);
+  debug(`created tauri remote: ${remote.name} (${remote.base_url})`);
+  return remote;
+}
+
 // get remote by id
 export async function getRemoteById(
   remoteId: string,

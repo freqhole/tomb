@@ -41,10 +41,14 @@ impl Default for ServerOptions {
 /// # Returns
 /// Ok(()) on graceful shutdown, Err on fatal error
 pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
-    // set up shutdown channel
+    // set up shutdown channel for HTTP server
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let shutdown_tx = Arc::new(tokio::sync::Mutex::new(Some(shutdown_tx)));
     let shutdown_tx_clone = shutdown_tx.clone();
+
+    // shared cancellation token for job processor
+    let job_cancellation_token = grimoire::jobs::CancellationToken::new();
+    let job_cancellation_token_clone = job_cancellation_token.clone();
 
     tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
@@ -63,10 +67,13 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
             }
         }
 
-        // trigger shutdown
+        // trigger shutdown of HTTP server
         if let Some(tx) = shutdown_tx_clone.lock().await.take() {
             let _ = tx.send(());
         }
+
+        // cancel job processor
+        job_cancellation_token_clone.cancel();
 
         // wait for second signal to force quit
         tokio::select! {
@@ -138,12 +145,13 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         server_config.static_files.enabled
     );
 
-    // spawn job runner if enabled
+    // spawn job runner if enabled (with shared cancellation token)
     let job_runner_handle = if server_config.start_job_runner {
         tracing::info!("spawning job runner task...");
-        Some(tokio::spawn(async {
+        let token = job_cancellation_token.clone();
+        Some(tokio::spawn(async move {
             tracing::info!("job runner started");
-            let result = grimoire::jobs::run_job_processor().await;
+            let result = grimoire::jobs::run_job_processor_with_token(token).await;
             if result.success {
                 tracing::info!("job runner stopped gracefully");
             } else {
@@ -166,10 +174,13 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
 
     tracing::info!("server stopped, cleaning up...");
 
-    // wait for job runner to finish if it was running
+    // wait for job runner to finish with timeout
     if let Some(handle) = job_runner_handle {
-        tracing::info!("waiting for job runner to finish...");
-        let _ = handle.await;
+        tracing::info!("waiting for job runner to finish (10s timeout)...");
+        match tokio::time::timeout(std::time::Duration::from_secs(10), handle).await {
+            Ok(_) => tracing::info!("job runner stopped cleanly"),
+            Err(_) => tracing::warn!("job runner did not stop within 10s, continuing shutdown"),
+        }
     }
 
     tracing::info!("shutdown complete");

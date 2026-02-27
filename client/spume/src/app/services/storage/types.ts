@@ -98,6 +98,8 @@ export interface Remote {
   last_info_check: number | null; // timestamp of last server info fetch
   // api key auth (optional - when set, uses Bearer token instead of cookies)
   api_key?: string;
+  // tauri-managed remote (automatically created/updated by tauri app)
+  is_tauri_managed?: boolean;
 }
 
 // database schema version

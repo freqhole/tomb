@@ -43,7 +43,11 @@ pub use music::{
     strip_tags_from_directory, DirectoryTagRule,
 };
 
-pub use runner::{process_job, run_job_processor, run_job_processor_once};
+pub use runner::{process_job, run_job_processor, run_job_processor_once, run_job_processor_with_token};
+
+// re-export CancellationToken for use with run_job_processor_with_token
+pub use tokio_util::sync::CancellationToken;
+
 pub use service::{
     cancel_job, complete_session, create_job, create_job_session, delete_job, fail_session,
     get_job, get_job_session, get_next_pending_job, get_queue_stats, list_jobs, mark_job_completed,

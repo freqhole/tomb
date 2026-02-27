@@ -1630,6 +1630,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-window-state",
  "tokio",
+ "tokio-util",
  "toml 0.8.2",
  "url",
  "urlencoding",
@@ -6084,6 +6085,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]
