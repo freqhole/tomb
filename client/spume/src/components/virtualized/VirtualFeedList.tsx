@@ -13,6 +13,7 @@ import { entityColors } from "../../design-system/colors";
 import { useNavigate } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
+import { isTouchDevice } from "../../utils/isMobile";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { getCurrentUser } from "../../music/data";
 
@@ -383,13 +384,16 @@ function FeedRow(props: {
             <ImageCollageGrid images={collageImages()!} size={IMAGE_SIZE} />
           </Show>
 
-          {/* feed type icon overlay — visible by default, hidden when ROW is hovered */}
-          <div
-            class="absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity"
-            style={{ opacity: isRowHovered() ? "0" : "1" }}
-          >
-            <Icon name={typeInfo().icon} size={32} color={typeInfo().color} />
-          </div>
+          {/* feed type icon overlay — visible by default, hidden when ROW is hovered
+              on touch devices: hide overlay entirely (no hover state available) */}
+          <Show when={!isTouchDevice()}>
+            <div
+              class="absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity"
+              style={{ opacity: isRowHovered() ? "0" : "1" }}
+            >
+              <Icon name={typeInfo().icon} size={32} color={typeInfo().color} />
+            </div>
+          </Show>
         </Show>
 
         {/* hover icon — carousel for new_image (opens gallery), play for everything else */}

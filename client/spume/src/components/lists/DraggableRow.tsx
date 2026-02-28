@@ -198,7 +198,7 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
 
       {/* duration */}
       <Show when={props.durationSeconds !== undefined}>
-        <div class="text-[var(--color-accent-500)] text-xs font-mono flex-shrink-0 min-w-[2.5rem] text-right">
+        <div class="text-[var(--color-accent-500)] text-xs font-mono flex-shrink-0 text-right p-1 bg-black/20 group-hover:bg-transparent rounded">
           {formatDuration(props.durationSeconds!)}
         </div>
       </Show>
