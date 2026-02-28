@@ -4,7 +4,6 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MediaImage } from "../media/MediaImage";
 import { MarqueeText } from "../text/MarqueeText";
 import type { AlbumSummary, GenreRef } from "../../music/data/types";
-import { debug } from "../../utils/logger";
 
 export interface AlbumCardProps {
   album: AlbumSummary;

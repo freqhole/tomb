@@ -4,7 +4,12 @@ import * as apiClient from "freqhole-api-client";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
-import { pollJobUntilComplete } from "../../utils/jobs";
+import { JobPoller } from "../../app/services/jobs/jobService";
+
+// known error types from the server for structured error handling
+const ERROR_TYPE = {
+  DUPLICATE_SONG: "duplicate_song",
+} as const;
 
 // ============================================================================
 // upload job tracking
@@ -94,6 +99,7 @@ export interface RemoteUploadResult {
  * upload music files to the active remote server.
  * fires off uploads and polls jobs in the background — returns immediately
  * after all files have been submitted (not after jobs complete).
+ * uses batched polling to reduce HTTP overhead when uploading multiple files.
  * @param onJobComplete optional callback when any job finishes (for query invalidation)
  */
 export async function uploadFilesToRemote(
@@ -104,6 +110,9 @@ export async function uploadFilesToRemote(
   if (!remote) throw new Error("no active remote");
 
   const fileArray = Array.from(files);
+  
+  // shared poller for all uploads in this batch - polls every 3s
+  const poller = new JobPoller(remote.base_url, remote.api_key, 3000);
 
   for (const file of fileArray) {
     const trackId = addTrackedJob(file.name, "file");
@@ -113,24 +122,35 @@ export async function uploadFilesToRemote(
       try {
         const result = await apiClient.utils.uploadMusic(remote.base_url, file, remote.api_key);
         if (!result.success) {
-          updateJobStatus(trackId, "failed", { error: "upload request failed" });
+          // extract error message from the ZodError
+          const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
+          updateJobStatus(trackId, "failed", { error: errMsg });
           return;
         }
 
         const jobId = result.data.job_id;
         updateJobStatus(trackId, "polling", { jobId });
 
-        const pollResult = await pollJobUntilComplete(remote.base_url, jobId, 120_000, remote.api_key);
-        if (pollResult === "completed") {
+        // register with batch poller (120s timeout)
+        const pollResult = await poller.waitForJob(jobId, 120_000);
+        if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
-        } else if (pollResult === "timeout") {
+        } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
           toast.info(`upload of ${file.name} is still processing — check back later`, {
             title: "processing queued",
           });
         } else {
-          updateJobStatus(trackId, "failed", { error: "processing failed" });
+          // check if the error is a duplicate using structured error_type
+          const isDuplicate = pollResult.errors?.some(
+            (e) => e.error_type === ERROR_TYPE.DUPLICATE_SONG
+          );
+          if (isDuplicate) {
+            updateJobStatus(trackId, "failed", { error: "song already exists" });
+          } else {
+            updateJobStatus(trackId, "failed", { error: pollResult.errorMessage || "processing failed" });
+          }
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
@@ -147,6 +167,7 @@ export async function uploadFilesToRemote(
 /**
  * submit urls to the active remote server for fetching.
  * fires off fetch jobs and polls in the background — returns immediately.
+ * uses batched polling to reduce HTTP overhead when fetching multiple urls.
  * @param onJobComplete optional callback when any job finishes
  */
 export async function fetchUrlsOnRemote(
@@ -157,6 +178,9 @@ export async function fetchUrlsOnRemote(
   if (!remote) throw new Error("no active remote");
 
   const userId = getCurrentUser()?.userId;
+  
+  // shared poller for all fetches in this batch - polls every 3s
+  const poller = new JobPoller(remote.base_url, remote.api_key, 3000);
 
   for (const url of urls) {
     // use a short label: hostname + path tail
@@ -179,24 +203,34 @@ export async function fetchUrlsOnRemote(
           user_id: userId ?? null,
         }, remote.api_key);
         if (!result.success) {
-          updateJobStatus(trackId, "failed", { error: "failed to create fetch job" });
+          const errMsg = result.error?.issues?.[0]?.message || "failed to create fetch job";
+          updateJobStatus(trackId, "failed", { error: errMsg });
           return;
         }
 
         const jobId = result.data.id;
         updateJobStatus(trackId, "polling", { jobId });
 
-        const pollResult = await pollJobUntilComplete(remote.base_url, jobId, 300_000, remote.api_key);
-        if (pollResult === "completed") {
+        // register with batch poller (5 min timeout for fetches)
+        const pollResult = await poller.waitForJob(jobId, 300_000);
+        if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
-        } else if (pollResult === "timeout") {
+        } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
           toast.info(`download is still processing — check back later`, {
             title: "processing queued",
           });
         } else {
-          updateJobStatus(trackId, "failed", { error: "fetch failed" });
+          // check if the error is a duplicate using structured error_type
+          const isDuplicate = pollResult.errors?.some(
+            (e) => e.error_type === ERROR_TYPE.DUPLICATE_SONG
+          );
+          if (isDuplicate) {
+            updateJobStatus(trackId, "failed", { error: "song already exists" });
+          } else {
+            updateJobStatus(trackId, "failed", { error: pollResult.errorMessage || "fetch failed" });
+          }
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";

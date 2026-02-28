@@ -8,6 +8,7 @@ use super::music::{
     process_rescan_directories_job, process_scan_directory_job,
 };
 use super::service::{delete_job, get_next_pending_job, mark_job_completed, mark_job_failed};
+use crate::error::ErrorDetail;
 use crate::response::GrimoireResponse;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -64,8 +65,17 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             GrimoireResponse::success("job processed successfully", job_result)
         }
         Err(error) => {
-            let _failed_job_response = mark_job_failed(&job.id, &error.to_string()).await;
-            GrimoireResponse::failure("job processing failed", vec![error.into()])
+            // check if error should trigger retry before converting to ErrorDetail
+            let is_retryable = error.is_retryable();
+            info!(
+                "job {} error: {:?}, is_retryable={}",
+                job.id, error, is_retryable
+            );
+            // convert error to ErrorDetail for structured storage
+            let error_detail: ErrorDetail = error.into();
+            let _failed_job_response =
+                mark_job_failed(&job.id, vec![error_detail.clone()], is_retryable).await;
+            GrimoireResponse::failure("job processing failed", vec![error_detail])
         }
     }
 }
@@ -108,7 +118,9 @@ pub async fn run_job_processor() -> GrimoireResponse<()> {
 /// Use this when embedding the job processor in a server or other host that
 /// manages its own signal handling. The caller is responsible for cancelling
 /// the token when shutdown is requested.
-pub async fn run_job_processor_with_token(cancellation_token: CancellationToken) -> GrimoireResponse<()> {
+pub async fn run_job_processor_with_token(
+    cancellation_token: CancellationToken,
+) -> GrimoireResponse<()> {
     info!("job processor started (with external cancellation token)");
     run_job_processor_loop(cancellation_token).await
 }
@@ -159,12 +171,12 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
                     *current_job = Some(job.id.clone());
                 }
 
-                debug!("processing job: {}", job.id);
-                
+                info!("processing job: {} (type: {})", job.id, job.job_type);
+
                 // Process job with cancellation check - if cancelled during job,
                 // let the job finish but exit immediately after
                 let result = process_job(job.clone()).await;
-                
+
                 // Check cancellation after job completes
                 let should_exit = cancellation_token.is_cancelled();
 
@@ -176,11 +188,11 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
 
                 // Log result
                 if result.success {
-                    debug!("job completed successfully: {}", job.id);
+                    info!("job completed successfully: {}", job.id);
                 } else {
-                    warn!("job failed: {}", job.id);
+                    warn!("job failed: {} - {}", job.id, result.message);
                 }
-                
+
                 // Exit if shutdown was requested during job processing
                 if should_exit {
                     info!("shutdown was requested during job processing, stopping now");

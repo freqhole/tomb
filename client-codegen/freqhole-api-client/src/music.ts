@@ -965,7 +965,7 @@ export function listJobs(
 
 export function getJobStatus(
   baseUrl: string,
-  params: s.GetJobRequest,
+  params: s.GetJobsStatusRequest,
   apiKey?: string,
 ) {
   return call(

@@ -137,7 +137,7 @@ export function App() {
         queryClient.invalidateQueries({
           predicate: (query) => {
             const key = query.queryKey[0];
-            return key === "songs" || key === "albums" || key === "artists" || key === "genres";
+            return key === "songs" || key === "albums" || key === "artists" || key === "genres" || key === "feed";
           },
         });
         break;
@@ -147,7 +147,7 @@ export function App() {
         queryClient.invalidateQueries({
           predicate: (query) => {
             const key = query.queryKey[0];
-            return key === "songs" || key === "albums" || key === "artists" || key === "genres";
+            return key === "songs" || key === "albums" || key === "artists" || key === "genres" || key === "feed";
           },
         });
         // show toast notification
@@ -304,11 +304,21 @@ export function App() {
     cleanupCacheNetworkHandlers();
   });
 
-  // callback for when any remote job completes — invalidate song queries
+  // callback for when any remote job completes — invalidate queries for new music
   const onRemoteJobComplete = () => {
     setHasSongs(true);
     queryClient.invalidateQueries({
-      predicate: (query) => query.queryKey[0] === "songs",
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return (
+          key === "songs" ||
+          key === "albums" ||
+          key === "artists" ||
+          key === "genres" ||
+          key === "feed" ||
+          key === "tags"
+        );
+      },
     });
   };
 

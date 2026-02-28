@@ -214,7 +214,13 @@ pub mod type_registry {
     };
 
     // jobs types
-    use crate::jobs::{CreateJobRequest, GetJobRequest, Job, ListJobsRequest};
+    use crate::jobs::{
+        CreateJobRequest, GetJobRequest, GetJobsStatusRequest, GetJobsStatusResponse, JobResponse,
+        ListJobsRequest,
+    };
+
+    // error types
+    use crate::error::ErrorDetail;
 
     // search types
     use crate::search::{
@@ -227,6 +233,10 @@ pub mod type_registry {
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
         registered.insert("WhoAmIResponse".to_string());
+
+        // error types (used across API responses and job failures)
+        gen.add_schema::<ErrorDetail>("ErrorDetail");
+        registered.insert("ErrorDetail".to_string());
 
         // health types
         gen.add_schema::<HealthResponse>("HealthResponse");
@@ -316,14 +326,20 @@ pub mod type_registry {
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
 
-        gen.add_schema::<Job>("Job");
-        registered.insert("Job".to_string());
+        gen.add_schema::<JobResponse>("JobResponse");
+        registered.insert("JobResponse".to_string());
 
         gen.add_schema::<CreateJobRequest>("CreateJobRequest");
         registered.insert("CreateJobRequest".to_string());
 
         gen.add_schema::<GetJobRequest>("GetJobRequest");
         registered.insert("GetJobRequest".to_string());
+
+        gen.add_schema::<GetJobsStatusRequest>("GetJobsStatusRequest");
+        registered.insert("GetJobsStatusRequest".to_string());
+
+        gen.add_schema::<GetJobsStatusResponse>("GetJobsStatusResponse");
+        registered.insert("GetJobsStatusResponse".to_string());
 
         gen.add_schema::<ListJobsRequest>("ListJobsRequest");
         registered.insert("ListJobsRequest".to_string());
@@ -491,9 +507,6 @@ pub mod type_registry {
         // jobs types
         gen.add_schema::<CreateJobRequest>("CreateJobRequest");
         registered.insert("CreateJobRequest".to_string());
-
-        gen.add_schema::<Job>("Job");
-        registered.insert("Job".to_string());
 
         // song types
         gen.add_schema::<Song>("Song");

@@ -189,7 +189,8 @@ pub async fn start_server(
     // build router with state
     // dual cookie layer is always present but only active in "auto" mode
     let dual_cookie_enabled = cookie_mode == SessionCookieMode::Auto;
-    let app = routes::build_router()
+    let max_upload_bytes = state.config.media.max_fs_file_size;
+    let app = routes::build_router(max_upload_bytes)
         .layer(Extension(state.clone()))
         .layer(DualCookieLayer::new(&server_id, dual_cookie_enabled))
         .layer(session_layer)

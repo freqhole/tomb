@@ -65,6 +65,18 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
     {
         Ok(s) => s,
         Err(e) => {
+            // detect UNIQUE constraint on media_blob_id - this means duplicate song
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed: songz.media_blob_id") {
+                return GrimoireResponse::failure(
+                    "duplicate song",
+                    vec![ErrorDetail::new(
+                        "duplicate_song",
+                        "Duplicate Song",
+                        &format!("a song already exists with blob_id {}", req.media_blob_id),
+                    )],
+                );
+            }
             return GrimoireResponse::failure(
                 "Failed to create song",
                 vec![ErrorDetail::from(e)],

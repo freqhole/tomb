@@ -11,6 +11,7 @@
 
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
 use crate::config::get_config;
+use crate::error::GrimoireError;
 use crate::jobs::JobError;
 use crate::music::crud::{
     add_entity_url, add_song, extract_url_domain_label, extract_urls_from_text, ImportSongRequest,
@@ -152,10 +153,23 @@ pub async fn extract_and_import(
             reason: "Song import succeeded but returned no data".to_string(),
         })?
     } else {
+        // check if this is a duplicate song error and return proper error type
+        let is_duplicate = response
+            .errors
+            .iter()
+            .any(|e| e.error_type == "duplicate_song");
+
+        if is_duplicate {
+            return Err(JobError::Grimoire(GrimoireError::DuplicateSong {
+                blob_id: media_blob_id.to_string(),
+            }));
+        }
+
         let error_messages: Vec<String> =
             response.errors.iter().map(|e| e.detail.clone()).collect();
+
         return Err(JobError::ProcessingFailed {
-            reason: format!("Failed to import song: {}", error_messages.join(", ")),
+            reason: format!("failed to import song: {}", error_messages.join(", ")),
         });
     };
 
@@ -425,11 +439,24 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
             reason: "Song import succeeded but returned no data".to_string(),
         })?
     } else {
+        // check if this is a duplicate song error and return proper error type
+        let is_duplicate = response
+            .errors
+            .iter()
+            .any(|e| e.error_type == "duplicate_song");
+
+        if is_duplicate {
+            return Err(JobError::Grimoire(GrimoireError::DuplicateSong {
+                blob_id: media_blob_id.to_string(),
+            }));
+        }
+
         let error_messages: Vec<String> =
             response.errors.iter().map(|e| e.detail.clone()).collect();
+
         return Err(JobError::ProcessingFailed {
             reason: format!(
-                "Failed to create basic song record: {}",
+                "failed to create basic song record: {}",
                 error_messages.join(", ")
             ),
         });

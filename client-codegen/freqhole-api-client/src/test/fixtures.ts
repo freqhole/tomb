@@ -308,8 +308,8 @@ export const listJobsRequest: s.ListJobsRequest = {
   offset: 0,
 };
 
-export const getJobRequest: s.GetJobRequest = {
-  job_id: PLACEHOLDER_ID,
+export const getJobsStatusRequest: s.GetJobsStatusRequest = {
+  job_ids: [PLACEHOLDER_ID],
 };
 
 // Fetch
@@ -453,7 +453,7 @@ export const fixtures = {
 
   // jobs
   listJobs: listJobsRequest,
-  getJob: getJobRequest,
+  getJobsStatus: getJobsStatusRequest,
 
   // fetch
   fetchMedia: fetchMediaParams,

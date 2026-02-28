@@ -11,7 +11,8 @@ use crate::{auth, blobs, health, jobs, music, state::AppState, static_files, upl
 /// build the application router
 ///
 /// composes all route modules into a single router
-pub fn build_router() -> Router<AppState> {
+/// max_upload_bytes: max body size for upload routes (from config.media.max_fs_file_size)
+pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
     let routes = api_registry::all_routes_map();
 
     // protected routes (require authentication)
@@ -308,8 +309,8 @@ pub fn build_router() -> Router<AppState> {
             routes["music"]["upload_music"].path,
             post(upload::upload_music_handler),
         )
-        // allow uploads up to 10MB (default is 2MB)
-        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
+        // use configured max file size for uploads (default axum limit is 2MB)
+        .layer(DefaultBodyLimit::max(max_upload_bytes as usize))
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // blob streaming routes (auth required only - no origin validation for img/video/audio tags)

@@ -2,19 +2,23 @@
 
 use axum::{extract::Extension, Json};
 use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
-use grimoire::jobs::{get_job, list_jobs, GetJobRequest, Job, JobStatus, ListJobsRequest};
+use grimoire::jobs::{
+    get_jobs_status, list_jobs, GetJobsStatusRequest, GetJobsStatusResponse, JobResponse,
+    JobStatus, ListJobsRequest,
+};
 
 use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
 
-/// get job status by id
+/// get job status by id(s) - accepts one or more job IDs
 pub async fn get_job_status(
     Extension(_user): Extension<AuthenticatedUser>,
-    Json(req): Json<GetJobRequest>,
-) -> Result<Json<Job>, ApiError> {
-    let response = get_job(&req.job_id).await;
+    Json(req): Json<GetJobsStatusRequest>,
+) -> Result<Json<GetJobsStatusResponse>, ApiError> {
+    let response = get_jobs_status(&req.job_ids).await;
 
     response
         .data
+        .map(|jobs| GetJobsStatusResponse { jobs })
         .ok_or_else(|| ApiError::Internal(response.message))
         .map(Json)
 }
@@ -25,8 +29,8 @@ inventory::submit! {
         path: "/api/jobs/status",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "GetJobRequest",
-        response_type: "Job",
+        request_type: "GetJobsStatusRequest",
+        response_type: "GetJobsStatusResponse",
         auth: RouteAuth::Authenticated,
     }
 }
@@ -35,7 +39,7 @@ inventory::submit! {
 pub async fn list_jobs_handler(
     Extension(_user): Extension<AuthenticatedUser>,
     Json(req): Json<ListJobsRequest>,
-) -> Result<Json<Vec<Job>>, ApiError> {
+) -> Result<Json<Vec<JobResponse>>, ApiError> {
     // parse status filter if provided
     let status_filter = if let Some(status_str) = req.status {
         match status_str.as_str() {
@@ -60,6 +64,7 @@ pub async fn list_jobs_handler(
 
     response
         .data
+        .map(|jobs| jobs.into_iter().map(JobResponse::from).collect())
         .ok_or_else(|| ApiError::Internal(response.message))
         .map(Json)
 }
@@ -71,7 +76,7 @@ inventory::submit! {
         method: Method::POST,
         domain: Domain::Music,
         request_type: "ListJobsRequest",
-        response_type: "Vec<Job>",
+        response_type: "Vec<JobResponse>",
         auth: RouteAuth::Authenticated,
     }
 }

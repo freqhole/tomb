@@ -7,6 +7,7 @@
 use serde_json::Value;
 
 use crate::database;
+use crate::error::ErrorDetail;
 use crate::response::GrimoireResponse;
 
 use super::models::{
@@ -158,6 +159,67 @@ pub async fn get_job(job_id: &str) -> GrimoireResponse<Job> {
     };
 
     GrimoireResponse::success("Job retrieved successfully", job)
+}
+
+/// Get multiple jobs by ID (batch status polling)
+///
+/// Returns a map of job_id -> JobResponse for all requested jobs.
+/// Jobs that don't exist are silently omitted from the response.
+pub async fn get_jobs_status(job_ids: &[String]) -> GrimoireResponse<std::collections::HashMap<String, super::models::JobResponse>> {
+    use super::models::JobResponse;
+    
+    if job_ids.is_empty() {
+        return GrimoireResponse::success(
+            "no jobs requested",
+            std::collections::HashMap::new(),
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    // build IN clause with placeholders
+    let placeholders: Vec<&str> = job_ids.iter().map(|_| "?").collect();
+    let in_clause = placeholders.join(", ");
+    let query = format!(
+        r#"
+        SELECT id, session_id, job_type, status,
+               parameters, result, retry_count,
+               max_retries, scheduled_at,
+               started_at, completed_at, error_message, created_by
+        FROM jobz WHERE id IN ({})
+        "#,
+        in_clause
+    );
+
+    // build query with dynamic bind
+    let mut query_builder = sqlx::query_as::<_, Job>(&query);
+    for job_id in job_ids {
+        query_builder = query_builder.bind(job_id);
+    }
+
+    let jobs: Vec<Job> = match query_builder.fetch_all(&pool).await {
+        Ok(jobs) => jobs,
+        Err(e) => return GrimoireResponse::failure("failed to fetch jobs", vec![e.into()]),
+    };
+
+    // convert to HashMap<job_id, JobResponse>
+    let result: std::collections::HashMap<String, JobResponse> = jobs
+        .into_iter()
+        .map(|job| {
+            let id = job.id.clone();
+            (id, JobResponse::from(job))
+        })
+        .collect();
+
+    GrimoireResponse::success(
+        &format!("retrieved {} jobs", result.len()),
+        result,
+    )
 }
 
 /// Get a job session by ID
@@ -319,12 +381,38 @@ pub async fn mark_job_completed(job_id: &str, result: Option<Value>) -> Grimoire
     GrimoireResponse::success("Job marked as completed", job)
 }
 
-/// Mark a job as failed and handle retry logic
-pub async fn mark_job_failed(job_id: &str, error_message: &str) -> GrimoireResponse<Job> {
+/// mark a job as failed and handle retry logic
+///
+/// stores the full error details as JSON in the `result` field for structured
+/// error handling, and stores the first error's detail in `error_message`
+/// for backward compatibility and quick display.
+///
+/// if `retryable` is true and retry count hasn't exceeded max_retries,
+/// the job will be rescheduled with exponential backoff.
+/// if `retryable` is false, the job is immediately marked as Failed.
+pub async fn mark_job_failed(
+    job_id: &str,
+    errors: Vec<ErrorDetail>,
+    retryable: bool,
+) -> GrimoireResponse<Job> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
             return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    // extract error_message from first error for backward compatibility
+    let error_message = errors
+        .first()
+        .map(|e| e.detail.clone())
+        .unwrap_or_else(|| "unknown error".to_string());
+
+    // serialize errors to JSON for structured storage in result field
+    let errors_json = match serde_json::to_string(&errors) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            return GrimoireResponse::failure("failed to serialize errors", vec![e.into()])
         }
     };
 
@@ -341,7 +429,30 @@ pub async fn mark_job_failed(job_id: &str, error_message: &str) -> GrimoireRespo
     };
 
     let new_retry_count = current_job.retry_count + 1;
-    let should_retry = new_retry_count < current_job.max_retries;
+    // only retry if error is retryable AND we haven't exceeded max retries
+    let should_retry = retryable && new_retry_count < current_job.max_retries;
+
+    if !retryable {
+        tracing::info!(
+            "job {} failed with non-retryable error (type: {}), marking as Failed immediately",
+            job_id,
+            errors.first().map(|e| e.error_type.as_str()).unwrap_or("unknown")
+        );
+    } else if should_retry {
+        tracing::info!(
+            "job {} failed (retry {}/{}), scheduling retry",
+            job_id,
+            new_retry_count,
+            current_job.max_retries
+        );
+    } else {
+        tracing::info!(
+            "job {} failed (retry {}/{}, max exceeded), marking as Failed",
+            job_id,
+            new_retry_count,
+            current_job.max_retries
+        );
+    }
 
     let (status, scheduled_at) = if should_retry {
         // Schedule for retry with exponential backoff (base 2 minutes)
@@ -360,7 +471,7 @@ pub async fn mark_job_failed(job_id: &str, error_message: &str) -> GrimoireRespo
         Job,
         r#"
         UPDATE jobz
-        SET status = ?, retry_count = ?, error_message = ?, scheduled_at = ?,
+        SET status = ?, retry_count = ?, error_message = ?, result = ?, scheduled_at = ?,
             completed_at = CASE WHEN ? = 'Failed' THEN unixepoch() ELSE completed_at END
         WHERE id = ?
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
@@ -371,6 +482,7 @@ pub async fn mark_job_failed(job_id: &str, error_message: &str) -> GrimoireRespo
         status,
         new_retry_count,
         error_message,
+        errors_json,
         scheduled_at,
         status,
         job_id

@@ -1,7 +1,8 @@
 //! error handling for grimoire
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use zod_gen_derive::ZodSchema;
 
 /// setup wizard step identifiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -132,6 +133,12 @@ pub enum GrimoireError {
 
     #[error("setup failed at {step}: {message}")]
     SetupFailed { step: SetupStep, message: String },
+
+    #[error("duplicate song: {blob_id}")]
+    DuplicateSong { blob_id: String },
+
+    #[error("file not found: {path}")]
+    FileNotFound { path: String },
 }
 
 /// result type alias for grimoire operations
@@ -150,6 +157,51 @@ impl GrimoireError {
             .trim();
 
         to_snake_case(variant_name)
+    }
+
+    /// check if this error type should trigger a retry
+    ///
+    /// deterministic errors (duplicate, not found, validation) should not retry.
+    /// transient errors (database timeout, network) may succeed on retry.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            // deterministic errors - will always fail
+            GrimoireError::DuplicateSong { .. } => false,
+            GrimoireError::FileNotFound { .. } => false,
+            GrimoireError::FileExists { .. } => false,
+            GrimoireError::SongNotFound { .. } => false,
+            GrimoireError::MediaBlobNotFound { .. } => false,
+            GrimoireError::AlbumNotFound { .. } => false,
+            GrimoireError::ArtistNotFound { .. } => false,
+            GrimoireError::PlaylistNotFound { .. } => false,
+            GrimoireError::SongNotInPlaylist { .. } => false,
+            GrimoireError::GenreNotFound { .. } => false,
+            GrimoireError::SubGenreNotFound { .. } => false,
+            GrimoireError::TagNotFound { .. } => false,
+            GrimoireError::DatabaseNotFound(_) => false,
+            GrimoireError::Validation { .. } => false,
+            GrimoireError::InvalidSha256 { .. } => false,
+            GrimoireError::InvalidFormat { .. } => false,
+            GrimoireError::InvalidEventType(_) => false,
+            GrimoireError::InvalidEventData(_) => false,
+            GrimoireError::ConfigError(_) => false,
+            GrimoireError::Migration(_) => false, // schema issues are deterministic
+            GrimoireError::Serialization(_) => false,
+            GrimoireError::MetadataExtraction { .. } => false,
+            GrimoireError::ThumbnailGeneration { .. } => false,
+            GrimoireError::SetupFailed { .. } => false,
+            GrimoireError::MusicBrainzConfig(_) => false,
+            GrimoireError::MusicBrainzNoResults => false,
+            // transient errors - might succeed on retry
+            GrimoireError::Database(_) => true,
+            GrimoireError::Io(_) => true,
+            GrimoireError::HttpRequest(_) => true,
+            GrimoireError::MusicBrainzApi(_) => true,
+            GrimoireError::MusicBrainzRateLimit => true,
+            GrimoireError::MusicBrainzTimeout => true,
+            GrimoireError::Analytics(_) => true,
+            GrimoireError::ProcessingFailed { .. } => true, // generic, assume transient
+        }
     }
 }
 
@@ -199,13 +251,18 @@ impl From<reqwest::Error> for GrimoireError {
 // ============================================================================
 
 /// RFC 9457-style error object for structured error responses
-#[derive(Debug, Clone, PartialEq, Serialize)]
+///
+/// this is the standard error structure used across all API responses and job failures.
+/// the `error_type` field is a snake_case identifier that clients can use for programmatic
+/// error handling (e.g., "duplicate_song", "file_not_found", "validation_error").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ZodSchema)]
 pub struct ErrorDetail {
-    /// Error type identifier (e.g., "validation_error", "not_found")
+    /// error type identifier (snake_case, e.g., "duplicate_song", "validation_error")
+    /// this is the primary field for programmatic error detection
     pub error_type: String,
-    /// Short, human-readable summary
+    /// short, human-readable summary (title case)
     pub title: String,
-    /// Specific explanation of this error occurrence
+    /// specific explanation of this error occurrence
     pub detail: String,
 }
 
@@ -256,9 +313,11 @@ impl From<sqlx::Error> for ErrorDetail {
 
 impl From<crate::jobs::JobError> for ErrorDetail {
     fn from(err: crate::jobs::JobError) -> Self {
+        let error_type = err.error_type();
+        let title = error_type_to_title(&error_type);
         ErrorDetail {
-            error_type: "job_error".to_string(),
-            title: "Job Error".to_string(),
+            error_type,
+            title,
             detail: err.to_string(),
         }
     }

@@ -454,6 +454,13 @@ export const EmptyResponseSchema = z.object({
 });
 export type EmptyResponse = z.infer<typeof EmptyResponseSchema>;
 
+export const ErrorDetailSchema = z.object({
+  error_type: z.string(),
+  title: z.string(),
+  detail: z.string()
+});
+export type ErrorDetail = z.infer<typeof ErrorDetailSchema>;
+
 export const FavoriteAlbumResultSchema = z.object({
   favorited_at: z.number(),
   album: z.object({
@@ -941,6 +948,35 @@ export const GetJobRequestSchema = z.object({
 });
 export type GetJobRequest = z.infer<typeof GetJobRequestSchema>;
 
+export const GetJobsStatusRequestSchema = z.object({
+  job_ids: z.array(z.string())
+});
+export type GetJobsStatusRequest = z.infer<typeof GetJobsStatusRequestSchema>;
+
+export const GetJobsStatusResponseSchema = z.object({
+  jobs: z.record(z.string(), z.object({
+  id: z.string(),
+  session_id: z.string().nullable(),
+  job_type: z.string(),
+  status: z.string(),
+  parameters: z.string(),
+  result: z.string().nullable(),
+  errors: z.array(z.object({
+  error_type: z.string(),
+  title: z.string(),
+  detail: z.string()
+})).nullable(),
+  retry_count: z.number(),
+  max_retries: z.number(),
+  scheduled_at: z.number(),
+  started_at: z.number().nullable(),
+  completed_at: z.number().nullable(),
+  error_message: z.string().nullable(),
+  created_by: z.string().nullable()
+}))
+});
+export type GetJobsStatusResponse = z.infer<typeof GetJobsStatusResponseSchema>;
+
 export const GetPlaylistRequestSchema = z.object({
   id: z.string()
 });
@@ -988,13 +1024,18 @@ export const ImageUploadResponseSchema = z.object({
 });
 export type ImageUploadResponse = z.infer<typeof ImageUploadResponseSchema>;
 
-export const JobSchema = z.object({
+export const JobResponseSchema = z.object({
   id: z.string(),
   session_id: z.string().nullable(),
   job_type: z.string(),
   status: z.string(),
   parameters: z.string(),
   result: z.string().nullable(),
+  errors: z.array(z.object({
+  error_type: z.string(),
+  title: z.string(),
+  detail: z.string()
+})).nullable(),
   retry_count: z.number(),
   max_retries: z.number(),
   scheduled_at: z.number(),
@@ -1003,7 +1044,7 @@ export const JobSchema = z.object({
   error_message: z.string().nullable(),
   created_by: z.string().nullable()
 });
-export type Job = z.infer<typeof JobSchema>;
+export type JobResponse = z.infer<typeof JobResponseSchema>;
 
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullable(),

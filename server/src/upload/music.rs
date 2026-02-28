@@ -183,12 +183,20 @@ pub async fn upload_music_handler(
     .await;
 
     if !job_response.success {
+        tracing::error!("failed to create import job: {}", job_response.message);
         return Err(ApiError::Internal("failed to create job".to_string()));
     }
 
     let job = job_response
         .data
         .ok_or_else(|| ApiError::Internal("no job returned".to_string()))?;
+
+    tracing::info!(
+        "created ImportMusic job: {} for blob {} (file: {})",
+        job.id,
+        blob.id,
+        filename
+    );
 
     let message = if existing {
         "existing music file found (deduplicated), import job scheduled".to_string()

@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
-use grimoire::jobs::{create_job, get_job, CreateJobRequest, Job, JobType};
+use grimoire::jobs::{create_job, get_job, CreateJobRequest, JobResponse, JobType};
 use grimoire::music::fetch::FetchMediaParams;
 use grimoire::users::UserRole;
 
@@ -15,7 +15,7 @@ use crate::{auth::middleware::AuthenticatedUser, error::ApiError};
 pub async fn create_fetch_job(
     Extension(user): Extension<AuthenticatedUser>,
     Json(params): Json<FetchMediaParams>,
-) -> Result<Json<Job>, ApiError> {
+) -> Result<Json<JobResponse>, ApiError> {
     // create job request
     let job_request = CreateJobRequest {
         job_type: JobType::FetchMedia,
@@ -31,6 +31,7 @@ pub async fn create_fetch_job(
 
     response
         .data
+        .map(JobResponse::from)
         .ok_or_else(|| ApiError::Internal(response.message))
         .map(Json)
 }
@@ -42,7 +43,7 @@ inventory::submit! {
         method: Method::POST,
         domain: Domain::Music,
         request_type: "FetchMediaParams",
-        response_type: "Job",
+        response_type: "JobResponse",
         auth: RouteAuth::Role(UserRole::Member),
     }
 }
@@ -51,11 +52,12 @@ inventory::submit! {
 pub async fn get_fetch_job(
     Extension(_user): Extension<AuthenticatedUser>,
     Path(job_id): Path<String>,
-) -> Result<Json<Job>, ApiError> {
+) -> Result<Json<JobResponse>, ApiError> {
     let response = get_job(&job_id).await;
 
     response
         .data
+        .map(JobResponse::from)
         .ok_or_else(|| ApiError::Internal(response.message))
         .map(Json)
 }
@@ -67,7 +69,7 @@ inventory::submit! {
         method: Method::GET,
         domain: Domain::Music,
         request_type: "GetJobRequest",
-        response_type: "Job",
+        response_type: "JobResponse",
         auth: RouteAuth::Authenticated,
     }
 }

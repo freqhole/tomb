@@ -18,9 +18,10 @@ mod service;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest, CreateJobSessionRequest, GetJobRequest, Job, JobError, JobListResponse,
-    JobProgress, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
-    ProcessorResponse, QueueStats, SessionStatus,
+    CreateJobRequest, CreateJobSessionRequest, GetJobRequest, GetJobsStatusRequest,
+    GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress, JobResponse, JobResult,
+    JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest, ProcessorResponse,
+    QueueStats, SessionStatus,
 };
 
 // re-export music job types for backward compatibility
@@ -43,15 +44,17 @@ pub use music::{
     strip_tags_from_directory, DirectoryTagRule,
 };
 
-pub use runner::{process_job, run_job_processor, run_job_processor_once, run_job_processor_with_token};
+pub use runner::{
+    process_job, run_job_processor, run_job_processor_once, run_job_processor_with_token,
+};
 
 // re-export CancellationToken for use with run_job_processor_with_token
 pub use tokio_util::sync::CancellationToken;
 
 pub use service::{
     cancel_job, complete_session, create_job, create_job_session, delete_job, fail_session,
-    get_job, get_job_session, get_next_pending_job, get_queue_stats, list_jobs, mark_job_completed,
-    mark_job_failed, mark_job_started, update_session_progress,
+    get_job, get_job_session, get_jobs_status, get_next_pending_job, get_queue_stats, list_jobs,
+    mark_job_completed, mark_job_failed, mark_job_started, update_session_progress,
 };
 
 // re-export music job processors (used by runner module)

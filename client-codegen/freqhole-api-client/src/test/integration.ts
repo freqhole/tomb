@@ -279,7 +279,7 @@ export async function runIntegrationTests() {
     },
     {
       name: "music.getJobStatus",
-      fn: () => music.getJobStatus(baseUrl, fixtures.getJob),
+      fn: () => music.getJobStatus(baseUrl, fixtures.getJobsStatus),
     },
 
     // fetch
