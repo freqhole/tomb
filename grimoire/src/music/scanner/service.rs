@@ -44,7 +44,7 @@ pub async fn scan_directory(
             format!("Scanned directory and created {} jobs", count),
             count,
         ),
-        Err(e) => GrimoireResponse::failure("Failed to scan directory", vec![e.into()]),
+        Err(e) => GrimoireResponse::failure(format!("Failed to scan directory: {}", e), vec![e.into()]),
     }
 }
 

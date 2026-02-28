@@ -152,7 +152,7 @@ export function App() {
         });
         // show toast notification
         toast.success(
-          `Scan complete: ${msg.data.songs_added} songs, ${msg.data.albums_added} albums, ${msg.data.artists_added} artists added`
+          `scan complete: ${msg.data.songs_added} songs, ${msg.data.albums_added} albums, ${msg.data.artists_added} artists added`
         );
         break;
 

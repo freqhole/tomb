@@ -4,7 +4,7 @@
 //! includes orphan detection to clean up missing files
 
 use crate::blob_data;
-use crate::jobs::{Job, JobError};
+use crate::jobs::{create_job_session, CreateJobSessionRequest, Job, JobError, JobType};
 use crate::music::crud;
 use crate::music::scanner::scan_directory;
 use futures_util::TryStreamExt;
@@ -71,11 +71,24 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
     // phase 1: scan all directories
     let mut total_found = 0;
 
+    // create a job session for all ProcessFile jobs created during rescan
+    let session_request = CreateJobSessionRequest {
+        job_type: JobType::ProcessFile,
+        batch_size: None,
+        created_by: Some(format!("rescan-{}", job.id)),
+    };
+    let session_response = create_job_session(session_request).await;
+    let session_id = match session_response.data {
+        Some(session) => session.id,
+        None => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("failed to create job session: {}", session_response.message),
+            });
+        }
+    };
+
     for dir in &directories {
         info!("rescanning directory: {}", dir.path);
-
-        // create a session for this scan
-        let session_id = format!("rescan-{}", job.id);
 
         // scan directory recursively - creates ProcessFile jobs
         // skip_tracked_subdirs=false so rescan finds all new files everywhere
