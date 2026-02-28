@@ -621,8 +621,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                       {/* label + song count + progress */}
                       <div class="flex-1 min-w-0">
-                        <h4 class="text-sm font-medium text-[var(--color-text-primary)] m-0 truncate">
-                          {entry().label}
+                        <h4 class="text-sm font-medium text-[var(--color-text-primary)] m-0">
+                          <MarqueeText
+                            text={entry().label}
+                            hoverOnly
+                            isHovering={isRowHovered}
+                          />
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
                           {entry().type} &middot;{" "}

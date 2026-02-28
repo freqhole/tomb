@@ -89,10 +89,12 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
 
     const calculateHeight = () => {
       if (!containerRef) return;
-      // on desktop: header with stats+buttons is fixed (~160px)
-      // on mobile: header is small (~60px), stats+buttons scroll with content
+      // on narrow (<=800px): header with just title (~60px)
+      // on wide but below xl (801-1279px): header with just title (~60px), stats+buttons scroll
+      // on xl+ (>=1280px): header with title + stats + buttons (~160px)
       const isNarrow = isNarrowViewport();
-      const headerHeight = isNarrow ? 60 : 160;
+      const isXl = typeof window !== "undefined" && window.innerWidth >= 1280;
+      const headerHeight = isNarrow ? 60 : isXl ? 160 : 60;
       const padding = 16;
       const available = containerRef.clientHeight - headerHeight - padding;
       setListHeight(Math.max(200, available));

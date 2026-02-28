@@ -69,15 +69,18 @@ export function FavoritesView(props: FavoritesViewProps) {
     const items = pages.flatMap((page) => page.items);
 
     const result = items.map((item: FavoriteItem): LayoutFavoriteItem => {
+      // these items ARE favorites by definition (they're from the favorites endpoint)
+      // so we explicitly set is_favorite: true regardless of what the server returned
+      // #TODO: ideally the server should just return is_favorite: true for these itemsz to avoid confusion
       switch (item.type) {
         case "song":
-          return { ...item.data, type: "song" };
+          return { ...item.data, type: "song", is_favorite: true };
         case "album":
-          return { ...item.data, type: "album" };
+          return { ...item.data, type: "album", is_favorite: true };
         case "artist":
-          return { ...item.data, type: "artist" };
+          return { ...item.data, type: "artist", is_favorite: true };
         case "playlist":
-          return { ...item.data, type: "playlist" };
+          return { ...item.data, type: "playlist", is_favorite: true };
       }
     });
 

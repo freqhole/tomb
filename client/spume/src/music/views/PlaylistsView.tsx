@@ -56,6 +56,7 @@ import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
 import { debug, error as errorLog } from "../../utils/logger";
+import { isTauriMode } from "../../utils/tauri";
 import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface PlaylistsViewProps {
@@ -1031,7 +1032,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 targetId={selectedPlaylist()?.playlist_id || ""}
                                 isFavorite={selectedPlaylist()?.is_favorite ?? false}
                               />
-                              <Show when={isViewingRemote()}>
+                              {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
+                              <Show when={isViewingRemote() && !isTauriMode()}>
                                 <Show
                                   when={syncStatus()?.localPlaylistId}
                                   fallback={
@@ -1065,7 +1067,11 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 </Show>
                               </Show>
                               <Show
-                                when={!isViewingRemote() && selectedPlaylist()?.source_remote_id}
+                                when={
+                                  !isViewingRemote() &&
+                                  !isTauriMode() &&
+                                  selectedPlaylist()?.source_remote_id
+                                }
                               >
                                 <Button variant="secondary" onClick={handleMakeLocalCopy}>
                                   make local copy
@@ -1160,7 +1166,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             targetId={selectedPlaylist()?.playlist_id || ""}
                             isFavorite={selectedPlaylist()?.is_favorite ?? false}
                           />
-                          <Show when={isViewingRemote()}>
+                          {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
+                          <Show when={isViewingRemote() && !isTauriMode()}>
                             <Show
                               when={syncStatus()?.localPlaylistId}
                               fallback={
@@ -1193,7 +1200,13 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               </Show>
                             </Show>
                           </Show>
-                          <Show when={!isViewingRemote() && selectedPlaylist()?.source_remote_id}>
+                          <Show
+                            when={
+                              !isViewingRemote() &&
+                              !isTauriMode() &&
+                              selectedPlaylist()?.source_remote_id
+                            }
+                          >
                             <Button variant="secondary" onClick={handleMakeLocalCopy}>
                               make local copy
                             </Button>

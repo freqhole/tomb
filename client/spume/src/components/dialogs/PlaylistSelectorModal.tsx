@@ -94,11 +94,11 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       const songText = songCount === 1 ? "song" : "songs";
       toast.success(`created "${name}" and added ${songCount} ${songText}`);
 
-      // ensure all playlist queries are invalidated and refetched
-      await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-      await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
-
+      // close modal immediately - don't wait for query invalidation
       props.onClose();
+
+      // invalidate queries in background (fire-and-forget)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
     } catch (error) {
       console.error("failed to create playlist:", error);
       const errorMessage = error instanceof Error ? error.message : "unknown error";

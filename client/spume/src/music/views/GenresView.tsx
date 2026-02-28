@@ -414,18 +414,34 @@ export function GenresView(props: GenresViewProps) {
   );
 
   // right column - genre detail
+  // show loading if we have a selected ID but genre data isn't ready yet
+  const isLoadingGenreData = () => selectedGenreId() && (genresQuery.isLoading || !selectedGenre());
+
   const rightColumn = (
     <Show
       when={selectedGenre()}
       fallback={
         <div class="flex items-center justify-center h-full">
-          <div class="text-center text-[var(--color-text-tertiary)]">
-            <CheckCircleIcon size={96} className="mx-auto mb-4 opacity-30" />
-            <p class="text-xl mb-2">select a genre</p>
-            <p class="text-sm text-[var(--color-text-tertiary)]">
-              choose from the list to see details
-            </p>
-          </div>
+          <Show
+            when={!isLoadingGenreData()}
+            fallback={
+              <div class="text-center text-[var(--color-text-tertiary)]">
+                <div class="animate-pulse">
+                  <div class="w-24 h-24 mx-auto mb-4 rounded-full bg-[var(--color-bg-tertiary)]" />
+                  <div class="w-32 h-4 mx-auto mb-2 rounded bg-[var(--color-bg-tertiary)]" />
+                  <div class="w-48 h-3 mx-auto rounded bg-[var(--color-bg-tertiary)]" />
+                </div>
+              </div>
+            }
+          >
+            <div class="text-center text-[var(--color-text-tertiary)]">
+              <CheckCircleIcon size={96} className="mx-auto mb-4 opacity-30" />
+              <p class="text-xl mb-2">select a genre</p>
+              <p class="text-sm text-[var(--color-text-tertiary)]">
+                choose from the list to see details
+              </p>
+            </div>
+          </Show>
         </div>
       }
     >
