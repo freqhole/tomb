@@ -80,7 +80,7 @@ export const Badge: ParentComponent<BadgeProps> = (props) => {
             e.stopPropagation();
             local.onRemove?.();
           }}
-          class="ml-1 hover:bg-[var(--color-overlay-hover)] rounded-full p-0.5 transition-colors"
+          class="-mr-1 ml-0.5 hover:bg-[var(--color-bg-hover)] rounded-full p-1 cursor-pointer transition-colors"
           aria-label="remove"
         >
           <Icon name="close" size={iconSize() - 2} color="currentColor" />

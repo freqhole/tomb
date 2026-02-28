@@ -147,7 +147,7 @@ export function TagFilterPicker(props: TagFilterPickerProps) {
                 removable={true}
                 onRemove={() => local.onRemoveTag(filter.tag)}
               >
-                {filter.tag}
+                #{filter.tag}
               </Badge>
             </button>
           )}
@@ -197,7 +197,7 @@ export function TagFilterPicker(props: TagFilterPickerProps) {
                       onClick={() => handleAddTag(tag.value)}
                       class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors flex items-center justify-between"
                     >
-                      <span>{tag.label}</span>
+                      <span>#{tag.label}</span>
                       <Show when={tag.count !== undefined}>
                         <span class="text-[var(--color-text-tertiary)] text-xs">({tag.count})</span>
                       </Show>

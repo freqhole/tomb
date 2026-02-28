@@ -1,9 +1,10 @@
-import { createSignal, JSX, Show } from "solid-js";
+import { createSignal, For, JSX, Show } from "solid-js";
 import { PlayIcon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
+import { Badge } from "../badges/Badge";
 
 // unified collection types
 export interface CollectionCardData {
@@ -248,12 +249,18 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
         </Show>
         {/* tags */}
         <Show when={props.collection.tags && props.collection.tags.length > 0}>
-          <div class="w-full overflow-hidden">
-            <MarqueeText
-              text={props.collection.tags!.join(" • ")}
-              class={`${sizeClasses().meta} text-[var(--color-text-tertiary)]/50 group-hover:text-[var(--color-primary)] transition-colors bg-[var(--color-accent-500)]/10 px-1 py-0.5 rounded`}
-              isHovering={isCardHovering}
-            />
+          <div class="w-full overflow-hidden flex flex-wrap gap-1">
+            <For each={props.collection.tags}>
+              {(tag) => (
+                <Badge
+                  size="sm"
+                  variant="outline"
+                  class="text-[var(--color-text-tertiary)]/70 group-hover:text-[var(--color-primary)] transition-colors"
+                >
+                  #{tag}
+                </Badge>
+              )}
+            </For>
           </div>
         </Show>
       </div>
