@@ -20,12 +20,12 @@ export function AlbumCard(props: AlbumCardProps) {
   const [isCardHovered, setIsCardHovered] = createSignal(false);
 
   const handleMouseEnter = () => {
-    debug("AlbumCard", `hover enter: ${props.album.title}`);
+    // debug("AlbumCard", `hover enter: ${props.album.title}`);
     setIsCardHovered(true);
   };
 
   const handleMouseLeave = () => {
-    debug("AlbumCard", `hover leave: ${props.album.title}`);
+    // debug("AlbumCard", `hover leave: ${props.album.title}`);
     setIsCardHovered(false);
   };
 

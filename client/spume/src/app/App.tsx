@@ -2,10 +2,11 @@
 import { HashRouter } from "@solidjs/router";
 import { toaster } from "@kobalte/core/toast";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
 import { toast } from "../components/feedback/Toast";
 import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
+import { UpdateAvailableToast } from "../components/feedback/UpdateAvailableToast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
@@ -55,6 +56,12 @@ import {
   setActiveRemote,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
+import {
+  registerServiceWorker,
+  updateAvailable,
+  applyServiceWorkerUpdate,
+  dismissUpdate,
+} from "./services/serviceWorker";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
@@ -76,6 +83,17 @@ export function App() {
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
+
+  // track current hash reactively (allows settings in empty state)
+  const [currentHash, setCurrentHash] = createSignal(window.location.hash);
+  const isSettingsRoute = () => currentHash().startsWith("#/settings");
+
+  // listen for hash changes to update reactive state
+  onMount(() => {
+    const handleHashChange = () => setCurrentHash(window.location.hash);
+    window.addEventListener("hashchange", handleHashChange);
+    onCleanup(() => window.removeEventListener("hashchange", handleHashChange));
+  });
 
   // handle messages from tauri (config changes, scan completion)
   function handleTauriMessage(msg: SpumeMessage) {
@@ -173,6 +191,49 @@ export function App() {
     }
   }
 
+  // request persistent storage (only in prod web mode)
+  async function requestPersistentStorage(): Promise<void> {
+    if (import.meta.env.DEV || isTauriMode()) {
+      return;
+    }
+
+    try {
+      if ("storage" in navigator && "persist" in navigator.storage) {
+        const alreadyPersisted = await navigator.storage.persisted();
+        if (alreadyPersisted) {
+          debug("persistentStorage", "already granted");
+          return;
+        }
+
+        const granted = await navigator.storage.persist();
+        debug("persistentStorage", granted ? "granted" : "denied");
+      }
+    } catch (error) {
+      console.error("failed to request persistent storage:", error);
+    }
+  }
+
+  // show update toast when SW update is available
+  createEffect(
+    on(updateAvailable, (available) => {
+      if (available) {
+        toaster.show((props) => (
+          <UpdateAvailableToast
+            toastId={props.toastId}
+            onUpgrade={() => {
+              toaster.dismiss(props.toastId);
+              applyServiceWorkerUpdate();
+            }}
+            onDismiss={() => {
+              toaster.dismiss(props.toastId);
+              dismissUpdate();
+            }}
+          />
+        ));
+      }
+    })
+  );
+
   // initialize databases on mount
   onMount(async () => {
     // show loading indicator after 1 second if still initializing
@@ -195,6 +256,12 @@ export function App() {
 
       // seed reactive cache set from existing metadata
       void initCachedAudioURLs();
+
+      // register service worker (prod web mode only)
+      void registerServiceWorker();
+
+      // request persistent storage (prod web mode only)
+      void requestPersistentStorage();
 
       // check if we have any remotes configured
       const remotes = await getAllRemotes();
@@ -289,7 +356,7 @@ export function App() {
         }
       >
         <Show
-          when={hasSongs() || hasRemotes()}
+          when={hasSongs() || hasRemotes() || isSettingsRoute()}
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState

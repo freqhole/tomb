@@ -9,6 +9,14 @@ import {
   formatBytes,
   type StorageBreakdown,
 } from "../services/storageManager";
+import {
+  shouldEnableServiceWorker,
+  swVersion,
+  clearServiceWorkerCaches,
+  checkForUpdates,
+  forceRefresh,
+} from "../../app/services/serviceWorker";
+import { isTauriMode } from "../../utils/tauri";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -108,6 +116,10 @@ export function StorageSettingsView() {
   const [loading, setLoading] = createSignal(true);
   const [clearing, setClearing] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [persistentStorage, setPersistentStorage] = createSignal<boolean | null>(null);
+  const [swCacheSize, setSwCacheSize] = createSignal<number>(0);
+  const [checkingUpdates, setCheckingUpdates] = createSignal(false);
+  const [updateCheckResult, setUpdateCheckResult] = createSignal<string | null>(null);
 
   // confirmation dialog state
   const [confirmDialog, setConfirmDialog] = createSignal<{
@@ -132,6 +144,31 @@ export function StorageSettingsView() {
     try {
       const data = await getStorageBreakdown();
       setBreakdown(data);
+
+      // check persistent storage status
+      if ("storage" in navigator && "persisted" in navigator.storage) {
+        const persisted = await navigator.storage.persisted();
+        setPersistentStorage(persisted);
+      }
+
+      // estimate SW cache size
+      if (shouldEnableServiceWorker()) {
+        const cacheNames = await caches.keys();
+        const swCaches = cacheNames.filter((name) => name.startsWith("freqhole-"));
+        let totalSize = 0;
+        for (const cacheName of swCaches) {
+          const cache = await caches.open(cacheName);
+          const keys = await cache.keys();
+          for (const request of keys) {
+            const response = await cache.match(request);
+            if (response) {
+              const blob = await response.clone().blob();
+              totalSize += blob.size;
+            }
+          }
+        }
+        setSwCacheSize(totalSize);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to load storage info");
     } finally {
@@ -214,6 +251,45 @@ export function StorageSettingsView() {
     );
   };
 
+  const handleClearSwCache = () => {
+    showConfirmDialog(
+      "clear app cache",
+      "this will delete the cached app files used for offline access. the app will re-download them on next visit.",
+      "clear app cache",
+      false,
+      async () => {
+        setClearing("swcache");
+        await clearServiceWorkerCaches();
+        setClearing(null);
+      }
+    );
+  };
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdates(true);
+    setUpdateCheckResult(null);
+    try {
+      const hasUpdate = await checkForUpdates();
+      setUpdateCheckResult(hasUpdate ? "update available!" : "already on latest version");
+    } catch {
+      setUpdateCheckResult("failed to check for updates");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleForceRefresh = () => {
+    showConfirmDialog(
+      "force refresh",
+      "this will clear all cached app files and reload the page to get the latest version.",
+      "refresh",
+      false,
+      async () => {
+        await forceRefresh();
+      }
+    );
+  };
+
   const handleClearAll = () => {
     showConfirmDialog(
       "delete everything",
@@ -256,6 +332,59 @@ export function StorageSettingsView() {
       <Show when={breakdown()}>
         {(data) => (
           <>
+            {/* app info section */}
+            <div class="mb-6 p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg">
+              <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs mb-4">
+                {/* app version */}
+                <div class="flex items-center gap-2">
+                  <span class="text-[var(--color-text-muted)]">version:</span>
+                  <span class="text-[var(--color-text-secondary)] font-mono">
+                    {import.meta.env.DEV ? "dev" : (swVersion() ?? __APP_VERSION__)}
+                  </span>
+                </div>
+
+                {/* persistent storage status */}
+                <Show when={!isTauriMode() && persistentStorage() !== null}>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[var(--color-text-muted)]">persistent storage:</span>
+                    <span class={`${persistentStorage() ? "text-green-400" : "text-yellow-400"}`}>
+                      {persistentStorage() ? "granted" : "not granted"}
+                    </span>
+                  </div>
+                </Show>
+
+                {/* mode */}
+                <div class="flex items-center gap-2">
+                  <span class="text-[var(--color-text-muted)]">mode:</span>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {import.meta.env.DEV ? "development" : isTauriMode() ? "desktop" : "web"}
+                  </span>
+                </div>
+              </div>
+
+              {/* update controls (only in prod web mode) */}
+              <Show when={shouldEnableServiceWorker()}>
+                <div class="flex flex-wrap gap-2 items-center">
+                  <button
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50"
+                    onClick={handleCheckForUpdates}
+                    disabled={checkingUpdates()}
+                  >
+                    {checkingUpdates() ? "checking..." : "check for updates"}
+                  </button>
+                  <button
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+                    onClick={handleForceRefresh}
+                  >
+                    force refresh
+                  </button>
+                  <Show when={updateCheckResult()}>
+                    <span class="text-xs text-[var(--color-text-muted)]">{updateCheckResult()}</span>
+                  </Show>
+                </div>
+              </Show>
+            </div>
+
             {/* overall usage bar */}
             <div class="mb-6 p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg">
               <div class="flex justify-between items-center mb-2">
@@ -283,6 +412,19 @@ export function StorageSettingsView() {
 
             {/* storage category cards */}
             <div class="grid gap-4 mb-6">
+              {/* service worker cache (only in prod web mode) */}
+              <Show when={shouldEnableServiceWorker()}>
+                <StorageCard
+                  title="app cache (offline)"
+                  icon=""
+                  size={swCacheSize()}
+                  details={[{ label: "cached for offline use", value: "" }]}
+                  onClear={handleClearSwCache}
+                  clearLabel="clear app cache"
+                  loading={clearing() === "swcache"}
+                />
+              </Show>
+
               {/* cache api */}
               <StorageCard
                 title="remote cache"

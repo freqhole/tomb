@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** App version from git commit SHA, injected at build time */
+declare const __APP_VERSION__: string;
