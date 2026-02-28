@@ -38,6 +38,8 @@ export interface VirtualItemListProps {
   scrollPaddingTop?: number;
   /** hide image/thumbnail for all items */
   hideImage?: boolean;
+  /** compact mode - hides images between wide and lg breakpoints to save space */
+  compactMode?: boolean;
   /** additional CSS classes */
   class?: string;
   /** unique key for scroll restoration (e.g., 'artists', 'genres-list') */
@@ -203,7 +205,8 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
           const itemButton = (
             <button
               class={`
-                w-full h-full px-6 py-3 text-left transition-colors border-l-2 flex items-center gap-3
+                w-full h-full text-left transition-colors border-l-2 flex items-center
+                ${props.compactMode ? "px-2 lg:px-4 xl:px-6 py-2 lg:py-3 gap-2 lg:gap-3" : "px-6 py-3 gap-3"}
                 ${
                   props.selectedId === item.id
                     ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
@@ -213,21 +216,23 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
               onClick={() => handleItemClick(item)}
             >
               <Show when={!props.hideImage}>
-                {hasImage ? (
-                  <MediaImage
-                    images={item.images}
-                    imageUrl={item.thumbnailUrl || null}
-                    alt={item.title}
-                    class={`w-12 h-12 object-cover flex-shrink-0 ${item.domainType === "artist" ? "rounded-full" : "rounded"}`}
-                    domainType={item.domainType || "playlist"}
-                  />
-                ) : (
-                  <div class="w-12 h-12 rounded-full flex-shrink-0 bg-[var(--color-bg-elevated)] flex items-center justify-center">
-                    <span class="text-sm font-bold text-[var(--color-text-tertiary)]">
-                      {item.fallbackText}
-                    </span>
-                  </div>
-                )}
+                <div class={props.compactMode ? "wide:hidden xl:flex" : "flex"}>
+                  {hasImage ? (
+                    <MediaImage
+                      images={item.images}
+                      imageUrl={item.thumbnailUrl || null}
+                      alt={item.title}
+                      class={`w-12 h-12 object-cover flex-shrink-0 ${item.domainType === "artist" ? "rounded-full" : "rounded"}`}
+                      domainType={item.domainType || "playlist"}
+                    />
+                  ) : (
+                    <div class="w-12 h-12 rounded-full flex-shrink-0 bg-[var(--color-bg-elevated)] flex items-center justify-center">
+                      <span class="text-sm font-bold text-[var(--color-text-tertiary)]">
+                        {item.fallbackText}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </Show>
               <div class="flex-1 min-w-0">
                 <div class="font-medium text-base">

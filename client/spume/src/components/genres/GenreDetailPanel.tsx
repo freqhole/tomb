@@ -118,7 +118,7 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
         class="px-4 wide:px-6 py-2 wide:py-4"
       >
         {/* stats + buttons in header on desktop only - on mobile they scroll with content */}
-        <div class="hidden wide:block">
+        <div class="hidden xl:block">
           <StatsGrid columns={3} gap="md" class="mb-3">
             <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
             <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
@@ -151,13 +151,32 @@ export function GenreDetailPanel(props: GenreDetailPanelProps): JSX.Element {
           height={listHeight()}
           scrollRestoreKey={`genre-detail-${props.genre.genre_id}`}
           header={
-            // stats + buttons on mobile only - scrolls with content
-            <div class="wide:hidden px-4 py-3 space-y-3">
-              <StatsGrid columns={3} gap="sm">
-                <StatsCard label="songs" value={formatNumber(displaySongCount())} icon="music" />
-                <StatsCard label="albums" value={formatNumber(displayAlbumCount())} icon="album" />
-                <StatsCard label="duration" value={formatDuration(totalDuration())} icon="recent" />
-              </StatsGrid>
+            // stats + buttons - scrolls with content (shown below xl)
+            <div class="xl:hidden px-4 py-3 space-y-3">
+              {/* horizontal scrolling stats */}
+              <div class="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-hide">
+                <StatsCard
+                  variant="minimal"
+                  label="songs"
+                  value={formatNumber(displaySongCount())}
+                  icon="music"
+                  class="flex-shrink-0"
+                />
+                <StatsCard
+                  variant="minimal"
+                  label="albums"
+                  value={formatNumber(displayAlbumCount())}
+                  icon="album"
+                  class="flex-shrink-0"
+                />
+                <StatsCard
+                  variant="minimal"
+                  label="duration"
+                  value={formatDuration(totalDuration())}
+                  icon="recent"
+                  class="flex-shrink-0"
+                />
+              </div>
               <div class="flex gap-2">
                 <Button variant="primary" onClick={props.onPlayAll}>
                   play

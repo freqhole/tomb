@@ -37,6 +37,8 @@ export interface FavoritesLayoutProps {
   isLoading?: boolean;
   /** container height in pixels (full window minus player bar) */
   height: number;
+  /** compact mode - show icon-only toggle buttons between wide-xl */
+  compactMode?: boolean;
   /** callback when filter changes */
   onFilterChange?: (activeFilters: Set<FavoriteFilterType>) => void;
   /** song card callbacks */
@@ -141,6 +143,14 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     return { songs, albums, artists, playlists };
   });
 
+  // icon mapping for filter types
+  const filterIcons: Record<FavoriteFilterType, string> = {
+    songs: "music",
+    albums: "album",
+    artists: "artist",
+    playlists: "playlist",
+  };
+
   // render toggle button
   const ToggleButton = (buttonProps: {
     type: FavoriteFilterType;
@@ -148,19 +158,33 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     count: number;
   }) => {
     const isActive = () => activeFilters().has(buttonProps.type);
+    const iconName = () => filterIcons[buttonProps.type] as any;
+    
+    // in compact mode, show icon-only between wide-xl
+    const compactClasses = () =>
+      props.compactMode
+        ? "wide:p-2 wide:aspect-square xl:px-4 xl:py-2 xl:aspect-auto"
+        : "wide:px-4 wide:py-2";
+    
     return (
       <button
-        class={`px-2 py-1.5 wide:px-4 wide:py-2 text-sm wide:text-base rounded-lg transition-all ${
+        class={`px-2 py-1.5 ${compactClasses()} text-sm wide:text-base rounded-lg transition-all flex items-center justify-center gap-1 ${
           isActive()
             ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
             : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
         }`}
         onClick={() => toggleFilter(buttonProps.type)}
+        title={buttonProps.label}
       >
-        {buttonProps.label}
+        {/* icon-only in compact mode between wide-xl */}
+        <Show when={props.compactMode}>
+          <Icon name={iconName()} size={18} className="wide:block xl:hidden" />
+        </Show>
+        {/* text label - hidden between wide-xl in compact mode */}
+        <span class={props.compactMode ? "wide:hidden xl:inline" : ""}>{buttonProps.label}</span>
         <Show when={buttonProps.count > 0}>
           <span
-            class={`ml-1 wide:ml-2 px-1.5 wide:px-2 py-0.5 rounded-full text-xs ${
+            class={`ml-1 wide:ml-2 px-1.5 wide:px-2 py-0.5 rounded-full text-xs ${props.compactMode ? "wide:hidden xl:inline" : ""} ${
               isActive() ? "bg-[var(--color-text-on-accent)]/20" : "bg-[var(--color-bg-primary)]"
             }`}
           >

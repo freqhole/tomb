@@ -105,3 +105,15 @@ export function pickBestEntryImage(
 
   return undefined;
 }
+
+/**
+ * get the waveform image from a song's images array.
+ * returns the first image with blob_type === 'waveform', or undefined if none found.
+ */
+export function getWaveformImage(images?: ImageMetadata[] | null): ImageMetadata | undefined {
+  if (!images || images.length === 0) return undefined;
+  // spread to unwrap SolidJS store proxies, cast to handle IDB type fallback
+  const arr = [...images] as ImageDataWithTypeFallback[];
+  const waveform = arr.find((img) => (img.blob_type || img.type) === "waveform");
+  return waveform || undefined;
+}

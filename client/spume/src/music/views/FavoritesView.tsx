@@ -40,6 +40,7 @@ export function FavoritesView(props: FavoritesViewProps) {
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
   const containerHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+  const queueOpen = () => appState()?.queue_open ?? false;
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({
@@ -305,6 +306,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       favorites={allFavorites()}
       isLoading={favoritesQuery.isLoading}
       height={containerHeight()}
+      compactMode={queueOpen()}
       onSongClick={handleSongClick}
       onSongPlay={handleSongDoubleClick}
       getSongContextMenuActions={getSongContextMenuActions}

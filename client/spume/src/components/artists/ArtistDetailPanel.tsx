@@ -330,22 +330,32 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
             </div>
           </div>
 
-          {/* stats cards */}
-          <StatsGrid columns={5} gap="sm">
-            <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
-            <StatsCard label="albums" value={formatNumber(props.artist.album_count)} icon="album" />
-            <StatsCard
-              label="duration"
-              value={formatDuration(props.artist.total_duration)}
-              icon="recent"
-            />
-            <Show when={artistGenres().length > 0}>
-              <StatsCard label="genres" value={formatNumber(artistGenres().length)} icon="music" />
-            </Show>
-            <Show when={artistTags().length > 0}>
-              <StatsCard label="tags" value={formatNumber(artistTags().length)} icon="music" />
-            </Show>
-          </StatsGrid>
+          {/* stats cards - only show in fixed header at xl+ */}
+          <div class="hidden xl:block">
+            <StatsGrid columns={5} gap="sm">
+              <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
+              <StatsCard
+                label="albums"
+                value={formatNumber(props.artist.album_count)}
+                icon="album"
+              />
+              <StatsCard
+                label="duration"
+                value={formatDuration(props.artist.total_duration)}
+                icon="recent"
+              />
+              <Show when={artistGenres().length > 0}>
+                <StatsCard
+                  label="genres"
+                  value={formatNumber(artistGenres().length)}
+                  icon="music"
+                />
+              </Show>
+              <Show when={artistTags().length > 0}>
+                <StatsCard label="tags" value={formatNumber(artistTags().length)} icon="music" />
+              </Show>
+            </StatsGrid>
+          </div>
         </div>
       </div>
 
@@ -466,17 +476,51 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               </div>
             </div>
           </div>
+        </div>
 
-          {/* stats cards */}
-          <StatsGrid columns={3} gap="sm">
-            <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
-            <StatsCard label="albums" value={formatNumber(props.artist.album_count)} icon="album" />
+        {/* horizontal scrolling stats - shown below xl breakpoint */}
+        <div class="xl:hidden px-4 wide:px-6 pb-3">
+          <div class="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 wide:-mx-6 wide:px-6 scrollbar-hide">
             <StatsCard
+              variant="minimal"
+              label="songs"
+              value={formatNumber(props.artist.song_count)}
+              icon="music"
+              class="flex-shrink-0"
+            />
+            <StatsCard
+              variant="minimal"
+              label="albums"
+              value={formatNumber(props.artist.album_count)}
+              icon="album"
+              class="flex-shrink-0"
+            />
+            <StatsCard
+              variant="minimal"
               label="duration"
               value={formatDuration(props.artist.total_duration)}
               icon="recent"
+              class="flex-shrink-0"
             />
-          </StatsGrid>
+            <Show when={artistGenres().length > 0}>
+              <StatsCard
+                variant="minimal"
+                label="genres"
+                value={formatNumber(artistGenres().length)}
+                icon="music"
+                class="flex-shrink-0"
+              />
+            </Show>
+            <Show when={artistTags().length > 0}>
+              <StatsCard
+                variant="minimal"
+                label="tags"
+                value={formatNumber(artistTags().length)}
+                icon="music"
+                class="flex-shrink-0"
+              />
+            </Show>
+          </div>
         </div>
 
         {/* albums list with songs */}

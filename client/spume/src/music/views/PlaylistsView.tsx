@@ -88,6 +88,10 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     return result;
   };
 
+  // compute left column width based on queue state
+  const queueOpen = () => appState()?.queue_open ?? false;
+  const leftColumnWidth = () => (queueOpen() ? 200 : undefined);
+
   // track whether detail is showing on narrow (for back navigation)
   // initialize to true if we have an initial ID and are on a narrow screen
   const [showingDetailOnNarrow, setShowingDetailOnNarrow] = createSignal(
@@ -845,6 +849,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                         items={playlistListItems()}
                         selectedId={selectedPlaylistId()}
                         scrollPaddingTop={100}
+                        compactMode={queueOpen()}
                         height={listHeight() - (isNarrow() ? 68 : 0)}
                         onItemClick={handlePlaylistClick}
                         onVirtualizerReady={(scrollFn) => {
@@ -1286,6 +1291,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                   </Show>
                 }
                 showDetail={showingDetailOnNarrow()}
+                leftColumnWidth={leftColumnWidth()}
                 onBack={handleBack}
               />
             )}

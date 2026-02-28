@@ -319,183 +319,185 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
       {/* wide layout: table with header */}
       <Show when={!isNarrow()}>
-        {/* header row */}
-        <div
-          class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
-          style={{ height: `${TABLE_ROW_HEIGHT}px` }}
-        >
-          <div class="w-12 shrink-0"></div>
+        <div style={{ "min-width": "1000px" }}>
+          {/* header row */}
           <div
-            class={`flex-1 min-w-0 ${CELL_PAD} px-6 flex items-center justify-end gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-            onClick={() => handleSort("title")}
+            class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
+            style={{ height: `${TABLE_ROW_HEIGHT}px` }}
           >
-            title <span class="text-[10px]">{getSortIndicator("title")}</span>
+            <div class="w-12 shrink-0"></div>
+            <div
+              class={`flex-1 min-w-0 ${CELL_PAD} px-6 flex items-center justify-end gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+              onClick={() => handleSort("title")}
+            >
+              title <span class="text-[10px]">{getSortIndicator("title")}</span>
+            </div>
+            <div
+              class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+              onClick={() => handleSort("artist")}
+            >
+              artist <span class="text-[10px]">{getSortIndicator("artist")}</span>
+            </div>
+            <div
+              class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+              onClick={() => handleSort("album")}
+            >
+              album <span class="text-[10px]">{getSortIndicator("album")}</span>
+            </div>
+            <div
+              class={`w-24 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+              onClick={() => handleSort("genre")}
+            >
+              genres <span class="text-[10px]">{getSortIndicator("genre")}</span>
+            </div>
+            <div
+              class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+              onClick={() => handleSort("year")}
+            >
+              year <span class="text-[10px]">{getSortIndicator("year")}</span>
+            </div>
+            <div
+              class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+              onClick={() => handleSort("duration")}
+            >
+              time <span class="text-[10px]">{getSortIndicator("duration")}</span>
+            </div>
+            {/* tags column header */}
+            <div class={`w-32 shrink-0 ${CELL_PAD} text-center`} title="tags (not sortable)">
+              tags
+            </div>
+            {/* favorite column header */}
+            <div class="w-8 shrink-0 flex items-center justify-center" title="favorite">
+              ♡
+            </div>
+            {/* rating column header */}
+            <div class="w-10 shrink-0 flex items-center justify-center" title="rating">
+              ★
+            </div>
           </div>
-          <div
-            class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-            onClick={() => handleSort("artist")}
-          >
-            artist <span class="text-[10px]">{getSortIndicator("artist")}</span>
-          </div>
-          <div
-            class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-            onClick={() => handleSort("album")}
-          >
-            album <span class="text-[10px]">{getSortIndicator("album")}</span>
-          </div>
-          <div
-            class={`w-24 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-            onClick={() => handleSort("genre")}
-          >
-            genres <span class="text-[10px]">{getSortIndicator("genre")}</span>
-          </div>
-          <div
-            class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-            onClick={() => handleSort("year")}
-          >
-            year <span class="text-[10px]">{getSortIndicator("year")}</span>
-          </div>
-          <div
-            class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-            onClick={() => handleSort("duration")}
-          >
-            time <span class="text-[10px]">{getSortIndicator("duration")}</span>
-          </div>
-          {/* tags column header */}
-          <div class={`w-32 shrink-0 ${CELL_PAD} text-center`} title="tags (not sortable)">
-            tags
-          </div>
-          {/* favorite column header */}
-          <div class="w-8 shrink-0 flex items-center justify-center" title="favorite">
-            ♡
-          </div>
-          {/* rating column header */}
-          <div class="w-10 shrink-0 flex items-center justify-center" title="rating">
-            ★
-          </div>
-        </div>
 
-        {/* virtual container */}
-        <div
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            position: "relative",
-          }}
-          onClick={handleContainerClick}
-          onMouseOver={handleContainerMouseOver}
-          onMouseLeave={handleContainerMouseLeave}
-        >
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const song = props.songs[virtualRow.index];
-            if (!song) return null;
+          {/* virtual container */}
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              position: "relative",
+            }}
+            onClick={handleContainerClick}
+            onMouseOver={handleContainerMouseOver}
+            onMouseLeave={handleContainerMouseLeave}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const song = props.songs[virtualRow.index];
+              if (!song) return null;
 
-            const isPlaying = props.playingSongId === song.sha256;
-            const isHovered = () => hoveredRowIndex() === virtualRow.index;
+              const isPlaying = props.playingSongId === song.sha256;
+              const isHovered = () => hoveredRowIndex() === virtualRow.index;
 
-            const rowContent = (
-              <div
-                data-row-index={virtualRow.index}
-                class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
-                  isPlaying
-                    ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
-                    : "hover:bg-[var(--color-bg-tertiary)]"
-                }`}
-                style={{
-                  height: `${TABLE_ROW_HEIGHT}px`,
-                  top: `${virtualRow.start}px`,
-                }}
-              >
-                {/* thumbnail with track number overlay and play hover */}
-                <div class="w-12 shrink-0 flex items-center justify-center">
-                  <MediaThumbnail
-                    images={getImages(song)}
-                    indexText={getTrackText(song, virtualRow.index)}
-                    size={IMAGE_SIZE}
-                    hideIndex={isHovered()}
-                    onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
-                    enablePlayClick={!!props.onPlayClick}
-                    showPlayIcon={true}
-                  />
-                </div>
-                <MarqueeText
-                  text={song.title || "untitled"}
-                  class={`flex-1 min-w-0 text-sm text-[var(--color-text-primary)]`}
-                  padClass={CELL_PAD}
-                  isHovering={isHovered()}
-                />
-                <MarqueeText
-                  text={song.artist_name || "unknown artist"}
-                  class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
-                  padClass={CELL_PAD}
-                  isHovering={isHovered()}
-                />
-                <MarqueeText
-                  text={song.album_title || "unknown album"}
-                  class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
-                  padClass={CELL_PAD}
-                  isHovering={isHovered()}
-                />
-                {/* genres */}
-                <MarqueeText
-                  text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
-                  class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
-                  padClass={CELL_PAD}
-                  isHovering={isHovered()}
-                />
-                {/* year */}
+              const rowContent = (
                 <div
-                  class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
+                  data-row-index={virtualRow.index}
+                  class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
+                    isPlaying
+                      ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                      : "hover:bg-[var(--color-bg-tertiary)]"
+                  }`}
+                  style={{
+                    height: `${TABLE_ROW_HEIGHT}px`,
+                    top: `${virtualRow.start}px`,
+                  }}
                 >
-                  {song.year || ""}
-                </div>
-                {/* duration */}
-                <div
-                  class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
-                >
-                  {formatDuration(song.duration_seconds)}
-                </div>
-                {/* tags */}
-                <MarqueeText
-                  text={song.album_tags?.join(", ") || ""}
-                  class={`w-32 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
-                  padClass={CELL_PAD}
-                  isHovering={isHovered()}
-                />
-                {/* favorite */}
-                <div class="w-8 shrink-0 flex items-center justify-center">
-                  <FavoriteHeart
-                    isFavorite={song.is_favorite ?? false}
-                    onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
-                    size="sm"
-                    readonly={!props.onFavoriteToggle}
+                  {/* thumbnail with track number overlay and play hover */}
+                  <div class="w-12 shrink-0 flex items-center justify-center">
+                    <MediaThumbnail
+                      images={getImages(song)}
+                      indexText={getTrackText(song, virtualRow.index)}
+                      size={IMAGE_SIZE}
+                      hideIndex={isHovered()}
+                      onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
+                      enablePlayClick={!!props.onPlayClick}
+                      showPlayIcon={true}
+                    />
+                  </div>
+                  <MarqueeText
+                    text={song.title || "untitled"}
+                    class={`flex-1 min-w-0 text-sm text-[var(--color-text-primary)]`}
+                    padClass={CELL_PAD}
+                    isHovering={isHovered()}
                   />
-                </div>
-                {/* rating */}
-                <div class="w-10 shrink-0 flex items-center justify-center">
-                  <Rating
-                    rating={song.user_rating}
-                    size="sm"
-                    onRatingChange={
-                      props.onRatingChange
-                        ? (rating) => props.onRatingChange?.(song, rating)
-                        : undefined
-                    }
+                  <MarqueeText
+                    text={song.artist_name || "unknown artist"}
+                    class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                    padClass={CELL_PAD}
+                    isHovering={isHovered()}
                   />
+                  <MarqueeText
+                    text={song.album_title || "unknown album"}
+                    class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                    padClass={CELL_PAD}
+                    isHovering={isHovered()}
+                  />
+                  {/* genres */}
+                  <MarqueeText
+                    text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
+                    class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
+                    padClass={CELL_PAD}
+                    isHovering={isHovered()}
+                  />
+                  {/* year */}
+                  <div
+                    class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
+                  >
+                    {song.year || ""}
+                  </div>
+                  {/* duration */}
+                  <div
+                    class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
+                  >
+                    {formatDuration(song.duration_seconds)}
+                  </div>
+                  {/* tags */}
+                  <MarqueeText
+                    text={song.album_tags?.join(", ") || ""}
+                    class={`w-32 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
+                    padClass={CELL_PAD}
+                    isHovering={isHovered()}
+                  />
+                  {/* favorite */}
+                  <div class="w-8 shrink-0 flex items-center justify-center">
+                    <FavoriteHeart
+                      isFavorite={song.is_favorite ?? false}
+                      onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
+                      size="sm"
+                      readonly={!props.onFavoriteToggle}
+                    />
+                  </div>
+                  {/* rating */}
+                  <div class="w-10 shrink-0 flex items-center justify-center">
+                    <Rating
+                      rating={song.user_rating}
+                      size="sm"
+                      onRatingChange={
+                        props.onRatingChange
+                          ? (rating) => props.onRatingChange?.(song, rating)
+                          : undefined
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
-            );
-
-            // wrap with context menu if actions provided
-            if (props.getContextMenuActions) {
-              return (
-                <ContextMenu actions={props.getContextMenuActions(song, virtualRow.index)}>
-                  {rowContent}
-                </ContextMenu>
               );
-            }
 
-            return rowContent;
-          })}
+              // wrap with context menu if actions provided
+              if (props.getContextMenuActions) {
+                return (
+                  <ContextMenu actions={props.getContextMenuActions(song, virtualRow.index)}>
+                    {rowContent}
+                  </ContextMenu>
+                );
+              }
+
+              return rowContent;
+            })}
+          </div>
         </div>
       </Show>
     </div>

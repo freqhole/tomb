@@ -188,14 +188,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
             ? /* narrow: bottom sheet above player bar */
               `fixed z-1140 transition-transform duration-300 ease-out
                inset-x-0 bottom-[var(--player-height)] top-0
-               wide:inset-x-auto wide:top-0 wide:right-0 wide:bottom-0 wide:h-auto wide:w-96
+               wide:inset-x-auto wide:top-0 wide:right-0 wide:bottom-0 wide:h-auto wide:w-72 xl:w-96
                ${
                  props.isOpen
                    ? "translate-y-0 wide:translate-y-0 wide:translate-x-0"
                    : "invisible translate-y-full wide:visible wide:translate-y-0 wide:translate-x-full"
                }`
             : props.isOpen
-              ? "w-96 flex-shrink-0"
+              ? "w-72 xl:w-96 flex-shrink-0"
               : "hidden"
         } ${props.class || ""}`}
       >
@@ -396,22 +396,29 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             "clip-path": `inset(0 ${100 - Math.min(progress() * 100, 100)}% 0 0)`,
                           }}
                         />
-                        {/* waveform overlay layer (starts after thumbnail, reveals progressively) */}
+                        {/* waveform overlay layer (starts after thumbnail, reveals progressively, scaled 2x height) */}
                         <Show when={waveformUrl()}>
                           <div
-                            class="absolute inset-y-0 pointer-events-none z-0"
+                            class="absolute inset-y-0 pointer-events-none z-0 overflow-hidden"
                             style={{
                               left: "60px",
                               right: "0",
-                              "background-image": `url(${waveformUrl()})`,
-                              "background-position": "left center",
-                              "background-size": "100% 100%",
-                              "background-repeat": "no-repeat",
-                              opacity: isCurrentlyPlaying() ? 0.5 : 0.15,
-                              "mix-blend-mode": "screen",
                               "clip-path": `inset(0 ${100 - Math.min(progress() * 100, 100)}% 0 0)`,
                             }}
-                          />
+                          >
+                            <div
+                              class="w-full h-full"
+                              style={{
+                                "background-image": `url(${waveformUrl()})`,
+                                "background-position": "left center",
+                                "background-size": "100% 100%",
+                                "background-repeat": "no-repeat",
+                                opacity: isCurrentlyPlaying() ? 0.5 : 0.15,
+                                "mix-blend-mode": "screen",
+                                transform: "scaleY(2)",
+                              }}
+                            />
+                          </div>
                         </Show>
                       </Show>
 

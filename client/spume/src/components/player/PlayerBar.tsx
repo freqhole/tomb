@@ -1,11 +1,11 @@
-import { Show } from "solid-js";
+import { Show, createSignal, onMount, onCleanup } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
 import MediaImage from "../media/MediaImage";
 import { formatDuration } from "../../utils/formatDuration";
-import { getSongDisplayImages } from "../../utils/images";
+import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlayerBarSong {
@@ -74,11 +74,32 @@ export interface PlayerBarProps {
   class?: string;
 }
 
+// compact mode: 801-1200px, reduce progress bar width and padding
+const COMPACT_MAX_WIDTH = 1200;
+
 // player bar component for bottom of screen
 export function PlayerBar(props: PlayerBarProps) {
   const canGoPrevious = () => props.canGoPrevious ?? true;
   const canGoNext = () => props.canGoNext ?? true;
   const progress = () => (props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0);
+
+  // track compact mode (801-1200px)
+  const [isCompact, setIsCompact] = createSignal(
+    typeof window !== "undefined" &&
+      window.innerWidth >= 801 &&
+      window.innerWidth <= COMPACT_MAX_WIDTH
+  );
+
+  onMount(() => {
+    const handleResize = () => {
+      setIsCompact(window.innerWidth >= 801 && window.innerWidth <= COMPACT_MAX_WIDTH);
+    };
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
+  });
+
+  // get waveform image from song
+  const waveformImage = () => (props.song ? getWaveformImage(props.song.images) : undefined);
 
   let isDragging = false;
 
@@ -260,23 +281,55 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
         </div>
 
-        {/* row 2: time + full-width progress + duration */}
+        {/* row 2: time + full-width progress with waveform + duration */}
         <div class="flex items-center gap-2 h-6">
           <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] text-right tabular-nums">
             {formatDuration(props.currentTime)}
           </span>
 
+          {/* progress bar container with waveform background */}
           <div
-            class="flex-1 h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden cursor-pointer"
+            class="relative flex-1 h-5 cursor-pointer"
             onMouseDown={handleMouseDown}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
           >
-            <div
-              class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] rounded-full"
-              style={{ width: `${progress()}%` }}
-            />
+            {/* waveform image - full width, revealed by progress (no scale on narrow) */}
+            <Show when={waveformImage()}>
+              {(waveform) => (
+                <>
+                  {/* dim waveform background (unplayed portion) */}
+                  <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
+                    <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                  </div>
+                  {/* bright waveform foreground (played portion) - clipped to progress */}
+                  <div
+                    class="absolute inset-0 opacity-80 rounded overflow-hidden"
+                    style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
+                  >
+                    <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                  </div>
+                  {/* progress line indicator */}
+                  <div
+                    class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
+                    style={{ left: `${progress()}%` }}
+                  />
+                </>
+              )}
+            </Show>
+
+            {/* fallback progress bar - only show if no waveform */}
+            <Show when={!waveformImage()}>
+              <div class="absolute inset-y-0 left-0 right-0 flex items-center">
+                <div class="w-full h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] rounded-full"
+                    style={{ width: `${progress()}%` }}
+                  />
+                </div>
+              </div>
+            </Show>
           </div>
 
           <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums">
@@ -286,7 +339,13 @@ export function PlayerBar(props: PlayerBarProps) {
       </div>
 
       {/* wide layout: single row (hidden on narrow) */}
-      <div class="hidden wide:flex items-center gap-6 h-full p-4">
+      <div
+        class="hidden wide:flex items-center h-full"
+        classList={{
+          "gap-4 p-3": isCompact(),
+          "gap-6 p-4": !isCompact(),
+        }}
+      >
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
           {/* thumbnail */}
@@ -394,29 +453,76 @@ export function PlayerBar(props: PlayerBarProps) {
           </button>
         </div>
 
-        {/* progress section - fixed width */}
-        <div class="flex items-center gap-3 w-80 flex-shrink-0">
+        {/* progress section - responsive width based on viewport */}
+        <div
+          class="flex items-center gap-3 flex-shrink-0"
+          classList={{
+            "w-48": isCompact(),
+            "w-80": !isCompact(),
+          }}
+        >
           <span
-            class="text-sm text-[var(--color-accent-500)] font-light min-w-[2.5rem] text-right"
+            class="text-sm text-[var(--color-accent-500)] font-light min-w-[2.5rem] text-right tabular-nums"
             title="current time"
           >
             {formatDuration(props.currentTime)}
           </span>
 
+          {/* progress bar container with waveform background - tall on wide screens */}
           <div
-            class="flex-1 h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden cursor-pointer transition-all duration-200 hover:h-2 min-w-24"
+            class="relative flex-1 cursor-pointer min-w-16"
+            classList={{
+              "h-10": isCompact(),
+              "h-12": !isCompact(),
+            }}
             onMouseDown={handleMouseDown}
           >
-            <div
-              class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] transition-all duration-100 rounded-full"
-              style={{
-                width: `${progress()}%`,
-              }}
-            />
+            {/* waveform image - full width, revealed by progress */}
+            <Show when={waveformImage()}>
+              {(waveform) => (
+                <>
+                  {/* dim waveform background (unplayed portion) */}
+                  <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
+                    <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
+                      <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                  {/* bright waveform foreground (played portion) - clipped to progress */}
+                  <div
+                    class="absolute inset-0 opacity-80 rounded overflow-hidden"
+                    style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
+                  >
+                    <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
+                      <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                </>
+              )}
+            </Show>
+
+            {/* fallback progress bar - only show if no waveform */}
+            <Show when={!waveformImage()}>
+              <div class="absolute inset-y-0 left-0 right-0 flex items-center">
+                <div class="w-full h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden transition-all duration-200 hover:h-2">
+                  <div
+                    class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] transition-all duration-100 rounded-full"
+                    style={{ width: `${progress()}%` }}
+                  />
+                </div>
+              </div>
+            </Show>
+
+            {/* progress line indicator (thin line at current position) */}
+            <Show when={waveformImage()}>
+              <div
+                class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
+                style={{ left: `${progress()}%` }}
+              />
+            </Show>
           </div>
 
           <span
-            class="text-sm text-[var(--color-accent-500)] font-light min-w-[2.5rem]"
+            class="text-sm text-[var(--color-accent-500)] font-light min-w-[2.5rem] tabular-nums"
             title="total duration"
           >
             {formatDuration(props.duration)}

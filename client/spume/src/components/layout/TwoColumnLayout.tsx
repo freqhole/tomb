@@ -49,7 +49,9 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
   ]);
 
   // calculate left column width style
-  const leftWidth = () => local.leftColumnWidth || 320;
+  // use smaller width (280px) below xl, larger (320px) at xl+
+  const leftWidth = () => local.leftColumnWidth || 280;
+  const leftWidthXl = () => local.leftColumnWidth || 320;
 
   return (
     <div
@@ -74,9 +76,10 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
           ${local.showDetail ? "hidden wide:flex" : "flex"}`}
         style={{
           "--left-width": `${leftWidth()}px`,
+          "--left-width-xl": `${leftWidthXl()}px`,
         }}
       >
-        <div class="wide:w-[var(--left-width)] wide:min-w-[var(--left-width)] h-full overflow-hidden">
+        <div class="wide:w-[var(--left-width)] wide:min-w-[var(--left-width)] xl:w-[var(--left-width-xl)] xl:min-w-[var(--left-width-xl)] h-full overflow-hidden">
           {local.leftColumn}
         </div>
       </div>
