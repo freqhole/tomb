@@ -46,6 +46,7 @@ import {
   closeAddMusic,
 } from "../music/hooks/modals";
 import { addToQueue } from "../music/services/queue/queue";
+import { togglePlayback } from "../music/services/audio/player";
 import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
@@ -93,6 +94,26 @@ export function App() {
     const handleHashChange = () => setCurrentHash(window.location.hash);
     window.addEventListener("hashchange", handleHashChange);
     onCleanup(() => window.removeEventListener("hashchange", handleHashChange));
+  });
+
+  // global keyboard shortcuts
+  onMount(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // ignore if user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+
+      // spacebar = toggle play/pause
+      if (e.code === "Space") {
+        e.preventDefault();
+        void togglePlayback("ui");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
   // handle messages from tauri (config changes, scan completion)
