@@ -33,6 +33,8 @@ interface MediaImageProps {
   enableAlbumHover?: boolean;
   showFallback?: boolean;
   domainType?: "song" | "album" | "artist" | "genre" | "playlist";
+  onError?: () => void;
+  onLoad?: () => void;
 }
 
 export function MediaImage(props: MediaImageProps): JSX.Element {
@@ -181,10 +183,12 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           onLoad={() => {
             setImageLoaded(true);
             setImageError(false);
+            props.onLoad?.();
           }}
           onError={() => {
             setImageError(true);
             setImageLoaded(false);
+            props.onError?.();
           }}
         />
       </Show>

@@ -379,7 +379,9 @@ export function StorageSettingsView() {
                     force refresh
                   </button>
                   <Show when={updateCheckResult()}>
-                    <span class="text-xs text-[var(--color-text-muted)]">{updateCheckResult()}</span>
+                    <span class="text-xs text-[var(--color-text-muted)]">
+                      {updateCheckResult()}
+                    </span>
                   </Show>
                 </div>
               </Show>

@@ -1,4 +1,4 @@
-import { Show, createSignal, onMount, onCleanup } from "solid-js";
+import { Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
@@ -91,6 +91,9 @@ export function PlayerBar(props: PlayerBarProps) {
       window.innerWidth <= COMPACT_MAX_WIDTH
   );
 
+  // track waveform image errors (use fallback progress bar instead)
+  const [waveformError, setWaveformError] = createSignal(false);
+
   onMount(() => {
     const handleResize = () => {
       setIsCompact(window.innerWidth >= 801 && window.innerWidth <= COMPACT_MAX_WIDTH);
@@ -99,8 +102,14 @@ export function PlayerBar(props: PlayerBarProps) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
-  // get waveform image from song
-  const waveformImage = () => (props.song ? getWaveformImage(props.song.images) : undefined);
+  // get waveform image from song (reset error state when song changes)
+  const waveformImage = createMemo(() => {
+    setWaveformError(false); // reset error when song changes
+    return props.song ? getWaveformImage(props.song.images) : undefined;
+  });
+
+  // show waveform only if we have image data AND no load error
+  const showWaveform = () => waveformImage() && !waveformError();
 
   let isDragging = false;
 
@@ -297,39 +306,45 @@ export function PlayerBar(props: PlayerBarProps) {
             onTouchEnd={handleTouchEnd}
           >
             {/* waveform image - full width, revealed by progress (no scale on narrow) */}
-            <Show when={waveformImage()}>
-              {(waveform) => (
-                <>
-                  {/* dim waveform background (unplayed portion) */}
-                  <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
-                    <MediaImage
-                      images={[waveform()]}
-                      alt=""
-                      class="w-full h-full object-cover mix-blend-screen"
+            <Show when={showWaveform()}>
+              {(() => {
+                const waveform = waveformImage()!;
+                return (
+                  <>
+                    {/* dim waveform background (unplayed portion) */}
+                    <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
+                      <MediaImage
+                        images={[waveform]}
+                        alt=""
+                        class="w-full h-full object-cover mix-blend-screen"
+                        showFallback={false}
+                        onError={() => setWaveformError(true)}
+                      />
+                    </div>
+                    {/* bright waveform foreground (played portion) - clipped to progress */}
+                    <div
+                      class="absolute inset-0 opacity-80 rounded overflow-hidden"
+                      style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
+                    >
+                      <MediaImage
+                        images={[waveform]}
+                        alt=""
+                        class="w-full h-full object-cover  mix-blend-screen"
+                        showFallback={false}
+                      />
+                    </div>
+                    {/* progress line indicator */}
+                    <div
+                      class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
+                      style={{ left: `${progress()}%` }}
                     />
-                  </div>
-                  {/* bright waveform foreground (played portion) - clipped to progress */}
-                  <div
-                    class="absolute inset-0 opacity-80 rounded overflow-hidden"
-                    style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
-                  >
-                    <MediaImage
-                      images={[waveform()]}
-                      alt=""
-                      class="w-full h-full object-cover  mix-blend-screen"
-                    />
-                  </div>
-                  {/* progress line indicator */}
-                  <div
-                    class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
-                    style={{ left: `${progress()}%` }}
-                  />
-                </>
-              )}
+                  </>
+                );
+              })()}
             </Show>
 
             {/* fallback progress bar - only show if no waveform */}
-            <Show when={!waveformImage()}>
+            <Show when={!showWaveform()}>
               <div class="absolute inset-y-0 left-0 right-0 flex items-center">
                 <div class="w-full h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden">
                   <div
@@ -487,38 +502,44 @@ export function PlayerBar(props: PlayerBarProps) {
             onMouseDown={handleMouseDown}
           >
             {/* waveform image - full width, revealed by progress */}
-            <Show when={waveformImage()}>
-              {(waveform) => (
-                <>
-                  {/* dim waveform background (unplayed portion) */}
-                  <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
-                    <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
-                      <MediaImage
-                        images={[waveform()]}
-                        alt=""
-                        class="w-full h-full object-cover mix-blend-screen"
-                      />
+            <Show when={showWaveform()}>
+              {(() => {
+                const waveform = waveformImage()!;
+                return (
+                  <>
+                    {/* dim waveform background (unplayed portion) */}
+                    <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
+                      <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
+                        <MediaImage
+                          images={[waveform]}
+                          alt=""
+                          class="w-full h-full object-cover mix-blend-screen"
+                          showFallback={false}
+                          onError={() => setWaveformError(true)}
+                        />
+                      </div>
                     </div>
-                  </div>
-                  {/* bright waveform foreground (played portion) - clipped to progress */}
-                  <div
-                    class="absolute inset-0 opacity-80 rounded overflow-hidden"
-                    style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
-                  >
-                    <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
-                      <MediaImage
-                        images={[waveform()]}
-                        alt=""
-                        class="w-full h-full object-cover  mix-blend-screen"
-                      />
+                    {/* bright waveform foreground (played portion) - clipped to progress */}
+                    <div
+                      class="absolute inset-0 opacity-80 rounded overflow-hidden"
+                      style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
+                    >
+                      <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
+                        <MediaImage
+                          images={[waveform]}
+                          alt=""
+                          class="w-full h-full object-cover  mix-blend-screen"
+                          showFallback={false}
+                        />
+                      </div>
                     </div>
-                  </div>
-                </>
-              )}
+                  </>
+                );
+              })()}
             </Show>
 
             {/* fallback progress bar - only show if no waveform */}
-            <Show when={!waveformImage()}>
+            <Show when={!showWaveform()}>
               <div class="absolute inset-y-0 left-0 right-0 flex items-center">
                 <div class="w-full h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden transition-all duration-200 hover:h-2">
                   <div
@@ -530,7 +551,7 @@ export function PlayerBar(props: PlayerBarProps) {
             </Show>
 
             {/* progress line indicator (thin line at current position) */}
-            <Show when={waveformImage()}>
+            <Show when={showWaveform()}>
               <div
                 class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
                 style={{ left: `${progress()}%` }}

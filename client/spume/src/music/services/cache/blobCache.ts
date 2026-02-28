@@ -3,6 +3,8 @@
 
 import { createSignal } from "solid-js";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
+import type { ImageMetadata } from "../storage/types";
+import { getWaveformImage } from "../../../utils/images";
 
 const CACHE_NAME = "freqhole-blobs-v1";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -701,9 +703,10 @@ export function getNextSongsToCache(
     duration_seconds: number;
     source_type: string;
     source_url?: string | null;
+    images?: ImageMetadata[] | null;
   }>,
   targetMinutes: number = 30,
-): Array<{ sha256: string; source_url: string }> {
+): Array<{ sha256: string; source_url: string; waveform_url?: string }> {
   if (!currentSongId || queue.length === 0) {
     return [];
   }
@@ -714,7 +717,7 @@ export function getNextSongsToCache(
     return [];
   }
 
-  const songsToCache: Array<{ sha256: string; source_url: string }> = [];
+  const songsToCache: Array<{ sha256: string; source_url: string; waveform_url?: string }> = [];
   let totalSeconds = 0;
   const targetSeconds = targetMinutes * 60;
 
@@ -727,9 +730,14 @@ export function getNextSongsToCache(
       continue;
     }
 
+    // get waveform URL if available
+    const waveformImage = getWaveformImage(song.images);
+    const waveform_url = waveformImage?.remote_url || undefined;
+
     songsToCache.push({
       sha256: song.sha256,
       source_url: song.source_url,
+      waveform_url,
     });
 
     totalSeconds += song.duration_seconds || 0;
@@ -751,6 +759,7 @@ export async function preCacheNextSongs(
     duration_seconds: number;
     source_type: string;
     source_url?: string | null;
+    images?: ImageMetadata[] | null;
   }>,
   targetMinutes: number = 30,
 ): Promise<void> {
@@ -773,34 +782,44 @@ export async function preCacheNextSongs(
     // cache songs in order (nearest first), but don't wait for each one
     // use Promise.allSettled to allow parallel fetching without blocking
     const cachePromises = songsToCache.map(async (song) => {
-      // check if already cached or in progress
+      const results = { audio: "skipped", waveform: "skipped" };
+
+      // cache audio
       if (await isCached(song.source_url)) {
-        return { status: "already_cached", url: song.source_url };
+        results.audio = "already_cached";
+      } else if (inProgressFetches.has(song.source_url)) {
+        results.audio = "in_progress";
+      } else {
+        void preCacheBlob(song.source_url, "audio");
+        results.audio = "started";
       }
 
-      if (inProgressFetches.has(song.source_url)) {
-        return { status: "in_progress", url: song.source_url };
+      // cache waveform image if available
+      if (song.waveform_url) {
+        if (await isCached(song.waveform_url)) {
+          results.waveform = "already_cached";
+        } else if (inProgressFetches.has(song.waveform_url)) {
+          results.waveform = "in_progress";
+        } else {
+          void preCacheBlob(song.waveform_url, "image");
+          results.waveform = "started";
+        }
       }
 
-      // start pre-caching (non-blocking)
-      void preCacheBlob(song.source_url, "audio");
-      return { status: "started", url: song.source_url };
+      return results;
     });
 
     const results = await Promise.allSettled(cachePromises);
 
-    const started = results.filter(
-      (r) => r.status === "fulfilled" && r.value.status === "started",
+    const audioStarted = results.filter(
+      (r) => r.status === "fulfilled" && r.value.audio === "started",
     ).length;
-    const alreadyCached = results.filter(
-      (r) => r.status === "fulfilled" && r.value.status === "already_cached",
-    ).length;
-    const inProgress = results.filter(
-      (r) => r.status === "fulfilled" && r.value.status === "in_progress",
+    const waveformStarted = results.filter(
+      (r) => r.status === "fulfilled" && r.value.waveform === "started",
     ).length;
 
     debug(
-      `pre-cache summary: ${started} started, ${alreadyCached} already cached, ${inProgress} in progress`,
+      `pre-cache summary: ${audioStarted} audio started, ${waveformStarted} waveforms started`,
     );
   } catch (error) {
     errorLog("failed to pre-cache next songs:", error);
