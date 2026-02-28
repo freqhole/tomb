@@ -676,8 +676,43 @@ pub async fn add_songs_to_playlist(playlist_id: &str, song_ids: &[String]) -> Gr
         return GrimoireResponse::failure("Playlist not found", vec![ErrorDetail::from(&err)]);
     }
 
+    // get all song_ids currently in the playlist
+    let existing_song_ids: Vec<String> = match sqlx::query_scalar!(
+        "SELECT song_id FROM playlist_songz WHERE playlist_id = ?",
+        playlist_id
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to check existing songs",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // filter out songs already in the playlist
+    let songs_to_add: Vec<&String> = song_ids
+        .iter()
+        .filter(|id| !existing_song_ids.contains(id))
+        .collect();
+
+    // if all songs are already in the playlist, return an error
+    if songs_to_add.is_empty() {
+        return GrimoireResponse::failure(
+            "all songs are already in the playlist",
+            vec![ErrorDetail::new(
+                "all_songs_exist",
+                "no new songs to add",
+                "all requested songs are already in this playlist",
+            )],
+        );
+    }
+
     // Add each song using auto-positioning trigger (position = -1)
-    for song_id in song_ids.iter() {
+    for song_id in songs_to_add.iter() {
         // Verify song exists
         let song_exists = match sqlx::query!(
             "SELECT id FROM songz WHERE id = ? AND deleted_at IS NULL",
