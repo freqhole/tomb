@@ -18,16 +18,14 @@ export const AllVariants: Story = {
   render: () => (
     <div class="p-8 bg-[var(--color-bg-primary)]">
       <div class="max-w-2xl space-y-4">
-        <Alert variant="success">your changes have been saved successfully</Alert>
+        <Alert variant="success">changes have been saved successfully</Alert>
 
         <Alert variant="info">this is some helpful information you might want to know</Alert>
 
-        <Alert variant="warning">
-          your session will expire in 5 minutes. please save your work
-        </Alert>
+        <Alert variant="warning">session will expire in 5 minutes. please save yr work</Alert>
 
         <Alert variant="error">
-          failed to upload file. please check your connection and try again
+          failed to upload file. please check yr connection and try again
         </Alert>
       </div>
     </div>
@@ -40,11 +38,11 @@ export const WithTitles: Story = {
     <div class="p-8 bg-[var(--color-bg-primary)]">
       <div class="max-w-2xl space-y-4">
         <Alert variant="success" title="success!">
-          your song has been added to the library
+          a song has been added to the library
         </Alert>
 
         <Alert variant="info" title="did you know?">
-          you can drag and drop files to upload multiple songs at once
+          drag and drop files to upload multiple songs at once
         </Alert>
 
         <Alert variant="warning" title="heads up">
@@ -72,7 +70,7 @@ export const Dismissible: Story = {
         <div class="max-w-2xl space-y-4">
           {showSuccess() && (
             <Alert variant="success" title="songs imported" onClose={() => setShowSuccess(false)}>
-              successfully imported 12 songs to your library
+              successfully imported 12 songs to the library
             </Alert>
           )}
 
@@ -84,13 +82,13 @@ export const Dismissible: Story = {
 
           {showWarning() && (
             <Alert variant="warning" title="storage warning" onClose={() => setShowWarning(false)}>
-              you're using 80% of your storage quota. consider upgrading your plan
+              you're using 80% of yr storage quota. consider overthrowing the evil empire!
             </Alert>
           )}
 
           {showError() && (
             <Alert variant="error" title="connection error" onClose={() => setShowError(false)}>
-              unable to sync with server. check your internet connection
+              unable to sync with server. check yr internet connection? go take a walk?!
             </Alert>
           )}
 
@@ -249,7 +247,7 @@ export const FormFeedback: Story = {
 
             {status() === "success" && (
               <Alert variant="success" title="changes saved" onClose={() => setStatus("idle")}>
-                your song metadata has been updated successfully
+                song metadata has been updated successfully
               </Alert>
             )}
 
@@ -301,7 +299,7 @@ export const UploadStatus: Story = {
         </Alert>
 
         <Alert variant="warning" icon="alertTriangle" title="duplicate found">
-          "bohemian rhapsody.mp3" already exists in your library. would you like to replace it?
+          "bohemian rhapsody.mp3" already exists in the library. would you like to replace it?
         </Alert>
 
         <Alert variant="success" icon="check" title="upload complete">

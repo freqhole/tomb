@@ -266,7 +266,7 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         println!();
         println!("  allowed origins configuration");
         println!("  -----------------------------");
-        println!("  this controls which browser origins can access your server via CORS.");
+        println!("  this controls which browser origins can access yr server via CORS.");
         println!("  also used for passkey (WebAuthn) authentication.");
         println!();
         println!("  options:");
@@ -288,8 +288,8 @@ pub async fn run(args: SetupArgs) -> Result<()> {
             .interact()?;
 
         match selection {
-            0 => Some(Vec::new()), // none
-            1 => Some(vec!["any".to_string()]), // any
+            0 => Some(Vec::new()),                                        // none
+            1 => Some(vec!["any".to_string()]),                           // any
             2 => Some(vec![format!("http://localhost:{}", server_port)]), // server port
             _ => {
                 // custom URL

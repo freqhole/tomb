@@ -357,7 +357,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       disabled={isLoading()}
                     />
                     <p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                      the full url of your remote music server
+                      the full url of the remote music server
                     </p>
                   </div>
 

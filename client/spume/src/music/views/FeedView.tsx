@@ -725,8 +725,8 @@ export function FeedView() {
                   <Icon name="recent" size={32} color="var(--color-text-muted)" />
                   <p class="text-[var(--color-text-muted)] mt-2 text-sm">
                     {feedTypeFilters().length > 0 || myItemsOnly()
-                      ? "no items match your filters"
-                      : "no activity yet — start listening to build your feed"}
+                      ? "no items match the filters"
+                      : "no activity yet — start listening to build the feed"}
                   </p>
                   <Show when={feedTypeFilters().length > 0 || myItemsOnly()}>
                     <Button

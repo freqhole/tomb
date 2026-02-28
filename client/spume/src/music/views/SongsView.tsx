@@ -270,9 +270,7 @@ export function SongsView(props: SongsViewProps) {
         {allSongs().length === 0 && !songsQuery.isLoading ? (
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
             <div class="text-center max-w-md">
-              <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                no songs in your library yet
-              </p>
+              <p class="text-lg text-[var(--color-text-secondary)] mb-2">no songs found!</p>
               <Button variant="primary" onClick={props.onAddMusic}>
                 add music
               </Button>

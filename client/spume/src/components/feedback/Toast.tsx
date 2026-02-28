@@ -108,7 +108,7 @@ function ToastItem(props: ToastProps) {
 }
 
 /**
- * toast region component - place once in your app layout
+ * toast region component - place once in app layout
  *
  * usage:
  * ```tsx
@@ -118,7 +118,7 @@ function ToastItem(props: ToastProps) {
  * function App() {
  *   return (
  *     <>
- *       {/* your app content *\/}
+ *       {/* app content *\/}
  *       <Portal>
  *         <ToastRegion />
  *       </Portal>

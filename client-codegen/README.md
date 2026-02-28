@@ -83,7 +83,7 @@ the `freqhole-api-client` package is linked into the frontend via `file:` refere
 
 after defining types in grimoire and adding the route handler in server (see `docs/HOW_TO_ADD_FEATURES.md`):
 
-1. ensure your request/response types derive `ZodSchema`
+1. ensure request/response types derive `ZodSchema`
 2. register them in `grimoire/src/api_registry/type_registry.rs`
 3. run `cd client-codegen && make all`
 

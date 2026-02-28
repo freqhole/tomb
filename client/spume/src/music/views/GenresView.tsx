@@ -321,11 +321,9 @@ export function GenresView(props: GenresViewProps) {
             fallback={
               <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                 <div class="text-center max-w-md">
-                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                    no genres in your library yet
-                  </p>
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">no genres found!</p>
                   <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                    click "add music" above to import local audio files or download from urls
+                    add music to import local audio files or download from urls
                   </p>
                   <Button variant="primary" onClick={props.onAddMusic}>
                     add music

@@ -839,12 +839,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
             fallback={
               <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                 <div class="text-center max-w-md">
-                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                    no playlists in your library yet
-                  </p>
-                  <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                    playlists let you organize your music into custom collections
-                  </p>
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">no playlists found!</p>
                 </div>
               </div>
             }

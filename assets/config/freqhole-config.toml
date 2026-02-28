@@ -138,7 +138,7 @@ level = "info"
 [server]
 # server identification (all REQUIRED when [server] section exists)
 # these fields are exposed via the public /api/hello endpoint (no auth required)
-# remote clients fetch this info when adding your server to their remote list
+# remote clients fetch this info when adding yr server to their remote list
 
 # REQUIRED: unique identifier for this server instance (stable across restarts)
 id = "freqhole-main"
@@ -203,7 +203,7 @@ session_max_age_seconds = 0
 # OPTIONAL: session cookie mode (default: "auto")
 #
 # controls how session cookies behave for browser authentication.
-# choose based on your deployment:
+# choose based on yr deployment:
 #
 # "auto" (default): dual-cookie for maximum compatibility
 #   sets TWO session cookies on every response:

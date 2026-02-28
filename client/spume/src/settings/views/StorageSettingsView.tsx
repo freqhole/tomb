@@ -226,7 +226,7 @@ export function StorageSettingsView() {
   const handleClearOPFS = () => {
     showConfirmDialog(
       "clear local files",
-      "this will delete all locally stored audio files and thumbnails from OPFS. your library metadata will remain, but audio files will need to be re-imported.",
+      "this will delete all locally stored audio files and thumbnails from OPFS. library metadata will remain, but audio files will need to be re-imported.",
       "clear local files",
       true,
       async () => {
@@ -240,7 +240,7 @@ export function StorageSettingsView() {
   const handleClearMusicDb = () => {
     showConfirmDialog(
       "clear music library",
-      "this will delete your entire music library database including all songs, albums, artists, playlists, favorites, and ratings. audio files in OPFS will remain but be orphaned.",
+      "this will delete the entire music library database including all songs, albums, artists, playlists, favorites, and ratings. audio files in OPFS will remain but be orphaned. THIS IS ONLY THE DATA IN YOUR BROWSER!",
       "clear library",
       true,
       async () => {
@@ -293,7 +293,7 @@ export function StorageSettingsView() {
   const handleClearAll = () => {
     showConfirmDialog(
       "delete everything",
-      "this will permanently delete ALL freqhole data: your music library, playlists, favorites, cached files, local audio files, and app settings. this action cannot be undone. the page will reload after clearing.",
+      "this will permanently delete ALL freqhole data: the music library, playlists, favorites, cached files, local audio files, and app settings. this action cannot be undone. the page will reload after clearing.",
       "DELETE EVERYTHING",
       true,
       async () => {

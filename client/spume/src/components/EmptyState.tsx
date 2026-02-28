@@ -15,14 +15,12 @@ export function EmptyState(props: EmptyStateProps) {
         </div>
 
         <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-          welcome to freqhole
+          welcome to freqhole!
         </h1>
 
         <p class="text-[var(--color-text-secondary)] mb-2">
-          get started by adding local files or downloading from urls
+          get started by adding music (local files or urls) or connecting a remote server
         </p>
-
-        <p class="text-sm text-[var(--color-text-tertiary)] mb-8">your music library is empty</p>
 
         <div class="flex gap-3 justify-center">
           <Button variant="primary" onClick={props.onAddMusic}>
