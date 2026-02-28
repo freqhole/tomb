@@ -12,6 +12,7 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { isBlobCachedReactive } from "../../music/services/cache/blobCache";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
+import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
 type QueueTab = "queue" | "history";
 
@@ -183,7 +184,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
       </Show>
 
       <div
-        class={`bg-[var(--color-bg-primary)]/95 backdrop-blur-xl flex flex-col ${
+        class={`${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/60" : "bg-[var(--color-bg-primary)]/95 backdrop-blur-xl"} flex flex-col ${
           isOverlay()
             ? /* narrow: bottom sheet above player bar */
               `fixed z-1140 transition-transform duration-300 ease-out

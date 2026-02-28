@@ -71,6 +71,7 @@ import { reconnectProgressTracking } from "../music/services/queue/listenProgres
 import { saveRoute } from "../utils/tauri/routePersistence";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
+import { getBackgroundConfig } from "./services/backgroundImage";
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -82,6 +83,9 @@ export function AppLayout(props: AppLayoutProps) {
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // background image config (reactive)
+  const bgConfig = () => getBackgroundConfig();
   // const [isQueueOpen, setIsQueueOpen] = createSignal(false);
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
@@ -426,12 +430,36 @@ export function AppLayout(props: AppLayoutProps) {
 
   return (
     <div
-      class="flex flex-col bg-[var(--color-bg-primary)]"
+      class={`flex flex-col ${bgConfig() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"}`}
       style={{
         height: "100dvh",
         "--player-bar-height": (appState()?.queue.length || 0) > 0 ? "80px" : "0px",
       }}
     >
+      {/* full-page background image (when set by a view) */}
+      <Show when={bgConfig()}>
+        {(config) => (
+          <>
+            {/* background image */}
+            <div
+              class="fixed inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500"
+              style={{
+                "background-image": `url(${config().imageUrl})`,
+                "z-index": -2,
+              }}
+            />
+            {/* dark overlay for readability */}
+            <div
+              class="fixed inset-0 bg-black transition-opacity duration-500"
+              style={{
+                opacity: config().overlayOpacity ?? 0.7,
+                "z-index": -1,
+              }}
+            />
+          </>
+        )}
+      </Show>
+
       {/* top navigation */}
       <TopNav
         brandName="freqhole"

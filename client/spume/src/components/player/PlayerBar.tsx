@@ -5,6 +5,7 @@ import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
 import MediaImage from "../media/MediaImage";
 import { formatDuration } from "../../utils/formatDuration";
+import { getBackgroundConfig } from "../../app/services/backgroundImage";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
@@ -155,7 +156,7 @@ export function PlayerBar(props: PlayerBarProps) {
 
   return (
     <div
-      class={`fixed bottom-0 left-0 right-0 bg-[var(--color-bg-primary)]/90 backdrop-blur-xl z-50 ${props.class || ""}`}
+      class={`fixed bottom-0 left-0 right-0 ${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/40" : "bg-[var(--color-bg-primary)]/90 backdrop-blur-xl"} z-50 ${props.class || ""}`}
       style={{ height: "var(--player-height)" }}
     >
       {/* narrow layout: 2 rows */}
@@ -301,14 +302,22 @@ export function PlayerBar(props: PlayerBarProps) {
                 <>
                   {/* dim waveform background (unplayed portion) */}
                   <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
-                    <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                    <MediaImage
+                      images={[waveform()]}
+                      alt=""
+                      class="w-full h-full object-cover mix-blend-screen"
+                    />
                   </div>
                   {/* bright waveform foreground (played portion) - clipped to progress */}
                   <div
                     class="absolute inset-0 opacity-80 rounded overflow-hidden"
                     style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
                   >
-                    <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                    <MediaImage
+                      images={[waveform()]}
+                      alt=""
+                      class="w-full h-full object-cover  mix-blend-screen"
+                    />
                   </div>
                   {/* progress line indicator */}
                   <div
@@ -484,7 +493,11 @@ export function PlayerBar(props: PlayerBarProps) {
                   {/* dim waveform background (unplayed portion) */}
                   <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
                     <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
-                      <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                      <MediaImage
+                        images={[waveform()]}
+                        alt=""
+                        class="w-full h-full object-cover mix-blend-screen"
+                      />
                     </div>
                   </div>
                   {/* bright waveform foreground (played portion) - clipped to progress */}
@@ -493,7 +506,11 @@ export function PlayerBar(props: PlayerBarProps) {
                     style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
                   >
                     <div class="w-full h-full" style={{ transform: "scaleY(2)" }}>
-                      <MediaImage images={[waveform()]} alt="" class="w-full h-full object-cover" />
+                      <MediaImage
+                        images={[waveform()]}
+                        alt=""
+                        class="w-full h-full object-cover  mix-blend-screen"
+                      />
                     </div>
                   </div>
                 </>

@@ -9,6 +9,7 @@ import {
   type Accessor,
 } from "solid-js";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
 export interface TwoColumnLayoutProps {
   /** content for the left column (list/navigation) */
@@ -52,10 +53,11 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
   // use smaller width (280px) below xl, larger (320px) at xl+
   const leftWidth = () => local.leftColumnWidth || 280;
   const leftWidthXl = () => local.leftColumnWidth || 320;
+  const hasBackground = () => !!getBackgroundConfig();
 
   return (
     <div
-      class={`flex h-full bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] w-full max-w-full ${local.class || ""}`}
+      class={`flex h-full text-[var(--color-text-primary)] w-full max-w-full ${hasBackground() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"} ${local.class || ""}`}
       {...others}
     >
       {/* optional alphabet navigation */}
@@ -71,7 +73,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on narrow: fills remaining width, hidden when detail is showing */}
       {/* on wide: fixed width sidebar */}
       <div
-        class={`flex-shrink-0 flex flex-col border-r border-[var(--color-border-default)] overflow-hidden
+        class={`flex-shrink-0 flex flex-col overflow-hidden
           flex-1 wide:flex-none wide:w-auto
           ${local.showDetail ? "hidden wide:flex" : "flex"}`}
         style={{

@@ -177,7 +177,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         <img
           src={resolvedUrl()!}
           alt={props.alt}
-          class="absolute inset-0 w-full h-full object-cover z-30"
+          class={`${props.class || ""} "absolute inset-0 w-full h-full object-cover z-30"`}
           onLoad={() => {
             setImageLoaded(true);
             setImageError(false);

@@ -14,6 +14,7 @@ import {
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { setBackgroundImage, clearBackgroundImage } from "../../app/services/backgroundImage";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
@@ -125,6 +126,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     onCleanup(() => {
       window.removeEventListener("resize", handleResize);
       clearPageInfo(); // clear page info when leaving view
+      clearBackgroundImage(); // clear global background when leaving view
     });
   });
   const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
@@ -435,6 +437,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
         setBackgroundImageUrl(null);
       }
     });
+  });
+
+  // sync local background URL to global background service
+  createEffect(() => {
+    const bgUrl = backgroundImageUrl();
+    if (bgUrl) {
+      setBackgroundImage({ imageUrl: bgUrl, overlayOpacity: 0.6 });
+    } else {
+      clearBackgroundImage();
+    }
   });
 
   // calculate total duration
@@ -903,14 +915,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                   >
                     <div
                       class={`flex flex-col h-full relative ${isNarrow() ? "overflow-auto" : ""}`}
-                      style={{
-                        ...(backgroundImageUrl() && {
-                          "background-image": `linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url('${backgroundImageUrl()}')`,
-                          "background-size": "cover",
-                          "background-position": "center top",
-                          "background-repeat": "no-repeat",
-                        }),
-                      }}
                     >
                       {/* sticky header with back button for mobile */}
                       <Show when={isNarrow() && showingDetailOnNarrow()}>

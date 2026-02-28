@@ -1,6 +1,7 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, createSignal, JSX, onMount, onCleanup, Show } from "solid-js";
 import { useScrollRestore } from "../../utils/scrollRestore";
+import { getBackgroundConfig } from "../../app/services/backgroundImage";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
@@ -178,10 +179,12 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     }
   };
 
+  const hasBackground = () => !!getBackgroundConfig();
+
   return (
     <div
       ref={parentRef!}
-      class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
+      class={`overflow-auto ${hasBackground() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"} ${props.class || ""}`}
       style={{
         height: heightStyle(),
         "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
@@ -207,10 +210,15 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
               class={`
                 w-full h-full text-left transition-colors border-l-2 flex items-center
                 ${props.compactMode ? "px-2 lg:px-4 xl:px-6 py-2 lg:py-3 gap-2 lg:gap-3" : "px-6 py-3 gap-3"}
+                ${hasBackground() ? "text-shadow-glow" : ""}
                 ${
                   props.selectedId === item.id
-                    ? "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                    : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
+                    ? hasBackground()
+                      ? "bg-black/50 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                      : "bg-[var(--color-bg-primary)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
+                    : hasBackground()
+                      ? "bg-black/30 hover:bg-black/40 text-[var(--color-text-primary)] border-transparent"
+                      : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                 }
               `}
               onClick={() => handleItemClick(item)}
