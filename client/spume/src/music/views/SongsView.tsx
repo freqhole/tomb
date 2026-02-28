@@ -95,7 +95,7 @@ export function SongsView(props: SongsViewProps) {
   const songsQuery = useSongsInfiniteQuery({
     sortField: () => sortField(),
     sortDirection: () => sortDirection(),
-    pageSize: 100,
+    pageSize: 250,
     query: searchQuery,
     tagFilters: () => tagFilters(),
   });

@@ -74,7 +74,7 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   // fetch albums using query hook with sorting
   const albumsQuery = useAlbumsQuery({
-    pageSize: 50,
+    pageSize: 250,
     query: searchQuery,
     tagFilters: () => tagFilters(),
     sortField: () => sortField(),

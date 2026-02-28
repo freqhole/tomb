@@ -140,7 +140,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
     const items = virtualizer.getVirtualItems();
     if (items.length === 0) return;
     const lastItem = items[items.length - 1];
-    if (lastItem && lastItem.index >= count() - 20) {
+    if (lastItem && lastItem.index >= count() - 50) {
       props.onNearEnd();
     }
   };
