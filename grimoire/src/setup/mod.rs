@@ -5,8 +5,10 @@
 
 mod checks;
 mod defaults;
+mod embedded_assets;
 mod service;
 
 pub use checks::{check_dependencies, DependencyStatus};
 pub use defaults::{get_defaults, get_local_defaults, SetupDefaults};
+pub use embedded_assets::{extract_spume_to, has_embedded_spume, ExtractResult};
 pub use service::{ScanDir, SetupConfig, SetupResult, SetupService, SYSTEM_ROOT_USERNAME};

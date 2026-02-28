@@ -691,6 +691,55 @@ fn generate_config_template(
     doc.to_string()
 }
 
+/// update an existing config file to enable static file serving
+///
+/// modifies the config file in-place to set:
+/// - server.static_files.enabled = true
+/// - server.static_files.directory = <directory>
+pub fn update_static_files_config(
+    config_path: &Path,
+    static_dir: &Path,
+) -> Result<(), ConfigError> {
+    // read existing config
+    let content = std::fs::read_to_string(config_path).map_err(|e| {
+        ConfigError::FileNotFound {
+            path: config_path.display().to_string(),
+            error: e.to_string(),
+        }
+    })?;
+
+    // parse as toml document
+    let mut doc = content
+        .parse::<DocumentMut>()
+        .map_err(|e| ConfigError::ParseError(format!("failed to parse config: {}", e)))?;
+
+    // ensure server.static_files table exists
+    if doc.get("server").is_none() {
+        return Err(ConfigError::ParseError(
+            "config missing [server] section".to_string(),
+        ));
+    }
+
+    // update static_files section
+    if let Some(server) = doc["server"].as_table_mut() {
+        // create static_files table if it doesn't exist
+        if !server.contains_key("static_files") {
+            server.insert("static_files", toml_edit::Item::Table(toml_edit::Table::new()));
+        }
+
+        if let Some(static_files) = server["static_files"].as_table_mut() {
+            static_files.insert("enabled", value(true));
+            static_files.insert("directory", value(static_dir.display().to_string()));
+        }
+    }
+
+    // write back
+    std::fs::write(config_path, doc.to_string())
+        .map_err(|e| ConfigError::CreateFailed(format!("failed to write config: {}", e)))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

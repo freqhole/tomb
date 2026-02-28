@@ -4,8 +4,10 @@ use anyhow::Result;
 use clap::Args;
 use dialoguer::{Confirm, Input, Select};
 use grimoire::setup::{
-    check_dependencies, get_defaults, get_local_defaults, ScanDir, SetupConfig, SetupService,
+    check_dependencies, extract_spume_to, get_defaults, get_local_defaults, has_embedded_spume,
+    ScanDir, SetupConfig, SetupService,
 };
+use grimoire::update_static_files_config;
 use std::path::PathBuf;
 
 #[derive(Args)]
@@ -363,6 +365,28 @@ pub async fn run(args: SetupArgs) -> Result<()> {
 
         if result.scan_jobs_created > 0 {
             println!("  ✓ {} scan jobs queued", result.scan_jobs_created);
+        }
+
+        // extract embedded spume client if available
+        if has_embedded_spume() {
+            let spume_dir = data_dir.join("spume");
+            match extract_spume_to(&spume_dir) {
+                Ok(extract_result) => {
+                    println!(
+                        "  ✓ spume client extracted ({} files)",
+                        extract_result.files_extracted
+                    );
+                    // update config to enable static file serving
+                    if let Err(e) = update_static_files_config(&config_path, &spume_dir) {
+                        println!("  ! failed to update static_files config: {}", e);
+                    } else {
+                        println!("  ✓ static file serving enabled");
+                    }
+                }
+                Err(e) => {
+                    println!("  ! failed to extract spume client: {}", e);
+                }
+            }
         }
 
         // report non-fatal errors (like wordlist issues)

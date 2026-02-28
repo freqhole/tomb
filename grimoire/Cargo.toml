@@ -45,6 +45,7 @@ toml_edit = "0.22"
 unicode-normalization = "0.1"
 dirs = "5"
 which = "7"
+include_dir = "0.7"
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"

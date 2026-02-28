@@ -166,7 +166,36 @@ pub async fn run_setup_core(
     };
 
     let service = grimoire::setup::SetupService::new();
-    service.run_setup(setup_config).await
+    let mut result = service.run_setup(setup_config).await;
+
+    // extract embedded spume client if available and setup was successful
+    if result.success && grimoire::setup::has_embedded_spume() {
+        let spume_dir = PathBuf::from(&data_dir).join("spume");
+        let config_path = PathBuf::from(&config_path);
+
+        match grimoire::setup::extract_spume_to(&spume_dir) {
+            Ok(extract_result) => {
+                eprintln!(
+                    "extracted spume client: {} files to {}",
+                    extract_result.files_extracted,
+                    spume_dir.display()
+                );
+                // update config to enable static file serving
+                if let Err(e) = grimoire::update_static_files_config(&config_path, &spume_dir) {
+                    result
+                        .errors
+                        .push(format!("failed to update static_files config: {}", e));
+                }
+            }
+            Err(e) => {
+                result
+                    .errors
+                    .push(format!("failed to extract spume client: {}", e));
+            }
+        }
+    }
+
+    result
 }
 
 /// result of creating an admin user
