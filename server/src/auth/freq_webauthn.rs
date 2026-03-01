@@ -289,7 +289,7 @@ pub async fn register_finish(
     // Extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
-    let rp_name = "Freqhole";
+    let rp_name = "freqhole";
 
     // Create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
@@ -385,7 +385,7 @@ pub async fn login_start(
     // Extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
-    let rp_name = "Freqhole";
+    let rp_name = "freqhole";
 
     // Create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
@@ -423,7 +423,7 @@ pub async fn login_finish(
     // Extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
-    let rp_name = "Freqhole";
+    let rp_name = "freqhole";
 
     // Create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());

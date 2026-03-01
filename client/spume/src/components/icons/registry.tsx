@@ -341,7 +341,7 @@ export const CheckCircleIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
-// Freqhole Brand Icon
+// freqhole Brand Icon
 export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   <svg
     width={props.size ?? 20}
@@ -350,7 +350,7 @@ export const FreqholeIcon = (props: IconProps & { class?: string }) => (
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     class={props.class ?? props.className}
-    aria-label={props["aria-label"] ?? "Freqhole"}
+    aria-label={props["aria-label"] ?? "freqhole"}
     role="img"
     style={{
       "flex-shrink": 0,

@@ -52,11 +52,7 @@ import {
   initCacheNetworkHandlers,
   initCachedAudioURLs,
 } from "../music/services/cache/blobCache";
-import {
-  getAllRemotes,
-  setActiveRemote,
-  upsertTauriRemote,
-} from "./services/remotes/remoteManager";
+import { getAllRemotes, upsertTauriRemote } from "./services/remotes/remoteManager";
 import {
   registerServiceWorker,
   updateAvailable,
@@ -137,7 +133,13 @@ export function App() {
         queryClient.invalidateQueries({
           predicate: (query) => {
             const key = query.queryKey[0];
-            return key === "songs" || key === "albums" || key === "artists" || key === "genres" || key === "feed";
+            return (
+              key === "songs" ||
+              key === "albums" ||
+              key === "artists" ||
+              key === "genres" ||
+              key === "feed"
+            );
           },
         });
         break;
@@ -147,7 +149,13 @@ export function App() {
         queryClient.invalidateQueries({
           predicate: (query) => {
             const key = query.queryKey[0];
-            return key === "songs" || key === "albums" || key === "artists" || key === "genres" || key === "feed";
+            return (
+              key === "songs" ||
+              key === "albums" ||
+              key === "artists" ||
+              key === "genres" ||
+              key === "feed"
+            );
           },
         });
         // show toast notification
@@ -187,7 +195,8 @@ export function App() {
         base_url: config.server_url,
         api_key: config.api_key,
       });
-      await setActiveRemote(remote.remote_id);
+      // use useRemoteSource to properly switch data source AND set active_remote_id
+      await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
       debug(`activated tauri remote: ${remote.name} (${remote.base_url})`);
 
       // subscribe to config updates (server restarts)
@@ -199,8 +208,12 @@ export function App() {
           base_url: newConfig.server_url,
           api_key: newConfig.api_key,
         });
-        await setActiveRemote(updatedRemote.remote_id);
-        await useRemoteSource(updatedRemote.remote_id, updatedRemote.name, updatedRemote.base_url);
+        await useRemoteSource(
+          updatedRemote.remote_id,
+          updatedRemote.name,
+          updatedRemote.base_url,
+          updatedRemote.api_key
+        );
         queryClient.invalidateQueries();
         debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
       });

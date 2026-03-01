@@ -10,6 +10,9 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [solid()],
 
+  // use relative paths so assets work in Tauri's tauri:// protocol
+  base: "./",
+
   // vite options tailored for tauri development
   clearScreen: false,
   server: {

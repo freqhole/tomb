@@ -44,6 +44,8 @@ function serviceWorkerPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [solidPlugin(), serviceWorkerPlugin()],
+  // use relative paths so assets work in Tauri's tauri:// protocol
+  base: process.env.VITE_TAURI_MODE ? "./" : "/",
   define: {
     __APP_VERSION__: JSON.stringify(gitSha),
   },

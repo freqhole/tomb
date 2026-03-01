@@ -21,6 +21,7 @@ const MENU_LOGS: &str = "logs";
 const MENU_LIBRARY: &str = "library";
 const MENU_USERS: &str = "users";
 const MENU_SETTINGS: &str = "settings";
+const MENU_DEVTOOLS: &str = "devtools";
 const MENU_START: &str = "app_start";
 const MENU_STOP: &str = "app_stop";
 const MENU_RESTART: &str = "app_restart";
@@ -38,12 +39,17 @@ pub fn setup_app_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
     let settings_item = MenuItemBuilder::with_id(MENU_SETTINGS, "settings")
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
+    let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer tools")
+        .accelerator("CmdOrCtrl+Shift+I")
+        .build(app)?;
 
     let view_submenu = SubmenuBuilder::with_id(app, "view", "view")
         .item(&logs_item)
         .item(&library_item)
         .item(&users_item)
         .item(&settings_item)
+        .separator()
+        .item(&devtools_item)
         .build()?;
 
     // build Edit submenu with standard keyboard shortcuts
@@ -169,6 +175,15 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             tauri::async_runtime::spawn(async move {
                 let _ = crate::commands::open_config_dir(app_clone);
             });
+        }
+        MENU_DEVTOOLS => {
+            // open devtools for the focused window
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
+            }
+            if let Some(wizard) = app.get_webview_window("setup-wizard") {
+                wizard.open_devtools();
+            }
         }
         MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_SETTINGS => {
             let route = match id {

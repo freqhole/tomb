@@ -3,7 +3,7 @@
 //! commands for opening/closing the setup wizard window
 
 use tauri::webview::Color;
-use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri::{AppHandle, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
 
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
@@ -47,6 +47,7 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
         .inner_size(800.0, 600.0)
         .resizable(true)
         .center()
+        .theme(Some(Theme::Dark))
         .background_color(Color(0, 0, 0, 255))
         .build()
         .map_err(|e| e.to_string())?;
@@ -90,6 +91,7 @@ pub async fn close_setup_wizard(
         let win_builder = WebviewWindowBuilder::new(&app, "main", webview_url)
             .title("")
             .inner_size(800.0, 600.0)
+            .theme(Some(Theme::Dark))
             .initialization_script(&init_script);
 
         #[cfg(target_os = "macos")]

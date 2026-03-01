@@ -12,12 +12,13 @@ import { isTauriMode } from "./tauri";
 /**
  * get the URL for a remote media resource (image or audio)
  *
- * in web mode, returns standard https URL
- * in tauri mode, returns freqhole:// protocol URL for auth header injection
+ * in web mode, returns standard https URL (uses cookies for auth)
+ * in tauri mode, appends api key as query param (webkit2gtk doesn't support
+ * custom protocols for media sources, so we use direct HTTP with ?key=)
  *
  * @param baseUrl - remote server base URL (e.g., "https://music.example.com")
  * @param mediaId - the media ID on the server
- * @param apiKey - optional API key (used in tauri mode)
+ * @param apiKey - optional API key (required in tauri mode)
  */
 export function getRemoteMediaUrl(baseUrl: string, mediaId: string, apiKey?: string): string {
   const standardUrl = utils.getMediaUrl(baseUrl, mediaId);
@@ -26,14 +27,13 @@ export function getRemoteMediaUrl(baseUrl: string, mediaId: string, apiKey?: str
     return standardUrl;
   }
 
-  // tauri mode - use custom protocol for auth header injection
-  const params = new URLSearchParams();
-  params.set("url", standardUrl);
+  // tauri mode - append api key as query param for direct HTTP access
+  // webkit2gtk doesn't trust custom protocols (freqhole://) for <audio> sources
   if (apiKey) {
-    params.set("key", apiKey);
+    return `${standardUrl}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  return `freqhole://proxy?${params.toString()}`;
+  return standardUrl;
 }
 
 /**

@@ -107,7 +107,7 @@ build-all:
 	@echo "building tauri apps..."
 	$(MAKE) tauri-build-mac-arm
 	$(MAKE) tauri-build-mac-intel
-	$(MAKE) tauri-build-linux
+	$(MAKE) tauri-build-linux-intel
 	$(MAKE) tauri-build-linux-arm64
 	$(MAKE) collect
 	@echo ""
@@ -148,9 +148,10 @@ info:
 	@echo "  make test-cli-coverage     - generate coverage report"
 	@echo ""
 	@echo "Tauri app commands:"
-	@echo "  make tauri-build-mac-arm   - build macOS app (arm64)"
-	@echo "  make tauri-build-mac-intel - build macOS app (x86_64)"
-	@echo "  make tauri-build-linux     - build Linux deb/rpm (via Docker)"
+	@echo "  make tauri-build-mac-arm     - build macOS app (arm64)"
+	@echo "  make tauri-build-mac-intel   - build macOS app (x86_64)"
+	@echo "  make tauri-build-linux-intel - build Linux deb/rpm x86_64 (via Docker)"
+	@echo "  make tauri-build-linux-arm64 - build Linux deb/rpm aarch64 (via Docker)"
 	@echo ""
 	@echo "release commands:"
 	@echo "  make collect               - gather all built artifacts to build/VERSION/"
@@ -166,22 +167,30 @@ info:
 help: info
 
 # Tauri app build commands
-.PHONY: tauri-build-mac-arm tauri-build-mac-intel tauri-build-linux tauri-build-linux-arm64
+.PHONY: tauri-build-mac-arm tauri-build-mac-intel tauri-build-linux-intel tauri-build-linux-arm64
 TAURI_DIR := client/tauri
 
 tauri-build-mac-arm:
+	@echo "building freqhole CLI for bundling..."
+	cargo build --package cli --release --target aarch64-apple-darwin
+	@mkdir -p $(TAURI_DIR)/src-tauri/bin
+	cp target/aarch64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
 	@echo "building spume client..."
 	cd client/spume && npm run build
 	@echo "building Tauri app for macOS arm64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
 
 tauri-build-mac-intel:
+	@echo "building freqhole CLI for bundling (x86_64, vendored OpenSSL)..."
+	OPENSSL_STATIC=1 cargo build --package cli --release --target x86_64-apple-darwin --features grimoire/vendored-openssl
+	@mkdir -p $(TAURI_DIR)/src-tauri/bin
+	cp target/x86_64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
 	@echo "building spume client..."
 	cd client/spume && npm run build
 	@echo "building Tauri app for macOS x86_64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
 
-tauri-build-linux:
+tauri-build-linux-intel:
 	@echo "building Tauri app for Linux x86_64 using Docker..."
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-amd64 --platform linux/amd64 \
 		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu .

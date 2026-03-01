@@ -13,7 +13,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
 #[command(name = "freqhole")]
-#[command(about = "Freqhole music server CLI", long_about = None)]
+#[command(about = "freqhole music server CLI", long_about = None)]
 struct Cli {
     /// Optional path to config file
     #[arg(long, global = true)]

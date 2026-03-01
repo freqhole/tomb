@@ -29,7 +29,7 @@ pub struct AuthenticatedUser {
 
 /// require authentication middleware
 ///
-/// validates session cookie or api key header
+/// validates session cookie, api key header, or api key query param
 /// injects AuthenticatedUser into request extensions
 pub async fn require_auth(
     session: Session,
@@ -52,18 +52,23 @@ pub async fn require_auth(
         // user not found in DB (deleted?) - fall through to unauthorized
     }
 
-    // Try API key authentication
+    // Try API key from Authorization header
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(api_key) = auth_str.strip_prefix("Bearer ") {
-                // Validate API key via grimoire
-                let response = grimoire::users::find_user_by_api_key(api_key).await;
-                if let Some(user) = response.data {
-                    let auth_user = AuthenticatedUser {
-                        user_id: user.id,
-                        username: user.username,
-                        role: user.role,
-                    };
+                if let Some(auth_user) = validate_api_key(api_key).await {
+                    request.extensions_mut().insert(auth_user);
+                    return Ok(next.run(request).await);
+                }
+            }
+        }
+    }
+
+    // Try API key from query parameter (for media URLs in tauri/webview)
+    if let Some(query) = request.uri().query() {
+        for param in query.split('&') {
+            if let Some(api_key) = param.strip_prefix("key=") {
+                if let Some(auth_user) = validate_api_key(api_key).await {
                     request.extensions_mut().insert(auth_user);
                     return Ok(next.run(request).await);
                 }
@@ -72,6 +77,16 @@ pub async fn require_auth(
     }
 
     Err(ApiError::Unauthorized)
+}
+
+/// validate an API key and return AuthenticatedUser if valid
+async fn validate_api_key(api_key: &str) -> Option<AuthenticatedUser> {
+    let response = grimoire::users::find_user_by_api_key(api_key).await;
+    response.data.map(|user| AuthenticatedUser {
+        user_id: user.id,
+        username: user.username,
+        role: user.role,
+    })
 }
 
 /// validate origin middleware

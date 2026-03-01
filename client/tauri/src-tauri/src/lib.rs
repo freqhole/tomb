@@ -1,6 +1,4 @@
 //! freqhole tauri app
-//!
-//! provides a custom protocol handler for proxying blob requests with auth headers
 
 mod commands;
 mod menu;
@@ -13,9 +11,8 @@ mod wizard;
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::http::{Request, Response};
 use tauri::webview::Color;
-use tauri::{Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 
 /// shutdown token for cancelling background tasks on app exit
@@ -38,58 +35,6 @@ impl ShutdownToken {
     pub async fn cancelled(&self) {
         self.0.cancelled().await
     }
-}
-
-/// proxy a blob request with authorization header (blocking)
-///
-/// the freqhole:// protocol expects URLs like:
-/// freqhole://proxy?url=https%3A%2F%2Fserver%2Fapi%2Fblobs%2Fid&key=apikey
-fn proxy_blob_request(
-    request: Request<Vec<u8>>,
-) -> Result<Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-    let uri = request.uri().to_string();
-
-    // parse query params from the URI
-    // format: freqhole://proxy?url=<encoded>&key=<encoded>
-    let parsed = url::Url::parse(&uri)?;
-    let params: std::collections::HashMap<_, _> = parsed.query_pairs().collect();
-
-    let target_url = params
-        .get("url")
-        .ok_or("missing url parameter")?
-        .to_string();
-
-    let api_key = params.get("key").map(|s| s.to_string());
-
-    // build the proxied request using blocking client
-    let client = reqwest::blocking::Client::new();
-    let mut req_builder = client.get(&target_url);
-
-    if let Some(key) = api_key {
-        req_builder = req_builder.header("Authorization", format!("Bearer {}", key));
-    }
-
-    // make the request
-    let response = req_builder.send()?;
-
-    // build response
-    let status = response.status().as_u16();
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_string();
-
-    let body = response.bytes()?.to_vec();
-
-    let response = Response::builder()
-        .status(status)
-        .header("Content-Type", content_type)
-        .header("Access-Control-Allow-Origin", "*")
-        .body(body)?;
-
-    Ok(response)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -118,6 +63,7 @@ pub fn run() {
                     .inner_size(800.0, 600.0)
                     .resizable(true)
                     .center()
+                    .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255))
                     .build()?;
 
@@ -148,6 +94,7 @@ pub fn run() {
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("")
                     .inner_size(800.0, 600.0)
+                    .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255))
                     .initialization_script(&init_script);
 
@@ -221,21 +168,6 @@ pub fn run() {
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
         ])
-        .register_asynchronous_uri_scheme_protocol("freqhole", |_ctx, request, responder| {
-            // spawn blocking task in a thread to avoid blocking the UI
-            std::thread::spawn(move || match proxy_blob_request(request) {
-                Ok(response) => responder.respond(response),
-                Err(e) => {
-                    eprintln!("proxy error: {}", e);
-                    let error_response = Response::builder()
-                        .status(500)
-                        .header("Content-Type", "text/plain")
-                        .body(format!("proxy error: {}", e).into_bytes())
-                        .unwrap();
-                    responder.respond(error_response);
-                }
-            });
-        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {

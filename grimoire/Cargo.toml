@@ -63,7 +63,12 @@ zod_gen_derive = "1.0"
 [features]
 default = ["webauthn"]
 webauthn = ["webauthn-rs"]
+vendored-openssl = ["openssl"]
 
 [dependencies.webauthn-rs]
+workspace = true
+optional = true
+
+[dependencies.openssl]
 workspace = true
 optional = true

@@ -121,21 +121,57 @@ impl ServerResult {
 /// find the freqhole binary path
 fn find_freqhole_binary() -> Option<PathBuf> {
     // in dev, use target/debug or target/release
-    // in prod, use the bundled sidecar
+    // in prod, use the bundled resource
 
     // try relative to current exe first (bundled app)
     if let Ok(exe_path) = std::env::current_exe() {
+        eprintln!("[sidecar] exe path: {:?}", exe_path);
         if let Some(parent) = exe_path.parent() {
-            // macOS bundle: Contents/MacOS/freqhole
+            // same directory as exe
             let sidecar = parent.join("freqhole");
+            eprintln!("[sidecar] checking: {:?}", sidecar);
             if sidecar.exists() {
+                eprintln!("[sidecar] found freqhole at: {:?}", sidecar);
                 return Some(sidecar);
             }
 
-            // also check Resources folder for macOS
-            let resources = parent.parent().map(|p| p.join("Resources/freqhole"));
+            // bin subfolder (Tauri resources)
+            let bin_sidecar = parent.join("bin/freqhole");
+            eprintln!("[sidecar] checking: {:?}", bin_sidecar);
+            if bin_sidecar.exists() {
+                eprintln!("[sidecar] found freqhole at: {:?}", bin_sidecar);
+                return Some(bin_sidecar);
+            }
+
+            // Linux RPM/DEB: /usr/lib/<app-name>/bin/freqhole
+            // exe is at /usr/bin/freqhole-app, binary is at /usr/lib/freqhole-app/bin/freqhole
+            if let Some(exe_name) = exe_path.file_name() {
+                let lib_path = PathBuf::from("/usr/lib")
+                    .join(exe_name)
+                    .join("bin/freqhole");
+                eprintln!("[sidecar] checking: {:?}", lib_path);
+                if lib_path.exists() {
+                    eprintln!("[sidecar] found freqhole at: {:?}", lib_path);
+                    return Some(lib_path);
+                }
+            }
+
+            // macOS bundle: Contents/Resources/bin/freqhole
+            let resources = parent.parent().map(|p| p.join("Resources/bin/freqhole"));
             if let Some(ref path) = resources {
+                eprintln!("[sidecar] checking: {:?}", path);
                 if path.exists() {
+                    eprintln!("[sidecar] found freqhole at: {:?}", path);
+                    return Some(path.clone());
+                }
+            }
+
+            // macOS bundle: Contents/Resources/freqhole (legacy)
+            let resources_legacy = parent.parent().map(|p| p.join("Resources/freqhole"));
+            if let Some(ref path) = resources_legacy {
+                eprintln!("[sidecar] checking: {:?}", path);
+                if path.exists() {
+                    eprintln!("[sidecar] found freqhole at: {:?}", path);
                     return Some(path.clone());
                 }
             }
