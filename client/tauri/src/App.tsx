@@ -9,6 +9,7 @@ import {
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
+import { VERSION } from "./version";
 import "./App.css";
 
 interface ServerStatus {
@@ -243,8 +244,7 @@ function App(props: ParentProps) {
                 </Show>
 
                 <div class="section">
-                  {/* #TODO: get version dynamically */}
-                  <p class="version">version 0.1.0</p>
+                  <p class="version">version {VERSION}</p>
                 </div>
               </div>
             </nav>

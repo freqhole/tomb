@@ -109,16 +109,17 @@ build-all:
 		echo "building for current platform: $(CURRENT_TARGET)"; \
 		$(MAKE) build; \
 	fi
+	$(MAKE) build-linux
 	$(MAKE) build-pi
 	$(MAKE) build-pi32
-	$(MAKE) build-linux
 	@echo "all targets built:"
 	@if [ "$(CURRENT_TARGET)" != "$(PI_64_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(PI_32_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(X86_64_TARGET)" ]; then \
 		echo "  - current platform: $(BUILD_DIR)/$(CURRENT_TARGET)/"; \
 	fi
+	
+	@echo "  - linux x86_64: $(BUILD_DIR)/$(X86_64_TARGET)/"
 	@echo "  - raspberry Pi: $(BUILD_DIR)/$(PI_64_TARGET)/"
 	@echo "  - raspberry Pi32: $(BUILD_DIR)/$(PI_32_TARGET)/"
-	@echo "  - linux x86_64: $(BUILD_DIR)/$(X86_64_TARGET)/"
 
 .PHONY: clean
 clean:
@@ -131,8 +132,8 @@ info:
 	@echo "version: $(VERSION)"
 	@echo "build directory: $(BUILD_DIR)"
 	@echo "current target: $(CURRENT_TARGET)"
-	@echo "pi targets: $(PI_32_TARGET), $(PI_64_TARGET)"
 	@echo "linux targets: $(X86_64_TARGET)"
+	@echo "pi targets: $(PI_32_TARGET), $(PI_64_TARGET)"
 	@echo ""
 	@echo "build commands:"
 	@echo "  make build         - build for current platform (release)"
@@ -152,6 +153,14 @@ info:
 	@echo "  make test-cli TEST=pattern - run specific test or pattern"
 	@echo "  make test-cli-list         - list all CLI testz"
 	@echo "  make test-cli-coverage     - generate coverage report"
+	@echo ""
+	@echo "Tauri app commands:"
+	@echo "  make tauri-build-mac-arm   - build macOS app (arm64)"
+	@echo "  make tauri-build-mac-intel - build macOS app (x86_64)"
+	@echo "  make tauri-build-linux     - build Linux AppImage (x86_64)"
+	@echo ""
+	@echo "version management:"
+	@echo "  make bump-version VERSION=x.y.z - update version everywhere"
 	@echo ""
 	@echo "info:"
 	@echo "  make help/info     - show this information"
@@ -234,3 +243,44 @@ test-cli-coverage: db-prepare
 	@echo ""
 	@echo "note: this covers CLI integration testz (not unit testz)!"
 	@echo ""
+
+# Tauri app build commands
+.PHONY: tauri-build-mac-arm tauri-build-mac-intel tauri-build-linux
+TAURI_DIR := client/tauri
+
+tauri-build-mac-arm:
+	@echo "building Tauri app for macOS arm64..."
+	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
+
+tauri-build-mac-intel:
+	@echo "building Tauri app for macOS x86_64..."
+	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
+
+tauri-build-linux:
+	@echo "building Tauri app for Linux x86_64 AppImage..."
+	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-unknown-linux-gnu
+
+# Version management
+.PHONY: bump-version
+bump-version:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "usage: make bump-version VERSION=x.y.z"; \
+		echo "current version: $(shell grep '^version = ' Cargo.toml | head -1 | cut -d '\"' -f 2)"; \
+		exit 1; \
+	fi
+	@echo "bumping version to $(VERSION)..."
+	@# Cargo workspace version 
+	sed -i '' 's/^version = "[^"]*"/version = "$(VERSION)"/' Cargo.toml
+	@# tauri.conf.json
+	sed -i '' 's/"version": "[^"]*"/"version": "$(VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json
+	@# package.json files
+	cd $(TAURI_DIR) && npm version $(VERSION) --no-git-tag-version
+	cd client/spume && npm version $(VERSION) --no-git-tag-version
+	@# TypeScript version constants
+	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(VERSION)"/' client/spume/src/version.ts
+	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(VERSION)"/' $(TAURI_DIR)/src/version.ts
+	@# freqhole-config.toml
+	sed -i '' 's/^version = "[^"]*"/version = "$(VERSION)"/' assets/config/freqhole-config.toml
+	@echo "version bumped to $(VERSION)"
+	@echo ""
+	@echo "verify changes with: git diff"
