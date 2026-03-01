@@ -68,6 +68,10 @@ export interface AlbumSummary {
   is_favorite?: boolean;
   user_rating?: number;
   tags?: string[];
+  created_at?: number;
+  updated_at?: number;
+  created_by_username?: string;
+  updated_by_username?: string;
 }
 
 // artist summary data for lists

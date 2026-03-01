@@ -20,21 +20,6 @@ export type RouteAuth =
   | { type: 'owner_or'; role: UserRoleName };
 
 export const routes = {
-  auth: {
-    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema, auth: { type: 'authenticated' } as const },
-    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema, auth: { type: 'authenticated' } as const },
-    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any(), auth: { type: 'authenticated' } as const },
-    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
-    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema, auth: { type: 'authenticated' } as const },
-    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
-    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
-    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
-    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
-  },
-  app: {
-    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
-    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema, auth: { type: 'public' } as const },
-  },
   music: {
     top_albums: { method: 'POST', path: '/api/analytics/top-albums', req: s.TopAlbumsRequestSchema, resp: s.TopAlbumSchema.array(), auth: { type: 'authenticated' } as const },
     create_listen_session: { method: 'POST', path: '/api/analytics/sessions', req: s.CreateListenSessionRequestSchema, resp: s.ListenSessionSchema, auth: { type: 'role', role: 'member' } as const },
@@ -105,5 +90,20 @@ export const routes = {
     replace_albums_tags: { method: 'POST', path: '/api/tags/albums/replace', req: s.ReplaceAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_tag: { method: 'POST', path: '/api/tags/delete', req: s.DeleteTagRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     get_albums_tags: { method: 'POST', path: '/api/tags/albums/get', req: s.GetAlbumsTagsRequestSchema, resp: s.TagSchema.array(), auth: { type: 'authenticated' } as const },
+  },
+  auth: {
+    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema, auth: { type: 'authenticated' } as const },
+    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema, auth: { type: 'authenticated' } as const },
+    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any(), auth: { type: 'authenticated' } as const },
+    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema, auth: { type: 'authenticated' } as const },
+    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
+    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
+  },
+  app: {
+    server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
+    health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema, auth: { type: 'public' } as const },
   },
 } as const;

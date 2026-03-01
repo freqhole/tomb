@@ -37,14 +37,23 @@ pub async fn scan_directory(
     file_extensions: Option<Vec<String>>,
     skip_tracked_subdirs: bool,
 ) -> GrimoireResponse<usize> {
-    match scan_directory_and_create_jobs(path, session_id, recursive, max_depth, file_extensions, skip_tracked_subdirs)
-        .await
+    match scan_directory_and_create_jobs(
+        path,
+        session_id,
+        recursive,
+        max_depth,
+        file_extensions,
+        skip_tracked_subdirs,
+    )
+    .await
     {
         Ok(count) => GrimoireResponse::success(
             format!("Scanned directory and created {} jobs", count),
             count,
         ),
-        Err(e) => GrimoireResponse::failure(format!("Failed to scan directory: {}", e), vec![e.into()]),
+        Err(e) => {
+            GrimoireResponse::failure(format!("Failed to scan directory: {}", e), vec![e.into()])
+        }
     }
 }
 
@@ -58,6 +67,7 @@ pub async fn scan_directory(
 ///
 /// * `media_blob_id` - ID of the media blob for this file
 /// * `file_path` - Path to the audio file
+/// * `created_by` - Optional user ID that created/uploaded this file
 ///
 /// # Returns
 ///
@@ -65,8 +75,9 @@ pub async fn scan_directory(
 pub async fn import_audio_file(
     media_blob_id: &str,
     file_path: &Path,
+    created_by: Option<String>,
 ) -> GrimoireResponse<ImportResult> {
-    match extract_and_import(media_blob_id, file_path).await {
+    match extract_and_import(media_blob_id, file_path, created_by).await {
         Ok(result) => GrimoireResponse::success("Audio file imported successfully", result),
         Err(e) => {
             // check if this is a JobError with a wrapped GrimoireResponse

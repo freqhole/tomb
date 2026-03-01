@@ -9,6 +9,7 @@ use crate::error::GrimoireResult;
 use crate::jobs::{
     create_job, get_scanned_directory_paths, CreateJobRequest, JobType, ProcessFileParams,
 };
+use crate::users::get_root_user_id;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -131,6 +132,9 @@ pub async fn scan_directory_and_create_jobs(
                 message: format!("Failed to connect to database: {}", e),
             })?;
 
+    // get root user ID for job attribution (scanner runs as root user)
+    let root_user_id = get_root_user_id().await;
+
     // Create a processing job for each file (skip if unchanged)
     let mut jobs_created = 0;
     let mut files_skipped = 0;
@@ -192,7 +196,7 @@ pub async fn scan_directory_and_create_jobs(
             parameters: serde_json::to_value(&params).unwrap_or_default(),
             max_retries: Some(3),
             scheduled_at: None,
-            created_by: Some("scanner".to_string()),
+            created_by: root_user_id.clone(),
         };
 
         let job_response = create_job(job_request).await;

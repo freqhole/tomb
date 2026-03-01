@@ -190,6 +190,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           is_favorite: item.is_favorite ?? undefined,
           user_rating: item.rating ?? undefined,
           tags: item.album_tags ?? undefined,
+          created_at: item.album.created_at,
+          updated_at: item.album.updated_at,
+          created_by_username: item.album.created_by_username ?? undefined,
+          updated_by_username: item.album.updated_by_username ?? undefined,
         };
       }),
       total: result.data.total_count,
@@ -673,6 +677,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
               is_favorite: apiFav.album.is_favorite,
               user_rating: apiFav.album.rating,
               tags: apiFav.album.album_tags || undefined,
+              created_at: apiFav.album.album.created_at,
+              updated_at: apiFav.album.album.updated_at,
+              created_by_username: apiFav.album.album.created_by_username ?? undefined,
+              updated_by_username: apiFav.album.album.updated_by_username ?? undefined,
             } as AlbumSummary,
           };
         case "artist":

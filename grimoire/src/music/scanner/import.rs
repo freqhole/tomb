@@ -71,9 +71,15 @@ struct ExtractedMetadata {
 ///
 /// This is the main import function that attempts to extract rich metadata
 /// from the audio file and create a complete song record with relationships.
+///
+/// # Arguments
+/// * `media_blob_id` - ID of the media blob for this file
+/// * `file_path` - Path to the audio file
+/// * `created_by` - Optional user ID that created/uploaded this file
 pub async fn extract_and_import(
     media_blob_id: &str,
     file_path: &Path,
+    created_by: Option<String>,
 ) -> Result<ImportResult, JobError> {
     // Parse audio file with lofty with error handling
     let tagged_file = match Probe::open(file_path).and_then(|p| p.read()) {
@@ -85,7 +91,7 @@ pub async fn extract_and_import(
                 e
             );
             // Fall back to basic song record with filename
-            return import_basic(media_blob_id, file_path).await;
+            return import_basic(media_blob_id, file_path, created_by).await;
         }
     };
 
@@ -142,7 +148,7 @@ pub async fn extract_and_import(
         },
         metadata: metadata_json,
         lyrics: metadata.lyrics,
-        created_by: Some("job_processor".to_string()),
+        created_by,
         is_compilation: metadata.is_compilation,
     };
 
@@ -383,7 +389,16 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
 ///
 /// Creates a basic song record using the filename as the title and
 /// default values for other fields.
-pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<ImportResult, JobError> {
+///
+/// # Arguments
+/// * `media_blob_id` - ID of the media blob for this file
+/// * `file_path` - Path to the audio file
+/// * `created_by` - Optional user ID that created/uploaded this file
+pub async fn import_basic(
+    media_blob_id: &str,
+    file_path: &Path,
+    created_by: Option<String>,
+) -> Result<ImportResult, JobError> {
     // Try to parse filename for any available data
     let filename_data = parse_filename(file_path);
     let has_filename_data = filename_data.has_data();
@@ -427,7 +442,7 @@ pub async fn import_basic(media_blob_id: &str, file_path: &Path) -> Result<Impor
         track_artist: None,
         metadata: metadata_json,
         lyrics: None,
-        created_by: Some("job_processor".to_string()),
+        created_by,
         is_compilation: false,
     };
 

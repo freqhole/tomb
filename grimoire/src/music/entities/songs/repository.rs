@@ -47,7 +47,9 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
             created_by,
             updated_by,
             NULL as \"images?: JsonVec<ImageMetadata>\",
-            NULL as \"urls?: JsonVec<EntityUrl>\"",
+            NULL as \"urls?: JsonVec<EntityUrl>\",
+            NULL as \"created_by_username?: String\",
+            NULL as \"updated_by_username?: String\"",
         req.media_blob_id,
         req.title,
         req.track_number,
@@ -121,6 +123,8 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
             song_deleted_by as deleted_by,
             song_created_by as created_by,
             song_updated_by as updated_by,
+            song_created_by_username as created_by_username,
+            song_updated_by_username as updated_by_username,
             song_images as "images?: JsonVec<ImageMetadata>",
             NULL as "urls?: JsonVec<EntityUrl>"
          FROM song_query_view
@@ -173,6 +177,8 @@ pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
             song_deleted_by as "deleted_by?",
             song_created_by as "created_by?",
             song_updated_by as "updated_by?",
+            song_created_by_username as "created_by_username?",
+            song_updated_by_username as "updated_by_username?",
             song_images as "images?: JsonVec<ImageMetadata>",
             NULL as "urls?: JsonVec<EntityUrl>"
          FROM song_query_view

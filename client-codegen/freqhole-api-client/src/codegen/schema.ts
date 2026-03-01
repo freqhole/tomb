@@ -41,7 +41,9 @@ export const AlbumSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 });
 export type Album = z.infer<typeof AlbumSchema>;
 
@@ -73,7 +75,9 @@ export const AlbumQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -157,7 +161,9 @@ export const AlbumsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -491,7 +497,9 @@ export const FavoriteAlbumResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -639,7 +647,9 @@ export const FavoriteSongResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -689,7 +699,9 @@ export const FavoriteSongResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }).nullable(),
   genre: z.object({
   id: z.string(),
@@ -1505,7 +1517,9 @@ export const PlaylistSongResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -1555,7 +1569,9 @@ export const PlaylistSongResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }).nullable(),
   genre: z.object({
   id: z.string(),
@@ -1631,7 +1647,9 @@ export const PlaylistSongsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -1681,7 +1699,9 @@ export const PlaylistSongsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }).nullable(),
   genre: z.object({
   id: z.string(),
@@ -2103,7 +2123,9 @@ export const SongSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 });
 export type Song = z.infer<typeof SongSchema>;
 
@@ -2139,7 +2161,9 @@ export const SongQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -2189,7 +2213,9 @@ export const SongQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }).nullable(),
   genre: z.object({
   id: z.string(),
@@ -2283,7 +2309,9 @@ export const SongsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }),
   artist: z.object({
   id: z.string(),
@@ -2333,7 +2361,9 @@ export const SongsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }).nullable(),
   genre: z.object({
   id: z.string(),
@@ -2679,7 +2709,9 @@ export const UpdateSongsResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  created_by_username: z.string().nullable(),
+  updated_by_username: z.string().nullable()
 }).nullable(),
   genre: z.object({
   id: z.string(),

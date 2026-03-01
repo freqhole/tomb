@@ -83,6 +83,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         &params.file_path,
         file_size,
         file_modified_at,
+        job.created_by.clone(),
     )
     .await
     {
@@ -117,7 +118,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     if params.extract_metadata {
         let step_start = std::time::Instant::now();
-        match scanner::import_audio_file(&media_blob_id, file_path).await {
+        match scanner::import_audio_file(&media_blob_id, file_path, job.created_by.clone()).await {
             GrimoireResponse {
                 success: true,
                 data: Some(import_result),
@@ -222,6 +223,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             &params.file_path,
             &config,
             job.session_id.as_deref(),
+            job.created_by.clone(),
         )
         .await
         {
@@ -366,8 +368,13 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     let mut waveform_blob_id_opt = None;
     let waveform_generated = if params.generate_waveform {
         let step_start = std::time::Instant::now();
-        match blob_data::create_audio_waveform_blob(&media_blob_id, &params.file_path, &config)
-            .await
+        match blob_data::create_audio_waveform_blob(
+            &media_blob_id,
+            &params.file_path,
+            &config,
+            job.created_by.clone(),
+        )
+        .await
         {
             response if response.success => match response.data {
                 Some(waveform_blob_id) => {

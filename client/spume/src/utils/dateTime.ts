@@ -1,6 +1,34 @@
 // date and time utility functions
 
 /**
+ * format a timestamp as a readable date (e.g., "Feb 28, 2026")
+ */
+export function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/**
+ * format a timestamp as readable date + time (e.g., "Feb 28, 2026 at 3:45 PM")
+ */
+export function formatDateTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const dateStr = date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  const timeStr = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${dateStr} at ${timeStr}`;
+}
+
+/**
  * format a date as relative time (e.g., "2 hours ago", "last week")
  * falls back to year-only for dates older than ~1 year
  */

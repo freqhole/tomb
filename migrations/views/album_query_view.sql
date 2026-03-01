@@ -17,6 +17,8 @@ SELECT
     al.deleted_by as album_deleted_by,
     al.created_by as album_created_by,
     al.updated_by as album_updated_by,
+    ucb_album.username as album_created_by_username,
+    uub_album.username as album_updated_by_username,
 
     -- genres as JSON array of objects with id and name
     COALESCE(
@@ -81,6 +83,8 @@ SELECT
 FROM albumz al
 LEFT JOIN artist_albumz aa ON al.id = aa.album_id
 LEFT JOIN artistz ar ON aa.artist_id = ar.id AND ar.deleted_at IS NULL
+LEFT JOIN user_accountz ucb_album ON al.created_by = ucb_album.id
+LEFT JOIN user_accountz uub_album ON al.updated_by = uub_album.id
 WHERE al.deleted_at IS NULL
 AND al.song_count > 0
 AND (ar.id IS NULL OR ar.id = (

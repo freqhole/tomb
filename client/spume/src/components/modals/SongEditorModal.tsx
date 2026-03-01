@@ -19,6 +19,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MetadataDisplay } from "../layout/MetadataDisplay";
+import { formatDateTime } from "../../utils/dateTime";
 import { error as errorLog } from "../../utils/logger";
 
 interface SongEditorModalProps {
@@ -797,7 +798,38 @@ export function SongEditorModal(props: SongEditorModalProps) {
             </Show>
           </TabPanel>
           {/* metadata tab - raw JSON display */}
-          <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6">
+          <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* timestamps and user info */}
+            <div class="space-y-1">
+              <Show when={songQuery.data?.created_at}>
+                <div class="text-sm">
+                  <span class="text-[var(--color-text-tertiary)]">created: </span>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {formatDateTime(songQuery.data!.created_at * 1000)}
+                  </span>
+                  <Show when={songQuery.data?.created_by_username}>
+                    <span class="text-[var(--color-text-tertiary)]"> by </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {songQuery.data!.created_by_username}
+                    </span>
+                  </Show>
+                </div>
+              </Show>
+              <Show when={songQuery.data?.updated_at && songQuery.data.updated_at !== songQuery.data.created_at}>
+                <div class="text-sm">
+                  <span class="text-[var(--color-text-tertiary)]">updated: </span>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {formatDateTime(songQuery.data!.updated_at * 1000)}
+                  </span>
+                  <Show when={songQuery.data?.updated_by_username}>
+                    <span class="text-[var(--color-text-tertiary)]"> by </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {songQuery.data!.updated_by_username}
+                    </span>
+                  </Show>
+                </div>
+              </Show>
+            </div>
             <Show
               when={songQuery.data?.metadata}
               fallback={

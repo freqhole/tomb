@@ -27,6 +27,8 @@ pub struct Song {
     pub deleted_by: Option<String>,
     pub created_by: Option<String>,
     pub updated_by: Option<String>,
+    pub created_by_username: Option<String>,
+    pub updated_by_username: Option<String>,
 }
 
 /// request for creating a new song

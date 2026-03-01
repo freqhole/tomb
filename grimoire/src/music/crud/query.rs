@@ -137,6 +137,8 @@ pub struct SongViewRow {
     song_deleted_by: Option<String>,
     song_created_by: Option<String>,
     song_updated_by: Option<String>,
+    song_created_by_username: Option<String>,
+    song_updated_by_username: Option<String>,
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -239,6 +241,8 @@ impl SongViewRow {
             deleted_by: self.song_deleted_by,
             created_by: self.song_created_by,
             updated_by: self.song_updated_by,
+            created_by_username: self.song_created_by_username,
+            updated_by_username: self.song_updated_by_username,
         };
 
         let artist = if self.artist_id.is_some() {
@@ -277,6 +281,8 @@ impl SongViewRow {
                 deleted_by: self.album_deleted_by,
                 created_by: self.album_created_by,
                 updated_by: self.album_updated_by,
+                created_by_username: None,
+                updated_by_username: None,
             })
         } else {
             None
@@ -443,6 +449,8 @@ pub struct AlbumViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
+    album_created_by_username: Option<String>,
+    album_updated_by_username: Option<String>,
     album_genres: Option<String>, // JSON array of {id, name} objects from view
     album_images: Option<String>, // JSON array from view
     album_tags: Option<String>,   // JSON array of tag names from view
@@ -548,6 +556,8 @@ impl AlbumViewRow {
             deleted_by: self.album_deleted_by,
             created_by: self.album_created_by,
             updated_by: self.album_updated_by,
+            created_by_username: self.album_created_by_username,
+            updated_by_username: self.album_updated_by_username,
         };
 
         let artist = if self.artist_id.is_some() {

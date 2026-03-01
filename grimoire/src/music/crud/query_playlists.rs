@@ -174,6 +174,8 @@ pub struct PlaylistSongViewRow {
     song_deleted_by: Option<String>,
     song_created_by: Option<String>,
     song_updated_by: Option<String>,
+    song_created_by_username: Option<String>,
+    song_updated_by_username: Option<String>,
 
     // Artist fields
     artist_id: Option<String>,
@@ -284,6 +286,8 @@ impl PlaylistSongViewRow {
             deleted_by: self.song_deleted_by,
             created_by: self.song_created_by,
             updated_by: self.song_updated_by,
+            created_by_username: self.song_created_by_username,
+            updated_by_username: self.song_updated_by_username,
         };
 
         let artist = if self.artist_id.is_some() {
@@ -322,6 +326,8 @@ impl PlaylistSongViewRow {
                 deleted_by: self.album_deleted_by,
                 created_by: self.album_created_by,
                 updated_by: self.album_updated_by,
+                created_by_username: None,
+                updated_by_username: None,
             })
         } else {
             None

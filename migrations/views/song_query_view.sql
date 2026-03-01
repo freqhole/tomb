@@ -26,6 +26,8 @@ SELECT
     s.deleted_by as song_deleted_by,
     s.created_by as song_created_by,
     s.updated_by as song_updated_by,
+    ucb_song.username as song_created_by_username,
+    uub_song.username as song_updated_by_username,
 
     -- song images as JSON array
     COALESCE(
@@ -136,4 +138,6 @@ LEFT JOIN artistz ar ON ars.artist_id = ar.id AND ar.deleted_at IS NULL
 LEFT JOIN album_songz als ON s.id = als.song_id
 LEFT JOIN albumz al ON als.album_id = al.id AND al.deleted_at IS NULL
 LEFT JOIN artist_query_view arv ON ar.id = arv.artist_id
+LEFT JOIN user_accountz ucb_song ON s.created_by = ucb_song.id
+LEFT JOIN user_accountz uub_song ON s.updated_by = uub_song.id
 WHERE s.deleted_at IS NULL;

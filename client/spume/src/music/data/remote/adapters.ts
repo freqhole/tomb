@@ -61,6 +61,8 @@ export interface ApiSongQueryItem {
     metadata: string | null;
     created_at: number;
     updated_at: number;
+    created_by_username?: string | null;
+    updated_by_username?: string | null;
     images: ApiImage[] | null;
     urls: ApiUrl[] | null;
   };
@@ -145,6 +147,8 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     metadata: song.metadata ?? null,
     created_at: song.created_at,
     updated_at: song.updated_at,
+    created_by_username: song.created_by_username ?? undefined,
+    updated_by_username: song.updated_by_username ?? undefined,
 
     // denormalized fields
     artist_name: artist?.name || "unknown artist",

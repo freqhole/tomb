@@ -58,3 +58,12 @@ pub async fn get_user(user_id: &str) -> crate::response::GrimoireResponse<User> 
     let service = UserService::new();
     service.get_user(user_id).await
 }
+
+/// Get the first root user's ID (for system operations like scanning)
+///
+/// Returns None if no root user exists.
+pub async fn get_root_user_id() -> Option<String> {
+    let service = UserService::new();
+    let response = service.get_first_root_user().await;
+    response.data.map(|u| u.id)
+}

@@ -15,15 +15,7 @@ import {
 import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
 import { ReauthModal } from "../../components/auth/ReauthModal";
-
-// format a timestamp as a readable date
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
+import { formatDate } from "../../utils/dateTime";
 
 // confirmation dialog component
 function ConfirmDialog(props: {

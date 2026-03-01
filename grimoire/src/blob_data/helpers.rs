@@ -96,6 +96,7 @@ pub async fn create_media_blob_from_file(
     file_path: &str,
     file_size: u64,
     file_modified_at: i64,
+    created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     let file_name = Path::new(file_path)
         .file_name()
@@ -126,7 +127,7 @@ pub async fn create_media_blob_from_file(
         sha256,
         size: Some(file_size as i64),
         mime: Some(mime_type.clone()),
-        source_client_id: Some("job_processor".to_string()),
+        source_client_id: created_by.clone(),
         local_path: Some(file_path.to_string()),
         filename: Some(file_name.to_string()),
         parent_blob_id: None,
@@ -137,7 +138,7 @@ pub async fn create_media_blob_from_file(
             "mime_type": mime_type,
             "file_modified_at": file_modified_at,
         }),
-        created_by: Some("job_processor".to_string()),
+        created_by,
         data: None, // Store as file reference
     };
 
@@ -155,11 +156,12 @@ pub async fn create_audio_thumbnail_blob(
     source_blob_id: &str,
     audio_file_path: &str,
     config: &GrimoireConfig,
+    created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     // Try extracting embedded album art first
     match extract_album_art_to_webp(audio_file_path, config).await {
         Ok(webp_data) => {
-            return create_thumbnail_blob_from_webp_data(source_blob_id, webp_data, "album_art")
+            return create_thumbnail_blob_from_webp_data(source_blob_id, webp_data, "album_art", created_by)
                 .await;
         }
         Err(_) => {
@@ -174,6 +176,7 @@ pub async fn create_audio_thumbnail_blob(
                 source_blob_id,
                 webp_data,
                 "directory_art",
+                created_by,
             )
             .await;
         }
@@ -198,6 +201,7 @@ pub async fn create_audio_waveform_blob(
     source_blob_id: &str,
     audio_file_path: &str,
     config: &GrimoireConfig,
+    created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     let webp_data = match generate_waveform_to_webp(audio_file_path, config).await {
         Ok(data) => data,
@@ -212,7 +216,7 @@ pub async fn create_audio_waveform_blob(
             )
         }
     };
-    create_waveform_blob_from_webp_data(source_blob_id, webp_data).await
+    create_waveform_blob_from_webp_data(source_blob_id, webp_data, created_by).await
 }
 
 /// extract album art from audio file and convert to webp
@@ -484,6 +488,7 @@ async fn create_thumbnail_blob_from_webp_data(
     source_blob_id: &str,
     webp_data: Vec<u8>,
     art_type: &str,
+    created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     let metadata = serde_json::json!({
         "type": "thumbnail",
@@ -498,7 +503,7 @@ async fn create_thumbnail_blob_from_webp_data(
         BlobType::Thumbnail,
         Some(source_blob_id.to_string()),
         metadata,
-        Some("job_processor".to_string()),
+        created_by,
     )
     .await
 }
@@ -507,6 +512,7 @@ async fn create_thumbnail_blob_from_webp_data(
 async fn create_waveform_blob_from_webp_data(
     source_blob_id: &str,
     webp_data: Vec<u8>,
+    created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     let metadata = serde_json::json!({
         "type": "waveform",
@@ -521,7 +527,7 @@ async fn create_waveform_blob_from_webp_data(
         BlobType::Waveform,
         Some(source_blob_id.to_string()),
         metadata,
-        Some("job_processor".to_string()),
+        created_by,
     )
     .await
 }
@@ -545,6 +551,7 @@ pub async fn collect_song_images(
     audio_file_path: &str,
     config: &GrimoireConfig,
     session_id: Option<&str>,
+    created_by: Option<String>,
 ) -> GrimoireResponse<CollectedImages> {
     let mut embedded_art_blob_id = None;
     let mut directory_image_blob_ids = Vec::new();
@@ -557,6 +564,7 @@ pub async fn collect_song_images(
                 source_blob_id,
                 webp_data,
                 "embedded_album_art",
+                created_by.clone(),
             )
             .await;
 
@@ -658,7 +666,7 @@ pub async fn collect_song_images(
         if path.exists() {
             if let Some(path_str) = path.to_str() {
                 if processed_paths.insert(path_str.to_string()) {
-                    match process_directory_image(source_blob_id, &path).await {
+                    match process_directory_image(source_blob_id, &path, created_by.clone()).await {
                         Ok(blob_id) => {
                             directory_image_blob_ids.push(blob_id);
                             known_filename_found = true;
@@ -689,7 +697,7 @@ pub async fn collect_song_images(
                         if let Some(path_str) = path.to_str() {
                             // skip if already processed
                             if processed_paths.insert(path_str.to_string()) {
-                                match process_directory_image(source_blob_id, &path).await {
+                                match process_directory_image(source_blob_id, &path, created_by.clone()).await {
                                     Ok(blob_id) => {
                                         directory_image_blob_ids.push(blob_id);
                                     }
@@ -733,6 +741,7 @@ pub async fn collect_song_images(
 async fn process_directory_image(
     source_blob_id: &str,
     image_path: &std::path::Path,
+    created_by: Option<String>,
 ) -> Result<String, GrimoireError> {
     let image_data =
         tokio::fs::read(image_path)
@@ -752,6 +761,7 @@ async fn process_directory_image(
         source_blob_id,
         webp_data,
         &format!("directory_image_{}", filename),
+        created_by,
     )
     .await;
 

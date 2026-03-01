@@ -71,6 +71,8 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         deleted_by: None,
         created_by: req.created_by.clone(),
         updated_by: req.created_by,
+        created_by_username: None,
+        updated_by_username: None,
     };
 
     GrimoireResponse::success("album created successfully", album)
@@ -107,6 +109,8 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_deleted_by as "deleted_by?",
             album_created_by as "created_by?",
             album_updated_by as "updated_by?",
+            album_created_by_username as "created_by_username?",
+            album_updated_by_username as "updated_by_username?",
             album_images as "images: JsonVec<ImageMetadata>",
             NULL as "urls: JsonVec<EntityUrl>"
            FROM album_query_view
@@ -157,6 +161,8 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_deleted_by as "deleted_by?",
             album_created_by as "created_by?",
             album_updated_by as "updated_by?",
+            album_created_by_username as "created_by_username?",
+            album_updated_by_username as "updated_by_username?",
             album_images as "images: JsonVec<ImageMetadata>",
             NULL as "urls: JsonVec<EntityUrl>"
            FROM album_query_view

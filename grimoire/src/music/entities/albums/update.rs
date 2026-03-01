@@ -108,6 +108,8 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             deleted_by: row.deleted_by,
             created_by: row.created_by,
             updated_by: row.updated_by,
+            created_by_username: None,
+            updated_by_username: None,
             images: None,
             urls: None,
         },

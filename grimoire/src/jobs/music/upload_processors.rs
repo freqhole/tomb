@@ -299,7 +299,7 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
     // - artist/album/genre creation or lookup
     // - song creation with relationships
     // - falls back to basic import if metadata extraction fails
-    let import_result = extract_and_import(&blob_id, file_path).await?;
+    let import_result = extract_and_import(&blob_id, file_path, job.created_by.clone()).await?;
 
     info!(
         "successfully imported song: song_id={}, artist_id={:?}, album_id={:?}, metadata_extracted={}",

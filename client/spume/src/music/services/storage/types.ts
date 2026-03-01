@@ -69,6 +69,8 @@ export interface Song {
   metadata: string | null; // json string for extra metadata
   created_at: number;
   updated_at: number;
+  created_by_username?: string;
+  updated_by_username?: string;
 
   // denormalized for quick access (no lookups needed for display/playback)
   artist_name: string;

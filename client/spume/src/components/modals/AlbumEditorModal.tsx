@@ -22,6 +22,7 @@ import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
+import { formatDateTime } from "../../utils/dateTime";
 
 interface AlbumEditorModalProps {
   albumId: string;
@@ -603,6 +604,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <TabList class="px-6">
               <Tab id="info" label="info" />
               <Tab id="images" label="images" badge={images().length || undefined} />
+              <Tab id="metadata" label="metadata" />
               <Tab id="musicbrainz" label="musicbrainz" />
             </TabList>
 
@@ -897,6 +899,42 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 onSetPrimary={handleTogglePrimary}
                 uploading={!!processingJob()}
               />
+            </TabPanel>
+
+            {/* metadata tab - album info */}
+            <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-1">
+              <Show when={albumQuery.data?.created_at} keyed>
+                {(createdAt) => (
+                  <div class="text-sm">
+                    <span class="text-[var(--color-text-tertiary)]">created: </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {formatDateTime(createdAt * 1000)}
+                    </span>
+                    <Show when={albumQuery.data?.created_by_username}>
+                      <span class="text-[var(--color-text-tertiary)]"> by </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {albumQuery.data!.created_by_username}
+                      </span>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+              <Show when={albumQuery.data?.updated_at && albumQuery.data.updated_at !== albumQuery.data.created_at ? albumQuery.data.updated_at : undefined} keyed>
+                {(updatedAt) => (
+                  <div class="text-sm">
+                    <span class="text-[var(--color-text-tertiary)]">updated: </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {formatDateTime(updatedAt * 1000)}
+                    </span>
+                    <Show when={albumQuery.data?.updated_by_username}>
+                      <span class="text-[var(--color-text-tertiary)]"> by </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {albumQuery.data!.updated_by_username}
+                      </span>
+                    </Show>
+                  </div>
+                )}
+              </Show>
             </TabPanel>
 
             <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
