@@ -145,7 +145,7 @@ id = "freqhole-main"
 # REQUIRED: server display name
 name = "freqhole"
 # REQUIRED: server version (semantic versioning recommended)
-version = "0.1.0"
+version = "0.1.1"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 

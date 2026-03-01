@@ -1,32 +1,23 @@
-# Makefile for building freqhole server and CLI binaries
-# Supports cross-compilation for Raspberry Pi targets
+# Makefile for building freqhole server, CLI binaries, and tauri app
+# supports cross-compilation for Raspberry Pi targets
 #
-# some stuff u might need for raspi build:
+# run `make info` to get started and see available commands
+# run `make build-all` to build everything!
 #
-# add Rust targets:
+# (optional-ish) add Rust targets:
+#   rustup target add aarch64-apple-darwin x86_64-apple-darwin  # for Tauri macOS builds
+# you can also add these if you want to build locally, but really, just use docker.
 #   rustup target add armv7-unknown-linux-gnueabihf    # 32-bit Pi (Pi 2+)
 #   rustup target add aarch64-unknown-linux-gnu        # 64-bit Pi
-#
-# system dependencies:
-#
-# macOS (via Homebrew):
-#   brew install messense/macos-cross-toolchains/armv7-unknown-linux-gnueabihf
-#   brew install messense/macos-cross-toolchains/aarch64-unknown-linux-gnu
-#
-# Linux (via apt-get):
-#   sudo apt-get install gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
-#
-# but it's easier to use docker for both aarch64 & x86_64 builds
-# note: [cross](https://github.com/cross-rs/cross) didn't love the openssl deps :/
-# also note: .PHONY targetz are kinda silly ¯\_(ツ)_/¯
+#   rustup target add x86_64-unknown-linux-gnu		# for Linux builds (or just use docker)
 
-# Include .env file if it exists
+# include .env file if it exists
 ifneq (,$(wildcard .env))
     include .env
     export
 endif
 
-VERSION := $(shell grep '^version = ' server/Cargo.toml | head -1 | cut -d '"' -f 2)
+VERSION := $(shell grep '^version = ' Cargo.toml | head -1 | cut -d '"' -f 2)
 BUILD_DIR := target/freqhole/$(VERSION)
 CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
 
@@ -49,7 +40,7 @@ build:
 	cargo build --package server --target $(CURRENT_TARGET) $(RELEASE_MODE)
 	cargo build --package cli --target $(CURRENT_TARGET) $(RELEASE_MODE)
 	cp target/$(CURRENT_TARGET)/release/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
-	cp target/$(CURRENT_TARGET)/release/freqhole $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
+	cp target/$(CURRENT_TARGET)/release/freqhole $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole
 	@echo "binz: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
 # debug build
@@ -61,7 +52,7 @@ build-debug:
 	cargo build --package server --target $(CURRENT_TARGET)
 	cargo build --package cli --target $(CURRENT_TARGET)
 	cp target/$(CURRENT_TARGET)/debug/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
-	cp target/$(CURRENT_TARGET)/debug/cli $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-cli
+	cp target/$(CURRENT_TARGET)/debug/freqhole $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole
 	@echo "debug binz: $(BUILD_DIR)/$(CURRENT_TARGET)/"
 
 # docker-based raspi build
@@ -72,7 +63,7 @@ build-pi:
 	$(MAKE) db-prepare
 	docker build -f Dockerfile.build -t freqhole-pi-builder .
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_64_TARGET):/output freqhole-pi-builder \
-		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/freqhole /output/freqhole-cli"
+		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/freqhole /output/freqhole"
 	@echo "pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
 
 .PHONY: build-pi32
@@ -85,7 +76,7 @@ build-pi32:
 		--build-arg TARGET_ARCH=armv7-unknown-linux-gnueabihf \
 		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_32_TARGET):/output freqhole-pi32-builder \
-		sh -c "cp /app/target/armv7-unknown-linux-gnueabihf/release/server /output/freqhole-server && cp /app/target/armv7-unknown-linux-gnueabihf/release/freqhole /output/freqhole-cli"
+		sh -c "cp /app/target/armv7-unknown-linux-gnueabihf/release/server /output/freqhole-server && cp /app/target/armv7-unknown-linux-gnueabihf/release/freqhole /output/freqhole"
 	@echo "pi 32-bit binz built: $(BUILD_DIR)/$(PI_32_TARGET)/"
 
 
@@ -99,7 +90,7 @@ build-linux:
 		--platform linux/amd64 \
 		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
-		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/freqhole /output/freqhole-cli"
+		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/freqhole /output/freqhole"
 	@echo "linux x86_64 binz built: $(BUILD_DIR)/$(X86_64_TARGET)/"
 
 # all targetz including current platform if different
@@ -112,18 +103,20 @@ build-all:
 	$(MAKE) build-linux
 	$(MAKE) build-pi
 	$(MAKE) build-pi32
-	@echo "all targets built:"
-	@if [ "$(CURRENT_TARGET)" != "$(PI_64_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(PI_32_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(X86_64_TARGET)" ]; then \
-		echo "  - current platform: $(BUILD_DIR)/$(CURRENT_TARGET)/"; \
-	fi
-	
-	@echo "  - linux x86_64: $(BUILD_DIR)/$(X86_64_TARGET)/"
-	@echo "  - raspberry Pi: $(BUILD_DIR)/$(PI_64_TARGET)/"
-	@echo "  - raspberry Pi32: $(BUILD_DIR)/$(PI_32_TARGET)/"
+	@echo ""
+	@echo "building tauri apps..."
+	$(MAKE) tauri-build-mac-arm
+	$(MAKE) tauri-build-mac-intel
+	$(MAKE) tauri-build-linux
+	$(MAKE) tauri-build-linux-arm64
+	$(MAKE) collect
+	@echo ""
+	@echo "all targets built!"
 
 .PHONY: clean
 clean:
-	rm -rf target/freqhole
+	rm -rf target/freqhole build/
+	rm -rf $(TAURI_DIR)/src-tauri/target/release/bundle
 
 .PHONY: info
 info:
@@ -157,10 +150,13 @@ info:
 	@echo "Tauri app commands:"
 	@echo "  make tauri-build-mac-arm   - build macOS app (arm64)"
 	@echo "  make tauri-build-mac-intel - build macOS app (x86_64)"
-	@echo "  make tauri-build-linux     - build Linux AppImage (x86_64)"
+	@echo "  make tauri-build-linux     - build Linux deb/rpm (via Docker)"
+	@echo ""
+	@echo "release commands:"
+	@echo "  make collect               - gather all built artifacts to build/VERSION/"
 	@echo ""
 	@echo "version management:"
-	@echo "  make bump-version VERSION=x.y.z - update version everywhere"
+	@echo "  make bump-version NEW_VERSION=x.y.z - update version everywhere"
 	@echo ""
 	@echo "info:"
 	@echo "  make help/info     - show this information"
@@ -168,6 +164,106 @@ info:
 
 .PHONY: help
 help: info
+
+# Tauri app build commands
+.PHONY: tauri-build-mac-arm tauri-build-mac-intel tauri-build-linux tauri-build-linux-arm64
+TAURI_DIR := client/tauri
+
+tauri-build-mac-arm:
+	@echo "building spume client..."
+	cd client/spume && npm run build
+	@echo "building Tauri app for macOS arm64..."
+	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
+
+tauri-build-mac-intel:
+	@echo "building spume client..."
+	cd client/spume && npm run build
+	@echo "building Tauri app for macOS x86_64..."
+	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
+
+tauri-build-linux:
+	@echo "building Tauri app for Linux x86_64 using Docker..."
+	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-amd64 --platform linux/amd64 \
+		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu .
+	@mkdir -p $(BUILD_DIR)/tauri-linux
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/tauri-linux:/output freqhole-tauri-builder-amd64 \
+		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
+		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/ && \
+		       ls -la /output/"
+	@echo "linux x86_64 tauri packages built: $(BUILD_DIR)/tauri-linux/"
+
+tauri-build-linux-arm64:
+	@echo "building Tauri app for Linux aarch64 using Docker..."
+	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-arm64 --platform linux/arm64 \
+		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu .
+	@mkdir -p $(BUILD_DIR)/tauri-linux
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/tauri-linux:/output freqhole-tauri-builder-arm64 \
+		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
+		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/ && \
+		       ls -la /output/"
+	@echo "linux arm64 tauri packages built: $(BUILD_DIR)/tauri-linux/"
+
+# Collect all built artifacts into build/$VERSION/
+COLLECT_DIR := build/$(VERSION)
+.PHONY: collect
+collect:
+	@echo "collecting artifacts into $(COLLECT_DIR)/..."
+	@mkdir -p $(COLLECT_DIR)
+	@# CLI binaries in arch folders, then zip each
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		for dir in $(BUILD_DIR)/*/; do \
+			name=$$(basename "$$dir"); \
+			if [ "$$name" != "tauri-linux" ] && [ -f "$$dir/freqhole" ]; then \
+				mkdir -p "$(COLLECT_DIR)/$$name"; \
+				cp "$$dir/freqhole" "$(COLLECT_DIR)/$$name/freqhole"; \
+				(cd $(COLLECT_DIR) && zip -r "freqhole-$$name.zip" "$$name"); \
+			fi \
+		done \
+	fi
+	@# Tauri macOS dmg files
+	@for dmg in target/*/release/bundle/dmg/*.dmg; do \
+		[ -f "$$dmg" ] && cp "$$dmg" $(COLLECT_DIR)/ 2>/dev/null || true; \
+	done
+	@# Tauri macOS app bundles (zip them)
+	@for app in target/*/release/bundle/macos/*.app; do \
+		if [ -d "$$app" ]; then \
+			name=$$(basename "$$app" .app); \
+			arch=$$(echo "$$app" | grep -o 'aarch64\|x86_64' || echo "unknown"); \
+			(cd $$(dirname "$$app") && zip -r "$(PWD)/$(COLLECT_DIR)/$$name-$$arch.app.zip" $$(basename "$$app")); \
+		fi \
+	done
+	@# Tauri Linux deb/rpm
+	@for pkg in $(BUILD_DIR)/tauri-linux/*.deb $(BUILD_DIR)/tauri-linux/*.rpm target/*/release/bundle/deb/*.deb target/*/release/bundle/rpm/*.rpm; do \
+		[ -f "$$pkg" ] && cp "$$pkg" $(COLLECT_DIR)/ 2>/dev/null || true; \
+	done
+	@echo ""
+	@echo "artifacts collected to $(COLLECT_DIR)/:"
+	@find $(COLLECT_DIR) -type f | sed 's|^|  |'
+
+# version management
+.PHONY: bump-version
+bump-version:
+	@if [ -z "$(NEW_VERSION)" ]; then \
+		echo "usage: make bump-version NEW_VERSION=x.y.z"; \
+		echo "current version: $(VERSION)"; \
+		exit 1; \
+	fi
+	@echo "bumping version to $(NEW_VERSION)..."
+	@# Cargo workspace version 
+	sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml
+	@# tauri.conf.json
+	sed -i '' 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json
+	@# package.json files
+	cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version
+	cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version
+	@# TypeScript version constants
+	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts
+	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts
+	@# freqhole-config.toml
+	sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml
+	@echo "version bumped to $(NEW_VERSION)"
+	@echo ""
+	@echo "verify changes with: git diff"
 
 # Database commands (from grimoire)
 .PHONY: db-reset db-migrate db-prepare
@@ -243,44 +339,3 @@ test-cli-coverage: db-prepare
 	@echo ""
 	@echo "note: this covers CLI integration testz (not unit testz)!"
 	@echo ""
-
-# Tauri app build commands
-.PHONY: tauri-build-mac-arm tauri-build-mac-intel tauri-build-linux
-TAURI_DIR := client/tauri
-
-tauri-build-mac-arm:
-	@echo "building Tauri app for macOS arm64..."
-	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
-
-tauri-build-mac-intel:
-	@echo "building Tauri app for macOS x86_64..."
-	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
-
-tauri-build-linux:
-	@echo "building Tauri app for Linux x86_64 AppImage..."
-	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-unknown-linux-gnu
-
-# Version management
-.PHONY: bump-version
-bump-version:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "usage: make bump-version VERSION=x.y.z"; \
-		echo "current version: $(shell grep '^version = ' Cargo.toml | head -1 | cut -d '\"' -f 2)"; \
-		exit 1; \
-	fi
-	@echo "bumping version to $(VERSION)..."
-	@# Cargo workspace version 
-	sed -i '' 's/^version = "[^"]*"/version = "$(VERSION)"/' Cargo.toml
-	@# tauri.conf.json
-	sed -i '' 's/"version": "[^"]*"/"version": "$(VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json
-	@# package.json files
-	cd $(TAURI_DIR) && npm version $(VERSION) --no-git-tag-version
-	cd client/spume && npm version $(VERSION) --no-git-tag-version
-	@# TypeScript version constants
-	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(VERSION)"/' client/spume/src/version.ts
-	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(VERSION)"/' $(TAURI_DIR)/src/version.ts
-	@# freqhole-config.toml
-	sed -i '' 's/^version = "[^"]*"/version = "$(VERSION)"/' assets/config/freqhole-config.toml
-	@echo "version bumped to $(VERSION)"
-	@echo ""
-	@echo "verify changes with: git diff"
