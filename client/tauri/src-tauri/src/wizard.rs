@@ -2,11 +2,14 @@
 //!
 //! commands for opening/closing the setup wizard window
 
+use std::path::PathBuf;
 use tauri::webview::Color;
 use tauri::{AppHandle, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
 
-#[cfg(not(debug_assertions))]
-use std::path::PathBuf;
+use crate::app_config::save_server_config_path;
+use crate::commands::save_invite_code;
+use crate::sidecar::{start_server, ServerManager};
+use crate::spume_bridge::get_init_script;
 
 /// tauri command to open setup wizard at default route
 #[tauri::command]
@@ -63,15 +66,33 @@ pub async fn close_setup_wizard(
     config_path: Option<String>,
     _server_port: Option<u16>,
 ) -> Result<(), String> {
+    eprintln!(
+        "[close_setup_wizard] called with invite_code={}, config_path={:?}",
+        invite_code.is_some(),
+        config_path
+    );
+
     // save invite code to file for persistent storage (used by get_freqhole_config)
     if let Some(code) = &invite_code {
-        crate::commands::save_invite_code(&app, code)?;
+        eprintln!("[close_setup_wizard] saving invite code...");
+        save_invite_code(&app, code)?;
+    }
+
+    // save config path to app config for later use
+    if let Some(path) = &config_path {
+        eprintln!("[close_setup_wizard] saving config path: {}", path);
+        if let Err(e) = save_server_config_path(&app, path) {
+            eprintln!(
+                "[close_setup_wizard] failed to save server config path: {}",
+                e
+            );
+        }
     }
 
     // start server if config path provided
-    if let Some(path) = config_path {
-        let state = app.state::<crate::sidecar::ServerManager>();
-        crate::sidecar::start_server(&state, std::path::PathBuf::from(path)).await;
+    if let Some(ref path) = config_path {
+        let state = app.state::<ServerManager>();
+        start_server(&state, PathBuf::from(path), Some(&app)).await;
     }
 
     if let Some(wizard) = app.get_webview_window("setup-wizard") {
@@ -81,12 +102,12 @@ pub async fn close_setup_wizard(
     // create main window if it doesn't exist
     if app.get_webview_window("main").is_none() {
         // inject config via initialization script (works in dev + release)
-        let init_script = crate::spume_bridge::get_init_script(&app);
+        let init_script = get_init_script(&app);
 
         #[cfg(debug_assertions)]
         let webview_url = WebviewUrl::External("http://localhost:1420".parse().unwrap());
         #[cfg(not(debug_assertions))]
-        let webview_url = WebviewUrl::App(std::path::PathBuf::from("index.html"));
+        let webview_url = WebviewUrl::App(PathBuf::from("index.html"));
 
         let win_builder = WebviewWindowBuilder::new(&app, "main", webview_url)
             .title("")

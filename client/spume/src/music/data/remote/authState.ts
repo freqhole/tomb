@@ -2,6 +2,8 @@
 // tracks which remotes have expired sessions so the UI can prompt re-auth
 
 import { createSignal, type Accessor } from "solid-js";
+import { isTauriMode } from "../../../utils/tauri";
+import { requestAuthRefresh } from "../../../utils/tauri/freqhole-bridge";
 
 // map of remote_id -> [needsAuth getter, needsAuth setter]
 const authStates = new Map<string, [Accessor<boolean>, (v: boolean) => void]>();
@@ -18,9 +20,15 @@ function getOrCreateSignal(remoteId: string): [Accessor<boolean>, (v: boolean) =
 }
 
 // mark a remote as needing re-authentication
+// in tauri mode, this also dispatches an event for auto-refresh
 export function setRemoteNeedsAuth(remoteId: string): void {
   const [, set] = getOrCreateSignal(remoteId);
   set(true);
+
+  // in tauri mode, request automatic auth refresh via the bridge
+  if (isTauriMode()) {
+    requestAuthRefresh(remoteId);
+  }
 }
 
 // clear the needs-auth flag for a remote (after successful re-auth)

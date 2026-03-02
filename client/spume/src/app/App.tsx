@@ -70,8 +70,10 @@ import {
   requestFreqholeConfig,
   onConfigUpdated,
   onMessage,
+  onAuthRefresh,
   type SpumeMessage,
 } from "../utils/tauri/freqhole-bridge";
+import { clearRemoteNeedsAuth } from "../music/data/remote/authState";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -192,9 +194,10 @@ export function App() {
       // if we have an invite code, use it to authenticate first
       if (config.invite_code) {
         debug("invite code found, authenticating via invite redemption...");
+        debug(`using admin_username: ${config.admin_username}`);
         const redeemResult = await auth.redeemInvite(config.server_url, {
           invite_code: config.invite_code,
-          username: null, // account-link codes don't need username
+          username: config.admin_username ?? null,
         });
         if (redeemResult.success) {
           debug("invite code authentication successful");
@@ -231,6 +234,30 @@ export function App() {
 
       // subscribe to all tauri messages (config changes, scan progress, etc.)
       onMessage((msg: SpumeMessage) => handleTauriMessage(msg));
+
+      // subscribe to auth refresh events (auto re-auth on 401)
+      onAuthRefresh(async ({ invite_code, remote_id }) => {
+        debug(`tauri: auth refresh received for ${remote_id}, redeeming invite...`);
+        const currentRemote = getCurrentRemote();
+        if (!currentRemote) {
+          console.warn("no current remote to refresh auth for");
+          return;
+        }
+
+        const redeemResult = await auth.redeemInvite(currentRemote.base_url, {
+          invite_code,
+          username: null,
+        });
+
+        if (redeemResult.success) {
+          debug("tauri: auth refresh successful");
+          clearRemoteNeedsAuth(remote_id);
+          // re-fetch data now that we're authenticated
+          queryClient.invalidateQueries();
+        } else {
+          console.warn("tauri: auth refresh failed:", redeemResult);
+        }
+      });
     } catch (error) {
       console.error("failed to setup tauri remote:", error);
     }

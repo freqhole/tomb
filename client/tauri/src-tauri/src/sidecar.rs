@@ -15,6 +15,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::app_config::{save_freqhole_bin_path, FreqholeAppConfig};
+use crate::spume_bridge::push_config_to_spume;
+
 /// strip ANSI escape codes from a string
 fn strip_ansi_codes(s: &str) -> String {
     // matches ANSI escape sequences: ESC[ followed by any params and a final letter
@@ -118,8 +121,8 @@ impl ServerResult {
     }
 }
 
-/// find the freqhole binary path
-fn find_freqhole_binary() -> Option<PathBuf> {
+/// find the freqhole binary path (internal discovery logic)
+fn discover_freqhole_binary() -> Option<PathBuf> {
     // in dev, use target/debug or target/release
     // in prod, use the bundled resource
 
@@ -204,6 +207,40 @@ fn find_freqhole_binary() -> Option<PathBuf> {
     which::which("freqhole").ok()
 }
 
+/// find the freqhole binary path
+/// checks app config first, falls back to discovery, and caches result
+fn find_freqhole_binary(app_handle: Option<&tauri::AppHandle>) -> Option<PathBuf> {
+    // first, check if we have a cached path in app config
+    if let Some(app) = app_handle {
+        let config = FreqholeAppConfig::load(app);
+        if let Some(ref config) = config {
+            if let Some(path) = config.get_freqhole_bin_path() {
+                if path.exists() {
+                    eprintln!("[sidecar] using cached binary path: {:?}", path);
+                    return Some(path);
+                } else {
+                    eprintln!("[sidecar] cached binary path no longer exists: {:?}", path);
+                }
+            }
+        }
+    }
+
+    // discover the binary
+    let discovered = discover_freqhole_binary()?;
+
+    // cache the discovered path for next time
+    if let Some(app) = app_handle {
+        let path_str = discovered.display().to_string();
+        if let Err(e) = save_freqhole_bin_path(app, &path_str) {
+            eprintln!("[sidecar] failed to cache binary path: {}", e);
+        } else {
+            eprintln!("[sidecar] cached binary path: {:?}", discovered);
+        }
+    }
+
+    Some(discovered)
+}
+
 /// get current server status
 pub async fn get_status(state: &ServerManager) -> ServerStatus {
     let mut guard = state.lock().unwrap();
@@ -246,7 +283,11 @@ pub async fn get_status(state: &ServerManager) -> ServerStatus {
 }
 
 /// start the server
-pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> ServerResult {
+pub async fn start_server(
+    state: &ServerManager,
+    config_path: PathBuf,
+    app_handle: Option<&tauri::AppHandle>,
+) -> ServerResult {
     let state_clone = Arc::clone(state);
 
     let mut guard = state.lock().unwrap();
@@ -259,7 +300,7 @@ pub async fn start_server(state: &ServerManager, config_path: PathBuf) -> Server
     }
 
     // find the binary
-    let binary = match find_freqhole_binary() {
+    let binary = match find_freqhole_binary(app_handle) {
         Some(path) => path,
         None => {
             eprintln!("[sidecar] could not find freqhole binary");
@@ -483,7 +524,10 @@ pub async fn stop_server(state: &ServerManager) -> ServerResult {
 }
 
 /// restart the server
-pub async fn restart_server(state: &ServerManager) -> ServerResult {
+pub async fn restart_server(
+    state: &ServerManager,
+    app_handle: Option<&tauri::AppHandle>,
+) -> ServerResult {
     let config_path = {
         let guard = state.lock().unwrap();
         guard.config_path.clone()
@@ -505,7 +549,7 @@ pub async fn restart_server(state: &ServerManager) -> ServerResult {
             }
 
             // start again
-            start_server(state, path).await
+            start_server(state, path, app_handle).await
         }
         None => ServerResult::err("no config path set - start the server first"),
     }
@@ -546,10 +590,10 @@ pub async fn server_start(
     config_path: String,
 ) -> Result<ServerResult, String> {
     let path = PathBuf::from(config_path);
-    let result = start_server(&state, path).await;
+    let result = start_server(&state, path, Some(&app_handle)).await;
     if result.success {
         // push updated config to spume window
-        let _ = crate::spume_bridge::push_config_to_spume(&app_handle);
+        let _ = push_config_to_spume(&app_handle);
     }
     Ok(result)
 }
@@ -566,10 +610,10 @@ pub async fn server_restart(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, ServerManager>,
 ) -> Result<ServerResult, String> {
-    let result = restart_server(&state).await;
+    let result = restart_server(&state, Some(&app_handle)).await;
     if result.success {
         // push updated config to spume window
-        let _ = crate::spume_bridge::push_config_to_spume(&app_handle);
+        let _ = push_config_to_spume(&app_handle);
     }
     Ok(result)
 }

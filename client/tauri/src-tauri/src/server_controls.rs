@@ -5,7 +5,10 @@
 
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::app_config::get_server_config_path_resolved;
 use crate::sidecar::{self, ServerManager};
+use crate::spume_bridge::push_config_to_spume;
+use crate::wizard::open_setup_wizard_at_route;
 
 /// server control action
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,20 +31,15 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
                     guard
                         .config_path
                         .clone()
-                        .or_else(|| {
-                            app.path()
-                                .app_data_dir()
-                                .ok()
-                                .map(|p| p.join("freqhole-config.toml"))
-                        })
+                        .or_else(|| get_server_config_path_resolved(&app))
                         .unwrap_or_default()
                 };
 
                 if config_path.exists() {
-                    let result = sidecar::start_server(&state, config_path).await;
+                    let result = sidecar::start_server(&state, config_path, Some(&app)).await;
                     if result.success {
                         // push updated config to spume window
-                        let _ = crate::spume_bridge::push_config_to_spume(&app);
+                        let _ = push_config_to_spume(&app);
                     }
                 }
             }
@@ -49,10 +47,10 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
                 let _ = sidecar::stop_server(&state).await;
             }
             ServerAction::Restart => {
-                let result = sidecar::restart_server(&state).await;
+                let result = sidecar::restart_server(&state, Some(&app)).await;
                 if result.success {
                     // push updated config to spume window
-                    let _ = crate::spume_bridge::push_config_to_spume(&app);
+                    let _ = push_config_to_spume(&app);
                 }
             }
         }
@@ -85,5 +83,5 @@ pub fn open_wizard_at_route(app: &AppHandle<Wry>, route: &str) {
         let _ = window.set_focus();
         return;
     }
-    let _ = crate::wizard::open_setup_wizard_at_route(app.clone(), route);
+    let _ = open_setup_wizard_at_route(app.clone(), route);
 }

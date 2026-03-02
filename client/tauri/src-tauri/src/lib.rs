@@ -1,5 +1,6 @@
 //! freqhole tauri app
 
+mod app_config;
 mod commands;
 mod menu;
 mod server_controls;
@@ -8,6 +9,7 @@ mod spume_bridge;
 mod tray;
 mod wizard;
 
+use app_config::{get_server_config_path_resolved, is_setup_complete};
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,11 +46,7 @@ pub fn run() {
         .manage(ShutdownToken::new())
         .setup(|app| {
             // check if setup wizard should run
-            let needs_setup = app
-                .path()
-                .app_data_dir()
-                .map(|dir| !dir.join("freqhole-config.toml").exists())
-                .unwrap_or(true);
+            let needs_setup = !is_setup_complete(app.handle());
 
             if needs_setup {
                 // setup wizard runs on port 1421 (tauri UI)
@@ -70,27 +68,33 @@ pub fn run() {
                 // wizard will start server when setup completes
             } else {
                 // setup already complete - start server automatically
-                let config_path = app
-                    .path()
-                    .app_data_dir()
-                    .map(|dir| dir.join("freqhole-config.toml"))
-                    .map_err(|e| e.to_string())?;
+                // try to use saved config path from app config, fall back to default location
+                eprintln!("[tauri] setup complete, starting server...");
+                let config_path = get_server_config_path_resolved(app.handle())
+                    .ok_or_else(|| "failed to determine config path".to_string())?;
+                eprintln!("[tauri] config_path={}", config_path.display());
 
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 let app_handle = app.handle().clone();
+                let app_handle_for_server = app_handle.clone();
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
-                    let result = sidecar::start_server(&state, config_path).await;
+                    let result =
+                        sidecar::start_server(&state, config_path, Some(&app_handle_for_server))
+                            .await;
                     if !result.success {
                         eprintln!("[tauri] failed to start server: {}", result.message);
                     } else {
+                        eprintln!("[tauri] server started successfully");
                         // server started - check for pending jobs and resume polling
                         commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
                     }
                 });
 
                 // show main window with config injected
+                eprintln!("[tauri] creating main window...");
                 let init_script = spume_bridge::get_init_script(app.handle());
+                eprintln!("[tauri] init_script length={}", init_script.len());
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("")
                     .inner_size(800.0, 600.0)
@@ -153,6 +157,7 @@ pub fn run() {
             commands::list_invites,
             commands::generate_invites,
             commands::generate_account_link_code,
+            commands::generate_auto_auth_invite,
             commands::deactivate_invite,
             commands::update_invite_role,
             commands::scan_directory,

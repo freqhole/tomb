@@ -10,6 +10,7 @@
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder};
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::commands::open_config_dir;
 use crate::server_controls::{execute_server_action, open_wizard_at_route, quit_app, ServerAction};
 use crate::sidecar::{self, ServerManager};
 
@@ -173,7 +174,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             // use our command to open the proper data directory
             let app_clone = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::commands::open_config_dir(app_clone);
+                let _ = open_config_dir(app_clone);
             });
         }
         MENU_DEVTOOLS => {

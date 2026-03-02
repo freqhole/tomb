@@ -23,7 +23,6 @@ interface RemoteSession {
   sessionId: string;
   remoteId: string;
   baseUrl: string;
-  apiKey?: string;
   // the original label from the source context (preserved when updating songs)
   label: string;
   // entity_id if this session is for a named entity (album, playlist, etc.)
@@ -63,12 +62,12 @@ function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices
   return groups;
 }
 
-// resolve a remote_server_id to its base_url and api_key via IDB
-async function resolveRemoteInfo(remoteId: string): Promise<{ baseUrl: string; apiKey?: string } | null> {
+// resolve a remote_server_id to its base_url via IDB
+async function resolveRemoteInfo(remoteId: string): Promise<{ baseUrl: string } | null> {
   try {
     const remote = await getRemoteById(remoteId);
     if (!remote?.base_url) return null;
-    return { baseUrl: remote.base_url, apiKey: remote.api_key };
+    return { baseUrl: remote.base_url };
   } catch {
     return null;
   }
@@ -101,7 +100,7 @@ export async function createServerSessions(
     async ([remoteId, group]) => {
       const remoteInfo = await resolveRemoteInfo(remoteId);
       if (!remoteInfo) return;
-      const { baseUrl, apiKey } = remoteInfo;
+      const { baseUrl } = remoteInfo;
 
       try {
         const totalDurationMs = group.songs.reduce(
@@ -116,14 +115,13 @@ export async function createServerSessions(
           song_ids: group.songs.map((s) => s.id || s.sha256),
           total_songs: group.songs.length,
           total_duration_ms: totalDurationMs,
-        }, apiKey);
+        });
 
         if (result.success) {
           const session: RemoteSession = {
             sessionId: result.data.id,
             remoteId,
             baseUrl,
-            apiKey,
             label: source.label,
             entityId: source.entity_id,
             songIndices: group.indices,
@@ -210,7 +208,6 @@ async function sendProgress(session: RemoteSession): Promise<void> {
     session.baseUrl,
     session.sessionId,
     { progress: session.progress },
-    session.apiKey,
   );
 
   if (!result.success) {
@@ -267,7 +264,6 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
               session.baseUrl,
               session.sessionId,
               "abandoned",
-              session.apiKey,
             );
           } catch (error) {
             console.error(
@@ -302,7 +298,6 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
                 total_songs: group.songs.length,
                 total_duration_ms: totalDurationMs,
               },
-              session.apiKey,
             );
           } catch (error) {
             console.error(
@@ -332,7 +327,6 @@ export async function stopAllServerSessions(
         session.baseUrl,
         session.sessionId,
         status,
-        session.apiKey,
       );
     } catch (error) {
       console.error(
@@ -363,7 +357,6 @@ export async function resumeServerSession(
   },
   remoteId: string,
   baseUrl: string,
-  apiKey?: string,
   sessionContext?: {
     label: string;
     entityId?: string;
@@ -378,7 +371,6 @@ export async function resumeServerSession(
     sessionId,
     remoteId,
     baseUrl,
-    apiKey,
     label: sessionContext?.label ?? "",
     entityId: sessionContext?.entityId,
     songIndices: [], // will be populated if updateServerSessionSongs is called
@@ -393,7 +385,6 @@ export async function resumeServerSession(
     baseUrl,
     sessionId,
     "active",
-    apiKey,
   );
 
   // check if the session no longer exists on server
@@ -455,7 +446,6 @@ export async function reconnectServerSession(
     { progress: historyEntry.songs_completed },
     historyEntry.server_remote_id,
     remoteInfo.baseUrl,
-    remoteInfo.apiKey,
     {
       label: historyEntry.label,
       entityId: historyEntry.entity_id,

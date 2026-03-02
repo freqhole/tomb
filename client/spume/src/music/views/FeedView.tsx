@@ -261,7 +261,6 @@ export function FeedView() {
             { progress: session.songs_completed },
             remote.remote_id,
             remote.base_url,
-            remote.api_key,
             {
               label: session.label,
               entityId: session.entity_id ?? undefined,

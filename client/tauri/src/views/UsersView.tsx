@@ -183,32 +183,39 @@ export default function UsersView() {
               <div class="list-item user-item">
                 <div class="user-row">
                   <div class="item-info">
-                    <span class="item-name">{user.username}</span>
+                    <div class="item-name username-row">
+                      {user.username}
+
+                      <Show when={user.role !== "root"}>
+                        <span class="role-item-actions">
+                          <select
+                            value={user.role}
+                            onChange={(e) =>
+                              updateRole(user.id, e.currentTarget.value)
+                            }
+                          >
+                            <option value="admin">admin</option>
+                            <option value="member">member</option>
+                            <option value="guest">guest</option>
+                          </select>
+                        </span>
+                      </Show>
+                    </div>
                     <span class="item-meta">
                       {user.role} · joined {formatDate(user.created_at)}
                     </span>
-                  </div>
-                  <div class="item-actions">
-                    <Show when={user.role !== "root"}>
-                      <select
-                        value={user.role}
-                        onChange={(e) => updateRole(user.id, e.currentTarget.value)}
-                      >
-                        <option value="admin">admin</option>
-                        <option value="member">member</option>
-                        <option value="guest">guest</option>
-                      </select>
-                      <button
-                        class="danger small"
-                        onClick={() => deleteUser(user.id, user.username)}
-                      >
-                        delete
-                      </button>
-                    </Show>
+                    <span class="user-id">{user.id}</span>
                   </div>
                 </div>
                 <Show when={user.role !== "root"}>
                   <div class="user-actions-row">
+                    <button
+                      class="danger small"
+                      onClick={() => deleteUser(user.id, user.username)}
+                    >
+                      delete
+                    </button>
+
                     <button
                       class="secondary small"
                       onClick={() => generateAccountLink(user.id)}
@@ -216,7 +223,6 @@ export default function UsersView() {
                     >
                       + link
                     </button>
-                    <span class="user-id">{user.id}</span>
                   </div>
                 </Show>
               </div>
@@ -277,11 +283,15 @@ export default function UsersView() {
                           {invite.used_by_username || invite.used_by}
                         </strong>
                         <Show when={invite.code_type === "invite"}>
-                          {" "}(granted {invite.grants_role})
+                          {" "}
+                          (granted {invite.grants_role})
                         </Show>
                       </>
-                    ) : invite.code_type === "accountlink" && invite.link_for_username ? (
-                      <>for <strong>{invite.link_for_username}</strong></>
+                    ) : invite.code_type === "accountlink" &&
+                      invite.link_for_username ? (
+                      <>
+                        for <strong>{invite.link_for_username}</strong>
+                      </>
                     ) : invite.is_active ? (
                       <>grants {invite.grants_role}</>
                     ) : (
@@ -294,7 +304,13 @@ export default function UsersView() {
                   </span>
                 </div>
                 <div class="item-actions">
-                  <Show when={invite.is_active && !invite.used_by && invite.code_type === "invite"}>
+                  <Show
+                    when={
+                      invite.is_active &&
+                      !invite.used_by &&
+                      invite.code_type === "invite"
+                    }
+                  >
                     <select
                       value={invite.grants_role}
                       onChange={(e) =>

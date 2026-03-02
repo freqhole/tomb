@@ -10,6 +10,10 @@ use serde::Serialize;
 use std::path::PathBuf;
 use tauri::Manager;
 
+use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
+use crate::spume_bridge::{notify_config_changed, notify_scan_jobs_complete, notify_scan_progress};
+use crate::ShutdownToken;
+
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
 fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
     if grimoire::is_config_initialized() {
@@ -33,11 +37,8 @@ fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
 
 /// ensure config and database are ready (call at start of commands that need them)
 async fn ensure_initialized(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    let config_path = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("freqhole-config.toml");
+    let config_path = get_server_config_path_resolved(app_handle)
+        .ok_or_else(|| "server config not found - run setup first".to_string())?;
 
     ensure_config_initialized(&config_path)?;
 
@@ -213,7 +214,7 @@ pub struct CreateAdminResult {
 /// the invite code can be used to authenticate the main window by calling
 /// the /api/auth/invite endpoint
 #[tauri::command]
-pub async fn create_admin_user(username: String) -> CreateAdminResult {
+pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> CreateAdminResult {
     let service = grimoire::users::UserService::new();
 
     // create admin user
@@ -227,10 +228,16 @@ pub async fn create_admin_user(username: String) -> CreateAdminResult {
 
     match response.data {
         Some(user) => {
+            // save admin user info to app config for future invite code generation
+            if let Err(e) = save_admin_user(&app, &user.id, &user.username) {
+                eprintln!(
+                    "[create_admin_user] failed to save admin user to app config: {}",
+                    e
+                );
+            }
+
             // generate account-link invite code for the new user
-            let invite_response = service
-                .create_account_link_code_internal(&user.id)
-                .await;
+            let invite_response = service.create_account_link_code_internal(&user.id).await;
             let invite_code = invite_response.data.map(|c| c.code);
 
             CreateAdminResult {
@@ -333,24 +340,16 @@ pub fn get_os_username() -> String {
         .unwrap_or_else(|_| "freqroot".to_string())
 }
 
-/// get the config file path (always in app data dir)
+/// get the config file path (from app config or legacy location)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
-    app_handle
-        .path()
-        .app_data_dir()
-        .ok()
-        .map(|p| p.join("freqhole-config.toml").display().to_string())
+    get_server_config_path_resolved(&app_handle).map(|p| p.display().to_string())
 }
 
 /// get the data directory from loaded config
 #[tauri::command]
 pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
-    let config_path = app_handle
-        .path()
-        .app_data_dir()
-        .ok()?
-        .join("freqhole-config.toml");
+    let config_path = get_server_config_path_resolved(&app_handle)?;
 
     if config_path.exists() {
         // use existing config if initialized, otherwise try to init
@@ -382,6 +381,8 @@ pub struct FreqholeConfig {
     pub server_url: String,
     /// invite code for authentication (if available, used for initial login)
     pub invite_code: Option<String>,
+    /// admin username (used with invite code for authentication)
+    pub admin_username: Option<String>,
 }
 
 /// save invite code to file for persistent storage
@@ -391,6 +392,10 @@ pub fn save_invite_code(app_handle: &tauri::AppHandle, invite_code: &str) -> Res
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join(".invite_code");
+    eprintln!(
+        "[save_invite_code] saving invite code to: {}",
+        invite_code_path.display()
+    );
     std::fs::write(&invite_code_path, invite_code)
         .map_err(|e| format!("failed to save invite code: {}", e))?;
     Ok(())
@@ -398,12 +403,17 @@ pub fn save_invite_code(app_handle: &tauri::AppHandle, invite_code: &str) -> Res
 
 /// read invite code from file
 fn read_invite_code(app_handle: &tauri::AppHandle) -> Option<String> {
-    let invite_code_path = app_handle
-        .path()
-        .app_data_dir()
-        .ok()?
-        .join(".invite_code");
-    std::fs::read_to_string(&invite_code_path).ok()
+    let invite_code_path = app_handle.path().app_data_dir().ok()?.join(".invite_code");
+    let result = std::fs::read_to_string(&invite_code_path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    eprintln!(
+        "[read_invite_code] path={}, found={}",
+        invite_code_path.display(),
+        result.is_some()
+    );
+    result
 }
 
 /// get freqhole server config (for bridge communication with spume)
@@ -411,18 +421,22 @@ fn read_invite_code(app_handle: &tauri::AppHandle) -> Option<String> {
 /// returns server_id, server_name, server_url from the loaded config
 /// returns None if config is not initialized
 pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfig> {
-    let config_path = app_handle
-        .path()
-        .app_data_dir()
-        .ok()?
-        .join("freqhole-config.toml");
+    eprintln!("[get_freqhole_config] called");
+    let config_path = get_server_config_path_resolved(&app_handle)?;
+    eprintln!(
+        "[get_freqhole_config] config_path={}",
+        config_path.display()
+    );
 
     // try to initialize config if needed
     if !grimoire::is_config_initialized() {
+        eprintln!("[get_freqhole_config] config not initialized, initializing...");
         if !config_path.exists() {
+            eprintln!("[get_freqhole_config] config file does not exist");
             return None;
         }
         if grimoire::config::init_config(Some(config_path)).is_err() {
+            eprintln!("[get_freqhole_config] failed to init config");
             return None;
         }
     }
@@ -431,12 +445,23 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
     let server = config.server.as_ref()?;
     let invite_code = read_invite_code(&app_handle);
 
+    // get admin username from app config
+    let admin_username = FreqholeAppConfig::load(&app_handle).and_then(|c| c.admin_user.username);
+
+    eprintln!(
+        "[get_freqhole_config] returning: server_id={}, has_invite_code={}, has_admin_username={}",
+        server.id,
+        invite_code.is_some(),
+        admin_username.is_some()
+    );
+
     Some(FreqholeConfig {
         server_id: server.id.clone(),
         server_name: server.name.clone(),
         // always use localhost for the client URL (not the bind address like 0.0.0.0)
         server_url: format!("http://localhost:{}", server.port),
         invite_code,
+        admin_username,
     })
 }
 
@@ -462,11 +487,8 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
 /// read the config file content
 #[tauri::command]
 pub fn read_config_file(app_handle: tauri::AppHandle) -> Result<String, String> {
-    let config_path = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("freqhole-config.toml");
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found - run setup first".to_string())?;
 
     if !config_path.exists() {
         return Err("config file does not exist".to_string());
@@ -486,12 +508,12 @@ pub struct SaveConfigResult {
 /// validate and save the config file content
 #[tauri::command]
 pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveConfigResult {
-    let config_path = match app_handle.path().app_data_dir() {
-        Ok(dir) => dir.join("freqhole-config.toml"),
-        Err(e) => {
+    let config_path = match get_server_config_path_resolved(&app_handle) {
+        Some(path) => path,
+        None => {
             return SaveConfigResult {
                 success: false,
-                message: format!("failed to get app data dir: {}", e),
+                message: "config file not found - run setup first".to_string(),
                 validation_errors: vec![],
             }
         }
@@ -531,10 +553,8 @@ pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveCo
             }
 
             // notify spume that config changed (requires reload)
-            let _ = crate::spume_bridge::notify_config_changed(
-                &app_handle,
-                "config was updated - reload to apply changes",
-            );
+            let _ =
+                notify_config_changed(&app_handle, "config was updated - reload to apply changes");
 
             SaveConfigResult {
                 success: true,
@@ -864,6 +884,51 @@ pub async fn generate_account_link_code(
     }
 }
 
+/// generate an invite code for auto-auth using the stored admin user
+///
+/// this is used by the spume client in tauri mode to automatically re-authenticate
+/// when a 401 error is received, without requiring user interaction.
+#[tauri::command]
+pub async fn generate_auto_auth_invite(app_handle: tauri::AppHandle) -> Result<String, String> {
+    eprintln!("[generate_auto_auth_invite] called");
+    ensure_initialized(&app_handle).await?;
+    eprintln!("[generate_auto_auth_invite] ensure_initialized passed");
+    ensure_wordlist()?;
+    eprintln!("[generate_auto_auth_invite] ensure_wordlist passed");
+
+    // load app config to get stored admin user id
+    let app_config =
+        FreqholeAppConfig::load(&app_handle).ok_or_else(|| "app config not found".to_string())?;
+    eprintln!("[generate_auto_auth_invite] app config loaded");
+
+    let admin_user_id = app_config
+        .admin_user
+        .user_id
+        .ok_or_else(|| "admin user not configured".to_string())?;
+    eprintln!(
+        "[generate_auto_auth_invite] admin_user_id={}",
+        admin_user_id
+    );
+
+    let service = grimoire::users::UserService::new();
+
+    // use internal method that bypasses admin role check (we're the app itself)
+    let result = service
+        .create_account_link_code_internal(&admin_user_id)
+        .await;
+
+    match result.data {
+        Some(code) => {
+            eprintln!("[generate_auto_auth_invite] success, code generated");
+            Ok(code.code)
+        }
+        None => {
+            eprintln!("[generate_auto_auth_invite] failed: {}", result.message);
+            Err(result.message)
+        }
+    }
+}
+
 /// scan result
 #[derive(Debug, Serialize)]
 pub struct ScanResult {
@@ -944,7 +1009,7 @@ pub async fn scan_directory(
                 // start background polling for job completion
                 let app_handle_clone = app_handle.clone();
                 let session_id_clone = session_id.clone();
-                let shutdown_token = app_handle.state::<crate::ShutdownToken>().inner().clone();
+                let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     poll_scan_jobs_until_complete(
                         app_handle_clone,
@@ -1013,7 +1078,7 @@ pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
     // start background polling for job completion
     let app_handle_clone = app_handle.clone();
     let job_id = job.id.clone();
-    let shutdown_token = app_handle.state::<crate::ShutdownToken>().inner().clone();
+    let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
     tauri::async_runtime::spawn(async move {
         poll_rescan_job_until_complete(app_handle_clone, job_id, shutdown_token).await;
     });
@@ -1029,7 +1094,7 @@ pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
 async fn poll_rescan_job_until_complete(
     app_handle: tauri::AppHandle,
     job_id: String,
-    shutdown_token: crate::ShutdownToken,
+    shutdown_token: ShutdownToken,
 ) {
     use grimoire::jobs::{list_jobs, JobStatus};
     use grimoire::music::analytics::admin::get_overview_stats;
@@ -1088,7 +1153,7 @@ async fn poll_rescan_job_until_complete(
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
                 if current_songs != last_songs {
                     last_songs = current_songs;
-                    if let Err(e) = crate::spume_bridge::notify_scan_progress(
+                    if let Err(e) = notify_scan_progress(
                         &app_handle,
                         songs_added,
                         albums_added,
@@ -1102,7 +1167,7 @@ async fn poll_rescan_job_until_complete(
 
                 if pending == 0 && !jobs.is_empty() {
                     // all jobs complete - send final notification
-                    if let Err(e) = crate::spume_bridge::notify_scan_jobs_complete(
+                    if let Err(e) = notify_scan_jobs_complete(
                         &app_handle,
                         songs_added,
                         albums_added,
@@ -1138,7 +1203,7 @@ async fn poll_rescan_job_until_complete(
 async fn poll_scan_jobs_until_complete(
     app_handle: tauri::AppHandle,
     session_id: String,
-    shutdown_token: crate::ShutdownToken,
+    shutdown_token: ShutdownToken,
 ) {
     use grimoire::jobs::{list_jobs, JobStatus};
     use grimoire::music::analytics::admin::get_overview_stats;
@@ -1197,7 +1262,7 @@ async fn poll_scan_jobs_until_complete(
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
                 if current_songs != last_songs {
                     last_songs = current_songs;
-                    if let Err(e) = crate::spume_bridge::notify_scan_progress(
+                    if let Err(e) = notify_scan_progress(
                         &app_handle,
                         songs_added,
                         albums_added,
@@ -1211,7 +1276,7 @@ async fn poll_scan_jobs_until_complete(
 
                 if pending == 0 && !jobs.is_empty() {
                     // all jobs complete - send final notification
-                    if let Err(e) = crate::spume_bridge::notify_scan_jobs_complete(
+                    if let Err(e) = notify_scan_jobs_complete(
                         &app_handle,
                         songs_added,
                         albums_added,
@@ -1245,7 +1310,7 @@ async fn poll_scan_jobs_until_complete(
 /// in progress when the app was previously closed.
 pub async fn resume_pending_jobs_polling(
     app_handle: tauri::AppHandle,
-    shutdown_token: crate::ShutdownToken,
+    shutdown_token: ShutdownToken,
 ) {
     use grimoire::jobs::{list_jobs, JobStatus};
     use grimoire::music::analytics::admin::get_overview_stats;
@@ -1318,7 +1383,7 @@ pub async fn resume_pending_jobs_polling(
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
                 if current_songs != last_songs {
                     last_songs = current_songs;
-                    let _ = crate::spume_bridge::notify_scan_progress(
+                    let _ = notify_scan_progress(
                         &app_handle,
                         songs_added,
                         albums_added,
@@ -1329,7 +1394,7 @@ pub async fn resume_pending_jobs_polling(
                 }
 
                 if pending == 0 {
-                    let _ = crate::spume_bridge::notify_scan_jobs_complete(
+                    let _ = notify_scan_jobs_complete(
                         &app_handle,
                         songs_added,
                         albums_added,
