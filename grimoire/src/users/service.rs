@@ -493,6 +493,64 @@ impl UserService {
         }
     }
 
+    /// Mark an invite code as used by a specific user
+    ///
+    /// This is a public wrapper for the repository method, used when redeeming
+    /// account-link codes outside the normal user registration flow.
+    pub async fn mark_invite_used(&self, code: &str, used_by_id: &str) -> GrimoireResponse<()> {
+        match self.repository.use_invite_code(code, used_by_id).await {
+            Ok(()) => GrimoireResponse::success("invite code marked as used", ()),
+            Err(err) => {
+                GrimoireResponse::failure("failed to mark invite code as used", vec![err.into()])
+            }
+        }
+    }
+
+    /// Create an account-link invite code for a user (internal use only)
+    ///
+    /// This bypasses the normal admin authorization check and is meant for
+    /// tauri setup flow where we need to create an invite code for the first
+    /// admin user to authenticate the main window.
+    ///
+    /// WARNING: Only use this for trusted internal flows like tauri setup.
+    pub async fn create_account_link_code_internal(
+        &self,
+        user_id: &str,
+    ) -> GrimoireResponse<InviteCode> {
+        // verify user exists
+        let user_response = self.get_user(user_id).await;
+        if user_response.data.is_none() {
+            return GrimoireResponse::failure("user not found", user_response.errors);
+        }
+
+        // generate word-based code
+        let code_response = generate_word_code(3);
+        let code = match code_response.data {
+            Some(c) => c,
+            None => {
+                return GrimoireResponse::failure(
+                    "failed to generate invite code",
+                    code_response.errors,
+                );
+            }
+        };
+
+        // create account-link invite code
+        let request = CreateInviteCodeRequest {
+            code_type: Some(InviteCodeType::AccountLink),
+            link_for_user_id: Some(user_id.to_string()),
+            expires_hours: Some(1), // 1 hour expiry (should be used immediately)
+            grants_role: None,
+        };
+
+        match self.repository.create_invite_code(&code, &request).await {
+            Ok(invite) => GrimoireResponse::success("account-link invite code created", invite),
+            Err(err) => {
+                GrimoireResponse::failure("failed to create invite code", vec![err.into()])
+            }
+        }
+    }
+
     /// List invite codes
     pub async fn list_invite_codes(
         &self,

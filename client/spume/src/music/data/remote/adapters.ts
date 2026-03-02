@@ -95,11 +95,10 @@ export interface ApiSongQueryItem {
 }
 
 // helper to convert API image to app ImageMetadata
-// in tauri mode, uses freqhole:// protocol for auth header injection
-export function adaptApiImage(img: ApiImage, baseUrl: string, apiKey?: string) {
+export function adaptApiImage(img: ApiImage, baseUrl: string) {
   return {
     remote_blob_id: img.blob_id,
-    remote_url: getRemoteMediaUrl(baseUrl, img.blob_id, apiKey),
+    remote_url: getRemoteMediaUrl(baseUrl, img.blob_id),
     is_primary: !!img.is_primary,
     blob_type: (img.blob_type || 'original') as 'thumbnail' | 'waveform' | 'original' | 'preview',
   };
@@ -118,8 +117,7 @@ export function adaptApiUrls(urls: ApiUrl[] | null | undefined): Array<{id: stri
 }
 
 // adapter to convert API song query result to domain Song type
-// apiKey is optional - used in tauri mode for blob URL auth
-export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remoteServerId: string, apiKey?: string): RemoteSong {
+export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remoteServerId: string): RemoteSong {
   const song = item.song;
   const artist = item.artist;
   const album = item.album;
@@ -159,7 +157,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_primary_genre_name: album?.genres?.[0]?.name ?? item.genre?.name ?? null,
 
     // song-specific images only (album images stored separately in album_images)
-    images: item.images?.map(img => adaptApiImage(img, baseUrl, apiKey)) ?? [],
+    images: item.images?.map(img => adaptApiImage(img, baseUrl)) ?? [],
 
     // user-specific metadata (from API response top-level)
     is_favorite: item.is_favorite ?? false,
@@ -168,7 +166,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_rating: item.album_rating ?? undefined,
     album_tags: item.album_tags ?? [],
     album_genres: album?.genres ?? [],
-    album_images: album?.images?.map(img => adaptApiImage(img, baseUrl, apiKey)) ?? [],
+    album_images: album?.images?.map(img => adaptApiImage(img, baseUrl)) ?? [],
 
     // entity URLs (convert null fields to undefined)
     urls: adaptApiUrls(song.urls) ?? [],
@@ -182,7 +180,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     file_size: null,
     last_modified: null,
     mime_type: blob?.mime ?? null,
-    source_url: getRemoteMediaUrl(baseUrl, song.media_blob_id, apiKey),
+    source_url: getRemoteMediaUrl(baseUrl, song.media_blob_id),
     downloaded_at: null,
 
     // remote fields

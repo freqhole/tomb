@@ -54,7 +54,7 @@ function RootRedirect() {
         // try to restore remote context
         const remote = await getRemoteById(routeContext);
         if (remote) {
-          await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
+          await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
           queryClient.invalidateQueries();
           navigate(savedRoute, { replace: true });
           return;
@@ -73,12 +73,7 @@ function RootRedirect() {
 
     if (activeRemote) {
       // switch to that remote and navigate to its route
-      await useRemoteSource(
-        activeRemote.remote_id,
-        activeRemote.name,
-        activeRemote.base_url,
-        activeRemote.api_key
-      );
+      await useRemoteSource(activeRemote.remote_id, activeRemote.name, activeRemote.base_url);
       queryClient.invalidateQueries();
       navigate(`/${activeRemote.remote_id}/songs`, { replace: true });
     } else if (!isTauriMode()) {
@@ -239,7 +234,7 @@ function RemoteContextHandler(props: { children?: any }) {
     const remote = await getRemoteById(remoteId);
     if (remote) {
       setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
-      await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
+      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       queryClient.invalidateQueries();
     } else {
       console.warn(`remote not found: ${remoteId}`);

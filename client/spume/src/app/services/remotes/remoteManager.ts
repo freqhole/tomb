@@ -25,7 +25,6 @@ export async function upsertTauriRemote(config: {
   server_id: string;
   name: string;
   base_url: string;
-  api_key?: string;
 }): Promise<Remote> {
   const db = await initAppDB();
   const existing = await getTauriManagedRemote();
@@ -37,7 +36,6 @@ export async function upsertTauriRemote(config: {
       name: config.name,
       base_url: config.base_url.replace(/\/$/, ""),
       server_id: config.server_id,
-      api_key: config.api_key ?? existing.api_key,
       // always set image_url for tauri remotes (server serves at /api/hello/image)
       image_url: "/api/hello/image",
       updated_at: Date.now(),
@@ -63,7 +61,6 @@ export async function upsertTauriRemote(config: {
     image_url: "/api/hello/image",
     version: null,
     last_info_check: null,
-    api_key: config.api_key,
     is_tauri_managed: true,
   };
   await db.put(STORE_REMOTES, remote);

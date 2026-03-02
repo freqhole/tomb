@@ -67,16 +67,15 @@ export async function useRemoteSource(
   remoteId: string,
   name: string,
   baseUrl: string,
-  apiKey?: string,
 ): Promise<void> {
   debug(`switching to remote data source: ${name} (${baseUrl})`);
-  const remoteSource = new RemoteMusicDataSource(baseUrl, remoteId, apiKey);
+  const remoteSource = new RemoteMusicDataSource(baseUrl, remoteId);
   setActiveSource(remoteSource);
-  setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl, api_key: apiKey });
+  setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
 
-  // fetch current user info from whoami
+  // fetch current user info from whoami (uses session cookies)
   try {
-    const whoamiResult = await apiClient.auth.whoami(baseUrl, apiKey);
+    const whoamiResult = await apiClient.auth.whoami(baseUrl);
     if (whoamiResult.success && whoamiResult.data) {
       setCurrentUser({
         userId: whoamiResult.data.user_id,
@@ -97,10 +96,10 @@ export async function useRemoteSource(
 }
 
 // check if remote is accessible by making a lightweight request
-async function checkRemoteAccessible(baseUrl: string, apiKey?: string): Promise<boolean> {
+async function checkRemoteAccessible(baseUrl: string): Promise<boolean> {
   try {
     // try whoami first - if we're authenticated, the remote is accessible
-    const whoamiResult = await apiClient.auth.whoami(baseUrl, apiKey);
+    const whoamiResult = await apiClient.auth.whoami(baseUrl);
     if (whoamiResult.success) {
       return true;
     }
@@ -137,11 +136,11 @@ export async function initializeDataSource(): Promise<void> {
       debug(
         `verifying remote accessibility: ${remote.name} (${remote.base_url})`,
       );
-      const isAccessible = await checkRemoteAccessible(remote.base_url, remote.api_key);
+      const isAccessible = await checkRemoteAccessible(remote.base_url);
 
       if (isAccessible) {
         debug(`remote accessible, activating: ${remote.name}`);
-        await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
+        await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       } else {
         warn(`remote not accessible: ${remote.name}, using local`);
         await useLocalSource();

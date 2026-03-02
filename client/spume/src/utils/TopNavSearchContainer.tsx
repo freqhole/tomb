@@ -37,7 +37,6 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
     const data = suggestionsQuery.data?.pages?.flatMap((p) => p.suggestions) || [];
     const remote = getCurrentRemote();
     const baseUrl = remote?.base_url || "";
-    const apiKey = remote?.api_key;
 
     return data.map((s) => {
       return {
@@ -45,7 +44,7 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
         text: s.display,
         category: s.suggestion_type || "unknown",
         highlight: s.highlight,
-        images: parseMetadataImages(s.metadata, baseUrl, apiKey),
+        images: parseMetadataImages(s.metadata, baseUrl),
         isFavorite: s.is_favorite,
         data: s,
       };
@@ -65,17 +64,13 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
 };
 
 // parse the images JSON string from suggestion metadata into ImageMetadata[]
-function parseMetadataImages(
-  metadata: any,
-  baseUrl: string,
-  apiKey?: string
-): ImageMetadata[] | undefined {
+function parseMetadataImages(metadata: any, baseUrl: string): ImageMetadata[] | undefined {
   if (!metadata?.images) return undefined;
   try {
     const raw = typeof metadata.images === "string" ? JSON.parse(metadata.images) : metadata.images;
     if (!Array.isArray(raw) || raw.length === 0) return undefined;
     return raw.map((img: any) => ({
-      remote_url: getRemoteMediaUrl(baseUrl, img.media_blob_id, apiKey),
+      remote_url: getRemoteMediaUrl(baseUrl, img.media_blob_id),
       is_primary: !!img.is_primary,
       blob_type: "thumbnail" as const,
     }));

@@ -1,10 +1,6 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, onMount, Show, For } from "solid-js";
-import {
-  getAllRemotes,
-  deleteRemote,
-  updateRemote,
-} from "../../app/services/remotes/remoteManager";
+import { getAllRemotes, deleteRemote } from "../../app/services/remotes/remoteManager";
 import { logout, whoami } from "../../app/services/remotes/authService";
 import { initAppDB } from "../../app/services/storage/db";
 import {
@@ -124,7 +120,7 @@ export function RemotesSettingsView() {
     await Promise.all(
       remoteList.map(async (remote) => {
         try {
-          const result = await whoami(remote.base_url, remote.api_key);
+          const result = await whoami(remote.base_url);
           setAuthStatus((prev) => {
             const next = new Map(prev);
             next.set(remote.remote_id, {
@@ -148,7 +144,7 @@ export function RemotesSettingsView() {
 
   const checkSingleAuthStatus = async (remote: Remote) => {
     try {
-      const result = await whoami(remote.base_url, remote.api_key);
+      const result = await whoami(remote.base_url);
       setAuthStatus((prev) => {
         const next = new Map(prev);
         next.set(remote.remote_id, {
@@ -210,19 +206,11 @@ export function RemotesSettingsView() {
   const handleLogout = async (remote: Remote) => {
     setLoggingOut(remote.remote_id);
     try {
-      // if using api key auth, we just need to clear the key locally (no server logout)
-      // if using session auth, we need to call the logout endpoint
-      if (!remote.api_key) {
-        const result = await logout(remote.base_url);
-        if (!result.success) {
-          toast.error(result.error || "logout failed");
-          return;
-        }
-      }
-
-      // clear api_key if it was set (for api key auth, this is the full "logout")
-      if (remote.api_key) {
-        await updateRemote(remote.remote_id, { api_key: undefined });
+      // call the logout endpoint to clear session cookie
+      const result = await logout(remote.base_url);
+      if (!result.success) {
+        toast.error(result.error || "logout failed");
+        return;
       }
 
       toast.success(`logged out from ${remote.name}`);
@@ -233,7 +221,7 @@ export function RemotesSettingsView() {
         return next;
       });
 
-      // refresh remotes list to reflect cleared api_key
+      // refresh remotes list
       const updated = await getAllRemotes();
       setRemotes(updated);
     } catch (err) {

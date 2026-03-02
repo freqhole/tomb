@@ -59,13 +59,13 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
 #[tauri::command]
 pub async fn close_setup_wizard(
     app: AppHandle<Wry>,
-    api_key: Option<String>,
+    invite_code: Option<String>,
     config_path: Option<String>,
     _server_port: Option<u16>,
 ) -> Result<(), String> {
-    // save api key to file for persistent storage (used by get_freqhole_config)
-    if let Some(key) = &api_key {
-        crate::commands::save_api_key(&app, key)?;
+    // save invite code to file for persistent storage (used by get_freqhole_config)
+    if let Some(code) = &invite_code {
+        crate::commands::save_invite_code(&app, code)?;
     }
 
     // start server if config path provided

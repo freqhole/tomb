@@ -158,22 +158,73 @@ pub async fn regenerate_api_key(
     Ok(Json(response))
 }
 
-/// redeem invite handler - creates new user and session from invite code
+/// redeem invite handler - creates session from invite code
+///
+/// for regular invite codes: creates a new user and session (requires username)
+/// for account-link codes: creates a session for the existing linked user (no username needed)
 ///
 /// does not require authentication
 pub async fn redeem_invite(
     session: Session,
     Json(request): Json<RedeemInviteRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Create user via grimoire
-    // role is None to let the invite code's grants_role be used
+    let service = grimoire::users::UserService::new();
+
+    // first, check what type of invite code this is
+    let code_response = service.check_invite_code(&request.invite_code).await;
+    if !code_response.is_success() {
+        return Err(ApiError::BadRequest("invalid invite code".to_string()));
+    }
+
+    let invite_code = code_response
+        .data
+        .ok_or_else(|| ApiError::BadRequest("invalid invite code".to_string()))?;
+
+    // handle account-link codes: create session for existing user
+    if invite_code.code_type == grimoire::users::InviteCodeType::AccountLink {
+        let linked_user_id = invite_code.link_for_user_id.ok_or_else(|| {
+            ApiError::Internal("account-link code missing linked user".to_string())
+        })?;
+
+        // get the linked user
+        let user_response = service.get_user(&linked_user_id).await;
+        if !user_response.is_success() {
+            return Err(ApiError::BadRequest("linked user not found".to_string()));
+        }
+
+        let user = user_response
+            .data
+            .ok_or_else(|| ApiError::Internal("failed to get linked user".to_string()))?;
+
+        // mark invite code as used
+        let _ = service
+            .mark_invite_used(&request.invite_code, &user.id)
+            .await;
+
+        // create session for existing user
+        session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
+
+        return Ok(Json(serde_json::json!({
+            "message": "logged in via account-link code",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role.to_string(),
+            }
+        })));
+    }
+
+    // handle regular invite codes: create new user and session
+    let username = request
+        .username
+        .ok_or_else(|| ApiError::BadRequest("username is required for invite codes".to_string()))?;
+
     let create_request = grimoire::users::CreateUserRequest {
-        username: request.username.clone(),
-        role: None,
+        username: username.clone(),
+        role: None, // let the invite code's grants_role be used
         invite_code: Some(request.invite_code),
     };
 
-    let service = grimoire::users::UserService::new();
     let user_response = service.register_user(&create_request).await;
 
     if !user_response.is_success() {
@@ -182,17 +233,16 @@ pub async fn redeem_invite(
                 .errors
                 .first()
                 .map(|e| e.detail.clone())
-                .unwrap_or_else(|| "Failed to register user".to_string()),
+                .unwrap_or_else(|| "failed to register user".to_string()),
         ));
     }
 
     let user = user_response.data.ok_or_else(|| {
-        ApiError::Internal("Failed to get user data after registration".to_string())
+        ApiError::Internal("failed to get user data after registration".to_string())
     })?;
 
-    // Create session
-    let user_id = user.id.clone();
-    session::save_session(&session, &user_id, &user.username, &user.role.to_string()).await?;
+    // create session
+    session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
 
     Ok(Json(serde_json::json!({
         "message": "user created and logged in",

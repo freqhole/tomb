@@ -204,11 +204,14 @@ pub struct CreateAdminResult {
     pub success: bool,
     pub user_id: Option<String>,
     pub username: Option<String>,
-    pub api_key: Option<String>,
+    pub invite_code: Option<String>,
     pub error: Option<String>,
 }
 
-/// create admin user with API key (call after run_setup_core)
+/// create admin user with account-link invite code (call after run_setup_core)
+///
+/// the invite code can be used to authenticate the main window by calling
+/// the /api/auth/invite endpoint
 #[tauri::command]
 pub async fn create_admin_user(username: String) -> CreateAdminResult {
     let service = grimoire::users::UserService::new();
@@ -224,15 +227,17 @@ pub async fn create_admin_user(username: String) -> CreateAdminResult {
 
     match response.data {
         Some(user) => {
-            // generate API key for admin user
-            let key_response = service.generate_api_key(&user.id).await;
-            let api_key = key_response.data.and_then(|u| u.api_key);
+            // generate account-link invite code for the new user
+            let invite_response = service
+                .create_account_link_code_internal(&user.id)
+                .await;
+            let invite_code = invite_response.data.map(|c| c.code);
 
             CreateAdminResult {
                 success: true,
                 user_id: Some(user.id),
                 username: Some(user.username),
-                api_key,
+                invite_code,
                 error: None,
             }
         }
@@ -246,7 +251,7 @@ pub async fn create_admin_user(username: String) -> CreateAdminResult {
                 success: false,
                 user_id: None,
                 username: None,
-                api_key: None,
+                invite_code: None,
                 error: Some(error),
             }
         }
@@ -375,25 +380,30 @@ pub struct FreqholeConfig {
     pub server_name: String,
     /// server URL (e.g. http://localhost:8686)
     pub server_url: String,
-    /// api key for authentication (if available)
-    pub api_key: Option<String>,
+    /// invite code for authentication (if available, used for initial login)
+    pub invite_code: Option<String>,
 }
 
-/// save api key to file for persistent storage
-pub fn save_api_key(app_handle: &tauri::AppHandle, api_key: &str) -> Result<(), String> {
-    let api_key_path = app_handle
+/// save invite code to file for persistent storage
+pub fn save_invite_code(app_handle: &tauri::AppHandle, invite_code: &str) -> Result<(), String> {
+    let invite_code_path = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join(".api_key");
-    std::fs::write(&api_key_path, api_key).map_err(|e| format!("failed to save api key: {}", e))?;
+        .join(".invite_code");
+    std::fs::write(&invite_code_path, invite_code)
+        .map_err(|e| format!("failed to save invite code: {}", e))?;
     Ok(())
 }
 
-/// read api key from file
-fn read_api_key(app_handle: &tauri::AppHandle) -> Option<String> {
-    let api_key_path = app_handle.path().app_data_dir().ok()?.join(".api_key");
-    std::fs::read_to_string(&api_key_path).ok()
+/// read invite code from file
+fn read_invite_code(app_handle: &tauri::AppHandle) -> Option<String> {
+    let invite_code_path = app_handle
+        .path()
+        .app_data_dir()
+        .ok()?
+        .join(".invite_code");
+    std::fs::read_to_string(&invite_code_path).ok()
 }
 
 /// get freqhole server config (for bridge communication with spume)
@@ -419,14 +429,14 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
 
     let config = grimoire::config::get_config();
     let server = config.server.as_ref()?;
-    let api_key = read_api_key(&app_handle);
+    let invite_code = read_invite_code(&app_handle);
 
     Some(FreqholeConfig {
         server_id: server.id.clone(),
         server_name: server.name.clone(),
         // always use localhost for the client URL (not the bind address like 0.0.0.0)
         server_url: format!("http://localhost:{}", server.port),
-        api_key,
+        invite_code,
     })
 }
 

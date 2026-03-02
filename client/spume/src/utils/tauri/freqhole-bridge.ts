@@ -20,8 +20,8 @@ export interface FreqholeConfig {
   server_name: string;
   /** server URL (e.g. http://localhost:8686) */
   server_url: string;
-  /** api key for authentication (if available) */
-  api_key?: string;
+  /** invite code for authentication (used for initial login after setup) */
+  invite_code?: string;
 }
 
 /**

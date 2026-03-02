@@ -22,7 +22,6 @@ interface SetupResult {
   root_username: string | null;
   admin_user_id: string | null;
   admin_username: string | null;
-  api_key: string | null;
   invite_code: string | null;
   errors: string[];
 }
@@ -31,7 +30,7 @@ interface CreateAdminResult {
   success: boolean;
   user_id: string | null;
   username: string | null;
-  api_key: string | null;
+  invite_code: string | null;
   error: string | null;
 }
 
@@ -79,7 +78,7 @@ export default function SetupView() {
   const [serverImage, setServerImage] = createSignal<string | null>(null);
   const [username, setUsername] = createSignal("");
   // setup results
-  const [apiKey, setApiKey] = createSignal("");
+  const [inviteCode, setInviteCode] = createSignal("");
   const [error, setError] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   // music step state
@@ -228,8 +227,8 @@ export default function SetupView() {
       });
 
       if (result.success) {
-        if (result.api_key) {
-          setApiKey(result.api_key);
+        if (result.invite_code) {
+          setInviteCode(result.invite_code);
         }
         setStep("music");
       } else {
@@ -302,11 +301,11 @@ export default function SetupView() {
 
   async function finishSetup() {
     try {
-      // close wizard and open main window with api key and port
+      // close wizard and open main window with invite code and port
       // server will be started by the Tauri command
       const configPath = `${appDataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
-        apiKey: apiKey(),
+        inviteCode: inviteCode(),
         configPath,
         serverPort: serverPort(),
       });

@@ -576,8 +576,12 @@ pub struct ApiKeyRegenerateResponse {
 }
 
 /// redeem invite code request
+///
+/// for regular invite codes: username is required to create a new user
+/// for account-link codes: username is ignored (existing user is used)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RedeemInviteRequest {
     pub invite_code: String,
-    pub username: String,
+    /// required for regular invite codes, ignored for account-link codes
+    pub username: Option<String>,
 }

@@ -29,7 +29,7 @@ pub struct AuthenticatedUser {
 
 /// require authentication middleware
 ///
-/// validates session cookie, api key header, or api key query param
+/// validates session cookie or api key header
 /// injects AuthenticatedUser into request extensions
 pub async fn require_auth(
     session: Session,
@@ -56,18 +56,6 @@ pub async fn require_auth(
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(api_key) = auth_str.strip_prefix("Bearer ") {
-                if let Some(auth_user) = validate_api_key(api_key).await {
-                    request.extensions_mut().insert(auth_user);
-                    return Ok(next.run(request).await);
-                }
-            }
-        }
-    }
-
-    // Try API key from query parameter (for media URLs in tauri/webview)
-    if let Some(query) = request.uri().query() {
-        for param in query.split('&') {
-            if let Some(api_key) = param.strip_prefix("key=") {
                 if let Some(auth_user) = validate_api_key(api_key).await {
                     request.extensions_mut().insert(auth_user);
                     return Ok(next.run(request).await);

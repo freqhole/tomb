@@ -53,6 +53,7 @@ import {
   initCachedAudioURLs,
 } from "../music/services/cache/blobCache";
 import { getAllRemotes, upsertTauriRemote } from "./services/remotes/remoteManager";
+import { auth } from "freqhole-api-client";
 import {
   registerServiceWorker,
   updateAvailable,
@@ -188,15 +189,31 @@ export function App() {
     debug(`got config from tauri bridge: ${config.server_name} @ ${config.server_url}`);
 
     try {
-      // upsert creates or updates the tauri-managed remote
+      // if we have an invite code, use it to authenticate first
+      if (config.invite_code) {
+        debug("invite code found, authenticating via invite redemption...");
+        const redeemResult = await auth.redeemInvite(config.server_url, {
+          invite_code: config.invite_code,
+          username: null, // account-link codes don't need username
+        });
+        if (redeemResult.success) {
+          debug("invite code authentication successful");
+          // note: the server sets a session cookie, which will be used for subsequent requests
+          // the invite code is one-time use, so we don't need to store it
+        } else {
+          console.warn("invite code authentication failed:", redeemResult);
+          // continue anyway - user may need to re-authenticate via the UI
+        }
+      }
+
+      // upsert creates or updates the tauri-managed remote (no api_key needed now)
       const remote = await upsertTauriRemote({
         server_id: config.server_id,
         name: config.server_name,
         base_url: config.server_url,
-        api_key: config.api_key,
       });
       // use useRemoteSource to properly switch data source AND set active_remote_id
-      await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
+      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       debug(`activated tauri remote: ${remote.name} (${remote.base_url})`);
 
       // subscribe to config updates (server restarts)
@@ -206,14 +223,8 @@ export function App() {
           server_id: newConfig.server_id,
           name: newConfig.server_name,
           base_url: newConfig.server_url,
-          api_key: newConfig.api_key,
         });
-        await useRemoteSource(
-          updatedRemote.remote_id,
-          updatedRemote.name,
-          updatedRemote.base_url,
-          updatedRemote.api_key
-        );
+        await useRemoteSource(updatedRemote.remote_id, updatedRemote.name, updatedRemote.base_url);
         queryClient.invalidateQueries();
         debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
       });
@@ -440,7 +451,7 @@ export function App() {
           });
           // activate and switch to the newly added remote
           void (async () => {
-            await useRemoteSource(remote.remote_id, remote.name, remote.base_url, remote.api_key);
+            await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
             setHasRemotes(true);
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });

@@ -45,7 +45,6 @@ export interface SyncCheckResult {
 async function downloadAndStoreImages(
   remoteUrl: string,
   apiImages: Array<{ blob_id: string; is_primary: number; blob_type?: string }> | null | undefined,
-  apiKey?: string,
 ): Promise<ImageMetadata[]> {
   if (!apiImages?.length) return [];
 
@@ -54,13 +53,8 @@ async function downloadAndStoreImages(
   for (const img of apiImages) {
     try {
       const imageUrl = `${remoteUrl}/api/blobs/${img.blob_id}`;
-      const headers: HeadersInit = {};
-      if (apiKey) {
-        headers["Authorization"] = `Bearer ${apiKey}`;
-      }
       const response = await fetch(imageUrl, {
-        credentials: apiKey ? "omit" : "include",
-        headers,
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -92,7 +86,7 @@ async function downloadAndStoreImages(
       debug("downloadSync", `error downloading image ${img.blob_id}:`, err);
       // fall back to remote_url reference
       results.push({
-        remote_url: getRemoteMediaUrl(remoteUrl, img.blob_id, apiKey),
+        remote_url: getRemoteMediaUrl(remoteUrl, img.blob_id),
         is_primary: img.is_primary === 1,
         blob_type: (img.blob_type as ImageMetadata["blob_type"]) || "thumbnail",
       });
@@ -158,7 +152,6 @@ export async function downloadPlaylist(
   remoteUrl: string,
   remotePlaylistId: string,
   onProgress?: (progress: DownloadProgress) => void,
-  apiKey?: string,
 ): Promise<void> {
   const db = await initMusicDB();
 
@@ -201,7 +194,6 @@ export async function downloadPlaylist(
     const etag = await apiClient.music.getPlaylistETag(
       remoteUrl,
       remotePlaylistId,
-      apiKey,
     );
     if (!etag) {
       throw new Error("failed to fetch playlist etag");
@@ -210,7 +202,7 @@ export async function downloadPlaylist(
     // fetch playlist metadata
     const playlistResult = await apiClient.music.getPlaylistById(remoteUrl, {
       id: remotePlaylistId,
-    }, apiKey);
+    });
     if (!playlistResult.success) {
       throw new Error("failed to fetch playlist metadata");
     }
@@ -229,7 +221,7 @@ export async function downloadPlaylist(
         sort_direction: null,
         limit,
         offset,
-      }, apiKey);
+      });
 
       if (!songsResult.success) {
         console.error("fetch playlist songs error:", songsResult);
@@ -253,7 +245,7 @@ export async function downloadPlaylist(
     });
 
     // download playlist images to local storage
-    const playlistImages = await downloadAndStoreImages(remoteUrl, remotePlaylist.images, apiKey);
+    const playlistImages = await downloadAndStoreImages(remoteUrl, remotePlaylist.images);
 
     // create local playlist
     const localPlaylistId = generateUUID();
@@ -291,7 +283,7 @@ export async function downloadPlaylist(
         // fetch blob metadata to get SHA256
         const metadataResult = await apiClient.music.blobMetadata(remoteUrl, {
           id: song.media_blob_id,
-        }, apiKey);
+        });
 
         if (!metadataResult.success) {
           console.error(
@@ -334,13 +326,8 @@ export async function downloadPlaylist(
 
         // fetch audio blob from remote
         const blobUrl = `${remoteUrl}/api/blobs/${song.media_blob_id}`;
-        const audioHeaders: HeadersInit = {};
-        if (apiKey) {
-          audioHeaders["Authorization"] = `Bearer ${apiKey}`;
-        }
         const response = await fetch(blobUrl, {
-          credentials: apiKey ? "omit" : "include",
-          headers: audioHeaders,
+          credentials: "include",
         });
 
         if (!response.ok) {
@@ -366,7 +353,7 @@ export async function downloadPlaylist(
         if (artist) {
           const artistUpdates: Partial<typeof artistRecord> = {};
           if (artist.images?.length && !artistRecord.images?.length) {
-            artistUpdates.images = await downloadAndStoreImages(remoteUrl, artist.images, apiKey);
+            artistUpdates.images = await downloadAndStoreImages(remoteUrl, artist.images);
           }
           if (artist.urls?.length && !artistRecord.urls?.length) {
             artistUpdates.urls = buildEntityUrls(artist.urls);
@@ -387,7 +374,7 @@ export async function downloadPlaylist(
         if (album) {
           const albumUpdates: Partial<typeof albumRecord> = {};
           if (album.images?.length && !albumRecord.images?.length) {
-            albumUpdates.images = await downloadAndStoreImages(remoteUrl, album.images, apiKey);
+            albumUpdates.images = await downloadAndStoreImages(remoteUrl, album.images);
           }
           if (album.urls?.length && !albumRecord.urls?.length) {
             albumUpdates.urls = buildEntityUrls(album.urls);
@@ -402,7 +389,7 @@ export async function downloadPlaylist(
           await syncAlbumGenres(albumId, album?.genres);
 
         // download song images to local storage
-        const songImages = await downloadAndStoreImages(remoteUrl, song.images, apiKey);
+        const songImages = await downloadAndStoreImages(remoteUrl, song.images);
 
         // build song entity URLs from remote
         const songUrls = buildEntityUrls(song.urls);
@@ -511,7 +498,6 @@ function getExtensionFromMimeType(mimeType: string): string {
 export async function checkPlaylistUpdates(
   remoteUrl: string,
   localPlaylist: Playlist,
-  apiKey?: string,
 ): Promise<boolean> {
   if (!localPlaylist.source_remote_id) {
     throw new Error("not a synced playlist");
@@ -520,7 +506,6 @@ export async function checkPlaylistUpdates(
   const remoteEtag = await apiClient.music.getPlaylistETag(
     remoteUrl,
     localPlaylist.source_remote_id,
-    apiKey,
   );
 
   if (!remoteEtag) {
@@ -538,7 +523,6 @@ export async function syncPlaylist(
   remoteUrl: string,
   localPlaylist: Playlist,
   onProgress?: (progress: DownloadProgress) => void,
-  apiKey?: string,
 ): Promise<void> {
   const db = await initMusicDB();
 
@@ -557,7 +541,6 @@ export async function syncPlaylist(
     const newEtag = await apiClient.music.getPlaylistETag(
       remoteUrl,
       localPlaylist.source_remote_id,
-      apiKey,
     );
     if (!newEtag) {
       throw new Error("failed to fetch playlist etag");
@@ -566,14 +549,14 @@ export async function syncPlaylist(
     // fetch updated playlist metadata
     const playlistResult = await apiClient.music.getPlaylistById(remoteUrl, {
       id: localPlaylist.source_remote_id,
-    }, apiKey);
+    });
     if (!playlistResult.success) {
       throw new Error("failed to fetch updated playlist metadata");
     }
     const remotePlaylist = playlistResult.data;
 
     // download and update local playlist images
-    const playlistImages = await downloadAndStoreImages(remoteUrl, remotePlaylist.images, apiKey);
+    const playlistImages = await downloadAndStoreImages(remoteUrl, remotePlaylist.images);
     const updatedPlaylist: Playlist = {
       ...localPlaylist,
       title: remotePlaylist.title,
@@ -597,7 +580,7 @@ export async function syncPlaylist(
         sort_direction: null,
         limit,
         offset,
-      }, apiKey);
+      });
 
       if (!songsResult.success) {
         console.error("fetch playlist songs error:", songsResult);
@@ -638,7 +621,7 @@ export async function syncPlaylist(
         // fetch blob metadata to get SHA256
         const metadataResult = await apiClient.music.blobMetadata(remoteUrl, {
           id: song.media_blob_id,
-        }, apiKey);
+        });
 
         if (!metadataResult.success) {
           console.error("blob metadata fetch failed:", metadataResult);
@@ -675,13 +658,8 @@ export async function syncPlaylist(
 
         // download new song
         const blobUrl = `${remoteUrl}/api/blobs/${song.media_blob_id}`;
-        const audioHeaders: HeadersInit = {};
-        if (apiKey) {
-          audioHeaders["Authorization"] = `Bearer ${apiKey}`;
-        }
         const response = await fetch(blobUrl, {
-          credentials: apiKey ? "omit" : "include",
-          headers: audioHeaders,
+          credentials: "include",
         });
 
         if (!response.ok) {
@@ -705,7 +683,7 @@ export async function syncPlaylist(
         if (artist) {
           const artistUpdates: Partial<typeof artistRecord> = {};
           if (artist.images?.length && !artistRecord.images?.length) {
-            artistUpdates.images = await downloadAndStoreImages(remoteUrl, artist.images, apiKey);
+            artistUpdates.images = await downloadAndStoreImages(remoteUrl, artist.images);
           }
           if (artist.urls?.length && !artistRecord.urls?.length) {
             artistUpdates.urls = buildEntityUrls(artist.urls);
@@ -726,7 +704,7 @@ export async function syncPlaylist(
         if (album) {
           const albumUpdates: Partial<typeof albumRecord> = {};
           if (album.images?.length && !albumRecord.images?.length) {
-            albumUpdates.images = await downloadAndStoreImages(remoteUrl, album.images, apiKey);
+            albumUpdates.images = await downloadAndStoreImages(remoteUrl, album.images);
           }
           if (album.urls?.length && !albumRecord.urls?.length) {
             albumUpdates.urls = buildEntityUrls(album.urls);
@@ -741,7 +719,7 @@ export async function syncPlaylist(
           await syncAlbumGenres(albumId, album?.genres);
 
         // download song images to local storage
-        const songImages = await downloadAndStoreImages(remoteUrl, song.images, apiKey);
+        const songImages = await downloadAndStoreImages(remoteUrl, song.images);
 
         // build song entity URLs from remote
         const songUrls = buildEntityUrls(song.urls);
@@ -827,7 +805,6 @@ export async function syncPlaylist(
 export async function checkIfPlaylistNeedsSync(
   remoteUrl: string,
   remotePlaylistId: string,
-  apiKey?: string,
 ): Promise<SyncCheckResult> {
   const db = await initMusicDB();
 
@@ -851,7 +828,6 @@ export async function checkIfPlaylistNeedsSync(
   const remoteEtag = await apiClient.music.getPlaylistETag(
     remoteUrl,
     remotePlaylistId,
-    apiKey,
   );
 
   if (!remoteEtag) {

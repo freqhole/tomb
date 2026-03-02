@@ -10,19 +10,18 @@ import { queryKeys } from "./queryKeys";
 function adaptFeedImages(
   images: Array<{ blob_id: string; is_primary: number; blob_type: string }> | null | undefined,
   baseUrl: string,
-  apiKey?: string,
 ): ImageMetadata[] | null {
   if (!images || images.length === 0) return null;
   return images.map((img) => ({
     remote_blob_id: img.blob_id,
-    remote_url: getRemoteMediaUrl(baseUrl, img.blob_id, apiKey),
+    remote_url: getRemoteMediaUrl(baseUrl, img.blob_id),
     is_primary: img.is_primary === 1,
     blob_type: (img.blob_type as ImageMetadata["blob_type"]) ?? "thumbnail",
   }));
 }
 
 // adapt a raw API feed response to app-level types
-function adaptFeedResponse(data: any, baseUrl: string, apiKey?: string): FeedResponse {
+function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
   return {
     items: (data.items ?? []).map((item: any): FeedItem => ({
       id: item.id,
@@ -33,7 +32,7 @@ function adaptFeedResponse(data: any, baseUrl: string, apiKey?: string): FeedRes
       playlist_id: item.playlist_id ?? null,
       title: item.title,
       subtitle: item.subtitle ?? null,
-      images: adaptFeedImages(item.images, baseUrl, apiKey),
+      images: adaptFeedImages(item.images, baseUrl),
       created_at: item.created_at,
       user_id: item.user_id ?? null,
       username: item.username ?? null,
@@ -56,7 +55,7 @@ function adaptFeedResponse(data: any, baseUrl: string, apiKey?: string): FeedRes
       description: item.description ?? null,
       tags: item.tags ?? null,
       is_favorite: item.is_favorite ?? false,
-      collage_images: adaptFeedImages(item.collage_images, baseUrl, apiKey),
+      collage_images: adaptFeedImages(item.collage_images, baseUrl),
       entity_created_at: item.entity_created_at ?? null,
     })),
     total: data.total ?? 0,
@@ -76,13 +75,13 @@ export function useActivityFeedQuery(limit: number = 50) {
         offset: null,
         feed_types: null,
         user_id: null,
-      }, remote.api_key);
+      });
 
       if (!result.success) {
         throw new Error("failed to fetch activity feed");
       }
 
-      return adaptFeedResponse(result.data, remote.base_url, remote.api_key);
+      return adaptFeedResponse(result.data, remote.base_url);
     },
     enabled: !!getCurrentRemote(),
     staleTime: 30_000,
@@ -142,13 +141,13 @@ export function useActivityFeedInfiniteQuery(
           offset: pageParam,
           feed_types: types,
           user_id: uid,
-        }, remote.api_key);
+        });
 
         if (!result.success) {
           throw new Error("failed to fetch activity feed");
         }
 
-        return adaptFeedResponse(result.data, remote.base_url, remote.api_key);
+        return adaptFeedResponse(result.data, remote.base_url);
       },
       getNextPageParam: (lastPage: FeedResponse, allPages: FeedResponse[]) => {
         const totalFetched = allPages.reduce((sum, page) => sum + page.items.length, 0);
@@ -174,7 +173,7 @@ export function useTopSongsQuery(limit: number = 10, days?: number) {
       const result = await apiClient.music.topSongs(remote.base_url, {
         limit,
         days: days ?? null,
-      }, remote.api_key);
+      });
 
       if (!result.success) {
         throw new Error("failed to fetch top songs");
@@ -199,7 +198,7 @@ export function useTopAlbumsQuery(limit: number = 10, days?: number) {
       const result = await apiClient.music.topAlbums(remote.base_url, {
         limit,
         days: days ?? null,
-      }, remote.api_key);
+      });
 
       if (!result.success) {
         throw new Error("failed to fetch top albums");
@@ -224,7 +223,7 @@ export function useTopArtistsQuery(limit: number = 10, days?: number) {
       const result = await apiClient.music.topArtists(remote.base_url, {
         limit,
         days: days ?? null,
-      }, remote.api_key);
+      });
 
       if (!result.success) {
         throw new Error("failed to fetch top artists");
