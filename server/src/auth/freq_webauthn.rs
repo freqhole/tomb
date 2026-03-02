@@ -76,7 +76,7 @@ impl FreqWebauthn {
         username: &str,
         exclude_credentials: Vec<CredentialID>,
     ) -> Result<(CreationChallengeResponse, PasskeyRegistration), ApiError> {
-        // Create webauthn instance for this origin
+        // create webauthn instance for this origin
         let rp_origin = Url::parse(origin)
             .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
 
@@ -86,11 +86,11 @@ impl FreqWebauthn {
             .build()
             .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
 
-        // Create deterministic UUID from user_id string using UUID v5
-        // Use NAMESPACE_URL as the namespace (arbitrary but consistent)
+        // create deterministic UUID from user_id string using UUID v5
+        // use NAMESPACE_URL as the namespace (arbitrary but consistent)
         let user_unique_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, user_id.as_bytes());
 
-        // Start passkey registration
+        // start passkey registration
         webauthn
             .start_passkey_registration(
                 user_unique_id,
@@ -110,7 +110,7 @@ impl FreqWebauthn {
         reg: &RegisterPublicKeyCredential,
         state: &PasskeyRegistration,
     ) -> Result<Passkey, ApiError> {
-        // Create webauthn instance for this origin
+        // create webauthn instance for this origin
         let rp_origin = Url::parse(origin)
             .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
 
@@ -120,7 +120,7 @@ impl FreqWebauthn {
             .build()
             .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
 
-        // Finish passkey registration
+        // finish passkey registration
         webauthn
             .finish_passkey_registration(reg, state)
             .map_err(|e| {
@@ -136,7 +136,7 @@ impl FreqWebauthn {
         origin: &str,
         credentials: &[Passkey],
     ) -> Result<(RequestChallengeResponse, PasskeyAuthentication), ApiError> {
-        // Create webauthn instance for this origin
+        // create webauthn instance for this origin
         let rp_origin = Url::parse(origin)
             .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
 
@@ -146,7 +146,7 @@ impl FreqWebauthn {
             .build()
             .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
 
-        // Start passkey authentication
+        // start passkey authentication
         webauthn
             .start_passkey_authentication(credentials)
             .map_err(|e| ApiError::Internal(format!("webauthn authentication failed: {}", e)))
@@ -161,7 +161,7 @@ impl FreqWebauthn {
         auth: &PublicKeyCredential,
         state: &PasskeyAuthentication,
     ) -> Result<AuthenticationResult, ApiError> {
-        // Create webauthn instance for this origin
+        // create webauthn instance for this origin
         let rp_origin = Url::parse(origin)
             .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
 
@@ -171,7 +171,7 @@ impl FreqWebauthn {
             .build()
             .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
 
-        // Finish passkey authentication
+        // finish passkey authentication
         webauthn
             .finish_passkey_authentication(auth, state)
             .map_err(|e| {
@@ -180,7 +180,7 @@ impl FreqWebauthn {
     }
 }
 
-// Non-feature-gated stub for when webauthn is disabled
+// non-feature-gated stub for when webauthn is disabled
 #[cfg(not(feature = "webauthn"))]
 pub struct FreqWebauthn {
     _rp_id: String,
@@ -215,32 +215,32 @@ pub async fn register_start(
 ) -> Result<impl IntoResponse, ApiError> {
     let user_service = grimoire::users::UserService::new();
 
-    // Check invite code first to determine if this is an account-link flow
+    // check invite code first to determine if this is an account-link flow
     let (user_id, is_account_link) = if let Some(ref invite_code) = request.invite_code {
         let code_response = user_service.check_invite_code(invite_code).await;
         if !code_response.is_success() {
-            // Vague error for invalid/expired/used invite codes - don't reveal details
+            // vague error for invalid/expired/used invite codes - don't reveal details
             return Err(ApiError::BadRequest("invalid invite code".to_string()));
         }
 
         let code = code_response.data.unwrap();
         if code.is_account_link_code() {
-            // Account-link code: get the target user
+            // account-link code: get the target user
             let target_user_id = code.get_target_user_id().ok_or_else(|| {
-                // Internal error - shouldn't happen with valid code
+                // internal error - shouldn't happen with valid code
                 ApiError::BadRequest("invalid invite code".to_string())
             })?;
 
-            // Verify target user exists and username matches
+            // verify target user exists and username matches
             let target_user = user_service.get_user(target_user_id).await;
             if !target_user.is_success() {
-                // Internal error - target user was deleted after code created
+                // internal error - target user was deleted after code created
                 return Err(ApiError::BadRequest("invalid invite code".to_string()));
             }
 
             let user = target_user.data.unwrap();
             if user.username != request.username {
-                // Valid code but wrong username - give helpful error
+                // valid code but wrong username - give helpful error
                 return Err(ApiError::BadRequest(format!(
                     "username '{}' does not match account-link target user '{}'",
                     request.username, user.username
@@ -249,25 +249,25 @@ pub async fn register_start(
 
             (user.id.clone(), true)
         } else {
-            // Regular invite code: check user doesn't exist
+            // regular invite code: check user doesn't exist
             let existing_user = user_service.get_user_by_username(&request.username).await;
             if existing_user.is_success() {
                 return Err(ApiError::BadRequest("username already exists".to_string()));
             }
-            // Generate new user ID
+            // generate new user ID
             (uuid::Uuid::new_v4().to_string().replace("-", ""), false)
         }
     } else {
-        // No invite code: check user doesn't exist
+        // no invite code: check user doesn't exist
         let existing_user = user_service.get_user_by_username(&request.username).await;
         if existing_user.is_success() {
             return Err(ApiError::BadRequest("username already exists".to_string()));
         }
-        // Generate new user ID
+        // generate new user ID
         (uuid::Uuid::new_v4().to_string().replace("-", ""), false)
     };
 
-    // Get existing credentials to exclude (for account-link, exclude existing passkeys)
+    // get existing credentials to exclude (for account-link, exclude existing passkeys)
     let exclude_credentials = if is_account_link {
         let webauthn_service = grimoire::users::WebAuthnService::new();
         webauthn_service
@@ -282,15 +282,15 @@ pub async fn register_start(
         Vec::new()
     };
 
-    // Extract rp_id (hostname) from the validated origin
+    // extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "freqhole"; // TODO: get from config
 
-    // Create FreqWebauthn instance
+    // create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
-    // Start registration
+    // start registration
     let (ccr, reg_state) = freq_webauthn.start_registration(
         &origin.0,
         &user_id,
@@ -298,7 +298,7 @@ pub async fn register_start(
         exclude_credentials,
     )?;
 
-    // Store registration state in session (include is_account_link flag)
+    // store registration state in session (include is_account_link flag)
     session
         .insert(
             "reg_state",
@@ -324,7 +324,7 @@ pub async fn register_finish(
     session: Session,
     Json(reg): Json<RegisterPublicKeyCredential>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Get registration state from session (now includes is_account_link flag)
+    // get registration state from session (now includes is_account_link flag)
     let (user_id, username, reg_state, invite_code, is_account_link): (
         String,
         String,
@@ -337,33 +337,33 @@ pub async fn register_finish(
         .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
         .ok_or_else(|| ApiError::BadRequest("no registration in progress".to_string()))?;
 
-    // Remove registration state from session
+    // remove registration state from session
     let _ = session.remove_value("reg_state").await;
 
-    // Extract rp_id (hostname) from the validated origin
+    // extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "freqhole";
 
-    // Create FreqWebauthn instance
+    // create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
-    // Finish registration
+    // finish registration
     let passkey = freq_webauthn.finish_registration(&origin.0, &reg, &reg_state)?;
 
     let user_service = grimoire::users::UserService::new();
 
-    // For account-link, the user already exists; for new registration, create user
+    // for account-link, the user already exists; for new registration, create user
     let user = if is_account_link {
-        // Get existing user (we already validated in register_start)
+        // get existing user (we already validated in register_start)
         let user_response = user_service.get_user(&user_id).await;
         if !user_response.is_success() {
             return Err(ApiError::Internal("failed to get user".to_string()));
         }
 
-        // Mark invite code as used
+        // mark invite code as used
         if let Some(ref code) = invite_code {
-            // Use register_user to mark the code as used (it handles account-link properly)
+            // use register_user to mark the code as used (it handles account-link properly)
             let create_request = grimoire::users::CreateUserRequest {
                 username: username.clone(),
                 role: None,
@@ -374,7 +374,7 @@ pub async fn register_finish(
 
         user_response.data.unwrap()
     } else {
-        // Create new user account
+        // create new user account
         let create_request = grimoire::users::CreateUserRequest {
             username: username.clone(),
             role: None,
@@ -398,7 +398,7 @@ pub async fn register_finish(
             .ok_or_else(|| ApiError::Internal("failed to get user data".to_string()))?
     };
 
-    // Save the credential
+    // save the credential
     let webauthn_service = grimoire::users::WebAuthnService::new();
     let cred_response = webauthn_service.save_credential(&user.id, &passkey).await;
 
@@ -406,7 +406,7 @@ pub async fn register_finish(
         return Err(ApiError::Internal("failed to save credential".to_string()));
     }
 
-    // Create session to auto-login
+    // create session to auto-login
     session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
 
     Ok(Json(serde_json::json!({
@@ -430,7 +430,7 @@ pub async fn login_start(
 ) -> Result<impl IntoResponse, ApiError> {
     let username = &request.username;
 
-    // Look up user
+    // look up user
     let user_service = grimoire::users::UserService::new();
     let user_response = user_service.get_user_by_username(username).await;
 
@@ -442,7 +442,7 @@ pub async fn login_start(
         .data
         .ok_or_else(|| ApiError::Internal("failed to get user data".to_string()))?;
 
-    // Get user's credentials
+    // get user's credentials
     let webauthn_service = grimoire::users::WebAuthnService::new();
     let creds_response = webauthn_service.get_credentials(&user.id).await;
 
@@ -458,18 +458,18 @@ pub async fn login_start(
         return Err(ApiError::BadRequest("user has no credentials".to_string()));
     }
 
-    // Extract rp_id (hostname) from the validated origin
+    // extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "freqhole";
 
-    // Create FreqWebauthn instance
+    // create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
-    // Start authentication
+    // start authentication
     let (rcr, auth_state) = freq_webauthn.start_authentication(&origin.0, &credentials)?;
 
-    // Store auth state in session
+    // store auth state in session
     session
         .insert("auth_state", (user.id, auth_state))
         .await
@@ -486,31 +486,31 @@ pub async fn login_finish(
     session: Session,
     Json(auth): Json<PublicKeyCredential>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Get auth state from session
+    // get auth state from session
     let (user_id, auth_state): (String, PasskeyAuthentication) = session
         .get("auth_state")
         .await
         .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
         .ok_or_else(|| ApiError::BadRequest("no authentication in progress".to_string()))?;
 
-    // Remove auth state from session
+    // remove auth state from session
     let _ = session.remove_value("auth_state").await;
 
-    // Extract rp_id (hostname) from the validated origin
+    // extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
     let rp_name = "freqhole";
 
-    // Create FreqWebauthn instance
+    // create FreqWebauthn instance
     let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
 
-    // Finish authentication
+    // finish authentication
     let _auth_result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;
 
-    // Update credential counter (optional, for now we'll skip this)
-    // In production, you'd want to update the credential's counter to prevent replay attacks
+    // update credential counter (optional, for now we'll skip this)
+    // in production, you'd want to update the credential's counter to prevent replay attacks
 
-    // Get user info
+    // get user info
     let user_service = grimoire::users::UserService::new();
     let user_response = user_service.get_user(&user_id).await;
 
@@ -522,7 +522,7 @@ pub async fn login_finish(
         .data
         .ok_or_else(|| ApiError::Internal("no user data".to_string()))?;
 
-    // Create session
+    // create session
     session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
 
     Ok(Json(serde_json::json!({
