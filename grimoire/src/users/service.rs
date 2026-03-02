@@ -482,6 +482,17 @@ impl UserService {
         Ok(invite_code)
     }
 
+    /// Check an invite code and return its data if valid (public version)
+    ///
+    /// This allows callers to inspect the invite code type before registration.
+    /// Useful for determining if this is an account-link code.
+    pub async fn check_invite_code(&self, code: &str) -> GrimoireResponse<InviteCode> {
+        match self.validate_invite_code(code).await {
+            Ok(invite_code) => GrimoireResponse::success("Invite code is valid", invite_code),
+            Err(err) => GrimoireResponse::failure("Invalid invite code", vec![err.into()]),
+        }
+    }
+
     /// List invite codes
     pub async fn list_invite_codes(
         &self,

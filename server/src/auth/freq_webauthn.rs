@@ -213,22 +213,74 @@ pub async fn register_start(
     session: Session,
     Json(request): Json<RegisterStartRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Validate invite code if required
     let user_service = grimoire::users::UserService::new();
 
-    // Check if user already exists
-    let existing_user = user_service.get_user_by_username(&request.username).await;
-    if existing_user.is_success() {
-        return Err(ApiError::BadRequest("Username already exists".to_string()));
-    }
+    // Check invite code first to determine if this is an account-link flow
+    let (user_id, is_account_link) = if let Some(ref invite_code) = request.invite_code {
+        let code_response = user_service.check_invite_code(invite_code).await;
+        if !code_response.is_success() {
+            // Vague error for invalid/expired/used invite codes - don't reveal details
+            return Err(ApiError::BadRequest("invalid invite code".to_string()));
+        }
 
-    // Generate a temporary user ID for webauthn registration
-    // The actual user account will be created in finish_register
-    // We use UUID v4 to generate a deterministic 32-char hex string
-    let user_id = uuid::Uuid::new_v4().to_string().replace("-", "");
+        let code = code_response.data.unwrap();
+        if code.is_account_link_code() {
+            // Account-link code: get the target user
+            let target_user_id = code.get_target_user_id().ok_or_else(|| {
+                // Internal error - shouldn't happen with valid code
+                ApiError::BadRequest("invalid invite code".to_string())
+            })?;
 
-    // Get existing credentials (none for new user)
-    let exclude_credentials = Vec::new();
+            // Verify target user exists and username matches
+            let target_user = user_service.get_user(target_user_id).await;
+            if !target_user.is_success() {
+                // Internal error - target user was deleted after code created
+                return Err(ApiError::BadRequest("invalid invite code".to_string()));
+            }
+
+            let user = target_user.data.unwrap();
+            if user.username != request.username {
+                // Valid code but wrong username - give helpful error
+                return Err(ApiError::BadRequest(format!(
+                    "username '{}' does not match account-link target user '{}'",
+                    request.username, user.username
+                )));
+            }
+
+            (user.id.clone(), true)
+        } else {
+            // Regular invite code: check user doesn't exist
+            let existing_user = user_service.get_user_by_username(&request.username).await;
+            if existing_user.is_success() {
+                return Err(ApiError::BadRequest("username already exists".to_string()));
+            }
+            // Generate new user ID
+            (uuid::Uuid::new_v4().to_string().replace("-", ""), false)
+        }
+    } else {
+        // No invite code: check user doesn't exist
+        let existing_user = user_service.get_user_by_username(&request.username).await;
+        if existing_user.is_success() {
+            return Err(ApiError::BadRequest("username already exists".to_string()));
+        }
+        // Generate new user ID
+        (uuid::Uuid::new_v4().to_string().replace("-", ""), false)
+    };
+
+    // Get existing credentials to exclude (for account-link, exclude existing passkeys)
+    let exclude_credentials = if is_account_link {
+        let webauthn_service = grimoire::users::WebAuthnService::new();
+        webauthn_service
+            .get_credentials(&user_id)
+            .await
+            .data
+            .unwrap_or_default()
+            .iter()
+            .map(|p| p.cred_id().clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // Extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
@@ -246,7 +298,7 @@ pub async fn register_start(
         exclude_credentials,
     )?;
 
-    // Store registration state in session
+    // Store registration state in session (include is_account_link flag)
     session
         .insert(
             "reg_state",
@@ -255,6 +307,7 @@ pub async fn register_start(
                 request.username.clone(),
                 reg_state,
                 request.invite_code.clone(),
+                is_account_link,
             ),
         )
         .await
@@ -271,12 +324,13 @@ pub async fn register_finish(
     session: Session,
     Json(reg): Json<RegisterPublicKeyCredential>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Get registration state from session
-    let (_temp_user_id, username, reg_state, invite_code): (
+    // Get registration state from session (now includes is_account_link flag)
+    let (user_id, username, reg_state, invite_code, is_account_link): (
         String,
         String,
         PasskeyRegistration,
         Option<String>,
+        bool,
     ) = session
         .get("reg_state")
         .await
@@ -297,37 +351,59 @@ pub async fn register_finish(
     // Finish registration
     let passkey = freq_webauthn.finish_registration(&origin.0, &reg, &reg_state)?;
 
-    // Create user account
-    // role is None to let the invite code's grants_role be used
-    let create_request = grimoire::users::CreateUserRequest {
-        username: username.clone(),
-        role: None,
-        invite_code: invite_code.clone(),
-    };
-
     let user_service = grimoire::users::UserService::new();
-    let user_response = user_service.register_user(&create_request).await;
 
-    if !user_response.is_success() {
-        return Err(ApiError::BadRequest(
-            user_response
-                .errors
-                .first()
-                .map(|e| e.detail.clone())
-                .unwrap_or_else(|| "Failed to create user".to_string()),
-        ));
-    }
+    // For account-link, the user already exists; for new registration, create user
+    let user = if is_account_link {
+        // Get existing user (we already validated in register_start)
+        let user_response = user_service.get_user(&user_id).await;
+        if !user_response.is_success() {
+            return Err(ApiError::Internal("failed to get user".to_string()));
+        }
 
-    let user = user_response
-        .data
-        .ok_or_else(|| ApiError::Internal("Failed to get user data".to_string()))?;
+        // Mark invite code as used
+        if let Some(ref code) = invite_code {
+            // Use register_user to mark the code as used (it handles account-link properly)
+            let create_request = grimoire::users::CreateUserRequest {
+                username: username.clone(),
+                role: None,
+                invite_code: Some(code.clone()),
+            };
+            let _ = user_service.register_user(&create_request).await;
+        }
+
+        user_response.data.unwrap()
+    } else {
+        // Create new user account
+        let create_request = grimoire::users::CreateUserRequest {
+            username: username.clone(),
+            role: None,
+            invite_code: invite_code.clone(),
+        };
+
+        let user_response = user_service.register_user(&create_request).await;
+
+        if !user_response.is_success() {
+            return Err(ApiError::BadRequest(
+                user_response
+                    .errors
+                    .first()
+                    .map(|e| e.detail.clone())
+                    .unwrap_or_else(|| "failed to create user".to_string()),
+            ));
+        }
+
+        user_response
+            .data
+            .ok_or_else(|| ApiError::Internal("failed to get user data".to_string()))?
+    };
 
     // Save the credential
     let webauthn_service = grimoire::users::WebAuthnService::new();
     let cred_response = webauthn_service.save_credential(&user.id, &passkey).await;
 
     if !cred_response.is_success() {
-        return Err(ApiError::Internal("Failed to save credential".to_string()));
+        return Err(ApiError::Internal("failed to save credential".to_string()));
     }
 
     // Create session to auto-login
@@ -359,27 +435,27 @@ pub async fn login_start(
     let user_response = user_service.get_user_by_username(username).await;
 
     if !user_response.is_success() {
-        return Err(ApiError::BadRequest("User not found".to_string()));
+        return Err(ApiError::BadRequest("user not found".to_string()));
     }
 
     let user = user_response
         .data
-        .ok_or_else(|| ApiError::Internal("Failed to get user data".to_string()))?;
+        .ok_or_else(|| ApiError::Internal("failed to get user data".to_string()))?;
 
     // Get user's credentials
     let webauthn_service = grimoire::users::WebAuthnService::new();
     let creds_response = webauthn_service.get_credentials(&user.id).await;
 
     if !creds_response.is_success() {
-        return Err(ApiError::Internal("Failed to get credentials".to_string()));
+        return Err(ApiError::Internal("failed to get credentials".to_string()));
     }
 
     let credentials = creds_response
         .data
-        .ok_or_else(|| ApiError::Internal("No credentials data".to_string()))?;
+        .ok_or_else(|| ApiError::Internal("no credentials data".to_string()))?;
 
     if credentials.is_empty() {
-        return Err(ApiError::BadRequest("User has no credentials".to_string()));
+        return Err(ApiError::BadRequest("user has no credentials".to_string()));
     }
 
     // Extract rp_id (hostname) from the validated origin
@@ -439,12 +515,12 @@ pub async fn login_finish(
     let user_response = user_service.get_user(&user_id).await;
 
     if !user_response.is_success() {
-        return Err(ApiError::Internal("Failed to get user".to_string()));
+        return Err(ApiError::Internal("failed to get user".to_string()));
     }
 
     let user = user_response
         .data
-        .ok_or_else(|| ApiError::Internal("No user data".to_string()))?;
+        .ok_or_else(|| ApiError::Internal("no user data".to_string()))?;
 
     // Create session
     session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
