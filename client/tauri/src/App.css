@@ -1009,3 +1009,14 @@ button.danger:hover {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* anchor link styles */
+a {
+  color: #fafafa;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: #ff1a9e;
+}

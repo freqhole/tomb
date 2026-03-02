@@ -13,6 +13,16 @@ export default defineConfig(async () => ({
   // use relative paths so assets work in Tauri's tauri:// protocol
   base: "./",
 
+  // bundle everything into single files for simpler embedding
+  build: {
+    rollupOptions: {
+      output: {
+        // bundle everything into a single JS file (no code splitting)
+        inlineDynamicImports: true,
+      },
+    },
+  },
+
   // vite options tailored for tauri development
   clearScreen: false,
   server: {
