@@ -88,12 +88,69 @@ export async function loginWithWebauthn(
   }
 }
 
-// register with webauthn
+// check if webauthn is supported and available in current context
+export function isWebAuthnAvailable(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    typeof navigator.credentials !== "undefined" &&
+    typeof navigator.credentials.create === "function"
+  );
+}
+
+// check if an error indicates passkey is not available (vs other errors)
+function isPasskeyUnavailableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+
+  // NotAllowedError: user denied or browser/platform blocked the request
+  // NotSupportedError: webauthn not supported in this context
+  // SecurityError: secure context required or other security issue
+  // AbortError: request was aborted
+  const unavailableErrorNames = ["NotAllowedError", "NotSupportedError", "SecurityError", "AbortError"];
+
+  return unavailableErrorNames.includes(err.name);
+}
+
+// fallback to simple invite redemption (no passkey, session-only auth)
+async function fallbackToInviteRedemption(
+  baseUrl: string,
+  username: string,
+  inviteCode: string,
+): Promise<AuthResult> {
+  debug("webauthn", "falling back to invite code redemption (no passkey)...");
+  try {
+    const redeemResult = await apiClient.auth.redeemInvite(baseUrl, {
+      invite_code: inviteCode,
+      username,
+    });
+
+    if (redeemResult.success) {
+      debug("webauthn", "invite code redemption successful (session-only auth)");
+      return { success: true };
+    } else {
+      console.error("invite redemption fallback failed:", redeemResult);
+      return { success: false, error: "failed to redeem invite code" };
+    }
+  } catch (err) {
+    console.error("invite redemption fallback error:", err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "failed to redeem invite code",
+    };
+  }
+}
+
+// register with webauthn, with fallback to invite redemption if passkey unavailable
 export async function registerWithWebauthn(
   baseUrl: string,
   username: string,
   inviteCode: string,
 ): Promise<AuthResult> {
+  // early check: if webauthn isn't available at all, go straight to fallback
+  if (!isWebAuthnAvailable()) {
+    debug("webauthn", "webauthn not available, using invite code fallback");
+    return fallbackToInviteRedemption(baseUrl, username, inviteCode);
+  }
+
   try {
     debug("webauthn", "starting registration for username:", username);
 
@@ -110,13 +167,27 @@ export async function registerWithWebauthn(
     }
     debug("webauthn", "register start response:", startResult.data);
 
-    // step 2: create webauthn credential
+    // step 2: create webauthn credential (this is where passkey creation happens)
     debug("webauthn", "requesting credential creation from browser...");
     const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(startResult.data);
-    const credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
+
+    let credential: PublicKeyCredential | null = null;
+    try {
+      credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
+    } catch (credErr) {
+      // if passkey creation failed due to unavailability, fall back to invite redemption
+      if (isPasskeyUnavailableError(credErr)) {
+        debug("webauthn", `passkey creation failed (${(credErr as Error).name}), falling back to invite redemption`);
+        return fallbackToInviteRedemption(baseUrl, username, inviteCode);
+      }
+      // re-throw other errors
+      throw credErr;
+    }
 
     if (!credential) {
-      return { success: false, error: "failed to create credential" };
+      // no credential and no error - unexpected, try fallback
+      debug("webauthn", "no credential returned, falling back to invite redemption");
+      return fallbackToInviteRedemption(baseUrl, username, inviteCode);
     }
     debug("webauthn", "credential created:", credential);
 
@@ -134,6 +205,13 @@ export async function registerWithWebauthn(
     return { success: true };
   } catch (err) {
     console.error("webauthn registration failed:", err);
+
+    // if the error indicates passkey unavailability, try fallback
+    if (isPasskeyUnavailableError(err)) {
+      debug("webauthn", `registration failed with passkey error (${(err as Error).name}), trying fallback`);
+      return fallbackToInviteRedemption(baseUrl, username, inviteCode);
+    }
+
     return {
       success: false,
       error: err instanceof Error ? err.message : "registration failed",

@@ -2,6 +2,7 @@ import { createSignal, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { Alert } from "../feedback/Alert";
 import { TextInput } from "../forms/TextInput";
+import { isWebAuthnAvailable } from "../../app/services/remotes/authService";
 
 export type AuthMode = "login" | "register";
 
@@ -123,23 +124,25 @@ export function AuthForm(props: AuthFormProps) {
       </Show>
 
       {/* info text */}
-      <div class="bg-[var(--color-bg-secondary)] rounded p-4">
-        <p class="caption text-[var(--color-text-tertiary)] leading-relaxed">
-          <Show
-            when={mode() === "login"}
-            fallback={
-              <>
-                freqhole uses passwordless authentication. you'll use your device's built-in
-                security (fingerprint, face recognition, or security key) to create and access your
-                account.
-              </>
-            }
-          >
-            use your device's built-in security (fingerprint, face recognition, or security key) to
-            sign in securely.
-          </Show>
-        </p>
-      </div>
+      <Show when={isWebAuthnAvailable()}>
+        <div class="bg-[var(--color-bg-secondary)] rounded p-4">
+          <p class="caption text-[var(--color-text-tertiary)] leading-relaxed">
+            <Show
+              when={mode() === "login"}
+              fallback={
+                <>
+                  freqhole uses passwordless authentication. you'll use your device's built-in
+                  security (fingerprint, face recognition, or security key) to create and access
+                  your account.
+                </>
+              }
+            >
+              use your device's built-in security (fingerprint, face recognition, or security key)
+              to sign in securely.
+            </Show>
+          </p>
+        </div>
+      </Show>
     </div>
   );
 }

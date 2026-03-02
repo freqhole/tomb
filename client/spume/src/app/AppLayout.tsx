@@ -19,7 +19,13 @@ import { TopNav } from "../components/navigation/TopNav";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
+import {
+  getCurrentRemote,
+  getCurrentUser,
+  getDataSource,
+  useLocalSource,
+  useRemoteSource,
+} from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
@@ -43,11 +49,7 @@ import {
   reorderQueue,
 } from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
-import {
-  deactivateAllRemotes,
-  getAllRemotes,
-  setActiveRemote,
-} from "./services/remotes/remoteManager";
+import { getAllRemotes, getRemoteById } from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
 import type { Remote, QueueHistoryEntry } from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";
@@ -162,11 +164,14 @@ export function AppLayout(props: AppLayoutProps) {
   // handle switching to local source
   const handleSwitchToLocal = async () => {
     try {
-      await deactivateAllRemotes();
-      // navigate to local route - useRouteDataSource hook will switch data source
+      debug("AppLayout", "switching to local source...");
+      // switch data source first
+      await useLocalSource();
+      // navigate to local route
       navigate("/local/songs");
       // invalidate all queries to refetch from local source
       queryClient.invalidateQueries();
+      debug("AppLayout", "switched to local source");
     } catch (error) {
       console.error("failed to switch to local:", error);
     }
@@ -175,11 +180,20 @@ export function AppLayout(props: AppLayoutProps) {
   // handle switching to remote source
   const handleSwitchToRemote = async (remoteId: string) => {
     try {
-      await setActiveRemote(remoteId);
-      // navigate to remote route - useRouteDataSource hook will switch data source
+      debug("AppLayout", `switching to remote: ${remoteId}...`);
+      // get remote info to switch data source
+      const remote = await getRemoteById(remoteId);
+      if (!remote) {
+        console.error("remote not found:", remoteId);
+        return;
+      }
+      // switch data source first
+      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+      // navigate to remote route
       navigate(`/${remoteId}/songs`);
       // invalidate all queries to refetch from remote source
       queryClient.invalidateQueries();
+      debug("AppLayout", `switched to remote: ${remote.name}`);
     } catch (error) {
       console.error("failed to switch to remote:", error);
     }
