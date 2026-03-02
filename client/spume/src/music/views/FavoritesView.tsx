@@ -320,7 +320,9 @@ export function FavoritesView(props: FavoritesViewProps) {
                 </p>
               </>
             ) : (
-              <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load favorites</p>
+              <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                failed to load favorites
+              </p>
             )}
           </div>
         </div>

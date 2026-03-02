@@ -49,7 +49,12 @@ import {
   reorderQueue,
 } from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
-import { getAllRemotes, getRemoteById, checkRemoteHealth, onRemoteStatusChange } from "./services/remotes/remoteManager";
+import {
+  getAllRemotes,
+  getRemoteById,
+  checkRemoteHealth,
+  onRemoteStatusChange,
+} from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
 import type { Remote, QueueHistoryEntry } from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";

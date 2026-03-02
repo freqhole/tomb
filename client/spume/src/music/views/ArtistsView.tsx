@@ -615,60 +615,64 @@ export function ArtistsView(props: ArtistsViewProps) {
                       </p>
                     </>
                   ) : (
-                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load artists</p>
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                      failed to load artists
+                    </p>
                   )}
                 </div>
               </div>
             }
           >
-          <Show
-            when={artistListItems().length > 0 || artistsQuery.isLoading || artistsQuery.isFetching}
-            fallback={
-              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-                <div class="text-center max-w-md">
-                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">no artists found!</p>
-                  <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                    add music to import local audio files or download from urls
-                  </p>
-                  <Button variant="primary" onClick={props.onAddMusic}>
-                    add music
-                  </Button>
+            <Show
+              when={
+                artistListItems().length > 0 || artistsQuery.isLoading || artistsQuery.isFetching
+              }
+              fallback={
+                <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                  <div class="text-center max-w-md">
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">no artists found!</p>
+                    <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                      add music to import local audio files or download from urls
+                    </p>
+                    <Button variant="primary" onClick={props.onAddMusic}>
+                      add music
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            }
-          >
-          <Show when={artistListItems().length > 0}>
-            <VirtualItemList
-              items={artistListItems()}
-              selectedId={selectedArtistId()}
-              scrollPaddingTop={100}
-              compactMode={queueOpen()}
-              onItemClick={(item) => {
-                setIsLocalClick(true);
-                // show detail on narrow viewport
-                if (isNarrow()) {
-                  setShowingDetailOnNarrow(true);
-                }
-                navigate(buildRoute(`/artists/${item.id}`));
-                props.onArtistClick?.(item.id);
-              }}
-              onVirtualizerReady={(scrollFn) => {
-                setScrollToIndex(() => scrollFn);
+              }
+            >
+              <Show when={artistListItems().length > 0}>
+                <VirtualItemList
+                  items={artistListItems()}
+                  selectedId={selectedArtistId()}
+                  scrollPaddingTop={100}
+                  compactMode={queueOpen()}
+                  onItemClick={(item) => {
+                    setIsLocalClick(true);
+                    // show detail on narrow viewport
+                    if (isNarrow()) {
+                      setShowingDetailOnNarrow(true);
+                    }
+                    navigate(buildRoute(`/artists/${item.id}`));
+                    props.onArtistClick?.(item.id);
+                  }}
+                  onVirtualizerReady={(scrollFn) => {
+                    setScrollToIndex(() => scrollFn);
 
-                // only scroll if current artist matches the initial one (prevents scroll on subsequent clicks)
-                const current = selectedArtistId();
-                if (current && current === initialArtistId) {
-                  const index = sortedArtists().findIndex((a) => a.artist_id === current);
-                  if (index >= 0) {
-                    setTimeout(() => scrollFn(index), 50);
-                  }
-                }
-              }}
-              getContextMenuActions={getContextMenuActions}
-              height={listHeight()}
-            />
-          </Show>
-          </Show>
+                    // only scroll if current artist matches the initial one (prevents scroll on subsequent clicks)
+                    const current = selectedArtistId();
+                    if (current && current === initialArtistId) {
+                      const index = sortedArtists().findIndex((a) => a.artist_id === current);
+                      if (index >= 0) {
+                        setTimeout(() => scrollFn(index), 50);
+                      }
+                    }
+                  }}
+                  getContextMenuActions={getContextMenuActions}
+                  height={listHeight()}
+                />
+              </Show>
+            </Show>
           </Show>
         </div>
       </div>

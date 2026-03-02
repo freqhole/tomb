@@ -842,7 +842,9 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                   <Show
                     when={playlistsQuery.error instanceof RemoteOfflineError}
                     fallback={
-                      <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load playlists</p>
+                      <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                        failed to load playlists
+                      </p>
                     }
                   >
                     <p class="text-lg text-[var(--color-text-secondary)] mb-2">
@@ -861,475 +863,479 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
               fallback={
                 <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                   <div class="text-center max-w-md">
-                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">no playlists found!</p>
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                      no playlists found!
+                    </p>
                   </div>
                 </div>
               }
             >
-            {isResetting() ? (
-              <div class="flex items-center justify-center h-full">
-                <div class="text-[var(--color-text-secondary)]">loading...</div>
-              </div>
-            ) : (
-              <TwoColumnLayout
-                leftColumn={
-                  <>
-                    <div style={{ height: isNarrow() ? "calc(100% - 68px)" : "100%" }}>
-                      <VirtualItemList
-                        items={playlistListItems()}
-                        selectedId={selectedPlaylistId()}
-                        scrollPaddingTop={100}
-                        compactMode={queueOpen()}
-                        height={listHeight() - (isNarrow() ? 68 : 0)}
-                        onItemClick={handlePlaylistClick}
-                        onVirtualizerReady={(scrollFn) => {
-                          setScrollToIndex(() => scrollFn);
+              {isResetting() ? (
+                <div class="flex items-center justify-center h-full">
+                  <div class="text-[var(--color-text-secondary)]">loading...</div>
+                </div>
+              ) : (
+                <TwoColumnLayout
+                  leftColumn={
+                    <>
+                      <div style={{ height: isNarrow() ? "calc(100% - 68px)" : "100%" }}>
+                        <VirtualItemList
+                          items={playlistListItems()}
+                          selectedId={selectedPlaylistId()}
+                          scrollPaddingTop={100}
+                          compactMode={queueOpen()}
+                          height={listHeight() - (isNarrow() ? 68 : 0)}
+                          onItemClick={handlePlaylistClick}
+                          onVirtualizerReady={(scrollFn) => {
+                            setScrollToIndex(() => scrollFn);
 
-                          // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
-                          const current = selectedPlaylistId();
-                          if (current && current === initialPlaylistId) {
-                            const index = playlists().findIndex((p) => p.playlist_id === current);
-                            if (index >= 0) {
-                              setTimeout(() => scrollFn(index), 50);
+                            // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
+                            const current = selectedPlaylistId();
+                            if (current && current === initialPlaylistId) {
+                              const index = playlists().findIndex((p) => p.playlist_id === current);
+                              if (index >= 0) {
+                                setTimeout(() => scrollFn(index), 50);
+                              }
                             }
-                          }
-                        }}
-                        onEndReached={handlePlaylistsLoadMore}
-                        getContextMenuActions={(item) => {
-                          const playlist = playlists().find((p) => p.playlist_id === item.id);
-                          if (!playlist) return [];
+                          }}
+                          onEndReached={handlePlaylistsLoadMore}
+                          getContextMenuActions={(item) => {
+                            const playlist = playlists().find((p) => p.playlist_id === item.id);
+                            if (!playlist) return [];
 
-                          return usePlaylistContextMenu(
-                            {
-                              id: playlist.playlist_id,
-                              title: playlist.title,
-                              song_count: playlist.song_count,
-                            },
-                            {
-                              showPlayActions: true,
-                              isFavorite: false, // playlist-level favorites not yet implemented on frontend
-                            }
-                          );
-                        }}
-                      />
-                    </div>
-                    <div class="sticky bottom-0 bg-[var(--color-background-primary)] p-4">
-                      <Button variant="primary" fullWidth={true} onClick={handleCreatePlaylist}>
-                        create playlist
-                      </Button>
-                    </div>
-                  </>
-                }
-                rightColumn={
-                  <Show
-                    when={selectedPlaylistId()}
-                    fallback={
-                      <div class="flex items-center justify-center h-full">
-                        <p class="text-[var(--color-text-secondary)]">
-                          select a playlist to view songs
-                        </p>
-                      </div>
-                    }
-                  >
-                    <div
-                      class={`flex flex-col h-full relative ${isNarrow() ? "overflow-auto" : ""}`}
-                    >
-                      {/* sticky header with back button for mobile */}
-                      <Show when={isNarrow() && showingDetailOnNarrow()}>
-                        <HeadingSection
-                          title={selectedPlaylist()?.title || "playlist"}
-                          titleElement={
-                            <MarqueeText
-                              text={selectedPlaylist()?.title || "playlist"}
-                              hoverOnly={true}
-                            />
-                          }
-                          variant="detail"
-                          sticky
-                          showBackButton={true}
-                          onBack={handleBack}
-                          class="px-4 py-3 relative z-20 !bg-transparent backdrop-blur-sm"
+                            return usePlaylistContextMenu(
+                              {
+                                id: playlist.playlist_id,
+                                title: playlist.title,
+                                song_count: playlist.song_count,
+                              },
+                              {
+                                showPlayActions: true,
+                                isFavorite: false, // playlist-level favorites not yet implemented on frontend
+                              }
+                            );
+                          }}
                         />
-                      </Show>
-
-                      {/* playlist header */}
-                      <div class="flex-shrink-0 p-6 relative z-10">
-                        <div class="flex-1">
-                          <Show
-                            when={editMode()}
-                            fallback={
-                              <>
-                                <Show when={!isNarrow()}>
-                                  <div class="flex items-center gap-2 mb-2">
-                                    <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
-                                      {selectedPlaylist()?.title || "untitled playlist"}
-                                    </h2>
-                                  </div>
-                                </Show>
-
-                                <Show when={selectedPlaylist()?.description}>
-                                  <p class="text-sm text-[var(--color-text-secondary)] mb-3">
-                                    {selectedPlaylist()!.description}
-                                  </p>
-                                </Show>
-                              </>
-                            }
-                          >
-                            <PlaylistEditor
-                              playlist={selectedPlaylist()!}
-                              onSaved={handlePlaylistSaved}
-                              onDeleted={handlePlaylistDeleted}
-                              onCancelled={handlePlaylistEditCancelled}
-                            />
-                          </Show>
-
-                          <Show when={!playlistSongsQuery.isLoading}>
-                            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)] mb-4">
-                              <span>
-                                {playlistSongs().length}{" "}
-                                {playlistSongs().length === 1 ? "song" : "songs"}
-                              </span>
-                              <Show when={totalDuration() > 0}>
-                                <span>{formatHumanDuration(totalDuration())}</span>
-                              </Show>
-                              {/* line break on narrow screens */}
-                              <div class="basis-full wide:hidden" />
-                              <Show when={selectedPlaylist()?.created_at}>
-                                <span>
-                                  created {formatRelativeTime(selectedPlaylist()!.created_at)}
-                                </span>
-                              </Show>
-                              <Show
-                                when={syncStatus()?.localPlaylistId && !syncStatus()?.needsSync}
-                              >
-                                <Badge variant="success" size="sm">
-                                  <Show when={!isViewingRemote()} fallback="synced">
-                                    synced from{" "}
-                                    {syncSourceRemoteName() ||
-                                      selectedPlaylist()?.source_remote_url}
-                                  </Show>
-                                </Badge>
-                              </Show>
-                            </div>
-                          </Show>
-
-                          {/* action buttons - only render here on wide screens */}
-                          <Show when={!editMode() && !isNarrow()}>
-                            <div class="flex gap-2 sticky top-0 bg-[var(--color-background-primary)] py-2 z-10">
-                              <Show
-                                when={
-                                  selectedPlaylist()?.is_editable !== false &&
-                                  canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)
-                                }
-                              >
-                                <IconButton
-                                  icon="edit"
-                                  size="default"
-                                  variant="ghost"
-                                  onClick={handleEditToggle}
-                                  aria-label="edit playlist"
-                                />
-                              </Show>
-                              <Show when={playlistSongs().length > 0}>
-                                <Button variant="primary" onClick={handlePlayAll}>
-                                  play all
-                                </Button>
-                                <Button variant="secondary" onClick={handleAddToQueue}>
-                                  add to queue
-                                </Button>
-                              </Show>
-                              <IconButton
-                                icon="carousel"
-                                size="default"
-                                onClick={handleOpenImageCarousel}
-                                aria-label="view all images"
-                              />
-                              <FavoriteToggle
-                                targetType="playlist"
-                                targetId={selectedPlaylist()?.playlist_id || ""}
-                                isFavorite={selectedPlaylist()?.is_favorite ?? false}
-                              />
-                              {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
-                              <Show when={isViewingRemote() && !isTauriMode()}>
-                                <Show
-                                  when={syncStatus()?.localPlaylistId}
-                                  fallback={
-                                    <Button
-                                      variant="ghost"
-                                      class="border border-[var(--color-accent-500)]"
-                                      onClick={handleDownloadPlaylist}
-                                      disabled={isDownloading()}
-                                    >
-                                      {isDownloading() ? (
-                                        "saving..."
-                                      ) : (
-                                        <>
-                                          <span>save</span>
-                                          <span class="hidden sm:inline"> to local</span>
-                                        </>
-                                      )}
-                                    </Button>
-                                  }
-                                >
-                                  <Show when={syncStatus()?.needsSync}>
-                                    <Button
-                                      variant="ghost"
-                                      class="border border-[var(--color-accent-500)]"
-                                      onClick={handleSyncPlaylist}
-                                      disabled={isSyncing()}
-                                    >
-                                      {isSyncing() ? "syncing..." : "sync updates"}
-                                    </Button>
-                                  </Show>
-                                </Show>
-                              </Show>
-                              <Show
-                                when={
-                                  !isViewingRemote() &&
-                                  !isTauriMode() &&
-                                  selectedPlaylist()?.source_remote_id
-                                }
-                              >
-                                <Button variant="secondary" onClick={handleMakeLocalCopy}>
-                                  make local copy
-                                </Button>
-                              </Show>
-                            </div>
-                          </Show>
-
-                          {/* download/sync progress indicator */}
-                          <Show when={downloadProgress()}>
-                            <div class="mt-4 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
-                              <Show
-                                when={downloadProgress()?.stage === "error"}
-                                fallback={
-                                  <>
-                                    <div class="flex items-center justify-between mb-2">
-                                      <span class="text-sm text-[var(--color-text-secondary)]">
-                                        {downloadProgress()?.stage === "fetching"
-                                          ? "fetching playlist metadata..."
-                                          : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
-                                      </span>
-                                    </div>
-                                    <Show
-                                      when={
-                                        downloadProgress()?.stage === "downloading" &&
-                                        downloadProgress()?.totalSongs
-                                      }
-                                    >
-                                      <div class="w-full bg-[var(--color-bg-tertiary)] rounded-full h-2 mb-2">
-                                        <div
-                                          class="bg-[var(--color-accent-500)] h-2 rounded-full transition-all duration-300"
-                                          style={{
-                                            width: `${((downloadProgress()?.downloadedSongs || 0) / (downloadProgress()?.totalSongs || 1)) * 100}%`,
-                                          }}
-                                        />
-                                      </div>
-                                    </Show>
-                                    <Show when={downloadProgress()?.currentSong}>
-                                      <p class="text-xs text-[var(--color-text-tertiary)] truncate">
-                                        {downloadProgress()?.currentSong}
-                                      </p>
-                                    </Show>
-                                  </>
-                                }
-                              >
-                                <p class="text-sm text-[var(--color-error)]">
-                                  error: {downloadProgress()?.error}
-                                </p>
-                              </Show>
-                            </div>
-                          </Show>
-                        </div>
                       </div>
-
-                      {/* sticky action buttons for narrow - direct child of scroll container */}
-                      <Show when={!editMode() && isNarrow()}>
-                        <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
-                          <Show
-                            when={
-                              selectedPlaylist()?.is_editable !== false &&
-                              canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)
+                      <div class="sticky bottom-0 bg-[var(--color-background-primary)] p-4">
+                        <Button variant="primary" fullWidth={true} onClick={handleCreatePlaylist}>
+                          create playlist
+                        </Button>
+                      </div>
+                    </>
+                  }
+                  rightColumn={
+                    <Show
+                      when={selectedPlaylistId()}
+                      fallback={
+                        <div class="flex items-center justify-center h-full">
+                          <p class="text-[var(--color-text-secondary)]">
+                            select a playlist to view songs
+                          </p>
+                        </div>
+                      }
+                    >
+                      <div
+                        class={`flex flex-col h-full relative ${isNarrow() ? "overflow-auto" : ""}`}
+                      >
+                        {/* sticky header with back button for mobile */}
+                        <Show when={isNarrow() && showingDetailOnNarrow()}>
+                          <HeadingSection
+                            title={selectedPlaylist()?.title || "playlist"}
+                            titleElement={
+                              <MarqueeText
+                                text={selectedPlaylist()?.title || "playlist"}
+                                hoverOnly={true}
+                              />
                             }
-                          >
-                            <IconButton
-                              icon="edit"
-                              size="default"
-                              variant="ghost"
-                              onClick={handleEditToggle}
-                              aria-label="edit playlist"
-                            />
-                          </Show>
-                          <Show when={playlistSongs().length > 0}>
-                            <Button variant="primary" onClick={handlePlayAll}>
-                              <Show when={!isNarrow()} fallback={"play"}>
-                                play all
-                              </Show>
-                            </Button>
-                            <Button variant="secondary" onClick={handleAddToQueue}>
-                              <Show when={!isNarrow()} fallback={"queue"}>
-                                add to queue
-                              </Show>
-                            </Button>
-                          </Show>
-                          <IconButton
-                            icon="carousel"
-                            size="default"
-                            onClick={handleOpenImageCarousel}
-                            aria-label="view all images"
+                            variant="detail"
+                            sticky
+                            showBackButton={true}
+                            onBack={handleBack}
+                            class="px-4 py-3 relative z-20 !bg-transparent backdrop-blur-sm"
                           />
-                          <FavoriteToggle
-                            targetType="playlist"
-                            targetId={selectedPlaylist()?.playlist_id || ""}
-                            isFavorite={selectedPlaylist()?.is_favorite ?? false}
-                          />
-                          {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
-                          <Show when={isViewingRemote() && !isTauriMode()}>
+                        </Show>
+
+                        {/* playlist header */}
+                        <div class="flex-shrink-0 p-6 relative z-10">
+                          <div class="flex-1">
                             <Show
-                              when={syncStatus()?.localPlaylistId}
+                              when={editMode()}
                               fallback={
-                                <Button
-                                  variant="ghost"
-                                  class="border border-[var(--color-accent-500)]"
-                                  onClick={handleDownloadPlaylist}
-                                  disabled={isDownloading()}
-                                >
-                                  {isDownloading() ? (
-                                    "saving..."
-                                  ) : (
-                                    <>
-                                      <span>save</span>
-                                      <span class="hidden sm:inline"> to local</span>
-                                    </>
-                                  )}
-                                </Button>
+                                <>
+                                  <Show when={!isNarrow()}>
+                                    <div class="flex items-center gap-2 mb-2">
+                                      <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                                        {selectedPlaylist()?.title || "untitled playlist"}
+                                      </h2>
+                                    </div>
+                                  </Show>
+
+                                  <Show when={selectedPlaylist()?.description}>
+                                    <p class="text-sm text-[var(--color-text-secondary)] mb-3">
+                                      {selectedPlaylist()!.description}
+                                    </p>
+                                  </Show>
+                                </>
                               }
                             >
-                              <Show when={syncStatus()?.needsSync}>
-                                <Button
-                                  variant="ghost"
-                                  class="border border-[var(--color-accent-500)]"
-                                  onClick={handleSyncPlaylist}
-                                  disabled={isSyncing()}
+                              <PlaylistEditor
+                                playlist={selectedPlaylist()!}
+                                onSaved={handlePlaylistSaved}
+                                onDeleted={handlePlaylistDeleted}
+                                onCancelled={handlePlaylistEditCancelled}
+                              />
+                            </Show>
+
+                            <Show when={!playlistSongsQuery.isLoading}>
+                              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)] mb-4">
+                                <span>
+                                  {playlistSongs().length}{" "}
+                                  {playlistSongs().length === 1 ? "song" : "songs"}
+                                </span>
+                                <Show when={totalDuration() > 0}>
+                                  <span>{formatHumanDuration(totalDuration())}</span>
+                                </Show>
+                                {/* line break on narrow screens */}
+                                <div class="basis-full wide:hidden" />
+                                <Show when={selectedPlaylist()?.created_at}>
+                                  <span>
+                                    created {formatRelativeTime(selectedPlaylist()!.created_at)}
+                                  </span>
+                                </Show>
+                                <Show
+                                  when={syncStatus()?.localPlaylistId && !syncStatus()?.needsSync}
                                 >
-                                  {isSyncing() ? "syncing..." : "sync updates"}
-                                </Button>
+                                  <Badge variant="success" size="sm">
+                                    <Show when={!isViewingRemote()} fallback="synced">
+                                      synced from{" "}
+                                      {syncSourceRemoteName() ||
+                                        selectedPlaylist()?.source_remote_url}
+                                    </Show>
+                                  </Badge>
+                                </Show>
+                              </div>
+                            </Show>
+
+                            {/* action buttons - only render here on wide screens */}
+                            <Show when={!editMode() && !isNarrow()}>
+                              <div class="flex gap-2 sticky top-0 bg-[var(--color-background-primary)] py-2 z-10">
+                                <Show
+                                  when={
+                                    selectedPlaylist()?.is_editable !== false &&
+                                    canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)
+                                  }
+                                >
+                                  <IconButton
+                                    icon="edit"
+                                    size="default"
+                                    variant="ghost"
+                                    onClick={handleEditToggle}
+                                    aria-label="edit playlist"
+                                  />
+                                </Show>
+                                <Show when={playlistSongs().length > 0}>
+                                  <Button variant="primary" onClick={handlePlayAll}>
+                                    play all
+                                  </Button>
+                                  <Button variant="secondary" onClick={handleAddToQueue}>
+                                    add to queue
+                                  </Button>
+                                </Show>
+                                <IconButton
+                                  icon="carousel"
+                                  size="default"
+                                  onClick={handleOpenImageCarousel}
+                                  aria-label="view all images"
+                                />
+                                <FavoriteToggle
+                                  targetType="playlist"
+                                  targetId={selectedPlaylist()?.playlist_id || ""}
+                                  isFavorite={selectedPlaylist()?.is_favorite ?? false}
+                                />
+                                {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
+                                <Show when={isViewingRemote() && !isTauriMode()}>
+                                  <Show
+                                    when={syncStatus()?.localPlaylistId}
+                                    fallback={
+                                      <Button
+                                        variant="ghost"
+                                        class="border border-[var(--color-accent-500)]"
+                                        onClick={handleDownloadPlaylist}
+                                        disabled={isDownloading()}
+                                      >
+                                        {isDownloading() ? (
+                                          "saving..."
+                                        ) : (
+                                          <>
+                                            <span>save</span>
+                                            <span class="hidden sm:inline"> to local</span>
+                                          </>
+                                        )}
+                                      </Button>
+                                    }
+                                  >
+                                    <Show when={syncStatus()?.needsSync}>
+                                      <Button
+                                        variant="ghost"
+                                        class="border border-[var(--color-accent-500)]"
+                                        onClick={handleSyncPlaylist}
+                                        disabled={isSyncing()}
+                                      >
+                                        {isSyncing() ? "syncing..." : "sync updates"}
+                                      </Button>
+                                    </Show>
+                                  </Show>
+                                </Show>
+                                <Show
+                                  when={
+                                    !isViewingRemote() &&
+                                    !isTauriMode() &&
+                                    selectedPlaylist()?.source_remote_id
+                                  }
+                                >
+                                  <Button variant="secondary" onClick={handleMakeLocalCopy}>
+                                    make local copy
+                                  </Button>
+                                </Show>
+                              </div>
+                            </Show>
+
+                            {/* download/sync progress indicator */}
+                            <Show when={downloadProgress()}>
+                              <div class="mt-4 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
+                                <Show
+                                  when={downloadProgress()?.stage === "error"}
+                                  fallback={
+                                    <>
+                                      <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm text-[var(--color-text-secondary)]">
+                                          {downloadProgress()?.stage === "fetching"
+                                            ? "fetching playlist metadata..."
+                                            : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
+                                        </span>
+                                      </div>
+                                      <Show
+                                        when={
+                                          downloadProgress()?.stage === "downloading" &&
+                                          downloadProgress()?.totalSongs
+                                        }
+                                      >
+                                        <div class="w-full bg-[var(--color-bg-tertiary)] rounded-full h-2 mb-2">
+                                          <div
+                                            class="bg-[var(--color-accent-500)] h-2 rounded-full transition-all duration-300"
+                                            style={{
+                                              width: `${((downloadProgress()?.downloadedSongs || 0) / (downloadProgress()?.totalSongs || 1)) * 100}%`,
+                                            }}
+                                          />
+                                        </div>
+                                      </Show>
+                                      <Show when={downloadProgress()?.currentSong}>
+                                        <p class="text-xs text-[var(--color-text-tertiary)] truncate">
+                                          {downloadProgress()?.currentSong}
+                                        </p>
+                                      </Show>
+                                    </>
+                                  }
+                                >
+                                  <p class="text-sm text-[var(--color-error)]">
+                                    error: {downloadProgress()?.error}
+                                  </p>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
+                        </div>
+
+                        {/* sticky action buttons for narrow - direct child of scroll container */}
+                        <Show when={!editMode() && isNarrow()}>
+                          <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
+                            <Show
+                              when={
+                                selectedPlaylist()?.is_editable !== false &&
+                                canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)
+                              }
+                            >
+                              <IconButton
+                                icon="edit"
+                                size="default"
+                                variant="ghost"
+                                onClick={handleEditToggle}
+                                aria-label="edit playlist"
+                              />
+                            </Show>
+                            <Show when={playlistSongs().length > 0}>
+                              <Button variant="primary" onClick={handlePlayAll}>
+                                <Show when={!isNarrow()} fallback={"play"}>
+                                  play all
+                                </Show>
+                              </Button>
+                              <Button variant="secondary" onClick={handleAddToQueue}>
+                                <Show when={!isNarrow()} fallback={"queue"}>
+                                  add to queue
+                                </Show>
+                              </Button>
+                            </Show>
+                            <IconButton
+                              icon="carousel"
+                              size="default"
+                              onClick={handleOpenImageCarousel}
+                              aria-label="view all images"
+                            />
+                            <FavoriteToggle
+                              targetType="playlist"
+                              targetId={selectedPlaylist()?.playlist_id || ""}
+                              isFavorite={selectedPlaylist()?.is_favorite ?? false}
+                            />
+                            {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
+                            <Show when={isViewingRemote() && !isTauriMode()}>
+                              <Show
+                                when={syncStatus()?.localPlaylistId}
+                                fallback={
+                                  <Button
+                                    variant="ghost"
+                                    class="border border-[var(--color-accent-500)]"
+                                    onClick={handleDownloadPlaylist}
+                                    disabled={isDownloading()}
+                                  >
+                                    {isDownloading() ? (
+                                      "saving..."
+                                    ) : (
+                                      <>
+                                        <span>save</span>
+                                        <span class="hidden sm:inline"> to local</span>
+                                      </>
+                                    )}
+                                  </Button>
+                                }
+                              >
+                                <Show when={syncStatus()?.needsSync}>
+                                  <Button
+                                    variant="ghost"
+                                    class="border border-[var(--color-accent-500)]"
+                                    onClick={handleSyncPlaylist}
+                                    disabled={isSyncing()}
+                                  >
+                                    {isSyncing() ? "syncing..." : "sync updates"}
+                                  </Button>
+                                </Show>
                               </Show>
                             </Show>
-                          </Show>
-                          <Show
-                            when={
-                              !isViewingRemote() &&
-                              !isTauriMode() &&
-                              selectedPlaylist()?.source_remote_id
-                            }
-                          >
-                            <Button variant="secondary" onClick={handleMakeLocalCopy}>
-                              make local copy
-                            </Button>
-                          </Show>
-                        </div>
-                      </Show>
+                            <Show
+                              when={
+                                !isViewingRemote() &&
+                                !isTauriMode() &&
+                                selectedPlaylist()?.source_remote_id
+                              }
+                            >
+                              <Button variant="secondary" onClick={handleMakeLocalCopy}>
+                                make local copy
+                              </Button>
+                            </Show>
+                          </div>
+                        </Show>
 
-                      {/* songs list */}
-                      <div class={`relative z-10 ${isNarrow() ? "" : "flex-1 overflow-hidden"}`}>
-                        <Show
-                          when={!playlistSongsQuery.isLoading}
-                          fallback={
-                            <div class="flex items-center justify-center h-full">
-                              <div class="text-[var(--color-text-secondary)]">loading songs...</div>
-                            </div>
-                          }
-                        >
+                        {/* songs list */}
+                        <div class={`relative z-10 ${isNarrow() ? "" : "flex-1 overflow-hidden"}`}>
                           <Show
-                            when={playlistSongs().length > 0}
+                            when={!playlistSongsQuery.isLoading}
                             fallback={
                               <div class="flex items-center justify-center h-full">
-                                <p class="text-[var(--color-text-secondary)]">
-                                  this playlist is empty
-                                </p>
+                                <div class="text-[var(--color-text-secondary)]">
+                                  loading songs...
+                                </div>
                               </div>
                             }
                           >
-                            <div class={`${isNarrow() ? "" : "overflow-auto h-full"}`}>
-                              <div class="space-y-1">
-                                <For each={playlistSongs()}>
-                                  {(song, index) => {
-                                    const contextMenuActions = useSongContextMenu(song, {
-                                      showPlayActions: true,
-                                      showRemoveFromPlaylist: true,
-                                      playlistId: selectedPlaylistId()!,
-                                      isFavorite: song.is_favorite ?? false,
-                                    });
+                            <Show
+                              when={playlistSongs().length > 0}
+                              fallback={
+                                <div class="flex items-center justify-center h-full">
+                                  <p class="text-[var(--color-text-secondary)]">
+                                    this playlist is empty
+                                  </p>
+                                </div>
+                              }
+                            >
+                              <div class={`${isNarrow() ? "" : "overflow-auto h-full"}`}>
+                                <div class="space-y-1">
+                                  <For each={playlistSongs()}>
+                                    {(song, index) => {
+                                      const contextMenuActions = useSongContextMenu(song, {
+                                        showPlayActions: true,
+                                        showRemoveFromPlaylist: true,
+                                        playlistId: selectedPlaylistId()!,
+                                        isFavorite: song.is_favorite ?? false,
+                                      });
 
-                                    return (
-                                      <ContextMenu actions={contextMenuActions}>
-                                        <DraggableRow
-                                          id={song.id}
-                                          index={index()}
-                                          isDragging={draggedSongId() === song.id}
-                                          isDropTarget={dropTargetIndex() === index()}
-                                          isPlaying={appState()?.current_sha256 === song.sha256}
-                                          onDragStart={handleDragStart(song.id)}
-                                          onDragOver={handleDragOver(index())}
-                                          onDragLeave={handleDragLeave}
-                                          onDrop={() => handleDrop(index())}
-                                          onDoubleClick={() => handleSongDoubleClick(song)}
-                                          onPlayClick={() => handleSongDoubleClick(song)}
-                                          images={[
-                                            ...(song.images || []),
-                                            ...(song.album_images || []),
-                                          ]}
-                                          disabled={!isEditablePlaylist(selectedPlaylist()!)}
-                                        >
-                                          <DraggableRowSongContent
-                                            title={song.title}
-                                            artist={song.artist_name}
-                                            album={song.album_title}
-                                            durationSeconds={song.duration_seconds}
-                                            isFavorite={song.is_favorite}
-                                            songId={song.id}
-                                            sha256={song.sha256}
-                                            onFavoriteToggle={(songId, isFavorite) => {
-                                              toggleFavoriteMutation.mutate({
-                                                targetType: "song",
-                                                targetId: songId,
-                                                sha256: song.sha256,
-                                                isFavorite,
-                                              });
-                                            }}
-                                            actions={
-                                              <IconButton
-                                                icon="queue"
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={(e: MouseEvent) => {
-                                                  e.stopPropagation();
-                                                  handleAddSongToQueue(song);
-                                                }}
-                                                aria-label="add to queue"
-                                              />
-                                            }
-                                          />
-                                        </DraggableRow>
-                                      </ContextMenu>
-                                    );
-                                  }}
-                                </For>
+                                      return (
+                                        <ContextMenu actions={contextMenuActions}>
+                                          <DraggableRow
+                                            id={song.id}
+                                            index={index()}
+                                            isDragging={draggedSongId() === song.id}
+                                            isDropTarget={dropTargetIndex() === index()}
+                                            isPlaying={appState()?.current_sha256 === song.sha256}
+                                            onDragStart={handleDragStart(song.id)}
+                                            onDragOver={handleDragOver(index())}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={() => handleDrop(index())}
+                                            onDoubleClick={() => handleSongDoubleClick(song)}
+                                            onPlayClick={() => handleSongDoubleClick(song)}
+                                            images={[
+                                              ...(song.images || []),
+                                              ...(song.album_images || []),
+                                            ]}
+                                            disabled={!isEditablePlaylist(selectedPlaylist()!)}
+                                          >
+                                            <DraggableRowSongContent
+                                              title={song.title}
+                                              artist={song.artist_name}
+                                              album={song.album_title}
+                                              durationSeconds={song.duration_seconds}
+                                              isFavorite={song.is_favorite}
+                                              songId={song.id}
+                                              sha256={song.sha256}
+                                              onFavoriteToggle={(songId, isFavorite) => {
+                                                toggleFavoriteMutation.mutate({
+                                                  targetType: "song",
+                                                  targetId: songId,
+                                                  sha256: song.sha256,
+                                                  isFavorite,
+                                                });
+                                              }}
+                                              actions={
+                                                <IconButton
+                                                  icon="queue"
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={(e: MouseEvent) => {
+                                                    e.stopPropagation();
+                                                    handleAddSongToQueue(song);
+                                                  }}
+                                                  aria-label="add to queue"
+                                                />
+                                              }
+                                            />
+                                          </DraggableRow>
+                                        </ContextMenu>
+                                      );
+                                    }}
+                                  </For>
+                                </div>
                               </div>
-                            </div>
+                            </Show>
                           </Show>
-                        </Show>
+                        </div>
                       </div>
-                    </div>
-                  </Show>
-                }
-                showDetail={showingDetailOnNarrow()}
-                leftColumnWidth={leftColumnWidth()}
-                onBack={handleBack}
-              />
-            )}
-          </Show>
+                    </Show>
+                  }
+                  showDetail={showingDetailOnNarrow()}
+                  leftColumnWidth={leftColumnWidth()}
+                  onBack={handleBack}
+                />
+              )}
+            </Show>
           </Show>
         </Show>
       </div>
