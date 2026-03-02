@@ -9,6 +9,7 @@ import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
 import { getDataSource } from "../data";
+import { RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
 import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -262,6 +263,23 @@ export function AlbumsView(props: AlbumsViewProps) {
         {isResetting() ? (
           <div class="flex items-center justify-center h-full">
             <div class="text-[var(--color-text-secondary)]">loading...</div>
+          </div>
+        ) : albumsQuery.isError ? (
+          <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+            <div class="text-center max-w-md">
+              {albumsQuery.error instanceof RemoteOfflineError ? (
+                <>
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                    {(albumsQuery.error as RemoteOfflineError).remoteName} is offline
+                  </p>
+                  <p class="text-sm text-[var(--color-text-muted)]">
+                    switch to a different remote or use local library
+                  </p>
+                </>
+              ) : (
+                <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load albums</p>
+              )}
+            </div>
           </div>
         ) : (
           <Show

@@ -49,7 +49,7 @@ import {
   reorderQueue,
 } from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
-import { getAllRemotes, getRemoteById } from "./services/remotes/remoteManager";
+import { getAllRemotes, getRemoteById, checkRemoteHealth, onRemoteStatusChange } from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
 import type { Remote, QueueHistoryEntry } from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";
@@ -137,10 +137,32 @@ export function AppLayout(props: AppLayoutProps) {
 
     try {
       const allRemotes = await getAllRemotes();
+      debug("AppLayout", "loaded remotes from IDB", {
+        count: allRemotes.length,
+        remotes: allRemotes.map((r) => ({
+          id: r.remote_id,
+          name: r.name,
+          is_offline: r.is_offline,
+          last_checked: r.last_checked,
+        })),
+      });
       setRemotes(allRemotes);
     } catch (error) {
       console.error("failed to load remotes:", error);
     }
+
+    // listen for remote status changes (offline/online) and refresh remotes list
+    const unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
+      try {
+        const allRemotes = await getAllRemotes();
+        setRemotes(allRemotes);
+        debug("AppLayout", "refreshed remotes after status change", {
+          count: allRemotes.length,
+        });
+      } catch (error) {
+        console.error("failed to refresh remotes after status change:", error);
+      }
+    });
 
     // update storage usage
     const updateStorage = async () => {
@@ -158,7 +180,10 @@ export function AppLayout(props: AppLayoutProps) {
     await updateStorage();
     // refresh storage info every 30 seconds
     const interval = setInterval(updateStorage, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      unsubscribeStatusChange();
+    };
   });
 
   // handle switching to local source
@@ -187,15 +212,58 @@ export function AppLayout(props: AppLayoutProps) {
         console.error("remote not found:", remoteId);
         return;
       }
+
+      // check if remote is online before switching
+      const isOnline = await checkRemoteHealth(remote);
+      if (!isOnline) {
+        debug("AppLayout", `remote ${remote.name} is offline, not switching`);
+        // refresh remotes list to show updated status
+        const allRemotes = await getAllRemotes();
+        setRemotes(allRemotes);
+        return;
+      }
+
       // switch data source first
       await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       // navigate to remote route
       navigate(`/${remoteId}/songs`);
       // invalidate all queries to refetch from remote source
       queryClient.invalidateQueries();
+
+      // refresh remotes list to show updated status
+      const allRemotes = await getAllRemotes();
+      setRemotes(allRemotes);
+
       debug("AppLayout", `switched to remote: ${remote.name}`);
     } catch (error) {
       console.error("failed to switch to remote:", error);
+    }
+  };
+
+  // handle rechecking a remote's status and switch if it comes back online
+  const handleRecheckRemote = async (remoteId: string): Promise<boolean> => {
+    try {
+      debug("AppLayout", `rechecking remote: ${remoteId}...`);
+      const remote = await getRemoteById(remoteId);
+      if (!remote) {
+        console.error("remote not found:", remoteId);
+        return false;
+      }
+
+      const isOnline = await checkRemoteHealth(remote);
+
+      // refresh remotes list to update UI
+      const allRemotes = await getAllRemotes();
+      setRemotes(allRemotes);
+
+      debug(
+        "AppLayout",
+        `remote ${remote.name} recheck result: ${isOnline ? "online" : "offline"}`
+      );
+      return isOnline;
+    } catch (error) {
+      console.error("failed to recheck remote:", error);
+      return false;
     }
   };
 
@@ -486,14 +554,18 @@ export function AppLayout(props: AppLayoutProps) {
         onNavigate={(path) => navigate(path)}
         currentPath={location.pathname + location.search}
         currentSourceName={currentSourceName()}
+        currentSourceId={getCurrentRemote()?.remote_id ?? null}
         remotes={remotes().map((r) => ({
           id: r.remote_id,
           name: r.name,
           url: r.base_url,
           imageUrl: r.image_url ?? undefined,
+          isOffline: r.is_offline,
+          lastChecked: r.last_checked,
         }))}
         onSwitchToLocal={handleSwitchToLocal}
         onSwitchToRemote={handleSwitchToRemote}
+        onRecheckRemote={handleRecheckRemote}
         onAddRemote={() => setIsAddRemoteOpen(true)}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}

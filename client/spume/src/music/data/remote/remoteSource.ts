@@ -1,7 +1,7 @@
 // remote data source implementation
 // queries remote server for music library data using freqhole-api-client
 import * as apiClient from "freqhole-api-client";
-import { isAuthError, permissions } from "freqhole-api-client";
+import { isAuthError, isNetworkError, permissions } from "freqhole-api-client";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -19,15 +19,32 @@ import type {
 } from "../types";
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
+import { markRemoteOffline, getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { getCurrentUser } from "../index";
 import { debug, error } from "../../../utils/logger";
 import { getRemoteMediaUrl } from "../../../utils/urls";
+import { toast } from "../../../components/feedback/Toast";
+
+// custom error class for remote offline errors - views can check for this type
+export class RemoteOfflineError extends Error {
+  readonly remoteId: string;
+  readonly remoteName: string;
+
+  constructor(remoteId: string, remoteName: string) {
+    super(`${remoteName} is offline`);
+    this.name = "RemoteOfflineError";
+    this.remoteId = remoteId;
+    this.remoteName = remoteName;
+  }
+}
 
 // remote data source implementation
 // uses session cookies for authentication (no api key needed)
 export class RemoteMusicDataSource implements MusicDataSource {
   private baseUrl: string;
   private remoteId: string;
+  // track if we've already shown the offline toast this session
+  private hasShownOfflineToast = false;
 
   constructor(baseUrl: string, remoteId: string) {
     this.baseUrl = baseUrl;
@@ -40,6 +57,27 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (isAuthError(result)) {
       setRemoteNeedsAuth(this.remoteId);
     }
+  }
+
+  // check a failed result for network errors (server unreachable).
+  // marks the remote as offline and throws RemoteOfflineError.
+  private async checkNetworkError(result: apiClient.SafeParseResult<any>): Promise<void> {
+    if (!isNetworkError(result)) return;
+
+    // mark remote as offline in IDB
+    await markRemoteOffline(this.remoteId);
+
+    // get remote name for the error/toast
+    const remote = await getRemoteById(this.remoteId);
+    const remoteName = remote?.name ?? this.remoteId;
+
+    // only show toast once per session to avoid spam
+    if (!this.hasShownOfflineToast) {
+      this.hasShownOfflineToast = true;
+      toast.warning(`${remoteName} is offline`);
+    }
+
+    throw new RemoteOfflineError(this.remoteId, remoteName);
   }
 
   // helper to convert our QueryParams to API QueryParams
@@ -79,6 +117,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.querySongs(this.baseUrl, apiParams);
 
     if (!result.success) {
+      await this.checkNetworkError(result);
       this.checkAuthError(result);
       throw new Error("failed to query songs");
     }
@@ -162,6 +201,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.queryAlbums(this.baseUrl, apiParams);
 
     if (!result.success) {
+      await this.checkNetworkError(result);
       this.checkAuthError(result);
       throw new Error("failed to query albums");
     }
@@ -236,6 +276,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.queryArtists(this.baseUrl, apiParams);
 
     if (!result.success) {
+      await this.checkNetworkError(result);
       this.checkAuthError(result);
       throw new Error("failed to query artists");
     }
@@ -356,6 +397,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await apiClient.music.listPlaylists(this.baseUrl, apiParams);
 
     if (!result.success) {
+      await this.checkNetworkError(result);
       this.checkAuthError(result);
       throw new Error("failed to query playlists");
     }

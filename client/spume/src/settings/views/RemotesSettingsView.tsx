@@ -1,6 +1,10 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, onMount, Show, For } from "solid-js";
-import { getAllRemotes, deleteRemote } from "../../app/services/remotes/remoteManager";
+import {
+  getAllRemotes,
+  deleteRemote,
+  checkRemoteHealth,
+} from "../../app/services/remotes/remoteManager";
 import { logout, whoami } from "../../app/services/remotes/authService";
 import { initAppDB } from "../../app/services/storage/db";
 import {
@@ -79,6 +83,7 @@ export function RemotesSettingsView() {
   const [error, setError] = createSignal<string | null>(null);
   const [deleting, setDeleting] = createSignal<string | null>(null);
   const [loggingOut, setLoggingOut] = createSignal<string | null>(null);
+  const [rechecking, setRechecking] = createSignal<string | null>(null);
   // auth status per remote: null = checking, AuthInfo = resolved
   const [authStatus, setAuthStatus] = createSignal<Map<string, AuthInfo | null>>(new Map());
   // reauth modal state
@@ -235,6 +240,25 @@ export function RemotesSettingsView() {
     setReauthRemote(remote);
   };
 
+  const handleRecheckStatus = async (remote: Remote) => {
+    setRechecking(remote.remote_id);
+    try {
+      const isOnline = await checkRemoteHealth(remote);
+      // refresh remotes to get updated status
+      const updated = await getAllRemotes();
+      setRemotes(updated);
+      if (isOnline) {
+        toast.success(`${remote.name} is online`);
+      } else {
+        toast.warning(`${remote.name} is offline`);
+      }
+    } catch (err) {
+      toast.error("failed to check server status");
+    } finally {
+      setRechecking(null);
+    }
+  };
+
   const handleReauthSuccess = async () => {
     const remote = reauthRemote();
     if (remote) {
@@ -316,6 +340,16 @@ export function RemotesSettingsView() {
                               active
                             </span>
                           </Show>
+                          <Show when={remote.is_offline}>
+                            <span class="px-1.5 py-0.5 text-xs font-medium bg-red-600/20 text-red-400 rounded">
+                              offline
+                            </span>
+                          </Show>
+                          <Show when={remote.is_offline === false}>
+                            <span class="px-1.5 py-0.5 text-xs font-medium bg-green-600/20 text-green-400 rounded">
+                              online
+                            </span>
+                          </Show>
                         </div>
                         <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
                           {remote.base_url}
@@ -384,6 +418,13 @@ export function RemotesSettingsView() {
                             </button>
                           );
                         })()}
+                        <button
+                          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => handleRecheckStatus(remote)}
+                          disabled={rechecking() === remote.remote_id}
+                        >
+                          {rechecking() === remote.remote_id ? "checking..." : "check status"}
+                        </button>
                         <button
                           class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => showDeleteConfirm(remote)}

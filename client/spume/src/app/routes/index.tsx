@@ -3,7 +3,11 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { whoami } from "../../app/services/remotes/authService";
 import { useLocalSource, useRemoteSource, getCurrentRemote } from "../../music/data";
-import { getActiveRemote, getRemoteById } from "../../app/services/remotes/remoteManager";
+import {
+  getActiveRemote,
+  getRemoteById,
+  getTauriManagedRemote,
+} from "../../app/services/remotes/remoteManager";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
 import { ReauthModal } from "../../components/auth/ReauthModal";
@@ -53,12 +57,13 @@ function RootRedirect() {
       if (routeContext && routeContext !== "local" && routeContext !== "settings") {
         // try to restore remote context
         const remote = await getRemoteById(routeContext);
-        if (remote) {
+        if (remote && !remote.is_offline) {
           await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
           queryClient.invalidateQueries();
           navigate(savedRoute, { replace: true });
           return;
         }
+        // if remote is offline, fall through to local
       } else if (routeContext === "local" && !isTauriMode()) {
         // skip local route restoration in tauri mode
         await useLocalSource();
@@ -71,7 +76,7 @@ function RootRedirect() {
     // fallback: check if there's an active remote in IndexedDB
     const activeRemote = await getActiveRemote();
 
-    if (activeRemote) {
+    if (activeRemote && !activeRemote.is_offline) {
       // switch to that remote and navigate to its route
       await useRemoteSource(activeRemote.remote_id, activeRemote.name, activeRemote.base_url);
       queryClient.invalidateQueries();
@@ -213,6 +218,7 @@ function LocalContextHandler(props: { children?: any }) {
 // also watches for auth expiry and prompts re-authentication
 function RemoteContextHandler(props: { children?: any }) {
   const params = useParams<{ remoteId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   // track the resolved remote info for auth flow
@@ -232,13 +238,33 @@ function RemoteContextHandler(props: { children?: any }) {
     if (!remoteId) return;
 
     const remote = await getRemoteById(remoteId);
-    if (remote) {
-      setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
-      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
-      queryClient.invalidateQueries();
-    } else {
+    if (!remote) {
       console.warn(`remote not found: ${remoteId}`);
+      return;
     }
+
+    // if remote is offline, redirect to fallback (tauri remote or local)
+    if (remote.is_offline) {
+      debug("routes", `remote ${remote.name} is offline, redirecting to fallback`);
+      toast.error(`${remote.name} is offline`);
+
+      if (isTauriMode()) {
+        // in tauri mode, try to use tauri-managed remote
+        const tauriRemote = await getTauriManagedRemote();
+        if (tauriRemote && tauriRemote.remote_id !== remoteId && !tauriRemote.is_offline) {
+          navigate(`/${tauriRemote.remote_id}/songs`, { replace: true });
+          return;
+        }
+      }
+      // fallback to local
+      await useLocalSource();
+      navigate("/local/songs", { replace: true });
+      return;
+    }
+
+    setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
+    await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+    queryClient.invalidateQueries();
   });
 
   // watch for auth expiry on this remote

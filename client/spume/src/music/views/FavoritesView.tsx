@@ -1,13 +1,13 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, on, onCleanup } from "solid-js";
+import { createEffect, createMemo, on, onCleanup, Show } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
 } from "../../components/layout/FavoritesLayout";
 import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
-import { getDataSource } from "../data";
+import { getDataSource, RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
 import type {
   FavoriteItem,
@@ -305,30 +305,52 @@ export function FavoritesView(props: FavoritesViewProps) {
   };
 
   return (
-    <FavoritesLayout
-      favorites={allFavorites()}
-      isLoading={favoritesQuery.isLoading}
-      height={containerHeight()}
-      compactMode={queueOpen()}
-      onSongClick={handleSongClick}
-      onSongPlay={handleSongDoubleClick}
-      getSongContextMenuActions={getSongContextMenuActions}
-      onSongFavoriteToggle={handleSongFavoriteToggle}
-      onAlbumClick={handleAlbumClick}
-      onAlbumPlay={handleAlbumPlay}
-      getAlbumContextMenuActions={getAlbumContextMenuActions}
-      onAlbumFavoriteToggle={handleAlbumFavoriteToggle}
-      onArtistClick={handleArtistClick}
-      onArtistPlay={handleArtistPlay}
-      getArtistContextMenuActions={getArtistContextMenuActions}
-      onArtistFavoriteToggle={handleArtistFavoriteToggle}
-      onPlaylistClick={handlePlaylistClick}
-      onPlaylistPlay={handlePlaylistPlay}
-      getPlaylistContextMenuActions={getPlaylistContextMenuActions}
-      onPlaylistFavoriteToggle={handlePlaylistFavoriteToggle}
-      onArtistNavigate={handleArtistNavigate}
-      onAlbumNavigate={handleAlbumNavigate}
-      onGenreClick={handleGenreClick}
-    />
+    <Show
+      when={!favoritesQuery.isError}
+      fallback={
+        <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+          <div class="text-center max-w-md">
+            {favoritesQuery.error instanceof RemoteOfflineError ? (
+              <>
+                <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                  {(favoritesQuery.error as RemoteOfflineError).remoteName} is offline
+                </p>
+                <p class="text-sm text-[var(--color-text-muted)]">
+                  switch to a different remote or use local library
+                </p>
+              </>
+            ) : (
+              <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load favorites</p>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <FavoritesLayout
+        favorites={allFavorites()}
+        isLoading={favoritesQuery.isLoading || favoritesQuery.isFetching}
+        height={containerHeight()}
+        compactMode={queueOpen()}
+        onSongClick={handleSongClick}
+        onSongPlay={handleSongDoubleClick}
+        getSongContextMenuActions={getSongContextMenuActions}
+        onSongFavoriteToggle={handleSongFavoriteToggle}
+        onAlbumClick={handleAlbumClick}
+        onAlbumPlay={handleAlbumPlay}
+        getAlbumContextMenuActions={getAlbumContextMenuActions}
+        onAlbumFavoriteToggle={handleAlbumFavoriteToggle}
+        onArtistClick={handleArtistClick}
+        onArtistPlay={handleArtistPlay}
+        getArtistContextMenuActions={getArtistContextMenuActions}
+        onArtistFavoriteToggle={handleArtistFavoriteToggle}
+        onPlaylistClick={handlePlaylistClick}
+        onPlaylistPlay={handlePlaylistPlay}
+        getPlaylistContextMenuActions={getPlaylistContextMenuActions}
+        onPlaylistFavoriteToggle={handlePlaylistFavoriteToggle}
+        onArtistNavigate={handleArtistNavigate}
+        onAlbumNavigate={handleAlbumNavigate}
+        onGenreClick={handleGenreClick}
+      />
+    </Show>
   );
 }

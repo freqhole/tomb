@@ -6,6 +6,30 @@ import { initAppDB } from "../storage/db";
 import { STORE_REMOTES, type Remote } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
 
+// callback type for remote status changes
+type RemoteStatusChangeListener = (remoteId: string, isOffline: boolean) => void;
+
+// listeners for remote status changes (offline/online)
+const statusChangeListeners = new Set<RemoteStatusChangeListener>();
+
+// register a listener for remote status changes
+// returns unsubscribe function
+export function onRemoteStatusChange(listener: RemoteStatusChangeListener): () => void {
+  statusChangeListeners.add(listener);
+  return () => statusChangeListeners.delete(listener);
+}
+
+// notify all listeners of a status change
+function notifyStatusChange(remoteId: string, isOffline: boolean): void {
+  for (const listener of statusChangeListeners) {
+    try {
+      listener(remoteId, isOffline);
+    } catch (e) {
+      errorLog("error in remote status change listener:", e);
+    }
+  }
+}
+
 // get all remotes
 export async function getAllRemotes(): Promise<Remote[]> {
   const db = await initAppDB();
@@ -306,3 +330,120 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
     throw error;
   }
 }
+
+// check if a remote is online (quick health check via /api/hello)
+// returns true if online, false if offline
+// also updates server info (image_url, version, etc.) when online
+export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
+  const db = await initAppDB();
+  const now = Date.now();
+
+  try {
+    const result = await app.getServerInfo(remote.base_url);
+    const isOnline = result.success && !!result.data;
+
+    // re-read remote from IDB to get latest data (avoids overwriting with stale data)
+    const freshRemote = await db.get(STORE_REMOTES, remote.remote_id);
+    if (!freshRemote) {
+      debug(`health check: remote ${remote.remote_id} not found in IDB`);
+      return isOnline;
+    }
+
+    // update remote with new status
+    const updated: Remote = {
+      ...freshRemote,
+      is_offline: !isOnline,
+      last_checked: now,
+      updated_at: now,
+    };
+
+    if (isOnline) {
+      // clear offline status
+      updated.offline_since = null;
+      updated.last_connected_at = now;
+      
+      // also update server info if we got it (self-heals missing image_url, etc.)
+      if (result.data) {
+        updated.server_id = result.data.server_id;
+        updated.description = result.data.description ?? updated.description;
+        updated.image_url = result.data.image_url ?? updated.image_url;
+        updated.version = result.data.version ?? updated.version;
+        updated.last_info_check = now;
+      }
+    } else if (!freshRemote.is_offline) {
+      // just went offline - record when
+      updated.offline_since = now;
+    }
+
+    await db.put(STORE_REMOTES, updated);
+    debug(`health check for ${freshRemote.name}: ${isOnline ? "online" : "offline"}`);
+    return isOnline;
+  } catch (error) {
+    // network error = offline - re-read from IDB before updating
+    const freshRemote = await db.get(STORE_REMOTES, remote.remote_id);
+    if (freshRemote) {
+      const updated: Remote = {
+        ...freshRemote,
+        is_offline: true,
+        last_checked: now,
+        offline_since: freshRemote.is_offline ? freshRemote.offline_since : now,
+        updated_at: now,
+      };
+      await db.put(STORE_REMOTES, updated);
+    }
+    errorLog(`health check failed for ${remote.name}:`, error);
+    return false;
+  }
+}
+
+// mark a remote as offline (without doing a health check)
+export async function markRemoteOffline(remoteId: string): Promise<void> {
+  const db = await initAppDB();
+  const remote = await db.get(STORE_REMOTES, remoteId);
+  if (!remote) return;
+
+  const now = Date.now();
+  await db.put(STORE_REMOTES, {
+    ...remote,
+    is_offline: true,
+    offline_since: remote.is_offline ? remote.offline_since : now,
+    last_checked: now,
+    updated_at: now,
+  });
+  debug(`marked remote as offline: ${remote.name}`);
+  notifyStatusChange(remoteId, true);
+}
+
+// mark a remote as online (without doing a health check)
+export async function markRemoteOnline(remoteId: string): Promise<void> {
+  const db = await initAppDB();
+  const remote = await db.get(STORE_REMOTES, remoteId);
+  if (!remote) return;
+
+  const now = Date.now();
+  await db.put(STORE_REMOTES, {
+    ...remote,
+    is_offline: false,
+    offline_since: null,
+    last_checked: now,
+    last_connected_at: now,
+    updated_at: now,
+  });
+  debug(`marked remote as online: ${remote.name}`);
+  notifyStatusChange(remoteId, false);
+  debug(`marked remote as online: ${remote.name}`);
+}
+
+// find the first online remote from a list
+export async function findFirstOnlineRemote(
+  remotes: Remote[],
+): Promise<Remote | null> {
+  for (const remote of remotes) {
+    const isOnline = await checkRemoteHealth(remote);
+    if (isOnline) {
+      return remote;
+    }
+  }
+  return null;
+}
+

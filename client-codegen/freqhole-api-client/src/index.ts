@@ -24,5 +24,5 @@ export type { RouteAuth, RouteAuthType, UserRoleName } from "./codegen/routes.js
 export { roleHierarchy } from "./codegen/routes.js";
 
 // export low-level escape hatch
-export { request, isAuthError } from "./client.js";
+export { request, isAuthError, isNetworkError } from "./client.js";
 export type { SafeParseResult } from "./client.js";

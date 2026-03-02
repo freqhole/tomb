@@ -18,6 +18,7 @@ import {
   getDataSource,
   getCurrentRemote,
   initializeDataSource,
+  useLocalSource,
   useRemoteSource,
 } from "../music/data";
 import {
@@ -52,7 +53,14 @@ import {
   initCacheNetworkHandlers,
   initCachedAudioURLs,
 } from "../music/services/cache/blobCache";
-import { getAllRemotes, upsertTauriRemote } from "./services/remotes/remoteManager";
+import {
+  getAllRemotes,
+  upsertTauriRemote,
+  checkRemoteHealth,
+  findFirstOnlineRemote,
+  setActiveRemote,
+  getActiveRemote,
+} from "./services/remotes/remoteManager";
 import { auth } from "freqhole-api-client";
 import {
   registerServiceWorker,
@@ -322,6 +330,55 @@ export function App() {
 
       // initialize data source (switches to active remote if configured)
       await initializeDataSource();
+
+      // check health of active remote and auto-switch if offline
+      const activeRemote = await getActiveRemote();
+      debug("App", "startup health check", {
+        hasActiveRemote: !!activeRemote,
+        activeRemoteName: activeRemote?.name,
+        activeRemoteId: activeRemote?.remote_id,
+        isOffline: activeRemote?.is_offline,
+      });
+      if (activeRemote) {
+        debug("App", `checking health of active remote: ${activeRemote.name}`);
+        const isOnline = await checkRemoteHealth(activeRemote);
+        debug(
+          "App",
+          `health check result for ${activeRemote.name}: ${isOnline ? "online" : "offline"}`
+        );
+        if (!isOnline) {
+          debug(
+            "App",
+            `active remote "${activeRemote.name}" is offline, looking for online remote...`
+          );
+          // try to find another online remote
+          const allRemotes = await getAllRemotes();
+          const otherRemotes = allRemotes.filter((r) => r.remote_id !== activeRemote.remote_id);
+          const onlineRemote = await findFirstOnlineRemote(otherRemotes);
+          if (onlineRemote) {
+            debug("App", `switching to online remote: ${onlineRemote.name}`);
+            await setActiveRemote(onlineRemote.remote_id);
+            await useRemoteSource(onlineRemote.remote_id, onlineRemote.name, onlineRemote.base_url);
+            toast.warning(`"${activeRemote.name}" is offline, switched to "${onlineRemote.name}"`);
+          } else {
+            debug("App", "no online remotes found, falling back to local");
+            toast.warning(`"${activeRemote.name}" is offline`);
+            // actually switch to local if no online remotes found
+            await useLocalSource();
+          }
+        }
+      }
+
+      // background health check of ALL remotes (non-blocking)
+      // updates offline status in IDB so TopNav shows correct status
+      void (async () => {
+        const allRemotes = await getAllRemotes();
+        if (allRemotes.length > 0) {
+          debug("App", `background: checking health of ${allRemotes.length} remotes`);
+          await Promise.all(allRemotes.map((r) => checkRemoteHealth(r)));
+          debug("App", "background: health check complete");
+        }
+      })();
 
       // initialize cache network handlers (online/offline events)
       initCacheNetworkHandlers();

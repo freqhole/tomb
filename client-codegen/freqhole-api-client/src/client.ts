@@ -18,6 +18,17 @@ export function isAuthError<T>(result: SafeParseResult<T>): boolean {
   );
 }
 
+// check if a failed SafeParseResult is a network error (e.g., server unreachable)
+export function isNetworkError<T>(result: SafeParseResult<T>): boolean {
+  if (result.success) return false;
+  const err = (result as SafeParseError).error;
+  return err.issues.some(
+    (issue) =>
+      issue.code === "custom" &&
+      (issue.message === "Failed to fetch" || issue.message === "network error"),
+  );
+}
+
 // internal call function used by all wrappers
 export async function call<Resp>(
   baseUrl: string,

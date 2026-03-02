@@ -26,6 +26,7 @@ import { useTagsQuery } from "../queries/tags";
 import { playQueue } from "../services/queue/queue";
 import { useSongContextMenu } from "../hooks/contextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { RemoteOfflineError } from "../data";
 
 const songSortFields = [
   { value: "added_at", label: "date added", description: "sort by date added" },
@@ -267,7 +268,24 @@ export function SongsView(props: SongsViewProps) {
     <div class="flex flex-col h-full">
       {/* song list */}
       <div class="flex-1 overflow-hidden">
-        {allSongs().length === 0 && !songsQuery.isLoading ? (
+        {songsQuery.isError ? (
+          <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+            <div class="text-center max-w-md">
+              {songsQuery.error instanceof RemoteOfflineError ? (
+                <>
+                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                    {(songsQuery.error as RemoteOfflineError).remoteName} is offline
+                  </p>
+                  <p class="text-sm text-[var(--color-text-muted)]">
+                    switch to a different remote or use local library
+                  </p>
+                </>
+              ) : (
+                <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load songs</p>
+              )}
+            </div>
+          </div>
+        ) : allSongs().length === 0 && !songsQuery.isLoading ? (
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
             <div class="text-center max-w-md">
               <p class="text-lg text-[var(--color-text-secondary)] mb-2">no songs found!</p>

@@ -9,7 +9,7 @@ import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
-import { getCurrentRemote, getCurrentUser, getDataSource } from "../data";
+import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
 import type { FeedItem } from "../data/types";
 import {
   useActivityFeedInfiniteQuery,
@@ -700,10 +700,23 @@ export function FeedView() {
         <Show when={feedQuery.isError}>
           <div class="flex flex-col items-center justify-center py-16 text-center">
             <Icon name="alertTriangle" size={32} color="var(--color-error)" />
-            <p class="text-[var(--color-text-secondary)] mt-2 text-sm">failed to load feed</p>
-            <Button variant="secondary" onClick={() => void feedQuery.refetch()} class="mt-3">
-              retry
-            </Button>
+            {feedQuery.error instanceof RemoteOfflineError ? (
+              <>
+                <p class="text-[var(--color-text-secondary)] mt-2">
+                  {(feedQuery.error as RemoteOfflineError).remoteName} is offline
+                </p>
+                <p class="text-sm text-[var(--color-text-muted)] mt-1">
+                  switch to a different remote or use local library
+                </p>
+              </>
+            ) : (
+              <>
+                <p class="text-[var(--color-text-secondary)] mt-2 text-sm">failed to load feed</p>
+                <Button variant="secondary" onClick={() => void feedQuery.refetch()} class="mt-3">
+                  retry
+                </Button>
+              </>
+            )}
           </div>
         </Show>
 

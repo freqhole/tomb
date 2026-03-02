@@ -1,6 +1,8 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
+import { debug } from "../../utils/logger";
+import { toast } from "../feedback/Toast";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import MediaImage from "../media/MediaImage";
 import { ViewSelector, type ViewOption } from "./ViewSelector";
@@ -78,12 +80,23 @@ export interface TopNavProps {
   currentPath?: string;
   /** current source name (e.g. "local library" or remote name) */
   currentSourceName?: string;
+  /** current source id (remote_id if connected to remote, null for local) */
+  currentSourceId?: string | null;
   /** available remote sources */
-  remotes?: Array<{ id: string; name: string; url: string; imageUrl?: string }>;
+  remotes?: Array<{
+    id: string;
+    name: string;
+    url: string;
+    imageUrl?: string;
+    isOffline?: boolean;
+    lastChecked?: number | null;
+  }>;
   /** callback to switch to local source */
   onSwitchToLocal?: () => void;
   /** callback to switch to a remote source */
   onSwitchToRemote?: (remoteId: string) => void;
+  /** callback to recheck remote status and switch if online */
+  onRecheckRemote?: (remoteId: string) => Promise<boolean>;
   /** callback to add a new remote */
   onAddRemote?: () => void;
   /** browser storage usage in bytes */
@@ -119,6 +132,7 @@ export function TopNav(props: TopNavProps) {
   const [feedFilterOpen, setFeedFilterOpen] = createSignal(false);
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
   const [navHovered, setNavHovered] = createSignal(false);
+  const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -166,8 +180,64 @@ export function TopNav(props: TopNavProps) {
 
   // get current remote for image + url
   const currentRemote = () => {
-    if (!props.remotes || !props.currentSourceName) return null;
-    return props.remotes.find((r) => r.name === props.currentSourceName) ?? null;
+    if (!props.remotes || !props.currentSourceId) {
+      debug("TopNav", "currentRemote: no remotes or no currentSourceId", {
+        hasRemotes: !!props.remotes,
+        remotesLength: props.remotes?.length,
+        currentSourceId: props.currentSourceId,
+      });
+      return null;
+    }
+    const found = props.remotes.find((r) => r.id === props.currentSourceId) ?? null;
+    debug("TopNav", "currentRemote lookup", {
+      currentSourceId: props.currentSourceId,
+      remoteIds: props.remotes.map((r) => r.id),
+      found: found ? { id: found.id, name: found.name, imageUrl: found.imageUrl } : null,
+    });
+    return found;
+  };
+
+  // debug: log when props change
+  createEffect(() => {
+    debug("TopNav", "remotes prop changed", {
+      remotes: props.remotes?.map((r) => ({
+        id: r.id,
+        name: r.name,
+        imageUrl: r.imageUrl,
+        isOffline: r.isOffline,
+      })),
+      currentSourceId: props.currentSourceId,
+      currentSourceName: props.currentSourceName,
+    });
+  });
+
+  // handle remote click - recheck if offline, otherwise switch
+  const handleRemoteClick = async (remote: NonNullable<typeof props.remotes>[number]) => {
+    // if it's the current source, do nothing
+    if (props.currentSourceId === remote.id) return;
+
+    // if offline, try to recheck
+    if (remote.isOffline && props.onRecheckRemote) {
+      setRecheckingRemoteIds((prev) => new Set([...prev, remote.id]));
+      try {
+        const isNowOnline = await props.onRecheckRemote(remote.id);
+        if (isNowOnline) {
+          props.onSwitchToRemote?.(remote.id);
+        } else {
+          toast.warning(`${remote.name} is still offline`);
+        }
+      } finally {
+        setRecheckingRemoteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(remote.id);
+          return next;
+        });
+      }
+      return;
+    }
+
+    // otherwise just switch
+    props.onSwitchToRemote?.(remote.id);
   };
 
   return (
@@ -307,40 +377,79 @@ export function TopNav(props: TopNavProps) {
                           <Show when={props.remotes && props.remotes.length > 0}>
                             <div class="pt-1 border-t border-[var(--color-border-subtle)] mt-2">
                               <For each={props.remotes}>
-                                {(remote) => (
-                                  <button
-                                    class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
-                                    classList={{
-                                      "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                        props.currentSourceName === remote.name,
-                                      "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                        props.currentSourceName !== remote.name,
-                                    }}
-                                    disabled={props.currentSourceName === remote.name}
-                                    onClick={() => props.onSwitchToRemote?.(remote.id)}
-                                  >
-                                    <Show
-                                      when={props.currentSourceName === remote.name}
-                                      fallback={
-                                        <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
-                                      }
+                                {(remote) => {
+                                  const isRechecking = () => recheckingRemoteIds().has(remote.id);
+                                  const isCurrentSource = () => props.currentSourceId === remote.id;
+                                  const offlineTitle = () => {
+                                    if (!remote.isOffline) return undefined;
+                                    const lastChecked = remote.lastChecked
+                                      ? `last checked ${formatRelativeTime(remote.lastChecked)}`
+                                      : "never checked";
+                                    return `${lastChecked} - click to retry`;
+                                  };
+                                  return (
+                                    <button
+                                      class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                                      classList={{
+                                        "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
+                                          isCurrentSource(),
+                                        "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
+                                          !isCurrentSource() && !isRechecking(),
+                                        "opacity-60": remote.isOffline && !isRechecking(),
+                                        "cursor-wait": isRechecking(),
+                                      }}
+                                      disabled={isCurrentSource() || isRechecking()}
+                                      onClick={() => handleRemoteClick(remote)}
+                                      title={offlineTitle()}
                                     >
-                                      <Icon
-                                        name="check"
-                                        size={14}
-                                        color="var(--color-accent-500)"
+                                      <Show
+                                        when={isCurrentSource()}
+                                        fallback={
+                                          <Show
+                                            when={isRechecking()}
+                                            fallback={
+                                              <span
+                                                class="w-2 h-2 rounded-full"
+                                                classList={{
+                                                  "bg-[var(--color-status-error)]":
+                                                    remote.isOffline,
+                                                  "bg-[var(--color-status-success)]":
+                                                    !remote.isOffline,
+                                                }}
+                                              />
+                                            }
+                                          >
+                                            <Icon
+                                              name="loader"
+                                              size={12}
+                                              color="var(--color-text-secondary)"
+                                              className="animate-spin"
+                                            />
+                                          </Show>
+                                        }
+                                      >
+                                        <Icon
+                                          name="check"
+                                          size={14}
+                                          color="var(--color-accent-500)"
+                                        />
+                                      </Show>
+                                      <MediaImage
+                                        imageUrl={
+                                          remote.imageUrl ? `${remote.url}${remote.imageUrl}` : null
+                                        }
+                                        alt=""
+                                        class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
                                       />
-                                    </Show>
-                                    <MediaImage
-                                      imageUrl={
-                                        remote.imageUrl ? `${remote.url}${remote.imageUrl}` : null
-                                      }
-                                      alt=""
-                                      class="w-4 h-4 rounded object-cover flex-shrink-0"
-                                    />
-                                    <span class="truncate">{remote.name}</span>
-                                  </button>
-                                )}
+                                      <span class="truncate">{remote.name}</span>
+                                      <Show when={remote.isOffline && !isRechecking()}>
+                                        <span class="text-xs text-[var(--color-status-error)] ml-auto">
+                                          offline
+                                        </span>
+                                      </Show>
+                                    </button>
+                                  );
+                                }}
                               </For>
                             </div>
                           </Show>

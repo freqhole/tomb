@@ -13,6 +13,7 @@ import { GenreDetailPanel } from "../../components/genres/GenreDetailPanel";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { useToggleFavoriteMutation } from "../queries/favorites";
+import { RemoteOfflineError } from "../data";
 import { useGenreSongsQuery, useGenresQuery } from "../queries/songs";
 import { useAlbumContextMenu, useGenreContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
@@ -317,7 +318,28 @@ export function GenresView(props: GenresViewProps) {
       <div class="flex flex-col h-full">
         <div class="flex-1 overflow-hidden">
           <Show
-            when={genreListItems().length > 0}
+            when={!genresQuery.isError}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                <div class="text-center max-w-md">
+                  {genresQuery.error instanceof RemoteOfflineError ? (
+                    <>
+                      <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                        {(genresQuery.error as RemoteOfflineError).remoteName} is offline
+                      </p>
+                      <p class="text-sm text-[var(--color-text-muted)]">
+                        switch to a different remote or use local library
+                      </p>
+                    </>
+                  ) : (
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load genres</p>
+                  )}
+                </div>
+              </div>
+            }
+          >
+          <Show
+            when={genreListItems().length > 0 || genresQuery.isLoading || genresQuery.isFetching}
             fallback={
               <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                 <div class="text-center max-w-md">
@@ -332,6 +354,7 @@ export function GenresView(props: GenresViewProps) {
               </div>
             }
           >
+          <Show when={genreListItems().length > 0}>
             <VirtualItemList
               items={genreListItems()}
               selectedId={selectedGenreId()}
@@ -405,6 +428,8 @@ export function GenresView(props: GenresViewProps) {
               }}
               height={listHeight()}
             />
+          </Show>
+          </Show>
           </Show>
         </div>
       </div>

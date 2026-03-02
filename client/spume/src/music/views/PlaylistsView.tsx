@@ -31,7 +31,7 @@ import { VirtualItemList, type ListItem } from "../../components/virtualized/Vir
 import { formatRelativeTime } from "../../utils/dateTime";
 import { formatHumanDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../utils/routing";
-import { getCurrentRemote, getDataSource } from "../data";
+import { getCurrentRemote, getDataSource, RemoteOfflineError } from "../data";
 import type { Song } from "../data/types";
 import {
   usePlaylistSongsQuery,
@@ -835,15 +835,37 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
           }
         >
           <Show
-            when={playlistListItems().length > 0}
+            when={!playlistsQuery.isError}
             fallback={
               <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                 <div class="text-center max-w-md">
-                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">no playlists found!</p>
+                  <Show
+                    when={playlistsQuery.error instanceof RemoteOfflineError}
+                    fallback={
+                      <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load playlists</p>
+                    }
+                  >
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                      {(playlistsQuery.error as RemoteOfflineError).remoteName} is offline
+                    </p>
+                    <p class="text-sm text-[var(--color-text-muted)]">
+                      switch to a different remote or use local library
+                    </p>
+                  </Show>
                 </div>
               </div>
             }
           >
+            <Show
+              when={playlistListItems().length > 0}
+              fallback={
+                <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                  <div class="text-center max-w-md">
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">no playlists found!</p>
+                  </div>
+                </div>
+              }
+            >
             {isResetting() ? (
               <div class="flex items-center justify-center h-full">
                 <div class="text-[var(--color-text-secondary)]">loading...</div>
@@ -1307,6 +1329,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                 onBack={handleBack}
               />
             )}
+          </Show>
           </Show>
         </Show>
       </div>

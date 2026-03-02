@@ -14,6 +14,7 @@ import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
+import { RemoteOfflineError } from "../data";
 import { showArtistEditor, showImageCarousel } from "../hooks/modals";
 import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
@@ -600,7 +601,28 @@ export function ArtistsView(props: ArtistsViewProps) {
       <div class="flex flex-col h-full">
         <div class="flex-1 overflow-hidden">
           <Show
-            when={artistListItems().length > 0}
+            when={!artistsQuery.isError}
+            fallback={
+              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                <div class="text-center max-w-md">
+                  {artistsQuery.error instanceof RemoteOfflineError ? (
+                    <>
+                      <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                        {(artistsQuery.error as RemoteOfflineError).remoteName} is offline
+                      </p>
+                      <p class="text-sm text-[var(--color-text-muted)]">
+                        switch to a different remote or use local library
+                      </p>
+                    </>
+                  ) : (
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load artists</p>
+                  )}
+                </div>
+              </div>
+            }
+          >
+          <Show
+            when={artistListItems().length > 0 || artistsQuery.isLoading || artistsQuery.isFetching}
             fallback={
               <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                 <div class="text-center max-w-md">
@@ -615,6 +637,7 @@ export function ArtistsView(props: ArtistsViewProps) {
               </div>
             }
           >
+          <Show when={artistListItems().length > 0}>
             <VirtualItemList
               items={artistListItems()}
               selectedId={selectedArtistId()}
@@ -644,6 +667,8 @@ export function ArtistsView(props: ArtistsViewProps) {
               getContextMenuActions={getContextMenuActions}
               height={listHeight()}
             />
+          </Show>
+          </Show>
           </Show>
         </div>
       </div>

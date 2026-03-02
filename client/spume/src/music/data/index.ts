@@ -8,10 +8,11 @@ import { appState, setActiveRemoteId } from "../../app/services/storage/db";
 import {
   deactivateAllRemotes,
   getRemoteById,
+  markRemoteOffline,
   setActiveRemote,
 } from "../../app/services/remotes/remoteManager";
 import { LocalMusicDataSource, localDataSource } from "./local/localSource";
-import { RemoteMusicDataSource } from "./remote/remoteSource";
+import { RemoteMusicDataSource, RemoteOfflineError } from "./remote/remoteSource";
 import type { MusicDataSource } from "./types";
 import { debug, warn, error as errorLog } from "../../utils/logger";
 
@@ -142,6 +143,8 @@ export async function initializeDataSource(): Promise<void> {
         debug(`remote accessible, activating: ${remote.name}`);
         await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
       } else {
+        // mark remote as offline in IDB so other code paths see the status
+        await markRemoteOffline(remote.remote_id);
         warn(`remote not accessible: ${remote.name}, using local`);
         await useLocalSource();
       }
@@ -166,4 +169,4 @@ export type {
   Song,
 } from "./types";
 
-export { LocalMusicDataSource, RemoteMusicDataSource };
+export { LocalMusicDataSource, RemoteMusicDataSource, RemoteOfflineError };

@@ -100,6 +100,10 @@ export interface Remote {
   api_key?: string;
   // tauri-managed remote (automatically created/updated by tauri app)
   is_tauri_managed?: boolean;
+  // offline status tracking
+  is_offline?: boolean; // true if last health check failed
+  offline_since?: number | null; // timestamp when remote went offline
+  last_checked?: number | null; // timestamp of last health check
 }
 
 // database schema version
