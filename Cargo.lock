@@ -718,7 +718,7 @@ checksum = "c3e64b0cc0439b12df2fa678eae89a1c56a529fd067a9115f7827f1fffd22b32"
 
 [[package]]
 name = "cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "client-codegen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "grimoire",
  "inventory",
@@ -1612,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "freqhole-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "cocoa",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4913,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",

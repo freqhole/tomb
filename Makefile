@@ -213,10 +213,11 @@ tauri-build-linux-arm64:
 	@echo "linux arm64 tauri packages built: $(BUILD_DIR)/tauri-linux/"
 
 # Collect all built artifacts into build/$VERSION/
+# Only collects artifacts matching the current VERSION
 COLLECT_DIR := build/$(VERSION)
 .PHONY: collect
 collect:
-	@echo "collecting artifacts into $(COLLECT_DIR)/..."
+	@echo "collecting artifacts for version $(VERSION) into $(COLLECT_DIR)/..."
 	@mkdir -p $(COLLECT_DIR)
 	@# CLI binaries in arch folders, then zip each
 	@if [ -d "$(BUILD_DIR)" ]; then \
@@ -225,25 +226,29 @@ collect:
 			if [ "$$name" != "tauri-linux" ] && [ -f "$$dir/freqhole" ]; then \
 				mkdir -p "$(COLLECT_DIR)/$$name"; \
 				cp "$$dir/freqhole" "$(COLLECT_DIR)/$$name/freqhole"; \
-				(cd $(COLLECT_DIR) && zip -r "freqhole-$$name.zip" "$$name"); \
+				(cd $(COLLECT_DIR) && zip -r "freqhole-$(VERSION)-$$name.zip" "$$name" && rm -rf "$$name"); \
 			fi \
 		done \
 	fi
-	@# Tauri macOS dmg files
+	@# Tauri macOS dmg files (only matching current version)
 	@for dmg in target/*/release/bundle/dmg/*.dmg; do \
-		[ -f "$$dmg" ] && cp "$$dmg" $(COLLECT_DIR)/ 2>/dev/null || true; \
+		if [ -f "$$dmg" ] && echo "$$dmg" | grep -q "$(VERSION)"; then \
+			cp "$$dmg" $(COLLECT_DIR)/ 2>/dev/null || true; \
+		fi \
 	done
-	@# Tauri macOS app bundles (zip them)
+	@# Tauri macOS app bundles (zip them with version in filename)
 	@for app in target/*/release/bundle/macos/*.app; do \
 		if [ -d "$$app" ]; then \
 			name=$$(basename "$$app" .app); \
 			arch=$$(echo "$$app" | grep -o 'aarch64\|x86_64' || echo "unknown"); \
-			(cd $$(dirname "$$app") && zip -r "$(PWD)/$(COLLECT_DIR)/$$name-$$arch.app.zip" $$(basename "$$app")); \
+			(cd $$(dirname "$$app") && zip -r "$(PWD)/$(COLLECT_DIR)/$$name-$(VERSION)-$$arch.app.zip" $$(basename "$$app")); \
 		fi \
 	done
-	@# Tauri Linux deb/rpm
+	@# Tauri Linux deb/rpm (only matching current version)
 	@for pkg in $(BUILD_DIR)/tauri-linux/*.deb $(BUILD_DIR)/tauri-linux/*.rpm target/*/release/bundle/deb/*.deb target/*/release/bundle/rpm/*.rpm; do \
-		[ -f "$$pkg" ] && cp "$$pkg" $(COLLECT_DIR)/ 2>/dev/null || true; \
+		if [ -f "$$pkg" ] && echo "$$pkg" | grep -q "$(VERSION)"; then \
+			cp "$$pkg" $(COLLECT_DIR)/ 2>/dev/null || true; \
+		fi \
 	done
 	@echo ""
 	@echo "artifacts collected to $(COLLECT_DIR)/:"

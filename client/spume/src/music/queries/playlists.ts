@@ -153,8 +153,9 @@ export function useCreatePlaylistMutation() {
       return await dataSource.createPlaylist(params);
     },
     onSuccess: () => {
-      // invalidate playlists queries to refetch
+      // invalidate and refetch playlists queries
       queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     },
   }));
 }
@@ -182,8 +183,9 @@ export function useUpdatePlaylistMutation() {
       return await dataSource.updatePlaylist(playlistId, updateParams);
     },
     onSuccess: (_, variables) => {
-      // invalidate playlists queries and specific playlist songs
+      // invalidate and refetch playlists queries and specific playlist
       queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
       queryClient.invalidateQueries({
         queryKey: ["playlists", variables.playlistId],
       });
@@ -206,8 +208,9 @@ export function useDeletePlaylistMutation() {
       await dataSource.deletePlaylist(playlistId);
     },
     onSuccess: (_, playlistId) => {
-      // invalidate playlists queries
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      // invalidate and refetch playlists queries
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
       // remove specific playlist queries from cache
       queryClient.removeQueries({ queryKey: ["playlists", playlistId] });
     },
@@ -231,12 +234,16 @@ export function useAddSongsToPlaylistMutation() {
       await dataSource.addSongsToPlaylist(params.playlistId, params.songIds);
     },
     onSuccess: (_, variables) => {
-      // invalidate playlist songs query to refetch
+      // invalidate and refetch playlist songs query
       queryClient.invalidateQueries({
         queryKey: ["playlists", variables.playlistId, "songs"],
       });
-      // also invalidate playlists list (song count may have changed)
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      void queryClient.refetchQueries({
+        queryKey: ["playlists", variables.playlistId, "songs"],
+      });
+      // invalidate and refetch playlists list (song count may have changed)
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     },
   }));
 }
@@ -261,12 +268,16 @@ export function useRemoveSongsFromPlaylistMutation() {
       );
     },
     onSuccess: (_, variables) => {
-      // invalidate playlist songs query to refetch
+      // invalidate and refetch playlist songs query
       queryClient.invalidateQueries({
         queryKey: ["playlists", variables.playlistId, "songs"],
       });
-      // also invalidate playlists list (song count may have changed)
-      queryClient.invalidateQueries({ queryKey: ["playlists"] });
+      void queryClient.refetchQueries({
+        queryKey: ["playlists", variables.playlistId, "songs"],
+      });
+      // invalidate and refetch playlists list (song count may have changed)
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     },
   }));
 }
@@ -296,8 +307,11 @@ export function useReorderPlaylistSongsMutation() {
       );
     },
     onSuccess: (_, variables) => {
-      // invalidate playlist songs query to refetch with new order
+      // invalidate and refetch playlist songs query to update with new order
       queryClient.invalidateQueries({
+        queryKey: ["playlists", variables.playlistId, "songs"],
+      });
+      void queryClient.refetchQueries({
         queryKey: ["playlists", variables.playlistId, "songs"],
       });
     },
