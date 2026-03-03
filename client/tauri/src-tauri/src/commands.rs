@@ -267,8 +267,21 @@ pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> Creat
 
 /// check if setup wizard needs to run
 #[tauri::command]
-pub async fn check_setup_status(app_data_dir: String) -> SetupStatus {
-    let config_path = PathBuf::from(&app_data_dir).join("freqhole-config.toml");
+pub async fn check_setup_status(app_handle: tauri::AppHandle) -> SetupStatus {
+    // first check if we have a saved config path (from previous setup)
+    let config_path = match get_server_config_path_resolved(&app_handle) {
+        Some(path) => path,
+        None => {
+            // no saved config path found
+            return SetupStatus {
+                needs_setup: true,
+                config_exists: false,
+                has_root_user: false,
+                config_path: None,
+                data_dir: None,
+            };
+        }
+    };
     let config_exists = config_path.exists();
 
     if !config_exists {

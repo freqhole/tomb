@@ -116,15 +116,11 @@ export default function SetupView() {
       setUsername(osUser);
 
       // check if already set up
-      if (dir) {
-        const status = await invoke<SetupStatus>("check_setup_status", {
-          appDataDir: dir,
-        });
-        if (!status.needs_setup) {
-          // setup is complete, redirect to logs
-          navigate("/logs", { replace: true });
-          return;
-        }
+      const status = await invoke<SetupStatus>("check_setup_status");
+      if (!status.needs_setup) {
+        // setup is complete, redirect to logs
+        navigate("/logs", { replace: true });
+        return;
       }
     } catch (e) {
       console.error("init error:", e);
@@ -189,7 +185,7 @@ export default function SetupView() {
     setStep("running");
 
     try {
-      const configPath = `${appDataDir()}/freqhole-config.toml`;
+      const configPath = `${dataDir()}/freqhole-config.toml`;
 
       const result = await invoke<SetupResult>("run_setup_core", {
         configPath,
@@ -303,7 +299,7 @@ export default function SetupView() {
     try {
       // close wizard and open main window with invite code and port
       // server will be started by the Tauri command
-      const configPath = `${appDataDir()}/freqhole-config.toml`;
+      const configPath = `${dataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
         inviteCode: inviteCode(),
         configPath,

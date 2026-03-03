@@ -2,9 +2,11 @@
 # Usage: docker build --build-arg TARGET_ARCH=x86_64-unknown-linux-gnu --platform linux/amd64
 #    or: docker build --build-arg TARGET_ARCH=aarch64-unknown-linux-gnu --platform linux/arm64
 ARG TARGET_ARCH=x86_64-unknown-linux-gnu
+ARG FREQHOLE_GIT_SHA=unknown
 FROM node:24-bookworm
 
 ARG TARGET_ARCH
+ARG FREQHOLE_GIT_SHA
 
 # install base build dependencies + tauri linux dependencies
 RUN apt-get update && apt-get install -y \
@@ -39,7 +41,7 @@ RUN cd client/spume && npm ci
 RUN cd client/tauri && npm ci
 
 # build spume frontend
-RUN cd client/spume && npm run build
+RUN FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cd client/spume && npm run build
 
 # build freqhole CLI first (needed as bundled resource)
 RUN SQLX_OFFLINE="true" cargo build --package cli --release --target ${TARGET_ARCH}

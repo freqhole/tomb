@@ -53,7 +53,7 @@ bundles the app with the `freqhole` binary included. output in `src-tauri/target
 - **setup wizard**: shows on first run (no config) or when setup incomplete (no root user)
 - **sidecar server**: spawns `freqhole server --config <path>` as child process
 - **log capture**: server stdout/stderr captured and viewable in logs view
-- **config location**: always `~/Library/Application Support/com.freqhole.freqhole-app/freqhole-config.toml`
+- **config location**: user-specified during setup (defaults to app data dir), path saved in `freqhole-app-config.toml`
 - **migrations**: run explicitly during setup wizard (`auto_run_migrations: false` in config)
 
 ## tauri commands

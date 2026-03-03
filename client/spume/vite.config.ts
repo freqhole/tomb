@@ -11,8 +11,15 @@ import solidPlugin from "vite-plugin-solid";
 const dirname =
   typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
-// get git commit SHA for cache versioning
-function getGitCommitSha(): string {
+// get version from package.json
+const packageJson = JSON.parse(fs.readFileSync(path.join(dirname, "package.json"), "utf8"));
+const version = packageJson.version || "0.0.0";
+
+// get git commit SHA - env var first (for Docker builds), fallback to git command
+function getGitSha(): string {
+  if (process.env.FREQHOLE_GIT_SHA) {
+    return process.env.FREQHOLE_GIT_SHA;
+  }
   try {
     return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
   } catch {
@@ -20,7 +27,8 @@ function getGitCommitSha(): string {
   }
 }
 
-const gitSha = getGitCommitSha();
+const gitSha = getGitSha();
+const appVersion = `${version}-${gitSha}`;
 
 // plugin to inject version into service worker at build time
 function serviceWorkerPlugin(): Plugin {
@@ -34,9 +42,9 @@ function serviceWorkerPlugin(): Plugin {
 
       if (fs.existsSync(swTemplatePath)) {
         let swContent = fs.readFileSync(swTemplatePath, "utf8");
-        swContent = swContent.replace(/__APP_VERSION__/g, gitSha);
+        swContent = swContent.replace(/__APP_VERSION__/g, appVersion);
         fs.writeFileSync(swOutputPath, swContent);
-        console.log(`[sw] wrote service worker with version: ${gitSha}`);
+        console.log(`[sw] wrote service worker with version: ${appVersion}`);
       }
     },
   };
@@ -47,7 +55,7 @@ export default defineConfig({
   // use relative paths so assets work in Tauri's tauri:// protocol
   base: process.env.VITE_TAURI_MODE ? "./" : "/",
   define: {
-    __APP_VERSION__: JSON.stringify(gitSha),
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
   build: {
     rollupOptions: {

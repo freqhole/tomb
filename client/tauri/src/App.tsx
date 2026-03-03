@@ -79,28 +79,21 @@ function App(props: ParentProps) {
 
     // check setup status
     try {
-      console.log("[App] calling get_default_data_dir...");
-      const dir = await invoke<string | null>("get_default_data_dir");
-      console.log("[App] get_default_data_dir returned:", dir);
-      if (dir) {
-        console.log("[App] calling check_setup_status...");
-        const status = await invoke<SetupStatus>("check_setup_status", {
-          appDataDir: dir,
-        });
-        console.log("[App] check_setup_status returned:", status);
-        setSetupComplete(!status.needs_setup);
+      console.log("[App] calling check_setup_status...");
+      const status = await invoke<SetupStatus>("check_setup_status");
+      console.log("[App] check_setup_status returned:", status);
+      setSetupComplete(!status.needs_setup);
 
-        // navigate based on setup status
-        if (status.needs_setup) {
-          // if setup is needed and we're not on setup page, go there
-          if (location.pathname !== "/" && location.pathname !== "/setup") {
-            navigate("/setup");
-          }
-        } else {
-          // if setup is complete and we're on setup page, go to logs
-          if (location.pathname === "/" || location.pathname === "/setup") {
-            navigate("/logs", { replace: true });
-          }
+      // navigate based on setup status
+      if (status.needs_setup) {
+        // if setup is needed and we're not on setup page, go there
+        if (location.pathname !== "/" && location.pathname !== "/setup") {
+          navigate("/setup");
+        }
+      } else {
+        // if setup is complete and we're on setup page, go to logs
+        if (location.pathname === "/" || location.pathname === "/setup") {
+          navigate("/logs", { replace: true });
         }
       }
     } catch (e) {

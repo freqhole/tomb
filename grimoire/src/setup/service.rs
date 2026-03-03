@@ -230,16 +230,12 @@ impl SetupService {
         }
 
         // create fetch subdirectory for music downloads
-        let fetch_dir = config.fetch_music_dir.clone()
+        let fetch_dir = config
+            .fetch_music_dir
+            .clone()
             .unwrap_or_else(|| config.data_dir.join("fetch"));
         if !fetch_dir.exists() {
             std::fs::create_dir_all(&fetch_dir)?;
-        }
-
-        // create media subdirectory for blob storage
-        let media_dir = config.data_dir.join("media");
-        if !media_dir.exists() {
-            std::fs::create_dir_all(&media_dir)?;
         }
 
         Ok(())
@@ -258,7 +254,9 @@ impl SetupService {
         let image_path = config.image_path.clone().filter(|s| !s.is_empty());
 
         // use custom fetch_music_dir or default to data_dir/fetch
-        let fetch_music_dir = config.fetch_music_dir.clone()
+        let fetch_music_dir = config
+            .fetch_music_dir
+            .clone()
             .unwrap_or_else(|| config.data_dir.join("fetch"));
 
         create_config_full(

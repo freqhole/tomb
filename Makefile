@@ -18,6 +18,7 @@ ifneq (,$(wildcard .env))
 endif
 
 VERSION := $(shell grep '^version = ' Cargo.toml | head -1 | cut -d '"' -f 2)
+GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DIR := target/freqhole/$(VERSION)
 CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
 
@@ -176,7 +177,7 @@ tauri-build-mac-arm:
 	@mkdir -p $(TAURI_DIR)/src-tauri/bin
 	cp target/aarch64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
 	@echo "building spume client..."
-	cd client/spume && npm run build
+	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS arm64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
 
@@ -186,14 +187,15 @@ tauri-build-mac-intel:
 	@mkdir -p $(TAURI_DIR)/src-tauri/bin
 	cp target/x86_64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
 	@echo "building spume client..."
-	cd client/spume && npm run build
+	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS x86_64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
 
 tauri-build-linux-intel:
 	@echo "building Tauri app for Linux x86_64 using Docker..."
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-amd64 --platform linux/amd64 \
-		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu .
+		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu \
+		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
 	@mkdir -p $(BUILD_DIR)/tauri-linux
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/tauri-linux:/output freqhole-tauri-builder-amd64 \
 		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
@@ -204,7 +206,8 @@ tauri-build-linux-intel:
 tauri-build-linux-arm64:
 	@echo "building Tauri app for Linux aarch64 using Docker..."
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-arm64 --platform linux/arm64 \
-		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu .
+		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu \
+		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
 	@mkdir -p $(BUILD_DIR)/tauri-linux
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/tauri-linux:/output freqhole-tauri-builder-arm64 \
 		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \

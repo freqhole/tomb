@@ -19,14 +19,14 @@ stuff that's here:
 - bundles the server/ package and can start the http server (also used as a sidecar proc in the tauri app)
 - see also: [/docs/grimoire-cli-testing.md](/docs/grimoire-cli-testing.md)
 
-3. `/grimoire/` shared (between server & cli) rust code; all the sqlx db logic is here
+3. `/grimoire/` shared (between server & cli & tauri app) rust code; all the sqlx db logic is here
 
 4. `/client/spume/` a bunch of js that:
 
 - does gui stuff. so `solid-js`, `tailwindcss`, indexed db, `@tanstack/solid-virtual` for infinite scroll virtualization, `@tanstack/solid-query` for handy-dandy query stuff, `@kobalte/core` for some ui stuff like context menus + combobox; oh and there's a storybook!
 - `npm run dev` or `npm run storybook` to get started
 
-5. `/client/tauri/` a desktop app built with tauri that:
+5. `/client/tauri/` a desktop app built with [tauri](https://v2.tauri.app/) that:
 
 - also does gui stuff, but as a (webview) app
 - includes some extra admin stuff like managing local scan directories and user invites
