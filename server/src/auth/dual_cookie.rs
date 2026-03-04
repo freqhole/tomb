@@ -99,13 +99,19 @@ where
 
             // before request: if secure cookie exists but main cookie doesn't,
             // inject the secure cookie's value as the main cookie so tower-sessions can read it
-            maybe_inject_cookie(&mut request, &main_name, &secure_name);
+            let injected = maybe_inject_cookie(&mut request, &main_name, &secure_name);
+            if injected {
+                tracing::debug!("[dual_cookie] injected {} from {}", main_name, secure_name);
+            }
 
             // process the request through the session layer
             let response = inner.call(request).await?;
 
             // after response: if main cookie was set, duplicate it as secure cookie
-            let response = maybe_add_secure_cookie(response, &main_name, &secure_name);
+            let (response, added) = maybe_add_secure_cookie(response, &main_name, &secure_name);
+            if added {
+                tracing::debug!("[dual_cookie] added secure cookie: {}", secure_name);
+            }
 
             Ok(response)
         })
@@ -114,18 +120,28 @@ where
 
 /// check if the secure cookie exists and main cookie doesn't;
 /// if so, copy the secure cookie's value to the main cookie header
-fn maybe_inject_cookie(request: &mut Request<Body>, main_name: &str, secure_name: &str) {
+/// returns true if injection occurred
+fn maybe_inject_cookie(request: &mut Request<Body>, main_name: &str, secure_name: &str) -> bool {
     let cookie_header = match request.headers().get(header::COOKIE) {
         Some(h) => match h.to_str() {
             Ok(s) => s.to_string(),
-            Err(_) => return,
+            Err(_) => return false,
         },
-        None => return,
+        None => {
+            return false;
+        }
     };
 
-    // check if main cookie already exists
-    if cookie_header.contains(&format!("{}=", main_name)) {
-        return;
+    // check if main cookie already exists (must match exactly, not as substring of secure cookie name)
+    // cookie header format: "name1=value1; name2=value2"
+    // we need to find "freqhole_freqdev=" at start OR after "; "
+    let main_prefix = format!("{}=", main_name);
+    let has_main_cookie = cookie_header.starts_with(&main_prefix)
+        || cookie_header.contains(&format!("; {}", main_prefix))
+        || cookie_header.contains(&format!(";{}", main_prefix)); // some browsers omit space
+
+    if has_main_cookie {
+        return false;
     }
 
     // check if secure cookie exists and extract its value
@@ -142,16 +158,19 @@ fn maybe_inject_cookie(request: &mut Request<Body>, main_name: &str, secure_name
         let new_cookie = format!("{}; {}={}", cookie_header, main_name, session_value);
         if let Ok(new_header) = new_cookie.parse() {
             request.headers_mut().insert(header::COOKIE, new_header);
+            return true;
         }
     }
+    false
 }
 
 /// if the response sets the main cookie, add a duplicate secure cookie
+/// returns (response, true) if secure cookie was added
 fn maybe_add_secure_cookie(
     mut response: Response<Body>,
     main_name: &str,
     secure_name: &str,
-) -> Response<Body> {
+) -> (Response<Body>, bool) {
     // collect all set-cookie headers
     let set_cookies: Vec<_> = response
         .headers()
@@ -181,12 +200,13 @@ fn maybe_add_secure_cookie(
                 response
                     .headers_mut()
                     .append(header::SET_COOKIE, header_value);
+                return (response, true);
             }
             break;
         }
     }
 
-    response
+    (response, false)
 }
 
 /// build the secure cookie string from the session value and original cookie

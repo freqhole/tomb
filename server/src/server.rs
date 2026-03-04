@@ -187,13 +187,16 @@ pub async fn start_server(
     );
 
     // build router with state
-    // dual cookie layer is always present but only active in "auto" mode
+    // dual cookie layer wraps session layer so it sees Set-Cookie headers on response
+    // layer order: request flows session -> dual_cookie -> handler
+    //              response flows handler -> dual_cookie -> session
+    // we need dual_cookie to see the cookie AFTER session_layer sets it
     let dual_cookie_enabled = cookie_mode == SessionCookieMode::Auto;
     let max_upload_bytes = state.config.media.max_fs_file_size;
     let app = routes::build_router(max_upload_bytes)
         .layer(Extension(state.clone()))
-        .layer(DualCookieLayer::new(&server_id, dual_cookie_enabled))
         .layer(session_layer)
+        .layer(DualCookieLayer::new(&server_id, dual_cookie_enabled))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
