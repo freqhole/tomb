@@ -183,6 +183,20 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* disable backdrop-filter blur (for linux/webkitgtk compatibility)
+   set via freqhole-app-config.toml: disable_backdrop_blur = true
+   also adds solid background fallbacks since transparent + no blur looks broken */
+[data-no-backdrop-filter] * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* background fallbacks for elements that use backdrop-blur */
+[data-no-backdrop-filter] .backdrop-blur-sm,
+[data-no-backdrop-filter] .backdrop-blur-xl {
+    background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
 /* ensure storybook canvas uses dark theme */
 .sb-show-main {
     background-color: var(--color-bg-primary);

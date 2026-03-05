@@ -62,8 +62,13 @@ console.log('[freqhole] message sent:', {});"#,
 /// generate JavaScript to set window.__FREQHOLE_CONFIG__ and set up auth listener
 pub fn generate_config_script(config: &FreqholeConfig) -> String {
     let json = serde_json::to_string(config).unwrap_or_else(|_| "null".to_string());
+    let no_blur_attr = if config.disable_backdrop_blur {
+        "document.documentElement.dataset.noBackdropFilter = 'true';"
+    } else {
+        ""
+    };
     format!(
-        r#"window.__FREQHOLE_CONFIG__ = {};
+        r#"{}window.__FREQHOLE_CONFIG__ = {};
 console.log('[freqhole] config injected:', {{
     server_id: window.__FREQHOLE_CONFIG__?.server_id,
     server_name: window.__FREQHOLE_CONFIG__?.server_name,
@@ -125,7 +130,7 @@ window.addEventListener('freqhole:auth-needed', async (event) => {{
     }}
 }});
 console.log('[freqhole] auth-needed listener installed');"#,
-        json
+        no_blur_attr, json
     )
 }
 

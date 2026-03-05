@@ -396,6 +396,9 @@ pub struct FreqholeConfig {
     pub invite_code: Option<String>,
     /// admin username (used with invite code for authentication)
     pub admin_username: Option<String>,
+    /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
+    #[serde(default)]
+    pub disable_backdrop_blur: bool,
 }
 
 /// save invite code to file for persistent storage
@@ -458,8 +461,12 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
     let server = config.server.as_ref()?;
     let invite_code = read_invite_code(&app_handle);
 
-    // get admin username from app config
-    let admin_username = FreqholeAppConfig::load(&app_handle).and_then(|c| c.admin_user.username);
+    // get app config for username and display settings
+    let app_config = FreqholeAppConfig::load(&app_handle);
+    let admin_username = app_config
+        .as_ref()
+        .and_then(|c| c.admin_user.username.clone());
+    let disable_backdrop_blur = app_config.map(|c| c.disable_backdrop_blur).unwrap_or(false);
 
     eprintln!(
         "[get_freqhole_config] returning: server_id={}, has_invite_code={}, has_admin_username={}",
@@ -475,6 +482,7 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
         server_url: format!("http://localhost:{}", server.port),
         invite_code,
         admin_username,
+        disable_backdrop_blur,
     })
 }
 
