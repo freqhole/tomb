@@ -6,9 +6,9 @@
 //! 3. Provide utilities to load and refresh credentials
 
 use crate::config::{get_config, FederationConfig};
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::client::HaruspexClient;
 use crate::federation::credentials::FederationCredentials;
-use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 /// Result of a setup operation
@@ -59,16 +59,13 @@ pub async fn setup_federation(
     config: &FederationConfig,
     email: &str,
     password: &str,
-) -> Result<SetupResult> {
+) -> GrimoireResult<SetupResult> {
     let app_config = get_config();
     let credentials_path = app_config.federation_credentials_path();
 
     // create client and authenticate
     let client = HaruspexClient::new(&config.haruspex_url, &config.haruspex_anon_key);
-    let session = client
-        .sign_in(email, password)
-        .await
-        .context("failed to authenticate with haruspex")?;
+    let session = client.sign_in(email, password).await?;
 
     // create credentials struct
     let creds = FederationCredentials::new(
@@ -78,9 +75,7 @@ pub async fn setup_federation(
     );
 
     // save credentials
-    creds
-        .save(&credentials_path)
-        .context("failed to save credentials")?;
+    creds.save(&credentials_path)?;
 
     Ok(SetupResult {
         success: true,
@@ -151,18 +146,17 @@ pub async fn get_setup_status_verified() -> SetupStatus {
 /// 2. Refresh the access token
 /// 3. Update stored credentials with new refresh token
 /// 4. Return authenticated client
-pub async fn get_authenticated_client() -> Result<(HaruspexClient, FederationCredentials)> {
+pub async fn get_authenticated_client() -> GrimoireResult<(HaruspexClient, FederationCredentials)> {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
 
     let federation_config = config
         .federation
         .as_ref()
-        .context("federation not configured")?;
+        .ok_or(GrimoireError::FederationNotConfigured)?;
 
     // load credentials
-    let mut creds = FederationCredentials::load(&credentials_path)
-        .context("no stored credentials - run 'federation setup' first")?;
+    let mut creds = FederationCredentials::load(&credentials_path)?;
 
     // create client
     let client = HaruspexClient::new(
@@ -171,10 +165,7 @@ pub async fn get_authenticated_client() -> Result<(HaruspexClient, FederationCre
     );
 
     // refresh token
-    let session = client
-        .refresh_token(&creds.refresh_token)
-        .await
-        .context("failed to refresh token - may need to run 'federation setup' again")?;
+    let session = client.refresh_token(&creds.refresh_token).await?;
 
     // update credentials with new refresh token
     creds.update_token(session.refresh_token);
@@ -191,32 +182,8 @@ pub async fn get_authenticated_client() -> Result<(HaruspexClient, FederationCre
 }
 
 /// Clear stored credentials (logout)
-pub fn clear_credentials() -> Result<()> {
+pub fn clear_credentials() -> GrimoireResult<()> {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
     FederationCredentials::delete(&credentials_path)
-}
-
-/// Interactive setup flow with prompts (for CLI use)
-///
-/// This wraps setup_federation with dialoguer prompts for email/password.
-pub async fn interactive_setup(config: &FederationConfig) -> Result<SetupResult> {
-    use dialoguer::{Input, Password};
-
-    println!("federation setup");
-    println!("haruspex url: {}\n", config.haruspex_url);
-
-    let email: String = Input::new()
-        .with_prompt("email")
-        .interact_text()
-        .context("failed to read email")?;
-
-    let password: String = Password::new()
-        .with_prompt("password")
-        .interact()
-        .context("failed to read password")?;
-
-    println!("authenticating...");
-
-    setup_federation(config, &email, &password).await
 }

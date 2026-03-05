@@ -139,6 +139,25 @@ pub enum GrimoireError {
 
     #[error("file not found: {path}")]
     FileNotFound { path: String },
+
+    // federation errors
+    #[error("federation auth failed: {message}")]
+    FederationAuthFailed { message: String },
+
+    #[error("federation token refresh failed: {message}")]
+    FederationTokenRefreshFailed { message: String },
+
+    #[error("federation api error: {message}")]
+    FederationApiError { message: String },
+
+    #[error("federation not configured")]
+    FederationNotConfigured,
+
+    #[error("federation credentials not found")]
+    FederationCredentialsNotFound,
+
+    #[error("federation credentials invalid: {message}")]
+    FederationCredentialsInvalid { message: String },
 }
 
 /// result type alias for grimoire operations
@@ -201,6 +220,13 @@ impl GrimoireError {
             GrimoireError::MusicBrainzTimeout => true,
             GrimoireError::Analytics(_) => true,
             GrimoireError::ProcessingFailed { .. } => true, // generic, assume transient
+            // federation errors
+            GrimoireError::FederationAuthFailed { .. } => false, // bad credentials
+            GrimoireError::FederationTokenRefreshFailed { .. } => true, // token may have expired
+            GrimoireError::FederationApiError { .. } => true,    // network issues
+            GrimoireError::FederationNotConfigured => false,
+            GrimoireError::FederationCredentialsNotFound => false,
+            GrimoireError::FederationCredentialsInvalid { .. } => false,
         }
     }
 }

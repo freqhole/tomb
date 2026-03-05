@@ -4,10 +4,10 @@
 //! and creates/updates corresponding freqhole users.
 
 use crate::config::FederationConfig;
+use crate::error::GrimoireResult;
 use crate::federation::client::{GroupMember, HaruspexClient};
 use crate::response::GrimoireResponse;
 use crate::users::{User, UserPeerNode, UserRole, UserService};
-use anyhow::Result;
 use std::collections::HashSet;
 
 /// Result of a sync operation
@@ -45,7 +45,7 @@ pub async fn sync_users_from_haruspex(
     config: &FederationConfig,
     email: &str,
     password: &str,
-) -> Result<SyncResult> {
+) -> GrimoireResult<SyncResult> {
     let mut stats = SyncStats::default();
     let mut synced_users = Vec::new();
     let mut synced_peer_nodes = Vec::new();
@@ -175,23 +175,4 @@ pub async fn sync_users_from_haruspex(
         peer_nodes: synced_peer_nodes,
         stats,
     })
-}
-
-/// Interactive sync - prompts for credentials and performs sync
-///
-/// This is a convenience wrapper that handles user input via dialoguer.
-pub async fn interactive_sync(config: &FederationConfig) -> Result<SyncResult> {
-    use dialoguer::{Input, Password};
-
-    println!("federation user sync");
-    println!("haruspex url: {}", config.haruspex_url);
-    println!();
-
-    let email: String = Input::new().with_prompt("email").interact_text()?;
-
-    let password: String = Password::new().with_prompt("password").interact()?;
-
-    println!("signing in...");
-
-    sync_users_from_haruspex(config, &email, &password).await
 }

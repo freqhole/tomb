@@ -3,7 +3,7 @@
 //! Minimal client for interacting with haruspex - handles authentication,
 //! group membership queries, and peer discovery.
 
-use anyhow::{Context, Result};
+use crate::error::{GrimoireError, GrimoireResult};
 use serde::{Deserialize, Serialize};
 
 /// Haruspex client for Supabase coordination
@@ -38,7 +38,7 @@ impl HaruspexClient {
     }
 
     /// Sign in with email and password
-    pub async fn sign_in(&self, email: &str, password: &str) -> Result<AuthSession> {
+    pub async fn sign_in(&self, email: &str, password: &str) -> GrimoireResult<AuthSession> {
         let resp = self
             .client
             .post(format!(
@@ -53,19 +53,22 @@ impl HaruspexClient {
             }))
             .send()
             .await
-            .context("failed to sign in")?;
+            .map_err(|e| GrimoireError::FederationAuthFailed {
+                message: e.to_string(),
+            })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("sign in failed: {}", text);
+            return Err(GrimoireError::FederationAuthFailed { message: text });
         }
 
-        let session: AuthSession = resp.json().await?;
-        Ok(session)
+        resp.json().await.map_err(|e| GrimoireError::FederationAuthFailed {
+            message: format!("failed to parse auth response: {}", e),
+        })
     }
 
     /// List groups the user is a member of
-    pub async fn list_groups(&self) -> Result<Vec<GroupInfo>> {
+    pub async fn list_groups(&self) -> GrimoireResult<Vec<GroupInfo>> {
         let resp = self
             .client
             .get(format!(
@@ -76,18 +79,25 @@ impl HaruspexClient {
             .header("Authorization", self.auth_header())
             .header("Accept", "application/json")
             .send()
-            .await?;
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to list groups: {}", e),
+            })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("failed to list groups: {}", text);
+            return Err(GrimoireError::FederationApiError {
+                message: format!("failed to list groups: {}", text),
+            });
         }
 
-        Ok(resp.json().await?)
+        resp.json().await.map_err(|e| GrimoireError::FederationApiError {
+            message: format!("failed to parse groups response: {}", e),
+        })
     }
 
     /// Get all members of a group with their profile info
-    pub async fn get_group_members(&self, group_id: &str) -> Result<Vec<GroupMember>> {
+    pub async fn get_group_members(&self, group_id: &str) -> GrimoireResult<Vec<GroupMember>> {
         let resp = self
             .client
             .get(format!(
@@ -98,15 +108,25 @@ impl HaruspexClient {
             .header("Authorization", self.auth_header())
             .header("Accept", "application/json")
             .send()
-            .await?;
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to get group members: {}", e),
+            })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("failed to get group members: {}", text);
+            return Err(GrimoireError::FederationApiError {
+                message: format!("failed to get group members: {}", text),
+            });
         }
 
         // parse the nested response
-        let raw: Vec<serde_json::Value> = resp.json().await?;
+        let raw: Vec<serde_json::Value> = resp.json().await.map_err(|e| {
+            GrimoireError::FederationApiError {
+                message: format!("failed to parse group members response: {}", e),
+            }
+        })?;
+
         let mut members = Vec::new();
 
         for item in raw {
@@ -127,7 +147,7 @@ impl HaruspexClient {
     }
 
     /// Get online peers in user's groups (includes node_ids for P2P)
-    pub async fn get_online_peers(&self, stale_minutes: Option<i32>) -> Result<Vec<PeerInfo>> {
+    pub async fn get_online_peers(&self, stale_minutes: Option<i32>) -> GrimoireResult<Vec<PeerInfo>> {
         let minutes = stale_minutes.unwrap_or(5);
 
         let resp = self
@@ -140,18 +160,25 @@ impl HaruspexClient {
                 "stale_minutes": minutes
             }))
             .send()
-            .await?;
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to get peers: {}", e),
+            })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("failed to get peers: {}", text);
+            return Err(GrimoireError::FederationApiError {
+                message: format!("failed to get peers: {}", text),
+            });
         }
 
-        Ok(resp.json().await?)
+        resp.json().await.map_err(|e| GrimoireError::FederationApiError {
+            message: format!("failed to parse peers response: {}", e),
+        })
     }
 
     /// Refresh access token using a refresh token
-    pub async fn refresh_token(&self, refresh_token: &str) -> Result<AuthSession> {
+    pub async fn refresh_token(&self, refresh_token: &str) -> GrimoireResult<AuthSession> {
         let resp = self
             .client
             .post(format!(
@@ -165,15 +192,18 @@ impl HaruspexClient {
             }))
             .send()
             .await
-            .context("failed to refresh token")?;
+            .map_err(|e| GrimoireError::FederationTokenRefreshFailed {
+                message: e.to_string(),
+            })?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("token refresh failed: {}", text);
+            return Err(GrimoireError::FederationTokenRefreshFailed { message: text });
         }
 
-        let session: AuthSession = resp.json().await?;
-        Ok(session)
+        resp.json().await.map_err(|e| GrimoireError::FederationTokenRefreshFailed {
+            message: format!("failed to parse refresh response: {}", e),
+        })
     }
 }
 

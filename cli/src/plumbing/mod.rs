@@ -193,8 +193,9 @@ pub async fn handle_dir_tags(action: DirTagsAction, json_output: bool) -> anyhow
 }
 
 pub async fn handle_federation(action: FederationAction, json_output: bool) -> anyhow::Result<()> {
-    federation::handle_action(action, json_output).await;
-    Ok(())
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = federation::handle_command(action).await;
+    utils::print_and_exit(output, format);
 }
 
 #[cfg(test)]

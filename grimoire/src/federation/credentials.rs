@@ -3,7 +3,7 @@
 //! Stores haruspex (Supabase) authentication credentials in a secure file.
 //! The file is chmod 600 to prevent other users from reading it.
 
-use anyhow::{Context, Result};
+use crate::error::{GrimoireError, GrimoireResult};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use time::OffsetDateTime;
@@ -70,21 +70,28 @@ impl FederationCredentials {
     }
 
     /// Load credentials from file
-    pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read credentials from {}", path.display()))?;
-        toml::from_str(&content).context("failed to parse credentials file")
+    pub fn load(path: &Path) -> GrimoireResult<Self> {
+        let content = std::fs::read_to_string(path).map_err(|_| {
+            GrimoireError::FederationCredentialsNotFound
+        })?;
+
+        toml::from_str(&content).map_err(|e| GrimoireError::FederationCredentialsInvalid {
+            message: format!("failed to parse credentials: {}", e),
+        })
     }
 
     /// Save credentials to file with secure permissions (chmod 600)
-    pub fn save(&self, path: &Path) -> Result<()> {
+    pub fn save(&self, path: &Path) -> GrimoireResult<()> {
         // ensure parent directory exists
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|e| GrimoireError::Io(e))?;
         }
 
-        let content = toml::to_string_pretty(self).context("failed to serialize credentials")?;
+        let content = toml::to_string_pretty(self).map_err(|e| {
+            GrimoireError::FederationCredentialsInvalid {
+                message: format!("failed to serialize credentials: {}", e),
+            }
+        })?;
 
         // add a warning comment at the top
         let content_with_header = format!(
@@ -92,16 +99,16 @@ impl FederationCredentials {
             content
         );
 
-        std::fs::write(path, &content_with_header)
-            .with_context(|| format!("failed to write credentials to {}", path.display()))?;
+        std::fs::write(path, &content_with_header).map_err(|e| GrimoireError::Io(e))?;
 
         // set file permissions to 600 (owner read/write only) on unix
         #[cfg(unix)]
         {
-            let mut perms = std::fs::metadata(path)?.permissions();
+            let mut perms = std::fs::metadata(path)
+                .map_err(|e| GrimoireError::Io(e))?
+                .permissions();
             perms.set_mode(0o600);
-            std::fs::set_permissions(path, perms)
-                .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+            std::fs::set_permissions(path, perms).map_err(|e| GrimoireError::Io(e))?;
         }
 
         Ok(())
@@ -113,10 +120,9 @@ impl FederationCredentials {
     }
 
     /// Delete credentials file
-    pub fn delete(path: &Path) -> Result<()> {
+    pub fn delete(path: &Path) -> GrimoireResult<()> {
         if path.exists() {
-            std::fs::remove_file(path)
-                .with_context(|| format!("failed to delete credentials at {}", path.display()))?;
+            std::fs::remove_file(path).map_err(|e| GrimoireError::Io(e))?;
         }
         Ok(())
     }
