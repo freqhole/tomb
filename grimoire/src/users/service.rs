@@ -545,9 +545,7 @@ impl UserService {
 
         match self.repository.create_invite_code(&code, &request).await {
             Ok(invite) => GrimoireResponse::success("account-link invite code created", invite),
-            Err(err) => {
-                GrimoireResponse::failure("failed to create invite code", vec![err.into()])
-            }
+            Err(err) => GrimoireResponse::failure("failed to create invite code", vec![err.into()]),
         }
     }
 
@@ -671,6 +669,157 @@ impl UserService {
         }
 
         Ok(())
+    }
+
+    // ========================================================================
+    // Federation / P2P methods
+    // ========================================================================
+
+    /// Find a user by their haruspex (Supabase) user ID
+    pub async fn get_user_by_haruspex_id(&self, haruspex_user_id: &str) -> GrimoireResponse<User> {
+        match self
+            .repository
+            .find_user_by_haruspex_id(haruspex_user_id)
+            .await
+        {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => {
+                GrimoireResponse::failure("User not found", vec![AuthError::UserNotFound.into()])
+            }
+            Err(err) => GrimoireResponse::failure("Failed to find user", vec![err.into()]),
+        }
+    }
+
+    /// Find a user by their iroh peer node_id
+    pub async fn get_user_by_node_id(&self, node_id: &str) -> GrimoireResponse<User> {
+        match self.repository.find_user_by_node_id(node_id).await {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => GrimoireResponse::failure(
+                "User not found for node_id",
+                vec![AuthError::UserNotFound.into()],
+            ),
+            Err(err) => GrimoireResponse::failure("Failed to find user", vec![err.into()]),
+        }
+    }
+
+    /// Create or update a federated user from haruspex sync
+    ///
+    /// If a user with the haruspex_user_id already exists, returns that user.
+    /// If a user with the username exists but no haruspex_user_id, links them.
+    /// Otherwise creates a new user.
+    pub async fn sync_federated_user(
+        &self,
+        username: &str,
+        haruspex_user_id: &str,
+        role: UserRole,
+    ) -> GrimoireResponse<User> {
+        // first check if user already exists by haruspex_user_id
+        if let Ok(Some(user)) = self
+            .repository
+            .find_user_by_haruspex_id(haruspex_user_id)
+            .await
+        {
+            return GrimoireResponse::success("User already synced", user);
+        }
+
+        // check if user exists by username
+        match self.repository.find_user_by_username(username).await {
+            Ok(Some(existing)) => {
+                // user exists, link haruspex_user_id if not already set
+                if existing.haruspex_user_id.is_some() {
+                    // different haruspex_user_id - conflict
+                    return GrimoireResponse::failure(
+                        "Username already exists with different haruspex identity",
+                        vec![AuthError::UserAlreadyExists {
+                            username: username.to_string(),
+                        }
+                        .into()],
+                    );
+                }
+                // link the haruspex_user_id
+                if let Err(err) = self
+                    .repository
+                    .set_haruspex_user_id(&existing.id, haruspex_user_id)
+                    .await
+                {
+                    return GrimoireResponse::failure(
+                        "Failed to link haruspex identity",
+                        vec![err.into()],
+                    );
+                }
+                // re-fetch with updated data
+                match self.repository.find_user_by_id(&existing.id).await {
+                    Ok(Some(user)) => {
+                        GrimoireResponse::success("Linked haruspex identity to existing user", user)
+                    }
+                    Ok(None) => GrimoireResponse::failure(
+                        "User not found after update",
+                        vec![AuthError::UserNotFound.into()],
+                    ),
+                    Err(err) => {
+                        GrimoireResponse::failure("Failed to fetch updated user", vec![err.into()])
+                    }
+                }
+            }
+            Ok(None) => {
+                // create new user
+                match self
+                    .repository
+                    .create_federated_user(username, haruspex_user_id, role)
+                    .await
+                {
+                    Ok(user) => GrimoireResponse::success("Created federated user", user),
+                    Err(err) => GrimoireResponse::failure(
+                        "Failed to create federated user",
+                        vec![err.into()],
+                    ),
+                }
+            }
+            Err(err) => {
+                GrimoireResponse::failure("Failed to check existing user", vec![err.into()])
+            }
+        }
+    }
+
+    /// Add or update a peer node_id for a user
+    pub async fn upsert_peer_node(
+        &self,
+        user_id: &str,
+        node_id: &str,
+        instance_name: Option<&str>,
+    ) -> GrimoireResponse<UserPeerNode> {
+        match self
+            .repository
+            .upsert_peer_node(user_id, node_id, instance_name)
+            .await
+        {
+            Ok(peer_node) => GrimoireResponse::success("Peer node upserted", peer_node),
+            Err(err) => GrimoireResponse::failure("Failed to upsert peer node", vec![err.into()]),
+        }
+    }
+
+    /// Get all peer nodes for a user
+    pub async fn get_user_peer_nodes(&self, user_id: &str) -> GrimoireResponse<Vec<UserPeerNode>> {
+        match self.repository.get_user_peer_nodes(user_id).await {
+            Ok(nodes) => GrimoireResponse::success("Peer nodes retrieved", nodes),
+            Err(err) => GrimoireResponse::failure("Failed to get peer nodes", vec![err.into()]),
+        }
+    }
+
+    /// Remove a peer node_id from a user
+    pub async fn remove_peer_node(&self, user_id: &str, node_id: &str) -> GrimoireResponse<()> {
+        match self.repository.remove_peer_node(user_id, node_id).await {
+            Ok(()) => GrimoireResponse::success("Peer node removed", ()),
+            Err(err) => GrimoireResponse::failure("Failed to remove peer node", vec![err.into()]),
+        }
+    }
+
+    /// Update last_seen_at for a peer node (called on P2P connection)
+    pub async fn touch_peer_node(&self, node_id: &str) -> GrimoireResponse<()> {
+        match self.repository.touch_peer_node(node_id).await {
+            Ok(()) => GrimoireResponse::success("Peer node touched", ()),
+            Err(err) => GrimoireResponse::failure("Failed to touch peer node", vec![err.into()]),
+        }
     }
 }
 

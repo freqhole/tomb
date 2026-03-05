@@ -109,6 +109,15 @@ enum Commands {
         json_output: bool,
     },
 
+    /// Federation (P2P) operations - sync users from haruspex
+    Federation {
+        #[command(subcommand)]
+        action: plumbing::FederationAction,
+        /// Output as JSON
+        #[arg(long)]
+        json_output: bool,
+    },
+
     /// Start the HTTP server
     Server {
         /// Path to configuration file (overrides --config global flag)
@@ -227,6 +236,12 @@ async fn main() -> Result<()> {
             json_output,
         } => {
             plumbing::handle_dir_tags(action, json_output).await?;
+        }
+        Commands::Federation {
+            action,
+            json_output,
+        } => {
+            plumbing::handle_federation(action, json_output).await?;
         }
         Commands::Server { .. } => {
             // handled above with early return

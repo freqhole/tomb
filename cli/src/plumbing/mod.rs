@@ -17,6 +17,7 @@ mod analytics;
 mod config;
 mod database;
 mod dir_tags;
+mod federation;
 mod jobs;
 mod maintenance;
 mod music;
@@ -29,6 +30,7 @@ pub use analytics::AnalyticsAction;
 pub use config::ConfigAction;
 pub use database::DatabaseAction;
 pub use dir_tags::DirTagsAction;
+pub use federation::FederationAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
@@ -188,6 +190,11 @@ pub async fn handle_dir_tags(action: DirTagsAction, json_output: bool) -> anyhow
     let format = OutputFormat::from_json_flag(json_output);
     let output = dir_tags::handle_command(action).await;
     utils::print_and_exit(output, format);
+}
+
+pub async fn handle_federation(action: FederationAction, json_output: bool) -> anyhow::Result<()> {
+    federation::handle_action(action, json_output).await;
+    Ok(())
 }
 
 #[cfg(test)]

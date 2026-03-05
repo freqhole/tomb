@@ -104,11 +104,17 @@ create policy "group owners can delete"
     )
   );
 
+-- helper function to get user's group IDs without RLS (avoids recursion)
+create or replace function public.get_user_group_ids()
+returns setof uuid as $$
+  select group_id from public.group_members where user_id = auth.uid();
+$$ language sql security definer stable;
+
 -- group_members: see memberships in your groups, join/leave
--- users can always see their own memberships (no recursion)
-create policy "users can see own memberships"
+-- uses security definer function to avoid infinite recursion
+create policy "users can see memberships in their groups"
   on public.group_members for select
-  using (user_id = auth.uid());
+  using (group_id in (select public.get_user_group_ids()));
 
 create policy "users can join groups"
   on public.group_members for insert

@@ -191,7 +191,13 @@ async fn main() -> Result<()> {
             supabase_url,
             anon_key,
         } => {
-            haruspex::interactive_sync(&supabase_url, &anon_key).await?;
+            let result = haruspex::interactive_sync(&supabase_url, &anon_key).await?;
+            println!("sync complete:");
+            println!("  {} member(s) collected", result.members.len());
+            println!("  {} peer(s) with node_ids", result.peers.len());
+            println!();
+            println!("note: to sync these users to freqhole, use the freqhole CLI:");
+            println!("  freqhole federation sync");
         }
     }
 

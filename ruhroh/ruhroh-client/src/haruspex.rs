@@ -205,6 +205,46 @@ impl HaruspexClient {
         Ok(resp.json().await?)
     }
 
+    /// Get all members of a group with their profile info
+    pub async fn get_group_members(&self, group_id: &str) -> Result<Vec<GroupMember>> {
+        let resp = self
+            .client
+            .get(format!(
+                "{}/rest/v1/group_members?group_id=eq.{}&select=user_id,role,profiles(id,display_name,avatar_url,email:id)",
+                self.base_url, group_id
+            ))
+            .header("apikey", &self.anon_key)
+            .header("Authorization", self.auth_header())
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("failed to get group members: {}", text);
+        }
+
+        // parse the nested response
+        let raw: Vec<serde_json::Value> = resp.json().await?;
+        let mut members = Vec::new();
+        
+        for item in raw {
+            let user_id = item["user_id"].as_str().unwrap_or_default().to_string();
+            let role = item["role"].as_str().unwrap_or("member").to_string();
+            let profile = &item["profiles"];
+            
+            members.push(GroupMember {
+                user_id: user_id.clone(),
+                group_id: group_id.to_string(),
+                role,
+                display_name: profile["display_name"].as_str().map(String::from),
+                avatar_url: profile["avatar_url"].as_str().map(String::from),
+            });
+        }
+
+        Ok(members)
+    }
+
     /// Create a new group
     pub async fn create_group(&self, name: &str, description: Option<&str>) -> Result<GroupInfo> {
         let user_id = self.get_user_id().await?;
@@ -377,14 +417,35 @@ pub struct PeerInfo {
     pub group_name: Option<String>,
 }
 
+/// Group member with profile info (for sync)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupMember {
+    pub user_id: String,
+    pub group_id: String,
+    pub role: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
 // ============================================================================
 // Interactive sync
 // ============================================================================
 
 use dialoguer::{Input, Password};
 
-/// Interactive sync with haruspex - prompts for credentials and syncs peer data
-pub async fn interactive_sync(supabase_url: &str, anon_key: &str) -> Result<()> {
+/// Result of a haruspex sync operation
+#[derive(Debug, Clone)]
+pub struct SyncResult {
+    /// all members from all groups the user is in
+    pub members: Vec<GroupMember>,
+    /// peers with node_ids (for P2P connections)
+    pub peers: Vec<PeerInfo>,
+    /// groups the user is a member of
+    pub groups: Vec<GroupInfo>,
+}
+
+/// Interactive sync with haruspex - prompts for credentials and returns sync data
+pub async fn interactive_sync(supabase_url: &str, anon_key: &str) -> Result<SyncResult> {
     println!("haruspex sync");
     println!("supabase url: {}", supabase_url);
     println!();
@@ -415,7 +476,11 @@ pub async fn interactive_sync(supabase_url: &str, anon_key: &str) -> Result<()> 
     if groups.is_empty() {
         println!("no groups found.");
         println!("manage groups via browser at supabase studio or the haruspex web ui.");
-        return Ok(());
+        return Ok(SyncResult {
+            members: vec![],
+            peers: vec![],
+            groups: vec![],
+        });
     }
 
     println!("your groups:");
@@ -428,13 +493,43 @@ pub async fn interactive_sync(supabase_url: &str, anon_key: &str) -> Result<()> 
     }
     println!();
 
-    // get online peers
+    // get all members from all groups
+    let mut all_members = Vec::new();
+    for group in &groups {
+        println!("fetching members of {}...", group.name);
+        match client.get_group_members(&group.id).await {
+            Ok(members) => {
+                println!("  {} member(s)", members.len());
+                all_members.extend(members);
+            }
+            Err(e) => {
+                println!("  failed to get members: {}", e);
+            }
+        }
+    }
+    println!();
+
+    // deduplicate members (a user could be in multiple groups)
+    let mut seen_users = std::collections::HashSet::new();
+    all_members.retain(|m| seen_users.insert(m.user_id.clone()));
+
+    println!("total unique members: {}", all_members.len());
+    for member in &all_members {
+        println!(
+            "  - {} ({})",
+            member.display_name.as_deref().unwrap_or(&member.user_id),
+            member.role
+        );
+    }
+    println!();
+
+    // get online peers (for node_id info)
     let peers = client.get_online_peers(Some(60)).await?;
     
     if peers.is_empty() {
         println!("no online peers found (within last 60 minutes).");
     } else {
-        println!("online peers:");
+        println!("online peers with node_ids:");
         for peer in &peers {
             println!(
                 "  - {} ({}) in {}",
@@ -446,12 +541,8 @@ pub async fn interactive_sync(supabase_url: &str, anon_key: &str) -> Result<()> 
     }
     println!();
 
-    // TODO: sync peers to freqhole users
-    // for now, just show what would be synced
-    if !peers.is_empty() {
-        println!("TODO: would sync {} peer(s) to freqhole users", peers.len());
-        println!("      (not implemented yet - this is where we'd call grimoire to create/map users)");
-    }
-
-    Ok(())
-}
+    Ok(SyncResult {
+        members: all_members,
+        peers,
+        groups,
+    })}

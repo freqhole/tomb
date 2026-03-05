@@ -459,6 +459,11 @@ impl GrimoireConfig {
     pub fn wordlist_path(&self) -> PathBuf {
         self.data_dir.join("wordlist.txt")
     }
+
+    /// Get path to federation credentials file
+    pub fn federation_credentials_path(&self) -> PathBuf {
+        self.data_dir.join("federation-creds.toml")
+    }
 }
 
 /// Initialize global config from file path (call once at app startup)

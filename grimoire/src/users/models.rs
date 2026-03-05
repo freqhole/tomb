@@ -126,6 +126,21 @@ pub struct User {
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
+    /// haruspex (federation) user id - links to Supabase identity for P2P auth
+    pub haruspex_user_id: Option<String>,
+    /// extensible metadata as JSON string
+    pub metadata: Option<String>,
+}
+
+/// Peer node entry - maps iroh node_ids to users for P2P authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserPeerNode {
+    pub user_id: String,
+    pub node_id: String,
+    pub instance_name: Option<String>,
+    pub metadata: Option<String>,
+    pub created_at: i64,
+    pub last_seen_at: Option<i64>,
 }
 
 impl User {

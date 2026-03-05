@@ -17,6 +17,8 @@ struct UserRow {
     created_at: i64,
     updated_at: i64,
     deleted_at: Option<i64>,
+    haruspex_user_id: Option<String>,
+    metadata: Option<String>,
 }
 
 impl From<UserRow> for User {
@@ -29,6 +31,32 @@ impl From<UserRow> for User {
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
+            haruspex_user_id: row.haruspex_user_id,
+            metadata: row.metadata,
+        }
+    }
+}
+
+/// Database row struct for user_peer_nodez table
+#[derive(Debug)]
+struct UserPeerNodeRow {
+    user_id: String,
+    node_id: String,
+    instance_name: Option<String>,
+    metadata: Option<String>,
+    created_at: i64,
+    last_seen_at: Option<i64>,
+}
+
+impl From<UserPeerNodeRow> for UserPeerNode {
+    fn from(row: UserPeerNodeRow) -> Self {
+        UserPeerNode {
+            user_id: row.user_id,
+            node_id: row.node_id,
+            instance_name: row.instance_name,
+            metadata: row.metadata,
+            created_at: row.created_at,
+            last_seen_at: row.last_seen_at,
         }
     }
 }
@@ -86,7 +114,7 @@ impl UserRepository {
             r#"
             INSERT INTO user_accountz (username, role, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4)
-            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             "#,
             request.username,
             role,
@@ -106,7 +134,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             FROM user_accountz
             WHERE id = ?1
             "#,
@@ -125,7 +153,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             FROM user_accountz
             WHERE username = ?1
             "#,
@@ -144,7 +172,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             FROM user_accountz
             WHERE api_key = ?1 AND deleted_at IS NULL
             "#,
@@ -163,7 +191,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             FROM user_accountz
             WHERE role = 'root' AND deleted_at IS NULL
             ORDER BY created_at ASC
@@ -280,7 +308,7 @@ impl UserRepository {
         let rows = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             FROM user_accountz
             WHERE (?1 IS NULL OR username LIKE ?1)
               AND (?2 IS NULL OR role = ?2)
@@ -441,6 +469,200 @@ impl UserRepository {
             "#,
             role_str,
             code
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // Federation / P2P methods
+    // ========================================================================
+
+    /// Find a user by their haruspex (Supabase) user ID
+    pub async fn find_user_by_haruspex_id(
+        &self,
+        haruspex_user_id: &str,
+    ) -> AuthResult<Option<User>> {
+        let pool = database::connect().await?;
+
+        let user = sqlx::query_as!(
+            UserRow,
+            r#"
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            FROM user_accountz
+            WHERE haruspex_user_id = ?1 AND deleted_at IS NULL
+            "#,
+            haruspex_user_id
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(user.map(User::from))
+    }
+
+    /// Find a user by their iroh peer node_id
+    pub async fn find_user_by_node_id(&self, node_id: &str) -> AuthResult<Option<User>> {
+        let pool = database::connect().await?;
+
+        let user = sqlx::query_as!(
+            UserRow,
+            r#"
+            SELECT u.id as "id!", u.username as "username!", u.role as "role!", u.api_key, u.created_at as "created_at!", u.updated_at as "updated_at!", u.deleted_at, u.haruspex_user_id, u.metadata
+            FROM user_accountz u
+            INNER JOIN user_peer_nodez p ON u.id = p.user_id
+            WHERE p.node_id = ?1 AND u.deleted_at IS NULL
+            "#,
+            node_id
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(user.map(User::from))
+    }
+
+    /// Create a user with haruspex identity (for federation sync)
+    pub async fn create_federated_user(
+        &self,
+        username: &str,
+        haruspex_user_id: &str,
+        role: UserRole,
+    ) -> AuthResult<User> {
+        let pool = database::connect().await?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let role_str = role.to_string();
+
+        let row = sqlx::query_as!(
+            UserRow,
+            r#"
+            INSERT INTO user_accountz (username, role, haruspex_user_id, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            "#,
+            username,
+            role_str,
+            haruspex_user_id,
+            now,
+            now
+        )
+        .fetch_one(&pool)
+        .await?;
+
+        Ok(User::from(row))
+    }
+
+    /// Update a user's haruspex_user_id
+    pub async fn set_haruspex_user_id(
+        &self,
+        user_id: &str,
+        haruspex_user_id: &str,
+    ) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+
+        sqlx::query!(
+            r#"
+            UPDATE user_accountz
+            SET haruspex_user_id = ?1, updated_at = ?2
+            WHERE id = ?3
+            "#,
+            haruspex_user_id,
+            now,
+            user_id
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Add or update a peer node_id for a user
+    pub async fn upsert_peer_node(
+        &self,
+        user_id: &str,
+        node_id: &str,
+        instance_name: Option<&str>,
+    ) -> AuthResult<UserPeerNode> {
+        let pool = database::connect().await?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+
+        let row = sqlx::query_as!(
+            UserPeerNodeRow,
+            r#"
+            INSERT INTO user_peer_nodez (user_id, node_id, instance_name, created_at, last_seen_at)
+            VALUES (?1, ?2, ?3, ?4, ?4)
+            ON CONFLICT (user_id, node_id) DO UPDATE SET
+                instance_name = COALESCE(?3, instance_name),
+                last_seen_at = ?4
+            RETURNING user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at
+            "#,
+            user_id,
+            node_id,
+            instance_name,
+            now
+        )
+        .fetch_one(&pool)
+        .await?;
+
+        Ok(UserPeerNode::from(row))
+    }
+
+    /// Get all peer nodes for a user
+    pub async fn get_user_peer_nodes(&self, user_id: &str) -> AuthResult<Vec<UserPeerNode>> {
+        let pool = database::connect().await?;
+
+        let rows = sqlx::query_as!(
+            UserPeerNodeRow,
+            r#"
+            SELECT user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at
+            FROM user_peer_nodez
+            WHERE user_id = ?1
+            ORDER BY last_seen_at DESC NULLS LAST
+            "#,
+            user_id
+        )
+        .fetch_all(&pool)
+        .await?;
+
+        Ok(rows.into_iter().map(UserPeerNode::from).collect())
+    }
+
+    /// Remove a peer node_id from a user
+    pub async fn remove_peer_node(&self, user_id: &str, node_id: &str) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        sqlx::query!(
+            r#"
+            DELETE FROM user_peer_nodez
+            WHERE user_id = ?1 AND node_id = ?2
+            "#,
+            user_id,
+            node_id
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Update last_seen_at for a peer node (for tracking active connections)
+    pub async fn touch_peer_node(&self, node_id: &str) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+
+        sqlx::query!(
+            r#"
+            UPDATE user_peer_nodez
+            SET last_seen_at = ?1
+            WHERE node_id = ?2
+            "#,
+            now,
+            node_id
         )
         .execute(&pool)
         .await?;

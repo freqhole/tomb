@@ -12,6 +12,7 @@ resolver = "2"
 version = "0.1.2"
 
 [workspace.dependencies]
+anyhow = "1.0"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 futures-util = "0.3"

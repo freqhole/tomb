@@ -31,6 +31,8 @@ pub use models::{
     UserCreatedResponse,
     UserInfoResponse,
     UserListResponse,
+    // Federation / P2P types
+    UserPeerNode,
     UserQueryParams,
     UserRole,
     UserSession,
