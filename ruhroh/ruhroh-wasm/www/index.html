@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ruhroh browser p2p</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 { color: #7b68ee; margin-bottom: 5px; }
+    h2 { color: #888; font-size: 1rem; margin-top: 0; }
+    .section {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+    }
+    .section h3 { margin-top: 0; color: #9b8afb; }
+    label { display: block; margin-bottom: 5px; color: #aaa; }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      background: #0f0f23;
+      color: #fff;
+      font-family: monospace;
+    }
+    button {
+      background: #7b68ee;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 5px;
+    }
+    button:hover { background: #9b8afb; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    button.secondary { background: #444; }
+    button.secondary:hover { background: #555; }
+    button.small { padding: 5px 10px; font-size: 12px; }
+    .log {
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 13px;
+    }
+    .log div { margin: 3px 0; }
+    .log .info { color: #7b68ee; }
+    .log .success { color: #4ade80; }
+    .log .error { color: #f87171; }
+    .log .chat { color: #facc15; }
+    .id { 
+      font-family: monospace; 
+      background: #0f0f23; 
+      padding: 8px; 
+      border-radius: 4px;
+      word-break: break-all;
+      font-size: 12px;
+    }
+    .row { display: flex; gap: 10px; }
+    .row > * { flex: 1; }
+    .peer-list { list-style: none; padding: 0; margin: 0; }
+    .peer-list li {
+      padding: 10px;
+      background: #0f0f23;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .peer-list li:hover { background: #1a1a3e; }
+    .peer-list li.selected { border: 2px solid #7b68ee; }
+    .peer-name { font-weight: bold; }
+    .peer-id { font-size: 11px; color: #666; font-family: monospace; }
+    .group-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .group-tag {
+      background: #0f0f23;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .group-tag:hover { background: #1a1a3e; }
+    .group-tag.member { background: #4ade80; color: #000; }
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    @media (max-width: 600px) { .columns { grid-template-columns: 1fr; } }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>ruhroh</h1>
+  <h2>browser-to-browser p2p via iroh</h2>
+
+  <!-- Central Server Registration -->
+  <div class="section" id="centralSection">
+    <h3>central server</h3>
+    <div id="registerForm">
+      <div class="row">
+        <div>
+          <label>central url</label>
+          <input type="text" id="centralUrl" value="http://localhost:3000" />
+        </div>
+        <div>
+          <label>invite code</label>
+          <input type="text" id="inviteCode" placeholder="paste invite code" />
+        </div>
+      </div>
+      <div>
+        <label>display name</label>
+        <input type="text" id="displayName" value="browser-user" />
+      </div>
+      <button id="registerBtn">register & start node</button>
+      <button id="startOnlyBtn" class="secondary">start without central</button>
+    </div>
+    <div id="registeredInfo" class="hidden">
+      <div class="row">
+        <div>
+          <label>server id</label>
+          <div class="id" id="serverId">-</div>
+        </div>
+        <div>
+          <label>node id</label>
+          <div class="id" id="nodeId">-</div>
+        </div>
+      </div>
+      <button id="stopBtn">stop node</button>
+      <button id="logoutBtn" class="secondary">logout</button>
+    </div>
+  </div>
+
+  <!-- Groups & Peers (only shown when registered) -->
+  <div class="section hidden" id="groupsSection">
+    <h3>groups</h3>
+    <div class="group-list" id="groupList">loading...</div>
+    <div class="row">
+      <input type="text" id="newGroupName" placeholder="new group name..." />
+      <button id="createGroupBtn" class="small">create</button>
+    </div>
+  </div>
+
+  <div class="section hidden" id="peersSection">
+    <h3>peers (click to select)</h3>
+    <ul class="peer-list" id="peerList">
+      <li>join a group to see peers</li>
+    </ul>
+  </div>
+
+  <!-- Manual peer connection (fallback) -->
+  <div class="section hidden" id="manualPeerSection">
+    <h3>manual peer connection</h3>
+    <label>peer address json</label>
+    <textarea id="peerAddr" rows="2" placeholder='{"id":"...","addrs":[...]}'></textarea>
+  </div>
+
+  <!-- Actions (only when node is running) -->
+  <div class="section hidden" id="actionsSection">
+    <h3>actions</h3>
+    <div class="columns">
+      <div>
+        <label>chat message</label>
+        <div class="row">
+          <input type="text" id="chatMsg" placeholder="type a message..." />
+          <button id="sendChatBtn" class="small">send</button>
+        </div>
+      </div>
+      <div>
+        <label>proxy request</label>
+        <div class="row">
+          <input type="text" id="proxyMethod" value="GET" style="width: 60px; flex: none;" />
+          <input type="text" id="proxyPath" value="/api/health" />
+          <button id="proxyBtn" class="small">go</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 10px;">
+      <label>fetch blob</label>
+      <div class="row">
+        <input type="text" id="blobId" placeholder="blob hash..." />
+        <button id="fetchBlobBtn" class="small">fetch</button>
+      </div>
+    </div>
+    <!-- Media Preview (audio or image) -->
+    <div id="playerSection" class="hidden" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+      <label>now playing / preview</label>
+      <div id="nowPlaying" style="font-size: 12px; color: #888; margin-bottom: 8px;">-</div>
+      <audio id="audioPlayer" controls style="width: 100%;"></audio>
+      <img id="imagePreview" style="max-width: 100%; max-height: 400px; border-radius: 4px; display: none;" />
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>log</h3>
+    <div class="log" id="log"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
