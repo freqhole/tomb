@@ -26,6 +26,10 @@ pub struct FreqholeAppConfig {
     /// path to the freqhole binary (discovered or configured)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freqhole_bin_path: Option<String>,
+
+    /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
+    #[serde(default)]
+    pub disable_backdrop_blur: bool,
 }
 
 /// admin user configuration
