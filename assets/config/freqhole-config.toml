@@ -349,3 +349,53 @@ precheck_command = "yt-dlp --print-json --no-download"
 # the command will be invoked as: <command> --paths <job_id_dir> <url>
 # it should print one downloaded file path per line to stdout
 fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
+
+# ============================================================================
+# OPTIONAL: federation/P2P configuration
+# enables peer-to-peer music sharing via iroh transport + haruspex coordination
+# this entire section is optional (default: disabled)
+#
+# federation allows freqhole servers to discover each other and share music
+# directly without a central server. uses iroh for P2P QUIC transport and
+# haruspex (Supabase) for peer discovery/coordination.
+#
+# workflow:
+# 1. admin syncs group members from haruspex to freqhole users
+# 2. freqhole server broadcasts presence (node_id) to haruspex
+# 3. other servers discover peers and can initiate P2P connections
+# 4. requests are proxied over iroh transport, authenticated by node_id
+# ============================================================================
+[federation]
+# REQUIRED when using federation: enable federation features (default: false)
+enabled = false
+
+# REQUIRED when enabled=true: haruspex (Supabase) coordination server URL
+# this is where peer discovery and group coordination happens
+#
+# local development: http://127.0.0.1:54321
+# production: https://your-project.supabase.co
+#
+# IMPORTANT: must match the haruspex instance your group uses
+haruspex_url = ""
+
+# REQUIRED when enabled=true: haruspex anon/publishable key
+# this is the PUBLIC key safe to use in client-side code
+# do NOT use the service role key here!
+#
+# find this in Supabase dashboard: Settings > API > Project API keys > anon/public
+haruspex_anon_key = ""
+
+# OPTIONAL: automatically create freqhole users for authenticated peers (default: false)
+# when true: first P2P request from a known node_id creates a user with default_role
+# when false: users must be synced manually via CLI (freqhole federation sync)
+#
+# auto_create_users=true is convenient but means anyone in your haruspex group
+# gets access. set to false for more control over who can access your server.
+auto_create_users = false
+
+# OPTIONAL: role to assign auto-created users (default: "visitor")
+# options:
+#   - "visitor": read-only (browse, play, but no edits)
+#   - "member": standard user (upload, edit, create playlists)
+#   - "admin": full access (includes user management)
+default_role = "visitor"

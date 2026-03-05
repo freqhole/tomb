@@ -28,6 +28,9 @@ pub struct GrimoireConfig {
     /// Server configuration (optional - only needed for server mode)
     #[serde(default)]
     pub server: Option<ServerConfig>,
+    /// Federation/P2P configuration (optional - for peer-to-peer music sharing)
+    #[serde(default)]
+    pub federation: Option<FederationConfig>,
 }
 
 /// Database configuration
@@ -150,6 +153,33 @@ pub struct MusicBrainzConfig {
     /// Enable MusicBrainz API integration (default: false)
     #[serde(default)]
     pub enabled: bool,
+}
+
+/// Federation/P2P configuration for peer-to-peer music sharing
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FederationConfig {
+    /// Enable federation features (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Haruspex (Supabase) URL for peer coordination
+    /// e.g., "http://127.0.0.1:54321" for local dev or "https://xxx.supabase.co"
+    #[serde(default)]
+    pub haruspex_url: String,
+    /// Haruspex (Supabase) anon/publishable key (NOT the service role key!)
+    #[serde(default)]
+    pub haruspex_anon_key: String,
+    /// Automatically create freqhole users for authenticated peers on first request
+    /// When true: P2P request from known node_id creates user with default_role
+    /// When false: users must be synced manually via CLI or admin UI
+    #[serde(default)]
+    pub auto_create_users: bool,
+    /// Role to assign auto-created users: "visitor", "member", etc.
+    #[serde(default = "default_federation_role")]
+    pub default_role: String,
+}
+
+fn default_federation_role() -> String {
+    "visitor".to_string()
 }
 
 /// Logging configuration
@@ -701,11 +731,9 @@ pub fn update_static_files_config(
     static_dir: &Path,
 ) -> Result<(), ConfigError> {
     // read existing config
-    let content = std::fs::read_to_string(config_path).map_err(|e| {
-        ConfigError::FileNotFound {
-            path: config_path.display().to_string(),
-            error: e.to_string(),
-        }
+    let content = std::fs::read_to_string(config_path).map_err(|e| ConfigError::FileNotFound {
+        path: config_path.display().to_string(),
+        error: e.to_string(),
     })?;
 
     // parse as toml document
@@ -724,7 +752,10 @@ pub fn update_static_files_config(
     if let Some(server) = doc["server"].as_table_mut() {
         // create static_files table if it doesn't exist
         if !server.contains_key("static_files") {
-            server.insert("static_files", toml_edit::Item::Table(toml_edit::Table::new()));
+            server.insert(
+                "static_files",
+                toml_edit::Item::Table(toml_edit::Table::new()),
+            );
         }
 
         if let Some(static_files) = server["static_files"].as_table_mut() {
@@ -772,6 +803,7 @@ mod tests {
                 level: "info".to_string(),
             },
             server: None,
+            federation: None,
         };
 
         assert_eq!(config.database_path(), PathBuf::from("/data/test.db"));
@@ -807,6 +839,7 @@ mod tests {
                 level: "invalid".to_string(),
             },
             server: None,
+            federation: None,
         };
 
         assert!(config.validate().is_err());
@@ -840,6 +873,7 @@ mod tests {
                 level: "info".to_string(),
             },
             server: None,
+            federation: None,
         };
 
         assert!(config.validate().is_err());
