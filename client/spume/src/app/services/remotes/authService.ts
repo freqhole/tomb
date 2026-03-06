@@ -1,7 +1,7 @@
 // auth service — abstracts webauthn authentication flows
 // handles login and registration with the freqhole server
 
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient, webauthn } from "../../api/client";
 import { debug } from "../../../utils/logger";
 
 export interface AuthResult {
@@ -19,7 +19,8 @@ export interface WhoamiResult {
 // check if user is authenticated on a remote
 export async function whoami(baseUrl: string): Promise<WhoamiResult> {
   try {
-    const result = await apiClient.auth.whoami(baseUrl);
+    const client = createHttpClient(baseUrl);
+    const result = await client.auth.whoami();
     if (result.success && result.data) {
       return {
         success: true,
@@ -36,7 +37,7 @@ export async function whoami(baseUrl: string): Promise<WhoamiResult> {
 
 // get server info (public endpoint)
 export async function getServerInfo(baseUrl: string) {
-  return apiClient.app.getServerInfo(baseUrl);
+  return createHttpClient(baseUrl).app.serverInfo();
 }
 
 // login with webauthn
@@ -45,11 +46,12 @@ export async function loginWithWebauthn(
   username: string,
 ): Promise<AuthResult> {
   try {
+    const client = createHttpClient(baseUrl);
     debug("webauthn", "starting login for username:", username);
 
     // step 1: start login
     debug("webauthn", "starting webauthn login...");
-    const startResult = await apiClient.auth.loginStart(baseUrl, { username });
+    const startResult = await client.auth.loginStart({ username });
 
     if (!startResult.success) {
       console.error("login start failed:", startResult);
@@ -59,7 +61,7 @@ export async function loginWithWebauthn(
 
     // step 2: get webauthn credential
     debug("webauthn", "requesting credential from browser...");
-    const credentialOptions = apiClient.webauthn.prepareAuthenticationOptions(startResult.data);
+    const credentialOptions = webauthn.prepareAuthenticationOptions(startResult.data);
     const credential = (await navigator.credentials.get(credentialOptions)) as PublicKeyCredential;
 
     if (!credential) {
@@ -69,8 +71,8 @@ export async function loginWithWebauthn(
 
     // step 3: finish login
     debug("webauthn", "finishing login...");
-    const serializedCredential = apiClient.webauthn.serializeAuthenticationCredential(credential);
-    const finishResult = await apiClient.auth.loginFinish(baseUrl, serializedCredential);
+    const serializedCredential = webauthn.serializeAuthenticationCredential(credential);
+    const finishResult = await client.auth.loginFinish(serializedCredential);
 
     if (!finishResult.success) {
       console.error("login finish failed:", finishResult);
@@ -118,7 +120,8 @@ async function fallbackToInviteRedemption(
 ): Promise<AuthResult> {
   debug("webauthn", "falling back to invite code redemption (no passkey)...");
   try {
-    const redeemResult = await apiClient.auth.redeemInvite(baseUrl, {
+    const client = createHttpClient(baseUrl);
+    const redeemResult = await client.auth.redeemInvite({
       invite_code: inviteCode,
       username,
     });
@@ -152,11 +155,12 @@ export async function registerWithWebauthn(
   }
 
   try {
+    const client = createHttpClient(baseUrl);
     debug("webauthn", "starting registration for username:", username);
 
     // step 1: start registration with invite code
     debug("webauthn", "starting webauthn registration...");
-    const startResult = await apiClient.auth.registerStart(baseUrl, {
+    const startResult = await client.auth.registerStart({
       username,
       invite_code: inviteCode,
     });
@@ -169,7 +173,7 @@ export async function registerWithWebauthn(
 
     // step 2: create webauthn credential (this is where passkey creation happens)
     debug("webauthn", "requesting credential creation from browser...");
-    const credentialOptions = apiClient.webauthn.prepareRegistrationOptions(startResult.data);
+    const credentialOptions = webauthn.prepareRegistrationOptions(startResult.data);
 
     let credential: PublicKeyCredential | null = null;
     try {
@@ -193,8 +197,8 @@ export async function registerWithWebauthn(
 
     // step 3: finish registration
     debug("webauthn", "finishing registration...");
-    const serializedCredential = apiClient.webauthn.serializeRegistrationCredential(credential);
-    const finishResult = await apiClient.auth.registerFinish(baseUrl, serializedCredential);
+    const serializedCredential = webauthn.serializeRegistrationCredential(credential);
+    const finishResult = await client.auth.registerFinish(serializedCredential);
 
     if (!finishResult.success) {
       console.error("register finish failed:", finishResult);
@@ -240,8 +244,9 @@ export async function authenticate(
 // logout from a remote server
 export async function logout(baseUrl: string): Promise<AuthResult> {
   try {
+    const client = createHttpClient(baseUrl);
     debug("auth", "logging out from:", baseUrl);
-    const result = await apiClient.auth.logout(baseUrl);
+    const result = await client.auth.logout();
     if (result.success) {
       debug("auth", "logout successful");
       return { success: true };

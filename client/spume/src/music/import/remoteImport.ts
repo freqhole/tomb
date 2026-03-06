@@ -1,6 +1,6 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient, utils } from "../../app/api/client";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
@@ -120,7 +120,7 @@ export async function uploadFilesToRemote(
     // fire off each upload + poll chain without blocking the others
     (async () => {
       try {
-        const result = await apiClient.utils.uploadMusic(remote.base_url, file, remote.api_key);
+        const result = await utils.uploadMusic(remote.base_url, file, remote.api_key);
         if (!result.success) {
           // extract error message from the ZodError
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
@@ -198,10 +198,10 @@ export async function fetchUrlsOnRemote(
 
     (async () => {
       try {
-        const result = await apiClient.music.createFetchJob(remote.base_url, {
+        const result = await createHttpClient(remote.base_url, remote.api_key).music.createFetchJob({
           url,
           user_id: userId ?? null,
-        }, remote.api_key);
+        });
         if (!result.success) {
           const errMsg = result.error?.issues?.[0]?.message || "failed to create fetch job";
           updateJobStatus(trackId, "failed", { error: errMsg });

@@ -9,7 +9,7 @@
 // - session auto-completes when progress reaches total_songs
 
 import { createSignal } from "solid-js";
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
@@ -108,7 +108,7 @@ export async function createServerSessions(
           0,
         );
 
-        const result = await apiClient.music.createListenSession(baseUrl, {
+        const result = await createHttpClient(baseUrl).music.createListenSession({
           session_type: source.type,
           entity_id: source.entity_id ?? null,
           label: source.label,
@@ -204,8 +204,7 @@ export function advanceServerProgress(
 // send current progress to server
 // if progress >= total songs, auto-completes the session
 async function sendProgress(session: RemoteSession): Promise<void> {
-  const result = await apiClient.music.updateListenSessionProgress(
-    session.baseUrl,
+  const result = await createHttpClient(session.baseUrl).music.updateListenSessionProgress(
     session.sessionId,
     { progress: session.progress },
   );
@@ -260,8 +259,7 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
       promises.push(
         (async () => {
           try {
-            await apiClient.music.updateListenSessionStatus(
-              session.baseUrl,
+            await createHttpClient(session.baseUrl).music.updateListenSessionStatus(
               session.sessionId,
               "abandoned",
             );
@@ -289,8 +287,7 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
       promises.push(
         (async () => {
           try {
-            await apiClient.music.updateListenSessionSongs(
-              session.baseUrl,
+            await createHttpClient(session.baseUrl).music.updateListenSessionSongs(
               session.sessionId,
               {
                 song_ids: group.songs.map((s) => s.id || s.sha256),
@@ -323,8 +320,7 @@ export async function stopAllServerSessions(
   // status update for all sessions (no flush needed, progress is already sent)
   const promises = Array.from(remoteSessions.values()).map(async (session) => {
     try {
-      await apiClient.music.updateListenSessionStatus(
-        session.baseUrl,
+      await createHttpClient(session.baseUrl).music.updateListenSessionStatus(
         session.sessionId,
         status,
       );
@@ -381,8 +377,7 @@ export async function resumeServerSession(
   updatePrimarySessionId();
 
   // update status to active on the remote
-  const statusResult = await apiClient.music.updateListenSessionStatus(
-    baseUrl,
+  const statusResult = await createHttpClient(baseUrl).music.updateListenSessionStatus(
     sessionId,
     "active",
   );

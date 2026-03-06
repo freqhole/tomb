@@ -61,7 +61,7 @@ import {
   setActiveRemote,
   getActiveRemote,
 } from "./services/remotes/remoteManager";
-import { auth } from "freqhole-api-client";
+import { createHttpClient } from "./api/client";
 import {
   registerServiceWorker,
   updateAvailable,
@@ -203,7 +203,8 @@ export function App() {
       if (config.invite_code) {
         debug("invite code found, authenticating via invite redemption...");
         debug(`using admin_username: ${config.admin_username}`);
-        const redeemResult = await auth.redeemInvite(config.server_url, {
+        const client = createHttpClient(config.server_url);
+        const redeemResult = await client.auth.redeemInvite({
           invite_code: config.invite_code,
           username: config.admin_username ?? null,
         });
@@ -252,7 +253,8 @@ export function App() {
           return;
         }
 
-        const redeemResult = await auth.redeemInvite(currentRemote.base_url, {
+        const client = createHttpClient(currentRemote.base_url);
+        const redeemResult = await client.auth.redeemInvite({
           invite_code,
           username: null,
         });

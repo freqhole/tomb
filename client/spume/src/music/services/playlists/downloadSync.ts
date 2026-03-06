@@ -1,7 +1,7 @@
 // playlist download and sync service
 // handles downloading remote playlists to local storage with songs + metadata
 
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient, utils } from "../../../app/api/client";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import { generateUUID } from "../../../utils/uuid";
 import { writeAudioToOPFS } from "../opfs/helpers";
@@ -191,8 +191,7 @@ export async function downloadPlaylist(
       downloadedSongs: 0,
     });
 
-    const etag = await apiClient.music.getPlaylistETag(
-      remoteUrl,
+    const etag = await utils.getPlaylistEtag(remoteUrl, 
       remotePlaylistId,
     );
     if (!etag) {
@@ -200,7 +199,7 @@ export async function downloadPlaylist(
     }
 
     // fetch playlist metadata
-    const playlistResult = await apiClient.music.getPlaylistById(remoteUrl, {
+    const playlistResult = await createHttpClient(remoteUrl).music.getPlaylistById({
       id: remotePlaylistId,
     });
     if (!playlistResult.success) {
@@ -214,7 +213,7 @@ export async function downloadPlaylist(
     const limit = 100;
 
     while (true) {
-      const songsResult = await apiClient.music.queryPlaylistSongs(remoteUrl, {
+      const songsResult = await createHttpClient(remoteUrl).music.queryPlaylistSongs({
         playlist_id: remotePlaylistId,
         q: null,
         sort_by: null,
@@ -281,7 +280,7 @@ export async function downloadPlaylist(
         }
 
         // fetch blob metadata to get SHA256
-        const metadataResult = await apiClient.music.blobMetadata(remoteUrl, {
+        const metadataResult = await createHttpClient(remoteUrl).music.blobMetadata({
           id: song.media_blob_id,
         });
 
@@ -503,8 +502,7 @@ export async function checkPlaylistUpdates(
     throw new Error("not a synced playlist");
   }
 
-  const remoteEtag = await apiClient.music.getPlaylistETag(
-    remoteUrl,
+  const remoteEtag = await utils.getPlaylistEtag(remoteUrl, 
     localPlaylist.source_remote_id,
   );
 
@@ -538,8 +536,7 @@ export async function syncPlaylist(
     });
 
     // fetch new etag
-    const newEtag = await apiClient.music.getPlaylistETag(
-      remoteUrl,
+    const newEtag = await utils.getPlaylistEtag(remoteUrl, 
       localPlaylist.source_remote_id,
     );
     if (!newEtag) {
@@ -547,7 +544,7 @@ export async function syncPlaylist(
     }
 
     // fetch updated playlist metadata
-    const playlistResult = await apiClient.music.getPlaylistById(remoteUrl, {
+    const playlistResult = await createHttpClient(remoteUrl).music.getPlaylistById({
       id: localPlaylist.source_remote_id,
     });
     if (!playlistResult.success) {
@@ -573,7 +570,7 @@ export async function syncPlaylist(
     const limit = 100;
 
     while (true) {
-      const songsResult = await apiClient.music.queryPlaylistSongs(remoteUrl, {
+      const songsResult = await createHttpClient(remoteUrl).music.queryPlaylistSongs({
         playlist_id: localPlaylist.source_remote_id,
         q: null,
         sort_by: null,
@@ -619,7 +616,7 @@ export async function syncPlaylist(
 
       try {
         // fetch blob metadata to get SHA256
-        const metadataResult = await apiClient.music.blobMetadata(remoteUrl, {
+        const metadataResult = await createHttpClient(remoteUrl).music.blobMetadata({
           id: song.media_blob_id,
         });
 
@@ -825,8 +822,7 @@ export async function checkIfPlaylistNeedsSync(
   }
 
   // fetch remote etag
-  const remoteEtag = await apiClient.music.getPlaylistETag(
-    remoteUrl,
+  const remoteEtag = await utils.getPlaylistEtag(remoteUrl, 
     remotePlaylistId,
   );
 

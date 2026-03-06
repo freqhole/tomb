@@ -5,7 +5,7 @@
  * these functions instead of constructing URLs directly.
  */
 
-import { utils } from "freqhole-api-client";
+import { utils } from "../app/api/client";
 
 /**
  * get the URL for a remote media resource (image or audio)

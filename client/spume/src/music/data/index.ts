@@ -1,8 +1,7 @@
 // data source exports and active source management
 // integrates with remote management to auto-switch between local and remote sources
 
-import type { UserRoleName } from "freqhole-api-client";
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient, type UserRoleName } from "../../app/api/client";
 import { createSignal } from "solid-js";
 import { appState, setActiveRemoteId } from "../../app/services/storage/db";
 import {
@@ -76,7 +75,8 @@ export async function useRemoteSource(
 
   // fetch current user info from whoami (uses session cookies)
   try {
-    const whoamiResult = await apiClient.auth.whoami(baseUrl);
+    const client = createHttpClient(baseUrl);
+    const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success && whoamiResult.data) {
       setCurrentUser({
         userId: whoamiResult.data.user_id,
@@ -99,14 +99,15 @@ export async function useRemoteSource(
 // check if remote is accessible by making a lightweight request
 async function checkRemoteAccessible(baseUrl: string): Promise<boolean> {
   try {
+    const client = createHttpClient(baseUrl);
     // try whoami first - if we're authenticated, the remote is accessible
-    const whoamiResult = await apiClient.auth.whoami(baseUrl);
+    const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success) {
       return true;
     }
 
     // if not authenticated, try health check to verify server is reachable
-    const healthResult = await apiClient.app.healthCheck(baseUrl);
+    const healthResult = await client.app.healthCheck();
     return healthResult.success;
   } catch (error) {
     warn(`remote health check failed for ${baseUrl}:`, error);

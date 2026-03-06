@@ -5,7 +5,7 @@
 // these are not memoized - permission checks are cheap and this avoids
 // SolidJS reactive context issues from createMemo at module scope.
 
-import { permissions } from "freqhole-api-client";
+import { permissions } from "../../app/api/client";
 import { getCurrentUser } from "./index";
 
 // ============================================================================

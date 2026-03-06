@@ -2,7 +2,7 @@
 // events are queued locally in IDB, synced FIFO with per-event retry logic.
 // each event carries its target remote info so events route to the correct server.
 
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient } from "../../../app/api/client";
 import { createSignal } from "solid-js";
 import { initAppDB } from "../../../app/services/storage/db";
 import {
@@ -184,7 +184,7 @@ async function syncSingleEvent(
           await db.put(STORE_ANALYTICS_EVENTS, { ...sending, status: "sent" });
           return;
         }
-        const result = await apiClient.music.recordPlay(baseUrl, {
+        const result = await createHttpClient(baseUrl).music.recordPlay({
           media_blob_id: event.payload.media_blob_id,
           song_id: event.payload.song_id,
           session_id: event.payload.session_id ?? null,

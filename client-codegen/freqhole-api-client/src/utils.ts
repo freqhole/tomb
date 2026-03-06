@@ -256,3 +256,30 @@ export async function fetchBlobMetadata(
     };
   }
 }
+
+/**
+ * get a playlist's etag (content hash for sync detection)
+ * uses HEAD request to /api/music/playlists/{id}/etag
+ * returns null if the playlist doesn't exist or request fails
+ */
+export async function getPlaylistEtag(
+  baseUrl: string,
+  playlistId: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(`${baseUrl}/api/music/playlists/${playlistId}/etag`, {
+      method: "HEAD",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    // etag is in the response headers
+    const etag = response.headers.get("etag");
+    return etag ? etag.replace(/"/g, "") : null;
+  } catch {
+    return null;
+  }
+}

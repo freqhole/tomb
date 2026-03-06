@@ -1,7 +1,7 @@
 // job service — abstracts job polling from the freqhole-api-client
 // used for tracking async server operations like image uploads, music imports, etc.
 
-import * as apiClient from "freqhole-api-client";
+import { createHttpClient } from "../../api/client";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 
 // type guard helper for SafeParseResult
@@ -112,7 +112,7 @@ export class JobPoller {
     debug("jobs", `polling ${jobIds.length} jobs`);
 
     try {
-      const result = await apiClient.music.getJobStatus(this.baseUrl, { job_ids: jobIds }, this.apiKey);
+      const result = await createHttpClient(this.baseUrl, this.apiKey).music.getJobStatus({ job_ids: jobIds });
 
       if (!isSuccess(result)) {
         errorLog("jobs", "batch poll failed:", result.error);
@@ -204,9 +204,9 @@ export async function pollJobWithDetails(
   const pollInterval = 3000; // check every 3 seconds
 
   while (Date.now() - startTime < timeoutMs) {
-    const jobResult = await apiClient.music.getJobStatus(baseUrl, {
+    const jobResult = await createHttpClient(baseUrl, apiKey).music.getJobStatus({
       job_ids: [jobId],
-    }, apiKey);
+    });
 
     if (!isSuccess(jobResult)) {
       errorLog("jobs", "failed to get job status:", jobResult.error);
@@ -253,7 +253,7 @@ export async function getJobStatus(
   jobId: string,
   apiKey?: string,
 ): Promise<{ status: string; error_message?: string | null } | null> {
-  const result = await apiClient.music.getJobStatus(baseUrl, { job_ids: [jobId] }, apiKey);
+  const result = await createHttpClient(baseUrl, apiKey).music.getJobStatus({ job_ids: [jobId] });
   if (isSuccess(result)) {
     const jobData = result.data.jobs[jobId];
     if (jobData) {
