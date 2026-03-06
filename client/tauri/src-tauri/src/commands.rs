@@ -182,7 +182,16 @@ pub async fn run_setup_core(
                     spume_dir.display()
                 );
                 // update config to enable static file serving
-                if let Err(e) = grimoire::update_static_files_config(&config_path, &spume_dir) {
+                if let Err(e) = grimoire::set_config_values(
+                    &config_path,
+                    &[
+                        ("server.static_files.enabled", true.into()),
+                        (
+                            "server.static_files.directory",
+                            spume_dir.display().to_string().into(),
+                        ),
+                    ],
+                ) {
                     result
                         .errors
                         .push(format!("failed to update static_files config: {}", e));
@@ -1491,4 +1500,232 @@ pub async fn remove_scanned_directory(path: String) -> Result<(), String> {
     } else {
         Err(result.message)
     }
+}
+
+// ============================================================================
+// Federation Commands
+// ============================================================================
+
+/// federation configuration status
+#[derive(Debug, Serialize)]
+pub struct FederationConfigStatus {
+    pub enabled: bool,
+    pub haruspex_url: String,
+    pub auto_create_users: bool,
+    pub default_role: String,
+}
+
+/// federation credentials status
+#[derive(Debug, Serialize)]
+pub struct FederationCredentialsStatus {
+    pub stored: bool,
+    pub path: String,
+    pub email: Option<String>,
+    pub haruspex_user_id: Option<String>,
+    pub created_at: Option<String>,
+    pub last_refreshed_at: Option<String>,
+    pub verified: Option<bool>,
+    pub verification_error: Option<String>,
+}
+
+/// federation identity (keypair) status
+#[derive(Debug, Serialize)]
+pub struct FederationIdentityStatus {
+    pub keypair_exists: bool,
+    pub keypair_path: String,
+    pub node_id: Option<String>,
+}
+
+/// complete federation status
+#[derive(Debug, Serialize)]
+pub struct FederationStatus {
+    pub config: Option<FederationConfigStatus>,
+    pub credentials: FederationCredentialsStatus,
+    pub identity: FederationIdentityStatus,
+}
+
+/// get current federation status
+#[tauri::command]
+pub async fn get_federation_status(
+    app_handle: tauri::AppHandle,
+) -> Result<FederationStatus, String> {
+    ensure_initialized(&app_handle).await?;
+
+    // get setup status (includes credential verification)
+    let setup_status = grimoire::federation::get_setup_status_verified().await;
+
+    // read config directly from file (not from grimoire cache) so we see live changes
+    let config_status = read_federation_config_from_file(&app_handle)?;
+
+    // credentials status
+    let credentials = FederationCredentialsStatus {
+        stored: setup_status.credentials_exist,
+        path: setup_status.credentials_path.display().to_string(),
+        email: setup_status.email,
+        haruspex_user_id: setup_status.haruspex_user_id,
+        created_at: setup_status.created_at,
+        last_refreshed_at: setup_status.last_refreshed_at,
+        verified: setup_status.verified,
+        verification_error: setup_status.verification_error,
+    };
+
+    // identity status
+    let identity_info = grimoire::federation::get_identity_info();
+    let identity = FederationIdentityStatus {
+        keypair_exists: identity_info.keypair_exists,
+        keypair_path: identity_info.keypair_path.display().to_string(),
+        node_id: identity_info.node_id,
+    };
+
+    Ok(FederationStatus {
+        config: config_status,
+        credentials,
+        identity,
+    })
+}
+
+/// result of federation setup
+#[derive(Debug, Serialize)]
+pub struct FederationSetupResult {
+    pub haruspex_user_id: String,
+    pub email: String,
+    pub credentials_path: String,
+}
+
+/// set up federation by authenticating to haruspex
+#[tauri::command]
+pub async fn federation_setup(
+    app_handle: tauri::AppHandle,
+    email: String,
+    password: String,
+) -> Result<FederationSetupResult, String> {
+    ensure_initialized(&app_handle).await?;
+
+    // read config from file (not cache) so we see recent toggle changes
+    let federation_config = get_federation_config_from_file(&app_handle)?;
+
+    let result = grimoire::federation::setup_federation(&federation_config, &email, &password)
+        .await
+        .map_err(|e| format!("setup failed: {}", e))?;
+
+    Ok(FederationSetupResult {
+        haruspex_user_id: result.haruspex_user_id,
+        email: result.email,
+        credentials_path: result.credentials_path.display().to_string(),
+    })
+}
+
+/// result of federation sync
+#[derive(Debug, Serialize)]
+pub struct FederationSyncResult {
+    pub groups_found: usize,
+    pub members_found: usize,
+    pub users_created: usize,
+    pub users_updated: usize,
+    pub users_skipped: usize,
+    pub peer_nodes_registered: usize,
+    pub errors: Vec<String>,
+}
+
+/// sync users from haruspex
+#[tauri::command]
+pub async fn federation_sync(app_handle: tauri::AppHandle) -> Result<FederationSyncResult, String> {
+    ensure_initialized(&app_handle).await?;
+
+    // read config from file (not cache) so we see recent toggle changes
+    let federation_config = get_federation_config_from_file(&app_handle)?;
+
+    // sync requires stored credentials - use them automatically
+    let result = grimoire::federation::sync_users_from_stored_credentials(&federation_config)
+        .await
+        .map_err(|e| format!("sync failed: {}", e))?;
+
+    Ok(FederationSyncResult {
+        groups_found: result.stats.groups_found,
+        members_found: result.stats.members_found,
+        users_created: result.stats.users_created,
+        users_updated: result.stats.users_updated,
+        users_skipped: result.stats.users_skipped,
+        peer_nodes_registered: result.stats.peer_nodes_registered,
+        errors: result.stats.errors,
+    })
+}
+
+/// clear federation credentials (logout)
+#[tauri::command]
+pub async fn federation_logout(app_handle: tauri::AppHandle) -> Result<(), String> {
+    ensure_initialized(&app_handle).await?;
+
+    grimoire::federation::clear_credentials().map_err(|e| format!("logout failed: {}", e))
+}
+
+/// read federation config from file (bypasses cached CONFIG)
+fn read_federation_config_from_file(
+    app_handle: &tauri::AppHandle,
+) -> Result<Option<FederationConfigStatus>, String> {
+    let config_path = get_server_config_path_resolved(app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    let config = grimoire::read_config_from_file(&config_path)
+        .map_err(|e| format!("failed to read config: {}", e))?;
+
+    match config.federation {
+        None => Ok(None),
+        Some(f) if !f.enabled => Ok(Some(FederationConfigStatus {
+            enabled: false,
+            haruspex_url: String::new(),
+            auto_create_users: false,
+            default_role: String::new(),
+        })),
+        Some(f) => Ok(Some(FederationConfigStatus {
+            enabled: true,
+            haruspex_url: f.haruspex_url,
+            auto_create_users: f.auto_create_users,
+            default_role: f.default_role,
+        })),
+    }
+}
+
+/// read full FederationConfig from file (for passing to grimoire functions)
+fn get_federation_config_from_file(
+    app_handle: &tauri::AppHandle,
+) -> Result<grimoire::config::FederationConfig, String> {
+    let config_path = get_server_config_path_resolved(app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    grimoire::read_config_from_file(&config_path)
+        .map_err(|e| format!("failed to read config: {}", e))?
+        .federation
+        .filter(|f| f.enabled)
+        .ok_or_else(|| "federation not enabled in config".to_string())
+}
+
+/// toggle federation enabled in config file (preserves comments)
+#[tauri::command]
+pub fn toggle_federation_enabled(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    // read current state
+    let current = grimoire::read_config_from_file(&config_path)
+        .map_err(|e| format!("failed to read config: {}", e))?
+        .federation
+        .map(|f| f.enabled)
+        .unwrap_or(false);
+
+    // toggle
+    let new_value = !current;
+    grimoire::set_config_values(&config_path, &[("federation.enabled", new_value.into())])
+        .map_err(|e| format!("failed to update config: {}", e))?;
+
+    // notify that config changed (restart needed for full effect)
+    let _ = notify_config_changed(
+        &app_handle,
+        &format!(
+            "federation {} - restart server to apply",
+            if new_value { "enabled" } else { "disabled" }
+        ),
+    );
+
+    Ok(new_value)
 }

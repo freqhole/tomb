@@ -3,11 +3,11 @@
 use anyhow::Result;
 use clap::Args;
 use dialoguer::{Confirm, Input, Select};
+use grimoire::set_config_values;
 use grimoire::setup::{
     check_dependencies, extract_spume_to, get_defaults, get_local_defaults, has_embedded_spume,
     ScanDir, SetupConfig, SetupService,
 };
-use grimoire::update_static_files_config;
 use std::path::PathBuf;
 
 #[derive(Args)]
@@ -377,7 +377,16 @@ pub async fn run(args: SetupArgs) -> Result<()> {
                         extract_result.files_extracted
                     );
                     // update config to enable static file serving
-                    if let Err(e) = update_static_files_config(&config_path, &spume_dir) {
+                    if let Err(e) = set_config_values(
+                        &config_path,
+                        &[
+                            ("server.static_files.enabled", true.into()),
+                            (
+                                "server.static_files.directory",
+                                spume_dir.display().to_string().into(),
+                            ),
+                        ],
+                    ) {
                         println!("  ! failed to update static_files config: {}", e);
                     } else {
                         println!("  ✓ static file serving enabled");

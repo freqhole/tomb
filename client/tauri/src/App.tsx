@@ -62,7 +62,8 @@ function App(props: ParentProps) {
       path === "/logs" ||
       path === "/library" ||
       path === "/users" ||
-      path === "/settings"
+      path === "/settings" ||
+      path === "/federation"
     );
   };
 
@@ -188,6 +189,12 @@ function App(props: ParentProps) {
                   class={`nav-link ${isActive("/users") ? "active" : ""}`}
                 >
                   user<span class="pinky">z</span>
+                </A>
+                <A
+                  href="/federation"
+                  class={`nav-link ${isActive("/federation") ? "active" : ""}`}
+                >
+                  federation
                 </A>
                 <A
                   href="/settings"

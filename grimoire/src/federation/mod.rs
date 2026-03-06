@@ -25,4 +25,4 @@ pub use setup::{
     clear_credentials, get_authenticated_client, get_setup_status, get_setup_status_verified,
     setup_federation, SetupResult, SetupStatus,
 };
-pub use sync::{sync_users_from_haruspex, SyncResult, SyncStats};
+pub use sync::{sync_users_from_haruspex, sync_users_from_stored_credentials, SyncResult, SyncStats};

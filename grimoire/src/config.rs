@@ -741,52 +741,112 @@ fn generate_config_template(
     doc.to_string()
 }
 
-/// update an existing config file to enable static file serving
+/// read config directly from file (bypasses the cached CONFIG)
 ///
-/// modifies the config file in-place to set:
-/// - server.static_files.enabled = true
-/// - server.static_files.directory = <directory>
-pub fn update_static_files_config(
-    config_path: &Path,
-    static_dir: &Path,
-) -> Result<(), ConfigError> {
-    // read existing config
+/// useful when the config file may have changed since startup.
+pub fn read_config_from_file(config_path: &Path) -> Result<GrimoireConfig, ConfigError> {
     let content = std::fs::read_to_string(config_path).map_err(|e| ConfigError::FileNotFound {
         path: config_path.display().to_string(),
         error: e.to_string(),
     })?;
 
-    // parse as toml document
+    toml::from_str(&content)
+        .map_err(|e| ConfigError::ParseError(format!("failed to parse config: {}", e)))
+}
+
+/// set config values using dot-path keys (preserves comments and formatting)
+///
+/// key paths use dots to navigate nested tables: "server.static_files.enabled"
+/// intermediate tables are created if they don't exist.
+///
+/// NOTE: key paths are validated at runtime only - typos won't cause compile errors.
+/// the resulting config is validated after writing to catch structural issues.
+///
+/// # example
+/// ```ignore
+/// set_config_values(&path, &[
+///     ("server.static_files.enabled", true.into()),
+///     ("server.static_files.directory", "/path/to/dir".into()),
+/// ])?;
+/// ```
+pub fn set_config_values(
+    config_path: &Path,
+    updates: &[(&str, toml_edit::Value)],
+) -> Result<(), ConfigError> {
+    let content = std::fs::read_to_string(config_path).map_err(|e| ConfigError::FileNotFound {
+        path: config_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+
     let mut doc = content
         .parse::<DocumentMut>()
         .map_err(|e| ConfigError::ParseError(format!("failed to parse config: {}", e)))?;
 
-    // ensure server.static_files table exists
-    if doc.get("server").is_none() {
-        return Err(ConfigError::ParseError(
-            "config missing [server] section".to_string(),
-        ));
+    for (key_path, val) in updates {
+        set_nested_value(&mut doc, key_path, val.clone())?;
     }
 
-    // update static_files section
-    if let Some(server) = doc["server"].as_table_mut() {
-        // create static_files table if it doesn't exist
-        if !server.contains_key("static_files") {
-            server.insert(
-                "static_files",
-                toml_edit::Item::Table(toml_edit::Table::new()),
-            );
-        }
-
-        if let Some(static_files) = server["static_files"].as_table_mut() {
-            static_files.insert("enabled", value(true));
-            static_files.insert("directory", value(static_dir.display().to_string()));
-        }
-    }
-
-    // write back
     std::fs::write(config_path, doc.to_string())
         .map_err(|e| ConfigError::CreateFailed(format!("failed to write config: {}", e)))?;
+
+    Ok(())
+}
+
+/// helper to set a value at a dot-separated path, creating intermediate tables as needed
+fn set_nested_value(
+    doc: &mut DocumentMut,
+    key_path: &str,
+    val: toml_edit::Value,
+) -> Result<(), ConfigError> {
+    let parts: Vec<&str> = key_path.split('.').collect();
+    if parts.is_empty() {
+        return Err(ConfigError::InvalidValue("empty key path".to_string()));
+    }
+
+    // navigate/create intermediate tables
+    let mut current: &mut toml_edit::Item = doc.as_item_mut();
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+
+        if is_last {
+            // set the final value
+            match current {
+                toml_edit::Item::Table(t) => {
+                    t[*part] = toml_edit::Item::Value(val);
+                    return Ok(());
+                }
+                _ => {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "cannot set '{}': parent is not a table",
+                        key_path
+                    )));
+                }
+            }
+        } else {
+            // navigate or create intermediate table
+            match current {
+                toml_edit::Item::Table(t) => {
+                    if !t.contains_key(*part) {
+                        t[*part] = toml_edit::Item::Table(toml_edit::Table::new());
+                    }
+                    current = &mut t[*part];
+                }
+                toml_edit::Item::None => {
+                    // this shouldn't happen for a parsed doc, but handle it
+                    return Err(ConfigError::InvalidValue(format!(
+                        "cannot navigate '{}': path segment is None",
+                        key_path
+                    )));
+                }
+                _ => {
+                    return Err(ConfigError::InvalidValue(format!(
+                        "cannot navigate '{}': '{}' is not a table",
+                        key_path, part
+                    )));
+                }
+            }
+        }
+    }
 
     Ok(())
 }

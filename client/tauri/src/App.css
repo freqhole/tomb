@@ -223,6 +223,16 @@ h1 {
   margin-bottom: 1.5rem;
 }
 
+.form-error {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 6px;
+}
+
 label {
   display: block;
   font-size: 0.875rem;
@@ -1019,4 +1029,255 @@ a {
 
 a:hover {
   color: #ff1a9e;
+}
+
+/* ============================================================================ */
+/* Federation View Styles                                                       */
+/* ============================================================================ */
+
+.view-container {
+  max-width: 600px;
+  animation: fadeIn 0.2s ease;
+}
+
+.view-container h1 {
+  margin-bottom: 1.5rem;
+}
+
+.view-container h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  margin-bottom: 0.75rem;
+}
+
+.error-banner {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  color: #fca5a5;
+}
+
+.success-banner {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  color: #86efac;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.success-banner button.inline-action {
+  background: rgba(34, 197, 94, 0.3);
+  border: none;
+  border-radius: 4px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  color: #86efac;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.success-banner button.inline-action:hover {
+  background: rgba(34, 197, 94, 0.5);
+}
+
+.success-banner button.inline-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status-section {
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: #18181b;
+  border-radius: 8px;
+  border: 1px solid #27272a;
+}
+
+.status-section h2 {
+  margin-bottom: 1rem;
+}
+
+.status-message {
+  color: #a1a1aa;
+  font-size: 0.875rem;
+}
+
+.status-message.warning {
+  color: #fbbf24;
+}
+
+.status-message code {
+  background: #27272a;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-family: "SF Mono", Monaco, monospace;
+  font-size: 0.8125rem;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.status-item.full-width {
+  grid-column: span 2;
+}
+
+.status-item .label {
+  font-size: 0.75rem;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-item .value {
+  font-size: 0.875rem;
+  color: #fafafa;
+}
+
+.status-item .value.ok {
+  color: #86efac;
+}
+
+.status-item .value.warning {
+  color: #fbbf24;
+}
+
+.status-item .value.error {
+  color: #fca5a5;
+}
+
+.status-item .value.mono {
+  font-family: "SF Mono", Monaco, monospace;
+}
+
+.status-item .value.small {
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.action-section {
+  margin-bottom: 2rem;
+}
+
+.action-section h2 {
+  margin-bottom: 0.5rem;
+}
+
+.help-text {
+  color: #71717a;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+button.secondary {
+  background: #27272a;
+  color: #a1a1aa;
+}
+
+button.secondary:hover {
+  background: #3f3f46;
+  color: #fafafa;
+}
+
+.sync-result {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #18181b;
+  border-radius: 8px;
+  border: 1px solid #27272a;
+}
+
+.sync-result .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sync-result .stat .num {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ff1a9e;
+}
+
+.sync-result .stat .label {
+  font-size: 0.75rem;
+  color: #71717a;
+  text-transform: uppercase;
+}
+
+/* input styles for federation form */
+input[type="email"],
+input[type="password"] {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  color: #fafafa;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input[type="email"]:focus,
+input[type="password"]:focus {
+  border-color: #ff1a9e;
+}
+
+input[type="email"]::placeholder,
+input[type="password"]::placeholder {
+  color: #52525b;
+}
+
+.section-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #27272a;
+}
+
+.status-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.credentials-setup {
+  margin-top: 0;
+}
+
+button.small {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+button.danger {
+  background: #dc2626;
+  color: #fafafa;
+}
+
+button.danger:hover {
+  background: #b91c1c;
 }

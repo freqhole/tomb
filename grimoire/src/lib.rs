@@ -30,8 +30,8 @@ pub mod wordlist;
 // re-export only domain types, no database internals
 pub use analytics::{record_event, record_events_batch, MediaEvent, MediaEventType};
 pub use config::{
-    find_config, init_config, is_config_initialized, update_static_files_config, ConfigError,
-    GrimoireConfig,
+    find_config, init_config, is_config_initialized, read_config_from_file, set_config_values,
+    ConfigError, GrimoireConfig,
 };
 pub use dbinfo::{get_database_info, test_database};
 pub use error::{ErrorDetail, GrimoireError, GrimoireResult, SetupStep};

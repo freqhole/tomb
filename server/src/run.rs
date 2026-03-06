@@ -163,6 +163,32 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         None
     };
 
+    // start federation endpoint if enabled
+    let federation_endpoint = if config
+        .federation
+        .as_ref()
+        .map(|f| f.enabled)
+        .unwrap_or(false)
+    {
+        tracing::info!("starting federation P2P endpoint...");
+        match grimoire::federation::transport::start_federation_endpoint().await {
+            Ok(endpoint) => {
+                tracing::info!(
+                    "federation endpoint started, node_id: {}",
+                    endpoint.node_id()
+                );
+                Some(endpoint)
+            }
+            Err(e) => {
+                tracing::error!("failed to start federation endpoint: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::debug!("federation disabled");
+        None
+    };
+
     // start server with graceful shutdown
     tracing::info!("starting http server on {}:{}", host, port);
 
@@ -173,6 +199,13 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
     start_server(state, &host, port, shutdown_future).await?;
 
     tracing::info!("server stopped, cleaning up...");
+
+    // close federation endpoint
+    if let Some(endpoint) = federation_endpoint {
+        tracing::info!("closing federation endpoint...");
+        endpoint.close().await;
+        tracing::info!("federation endpoint closed");
+    }
 
     // wait for job runner to finish with timeout
     if let Some(handle) = job_runner_handle {

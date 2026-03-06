@@ -7,6 +7,7 @@ import LogsView from "./views/LogsView";
 import LibraryView from "./views/LibraryView";
 import UsersView from "./views/UsersView";
 import SettingsView from "./views/SettingsView";
+import FederationView from "./views/FederationView";
 
 render(
   () => (
@@ -17,6 +18,7 @@ render(
       <Route path="/library" component={LibraryView} />
       <Route path="/users" component={UsersView} />
       <Route path="/settings" component={SettingsView} />
+      <Route path="/federation" component={FederationView} />
     </HashRouter>
   ),
   document.getElementById("root") as HTMLElement,
