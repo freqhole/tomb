@@ -1,7 +1,7 @@
 // auth service — abstracts webauthn authentication flows
 // handles login and registration with the freqhole server
 
-import { createHttpClient, webauthn } from "../../api/client";
+import { getClientForRemote, httpRemote, webauthn } from "../../api/client";
 import { debug } from "../../../utils/logger";
 
 export interface AuthResult {
@@ -19,7 +19,7 @@ export interface WhoamiResult {
 // check if user is authenticated on a remote
 export async function whoami(baseUrl: string): Promise<WhoamiResult> {
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(httpRemote(baseUrl));
     const result = await client.auth.whoami();
     if (result.success && result.data) {
       return {
@@ -37,7 +37,7 @@ export async function whoami(baseUrl: string): Promise<WhoamiResult> {
 
 // get server info (public endpoint)
 export async function getServerInfo(baseUrl: string) {
-  return createHttpClient(baseUrl).app.serverInfo();
+  return getClientForRemote(httpRemote(baseUrl)).app.serverInfo();
 }
 
 // login with webauthn
@@ -46,7 +46,7 @@ export async function loginWithWebauthn(
   username: string,
 ): Promise<AuthResult> {
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(httpRemote(baseUrl));
     debug("webauthn", "starting login for username:", username);
 
     // step 1: start login
@@ -120,7 +120,7 @@ async function fallbackToInviteRedemption(
 ): Promise<AuthResult> {
   debug("webauthn", "falling back to invite code redemption (no passkey)...");
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(httpRemote(baseUrl));
     const redeemResult = await client.auth.redeemInvite({
       invite_code: inviteCode,
       username,
@@ -155,7 +155,7 @@ export async function registerWithWebauthn(
   }
 
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(httpRemote(baseUrl));
     debug("webauthn", "starting registration for username:", username);
 
     // step 1: start registration with invite code
@@ -244,7 +244,7 @@ export async function authenticate(
 // logout from a remote server
 export async function logout(baseUrl: string): Promise<AuthResult> {
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(httpRemote(baseUrl));
     debug("auth", "logging out from:", baseUrl);
     const result = await client.auth.logout();
     if (result.success) {

@@ -1,13 +1,14 @@
 // remote data source implementation
 // queries remote server for music library data via app/api/client facade
 import {
-  createHttpClient,
+  getClientForRemote,
   isAuthError,
   isNetworkError,
   permissions,
   utils,
   type ApiClient,
   type ApiQueryParams,
+  type RemoteRef,
   type SafeParseResult,
 } from "../../../app/api/client";
 import type {
@@ -49,16 +50,23 @@ export class RemoteOfflineError extends Error {
 // remote data source implementation
 // uses session cookies for authentication (no api key needed)
 export class RemoteMusicDataSource implements MusicDataSource {
-  private baseUrl: string;
-  private remoteId: string;
+  private remote: RemoteRef;
   private client: ApiClient;
   // track if we've already shown the offline toast this session
   private hasShownOfflineToast = false;
 
-  constructor(baseUrl: string, remoteId: string) {
-    this.baseUrl = baseUrl;
-    this.remoteId = remoteId;
-    this.client = createHttpClient(baseUrl);
+  constructor(remote: RemoteRef) {
+    this.remote = remote;
+    this.client = getClientForRemote(remote);
+  }
+
+  // convenience accessors for common remote properties
+  private get baseUrl(): string {
+    return this.remote.base_url;
+  }
+
+  private get remoteId(): string {
+    return this.remote.remote_id;
   }
 
   // check a failed result for 401 auth errors and flag the remote if needed.

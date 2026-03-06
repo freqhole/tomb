@@ -4,7 +4,7 @@ import { Icon, IconNames } from "../../../components/icons/registry";
 import MediaImage from "../../../components/media/MediaImage";
 import { toast } from "../../../components/feedback/Toast";
 import { getDataSource, getCurrentRemote } from "../../data";
-import { pollJobUntilComplete } from "../../../utils/jobs";
+import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
 import type { ImageMetadata } from "../../services/storage/types";
 import { useQueryClient } from "@tanstack/solid-query";
 
@@ -54,13 +54,8 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
 
       // poll for job completion if remote
       const remote = getCurrentRemote();
-      if (remote?.base_url && job_id) {
-        const pollResult = await pollJobUntilComplete(
-          remote.base_url,
-          job_id,
-          10000,
-          remote.api_key
-        );
+      if (remote && job_id) {
+        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
         if (pollResult === "failed") {
           toast.error("image processing failed");
           return;

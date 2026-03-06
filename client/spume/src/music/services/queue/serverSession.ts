@@ -9,7 +9,7 @@
 // - session auto-completes when progress reaches total_songs
 
 import { createSignal } from "solid-js";
-import { createHttpClient } from "../../../app/api/client";
+import { getClientForRemote, type Remote, type RemoteRef } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
@@ -22,7 +22,6 @@ import { updateHistoryServerSession, clearHistoryServerSession } from "./queueHi
 interface RemoteSession {
   sessionId: string;
   remoteId: string;
-  baseUrl: string;
   // the original label from the source context (preserved when updating songs)
   label: string;
   // entity_id if this session is for a named entity (album, playlist, etc.)
@@ -62,12 +61,12 @@ function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices
   return groups;
 }
 
-// resolve a remote_server_id to its base_url via IDB
-async function resolveRemoteInfo(remoteId: string): Promise<{ baseUrl: string } | null> {
+// resolve a remote_server_id to its Remote object via IDB
+async function resolveRemote(remoteId: string): Promise<Remote | null> {
   try {
     const remote = await getRemoteById(remoteId);
     if (!remote?.base_url) return null;
-    return { baseUrl: remote.base_url };
+    return remote;
   } catch {
     return null;
   }
@@ -98,9 +97,8 @@ export async function createServerSessions(
   // create sessions in parallel
   const promises = Array.from(groups.entries()).map(
     async ([remoteId, group]) => {
-      const remoteInfo = await resolveRemoteInfo(remoteId);
-      if (!remoteInfo) return;
-      const { baseUrl } = remoteInfo;
+      const remote = await resolveRemote(remoteId);
+      if (!remote) return;
 
       try {
         const totalDurationMs = group.songs.reduce(
@@ -108,7 +106,7 @@ export async function createServerSessions(
           0,
         );
 
-        const result = await createHttpClient(baseUrl).music.createListenSession({
+        const result = await getClientForRemote(remote).music.createListenSession({
           session_type: source.type,
           entity_id: source.entity_id ?? null,
           label: source.label,
@@ -121,7 +119,6 @@ export async function createServerSessions(
           const session: RemoteSession = {
             sessionId: result.data.id,
             remoteId,
-            baseUrl,
             label: source.label,
             entityId: source.entity_id,
             songIndices: group.indices,
@@ -204,7 +201,15 @@ export function advanceServerProgress(
 // send current progress to server
 // if progress >= total songs, auto-completes the session
 async function sendProgress(session: RemoteSession): Promise<void> {
-  const result = await createHttpClient(session.baseUrl).music.updateListenSessionProgress(
+  const remote = await resolveRemote(session.remoteId);
+  if (!remote) {
+    console.warn(`cannot send progress - remote ${session.remoteId} not found`);
+    remoteSessions.delete(session.remoteId);
+    updatePrimarySessionId();
+    return;
+  }
+
+  const result = await getClientForRemote(remote).music.updateListenSessionProgress(
     session.sessionId,
     { progress: session.progress },
   );
@@ -259,10 +264,13 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
       promises.push(
         (async () => {
           try {
-            await createHttpClient(session.baseUrl).music.updateListenSessionStatus(
-              session.sessionId,
-              "abandoned",
-            );
+            const remote = await resolveRemote(remoteId);
+            if (remote) {
+              await getClientForRemote(remote).music.updateListenSessionStatus(
+                session.sessionId,
+                "abandoned",
+              );
+            }
           } catch (error) {
             console.error(
               `failed to abandon server session on remote ${remoteId}:`,
@@ -287,15 +295,18 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
       promises.push(
         (async () => {
           try {
-            await createHttpClient(session.baseUrl).music.updateListenSessionSongs(
-              session.sessionId,
-              {
-                song_ids: group.songs.map((s) => s.id || s.sha256),
-                label: updatedLabel,
-                total_songs: group.songs.length,
-                total_duration_ms: totalDurationMs,
-              },
-            );
+            const remote = await resolveRemote(remoteId);
+            if (remote) {
+              await getClientForRemote(remote).music.updateListenSessionSongs(
+                session.sessionId,
+                {
+                  song_ids: group.songs.map((s) => s.id || s.sha256),
+                  label: updatedLabel,
+                  total_songs: group.songs.length,
+                  total_duration_ms: totalDurationMs,
+                },
+              );
+            }
           } catch (error) {
             console.error(
               `failed to update server session songs on remote ${remoteId}:`,
@@ -320,10 +331,13 @@ export async function stopAllServerSessions(
   // status update for all sessions (no flush needed, progress is already sent)
   const promises = Array.from(remoteSessions.values()).map(async (session) => {
     try {
-      await createHttpClient(session.baseUrl).music.updateListenSessionStatus(
-        session.sessionId,
-        status,
-      );
+      const remote = await resolveRemote(session.remoteId);
+      if (remote) {
+        await getClientForRemote(remote).music.updateListenSessionStatus(
+          session.sessionId,
+          status,
+        );
+      }
     } catch (error) {
       console.error(
         `failed to update server session status on remote ${session.remoteId}:`,
@@ -351,8 +365,7 @@ export async function resumeServerSession(
   resumeState: {
     progress: number;
   },
-  remoteId: string,
-  baseUrl: string,
+  remote: RemoteRef,
   sessionContext?: {
     label: string;
     entityId?: string;
@@ -365,19 +378,18 @@ export async function resumeServerSession(
   // create a session entry for this remote
   const session: RemoteSession = {
     sessionId,
-    remoteId,
-    baseUrl,
+    remoteId: remote.remote_id,
     label: sessionContext?.label ?? "",
     entityId: sessionContext?.entityId,
     songIndices: [], // will be populated if updateServerSessionSongs is called
     progress: resumeState.progress,
   };
 
-  remoteSessions.set(remoteId, session);
+  remoteSessions.set(remote.remote_id, session);
   updatePrimarySessionId();
 
   // update status to active on the remote
-  const statusResult = await createHttpClient(baseUrl).music.updateListenSessionStatus(
+  const statusResult = await getClientForRemote(remote).music.updateListenSessionStatus(
     sessionId,
     "active",
   );
@@ -395,7 +407,7 @@ export async function resumeServerSession(
       console.warn(
         `server session ${sessionId} not found during resume, cleaning up`,
       );
-      remoteSessions.delete(remoteId);
+      remoteSessions.delete(remote.remote_id);
       updatePrimarySessionId();
       // also clear the stale server session info from the history entry
       if (historyEntryId) {
@@ -429,9 +441,9 @@ export async function reconnectServerSession(
   // skip if no server session info stored
   if (!historyEntry.server_session_id || !historyEntry.server_remote_id) return;
 
-  const remoteInfo = await resolveRemoteInfo(historyEntry.server_remote_id);
-  if (!remoteInfo) {
-    console.warn("could not resolve remote info for server session reconnection");
+  const remote = await resolveRemote(historyEntry.server_remote_id);
+  if (!remote) {
+    console.warn("could not resolve remote for server session reconnection");
     return;
   }
 
@@ -439,8 +451,7 @@ export async function reconnectServerSession(
   await resumeServerSession(
     historyEntry.server_session_id,
     { progress: historyEntry.songs_completed },
-    historyEntry.server_remote_id,
-    remoteInfo.baseUrl,
+    remote,
     {
       label: historyEntry.label,
       entityId: historyEntry.entity_id,

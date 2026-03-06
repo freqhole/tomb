@@ -9,7 +9,7 @@ import type {
   MbReleaseDetail,
   MbTrack,
 } from "../../music/data/types";
-import { pollJobUntilComplete } from "../../utils/jobs";
+import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import { TextInput } from "../forms/TextInput";
 import { Button } from "../buttons/Button";
 import { Icon, IconNames } from "../icons/registry";
@@ -388,7 +388,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
 
   const handleImportImage = async (imageUrl: string) => {
     const remote = getCurrentRemote();
-    if (!remote?.base_url) return;
+    if (!remote) return;
     const fullUrl = imageUrl;
     setImportingImages((prev) => {
       const next = new Set(prev);
@@ -416,7 +416,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         isPrimary: false,
       });
 
-      const pollResult = await pollJobUntilComplete(remote.base_url, job_id, 10000, remote.api_key);
+      const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
       if (pollResult === "failed") {
         toast.error("image processing failed");
         return;

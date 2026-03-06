@@ -2,7 +2,7 @@
 // events are queued locally in IDB, synced FIFO with per-event retry logic.
 // each event carries its target remote info so events route to the correct server.
 
-import { createHttpClient } from "../../../app/api/client";
+import { getClientForRemote, httpRemote, type Remote, type RemoteLike } from "../../../app/api/client";
 import { createSignal } from "solid-js";
 import { initAppDB } from "../../../app/services/storage/db";
 import {
@@ -10,7 +10,6 @@ import {
   type AnalyticsEvent,
   type AnalyticsEventType,
 } from "../../../app/services/storage/types";
-import { getCurrentRemote } from "../../data";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { getSessionIdForRemote } from "../queue/serverSession";
 
@@ -99,31 +98,30 @@ async function syncEvents(): Promise<void> {
       .filter((e) => e.retry_count < e.max_retries)
       .sort((a, b) => a.created_at - b.created_at);
 
-    // resolve base URLs: events with target_remote_id go to that remote,
-    // events without go to the currently active remote
-    const fallbackRemote = getCurrentRemote();
-
+    // resolve remote for each event by ID or legacy base_url.
+    // events without a target are skipped (local-only plays don't sync anywhere).
     for (const event of syncable) {
-      let baseUrl: string | null = null;
+      let remote: Remote | RemoteLike | null = null;
 
-      if (event.payload.target_base_url) {
-        baseUrl = event.payload.target_base_url;
-      } else if (event.payload.target_remote_id) {
-        const remote = await getRemoteById(event.payload.target_remote_id);
-        baseUrl = remote?.base_url ?? null;
+      // try to resolve by remote_id first (preferred - gets transport_type etc)
+      if (event.payload.target_remote_id) {
+        remote = await getRemoteById(event.payload.target_remote_id) ?? null;
       }
 
-      // fall back to current remote
-      if (!baseUrl) {
-        baseUrl = fallbackRemote?.base_url ?? null;
+      // fall back to target_base_url (legacy events or deleted remotes)
+      if (!remote && event.payload.target_base_url) {
+        remote = httpRemote(event.payload.target_base_url);
       }
 
-      if (!baseUrl) {
-        // no remote to send to — skip this event for now
+      if (!remote) {
+        // no target remote — this is a local-only event, skip it
+        // mark as sent so we don't keep retrying
+        const skipped: AnalyticsEvent = { ...event, status: "sent" };
+        await db.put(STORE_ANALYTICS_EVENTS, skipped);
         continue;
       }
 
-      await syncSingleEvent(db, event, baseUrl);
+      await syncSingleEvent(db, event, remote);
     }
 
     // cleanup: remove sent events older than 24 hours
@@ -166,7 +164,7 @@ async function syncEvents(): Promise<void> {
 async function syncSingleEvent(
   db: Awaited<ReturnType<typeof initAppDB>>,
   event: AnalyticsEvent,
-  baseUrl: string,
+  remote: Remote | RemoteLike,
 ): Promise<void> {
   // mark as sending
   const sending: AnalyticsEvent = {
@@ -184,7 +182,7 @@ async function syncSingleEvent(
           await db.put(STORE_ANALYTICS_EVENTS, { ...sending, status: "sent" });
           return;
         }
-        const result = await createHttpClient(baseUrl).music.recordPlay({
+        const result = await getClientForRemote(remote).music.recordPlay({
           media_blob_id: event.payload.media_blob_id,
           song_id: event.payload.song_id,
           session_id: event.payload.session_id ?? null,

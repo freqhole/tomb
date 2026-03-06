@@ -1,6 +1,6 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
-import { createHttpClient, utils } from "../../app/api/client";
+import { getClientForRemote, utils } from "../../app/api/client";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
@@ -112,7 +112,7 @@ export async function uploadFilesToRemote(
   const fileArray = Array.from(files);
   
   // shared poller for all uploads in this batch - polls every 3s
-  const poller = new JobPoller(remote.base_url, remote.api_key, 3000);
+  const poller = new JobPoller(remote, 3000);
 
   for (const file of fileArray) {
     const trackId = addTrackedJob(file.name, "file");
@@ -180,7 +180,7 @@ export async function fetchUrlsOnRemote(
   const userId = getCurrentUser()?.userId;
   
   // shared poller for all fetches in this batch - polls every 3s
-  const poller = new JobPoller(remote.base_url, remote.api_key, 3000);
+  const poller = new JobPoller(remote, 3000);
 
   for (const url of urls) {
     // use a short label: hostname + path tail
@@ -198,7 +198,7 @@ export async function fetchUrlsOnRemote(
 
     (async () => {
       try {
-        const result = await createHttpClient(remote.base_url, remote.api_key).music.createFetchJob({
+        const result = await getClientForRemote(remote).music.createFetchJob({
           url,
           user_id: userId ?? null,
         });

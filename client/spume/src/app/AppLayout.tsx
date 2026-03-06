@@ -229,7 +229,7 @@ export function AppLayout(props: AppLayoutProps) {
       }
 
       // switch data source first
-      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+      await useRemoteSource(remote);
       // navigate to remote route
       navigate(`/${remoteId}/songs`);
       // invalidate all queries to refetch from remote source

@@ -7,7 +7,7 @@ import { canUpdateAlbum, canDeleteAlbum } from "../../music/data/permissions";
 import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
-import { pollJobUntilComplete } from "../../utils/jobs";
+import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -446,14 +446,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       // poll for job completion
       const remote = getCurrentRemote();
-      if (remote?.base_url) {
+      if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(
-          remote.base_url,
-          job_id,
-          10000,
-          remote.api_key
-        );
+        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);
@@ -919,7 +914,15 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   </div>
                 )}
               </Show>
-              <Show when={albumQuery.data?.updated_at && albumQuery.data.updated_at !== albumQuery.data.created_at ? albumQuery.data.updated_at : undefined} keyed>
+              <Show
+                when={
+                  albumQuery.data?.updated_at &&
+                  albumQuery.data.updated_at !== albumQuery.data.created_at
+                    ? albumQuery.data.updated_at
+                    : undefined
+                }
+                keyed
+              >
                 {(updatedAt) => (
                   <div class="text-sm">
                     <span class="text-[var(--color-text-tertiary)]">updated: </span>

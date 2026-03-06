@@ -1,7 +1,6 @@
 // query hooks for analytics and feed data
 import { createQuery, createInfiniteQuery } from "@tanstack/solid-query";
-import { createHttpClient } from "../../app/api/client";
-import { getCurrentRemote } from "../data";
+import { getCurrentRemote, getRemoteClient } from "../data";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import type { FeedItem, FeedResponse, ImageMetadata } from "../data/types";
 import { queryKeys } from "./queryKeys";
@@ -70,7 +69,7 @@ export function useActivityFeedQuery(limit: number = 50) {
       const remote = getCurrentRemote();
       if (!remote) return { items: [], total: 0 };
 
-      const result = await createHttpClient(remote.base_url).music.activityFeed({
+      const result = await getRemoteClient()!.music.activityFeed({
         limit,
         offset: null,
         feed_types: null,
@@ -136,7 +135,7 @@ export function useActivityFeedInfiniteQuery(
         const remote = getCurrentRemote();
         if (!remote) return { items: [], total: 0 };
 
-        const result = await createHttpClient(remote.base_url).music.activityFeed({
+        const result = await getRemoteClient()!.music.activityFeed({
           limit: pageSize,
           offset: pageParam,
           feed_types: types,
@@ -170,7 +169,7 @@ export function useTopSongsQuery(limit: number = 10, days?: number) {
       const remote = getCurrentRemote();
       if (!remote) return [];
 
-      const result = await createHttpClient(remote.base_url).music.topSongs({
+      const result = await getRemoteClient()!.music.topSongs({
         limit,
         days: days ?? null,
       });
@@ -195,7 +194,7 @@ export function useTopAlbumsQuery(limit: number = 10, days?: number) {
       const remote = getCurrentRemote();
       if (!remote) return [];
 
-      const result = await createHttpClient(remote.base_url).music.topAlbums({
+      const result = await getRemoteClient()!.music.topAlbums({
         limit,
         days: days ?? null,
       });
@@ -220,7 +219,7 @@ export function useTopArtistsQuery(limit: number = 10, days?: number) {
       const remote = getCurrentRemote();
       if (!remote) return [];
 
-      const result = await createHttpClient(remote.base_url).music.topArtists({
+      const result = await getRemoteClient()!.music.topArtists({
         limit,
         days: days ?? null,
       });

@@ -256,16 +256,10 @@ export function FeedView() {
         // resume the server session tracking
         const remote = getCurrentRemote();
         if (remote) {
-          await resumeServerSession(
-            session.id,
-            { progress: session.songs_completed },
-            remote.remote_id,
-            remote.base_url,
-            {
-              label: session.label,
-              entityId: session.entity_id ?? undefined,
-            }
-          );
+          await resumeServerSession(session.id, { progress: session.songs_completed }, remote, {
+            label: session.label,
+            entityId: session.entity_id ?? undefined,
+          });
 
           // link the new history entry to the resumed server session
           const entryId = activeHistoryEntryId();

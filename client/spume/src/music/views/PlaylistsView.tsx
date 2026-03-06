@@ -618,7 +618,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     setDownloadProgress(null);
 
     try {
-      await downloadPlaylist(remote.base_url, playlist.playlist_id, (progress) => {
+      await downloadPlaylist(remote, playlist.playlist_id, (progress) => {
         setDownloadProgress(progress);
       });
 
@@ -676,7 +676,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     setDownloadProgress(null);
 
     try {
-      await syncPlaylist(remote.base_url, localPlaylist, (progress) => {
+      await syncPlaylist(remote, localPlaylist, (progress) => {
         setDownloadProgress(progress);
       });
 

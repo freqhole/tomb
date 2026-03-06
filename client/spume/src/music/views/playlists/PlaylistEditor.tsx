@@ -8,7 +8,7 @@ import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../quer
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
 import { canUpdatePlaylist, canDeletePlaylist } from "../../data/permissions";
-import { pollJobUntilComplete } from "../../../utils/jobs";
+import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
 import type { Playlist, ImageMetadata } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
 import { EntityUrlz, type EntityUrlFormItem } from "../../../components/forms/EntityUrlz";
@@ -70,8 +70,8 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
       // poll for job completion
       const remote = getCurrentRemote();
-      if (remote?.base_url) {
-        const pollResult = await pollJobUntilComplete(remote.base_url, job_id, 10000, remote.api_key);
+      if (remote) {
+        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
         if (pollResult === "failed") {
           toast.error("image processing failed");
           return;

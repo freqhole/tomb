@@ -7,7 +7,7 @@ import { canUpdateArtist, canDeleteArtist } from "../../music/data/permissions";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useArtistQuery } from "../../music/queries/songs";
-import { pollJobUntilComplete } from "../../utils/jobs";
+import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -237,14 +237,9 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
       // poll for job completion
       const remote = getCurrentRemote();
-      if (remote?.base_url) {
+      if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(
-          remote.base_url,
-          job_id,
-          10000,
-          remote.api_key
-        );
+        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);

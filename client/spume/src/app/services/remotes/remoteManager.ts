@@ -1,7 +1,7 @@
 // remote server management - CRUD operations for remote configurations
 // auth is handled via cookies, so no credentials stored here
 
-import { createHttpClient } from "../../api/client";
+import { getClientForRemote, httpRemote } from "../../api/client";
 import { initAppDB } from "../storage/db";
 import { STORE_REMOTES, type Remote } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
@@ -142,7 +142,7 @@ export async function createRemote(data: {
   // fetch server info from /api/hello
   let serverInfo = null;
   try {
-    const result = await createHttpClient(baseUrl).app.serverInfo();
+    const result = await getClientForRemote(httpRemote(baseUrl)).app.serverInfo();
     if (result.success && result.data) {
       serverInfo = result.data;
     }
@@ -311,7 +311,7 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
   }
 
   try {
-    const result = await createHttpClient(remote.base_url).app.serverInfo();
+    const result = await getClientForRemote(remote).app.serverInfo();
     if (result.success && result.data) {
       const serverInfo = result.data;
       await db.put(STORE_REMOTES, {
@@ -339,7 +339,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const result = await createHttpClient(remote.base_url).app.serverInfo();
+    const result = await getClientForRemote(remote).app.serverInfo();
     const isOnline = result.success && !!result.data;
 
     // re-read remote from IDB to get latest data (avoids overwriting with stale data)

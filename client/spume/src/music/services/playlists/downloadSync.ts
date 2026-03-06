@@ -1,7 +1,7 @@
 // playlist download and sync service
 // handles downloading remote playlists to local storage with songs + metadata
 
-import { createHttpClient, utils } from "../../../app/api/client";
+import { getClientForRemote, utils, type RemoteRef } from "../../../app/api/client";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import { generateUUID } from "../../../utils/uuid";
 import { writeAudioToOPFS } from "../opfs/helpers";
@@ -149,11 +149,12 @@ function buildEntityUrls(
  * fetches playlist metadata, songs, and audio files
  */
 export async function downloadPlaylist(
-  remoteUrl: string,
+  remote: RemoteRef,
   remotePlaylistId: string,
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<void> {
   const db = await initMusicDB();
+  const remoteUrl = remote.base_url;
 
   try {
     // check if already downloaded - allow retry if playlist has no songs yet
@@ -199,7 +200,7 @@ export async function downloadPlaylist(
     }
 
     // fetch playlist metadata
-    const playlistResult = await createHttpClient(remoteUrl).music.getPlaylistById({
+    const playlistResult = await getClientForRemote(remote).music.getPlaylistById({
       id: remotePlaylistId,
     });
     if (!playlistResult.success) {
@@ -213,7 +214,7 @@ export async function downloadPlaylist(
     const limit = 100;
 
     while (true) {
-      const songsResult = await createHttpClient(remoteUrl).music.queryPlaylistSongs({
+      const songsResult = await getClientForRemote(remote).music.queryPlaylistSongs({
         playlist_id: remotePlaylistId,
         q: null,
         sort_by: null,
@@ -280,7 +281,7 @@ export async function downloadPlaylist(
         }
 
         // fetch blob metadata to get SHA256
-        const metadataResult = await createHttpClient(remoteUrl).music.blobMetadata({
+        const metadataResult = await getClientForRemote(remote).music.blobMetadata({
           id: song.media_blob_id,
         });
 
@@ -518,11 +519,12 @@ export async function checkPlaylistUpdates(
  * fetches updated metadata and songs
  */
 export async function syncPlaylist(
-  remoteUrl: string,
+  remote: RemoteRef,
   localPlaylist: Playlist,
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<void> {
   const db = await initMusicDB();
+  const remoteUrl = remote.base_url;
 
   if (!localPlaylist.source_remote_id) {
     throw new Error("not a synced playlist");
@@ -544,7 +546,7 @@ export async function syncPlaylist(
     }
 
     // fetch updated playlist metadata
-    const playlistResult = await createHttpClient(remoteUrl).music.getPlaylistById({
+    const playlistResult = await getClientForRemote(remote).music.getPlaylistById({
       id: localPlaylist.source_remote_id,
     });
     if (!playlistResult.success) {
@@ -570,7 +572,7 @@ export async function syncPlaylist(
     const limit = 100;
 
     while (true) {
-      const songsResult = await createHttpClient(remoteUrl).music.queryPlaylistSongs({
+      const songsResult = await getClientForRemote(remote).music.queryPlaylistSongs({
         playlist_id: localPlaylist.source_remote_id,
         q: null,
         sort_by: null,
@@ -616,7 +618,7 @@ export async function syncPlaylist(
 
       try {
         // fetch blob metadata to get SHA256
-        const metadataResult = await createHttpClient(remoteUrl).music.blobMetadata({
+        const metadataResult = await getClientForRemote(remote).music.blobMetadata({
           id: song.media_blob_id,
         });
 

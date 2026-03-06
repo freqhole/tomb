@@ -61,7 +61,7 @@ import {
   setActiveRemote,
   getActiveRemote,
 } from "./services/remotes/remoteManager";
-import { createHttpClient } from "./api/client";
+import { getClientForRemote, httpRemote } from "./api/client";
 import {
   registerServiceWorker,
   updateAvailable,
@@ -203,7 +203,7 @@ export function App() {
       if (config.invite_code) {
         debug("invite code found, authenticating via invite redemption...");
         debug(`using admin_username: ${config.admin_username}`);
-        const client = createHttpClient(config.server_url);
+        const client = getClientForRemote(httpRemote(config.server_url));
         const redeemResult = await client.auth.redeemInvite({
           invite_code: config.invite_code,
           username: config.admin_username ?? null,
@@ -225,7 +225,7 @@ export function App() {
         base_url: config.server_url,
       });
       // use useRemoteSource to properly switch data source AND set active_remote_id
-      await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+      await useRemoteSource(remote);
       debug(`activated tauri remote: ${remote.name} (${remote.base_url})`);
 
       // subscribe to config updates (server restarts)
@@ -236,7 +236,7 @@ export function App() {
           name: newConfig.server_name,
           base_url: newConfig.server_url,
         });
-        await useRemoteSource(updatedRemote.remote_id, updatedRemote.name, updatedRemote.base_url);
+        await useRemoteSource(updatedRemote);
         queryClient.invalidateQueries();
         debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
       });
@@ -253,7 +253,7 @@ export function App() {
           return;
         }
 
-        const client = createHttpClient(currentRemote.base_url);
+        const client = getClientForRemote(currentRemote);
         const redeemResult = await client.auth.redeemInvite({
           invite_code,
           username: null,
@@ -360,7 +360,7 @@ export function App() {
           if (onlineRemote) {
             debug("App", `switching to online remote: ${onlineRemote.name}`);
             await setActiveRemote(onlineRemote.remote_id);
-            await useRemoteSource(onlineRemote.remote_id, onlineRemote.name, onlineRemote.base_url);
+            await useRemoteSource(onlineRemote);
             toast.warning(`"${activeRemote.name}" is offline, switched to "${onlineRemote.name}"`);
           } else {
             debug("App", "no online remotes found, falling back to local");
@@ -537,7 +537,7 @@ export function App() {
           });
           // activate and switch to the newly added remote
           void (async () => {
-            await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+            await useRemoteSource(remote);
             setHasRemotes(true);
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });

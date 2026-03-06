@@ -82,6 +82,8 @@ export interface QueueSourceContext {
 }
 
 // remote server configurations
+export type TransportType = 'http' | 'wasm' | 'app';
+
 export interface Remote {
   remote_id: string; // uuid
   name: string; // user-friendly name (e.g. "home server", "work laptop")
@@ -90,6 +92,8 @@ export interface Remote {
   last_connected_at: number | null; // timestamp of last successful connection
   created_at: number;
   updated_at: number;
+  // transport type: http (default), wasm (P2P), app (embedded tauri server)
+  transport_type?: TransportType;
   // server info (fetched from /api/hello)
   server_id: string | null; // stable unique identifier from server
   description: string | null; // server description

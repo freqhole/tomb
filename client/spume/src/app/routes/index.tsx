@@ -58,7 +58,7 @@ function RootRedirect() {
         // try to restore remote context
         const remote = await getRemoteById(routeContext);
         if (remote && !remote.is_offline) {
-          await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+          await useRemoteSource(remote);
           queryClient.invalidateQueries();
           navigate(savedRoute, { replace: true });
           return;
@@ -78,7 +78,7 @@ function RootRedirect() {
 
     if (activeRemote && !activeRemote.is_offline) {
       // switch to that remote and navigate to its route
-      await useRemoteSource(activeRemote.remote_id, activeRemote.name, activeRemote.base_url);
+      await useRemoteSource(activeRemote);
       queryClient.invalidateQueries();
       navigate(`/${activeRemote.remote_id}/songs`, { replace: true });
     } else if (!isTauriMode()) {
@@ -263,7 +263,7 @@ function RemoteContextHandler(props: { children?: any }) {
     }
 
     setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
-    await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+    await useRemoteSource(remote);
     queryClient.invalidateQueries();
   });
 

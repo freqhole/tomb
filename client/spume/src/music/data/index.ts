@@ -1,7 +1,7 @@
 // data source exports and active source management
 // integrates with remote management to auto-switch between local and remote sources
 
-import { createHttpClient, type UserRoleName } from "../../app/api/client";
+import { getClientForRemote, type ApiClient, type RemoteRef, type UserRoleName, type TransportType } from "../../app/api/client";
 import { createSignal } from "solid-js";
 import { appState, setActiveRemoteId } from "../../app/services/storage/db";
 import {
@@ -19,12 +19,13 @@ import { debug, warn, error as errorLog } from "../../utils/logger";
 const [activeSource, setActiveSource] =
   createSignal<MusicDataSource>(localDataSource);
 
-// current remote info (for display)
+// current remote info (for display and client creation)
 const [currentRemote, setCurrentRemote] = createSignal<{
   remote_id: string;
   name: string;
   base_url: string;
   api_key?: string;
+  transport_type?: TransportType;
 } | null>(null);
 
 // current authenticated user info (per remote)
@@ -50,6 +51,17 @@ export function getCurrentRemote() {
   return currentRemote();
 }
 
+/**
+ * get a client for the current active remote.
+ * returns null if no remote is active (using local source).
+ * this is the main entry point for making API calls - handles transport selection.
+ */
+export function getRemoteClient(): ApiClient | null {
+  const remote = currentRemote();
+  if (!remote) return null;
+  return getClientForRemote(remote);
+}
+
 // switch to local data source
 export async function useLocalSource(): Promise<void> {
   debug("switching to local data source");
@@ -63,19 +75,22 @@ export async function useLocalSource(): Promise<void> {
 }
 
 // switch to remote data source
-export async function useRemoteSource(
-  remoteId: string,
-  name: string,
-  baseUrl: string,
-): Promise<void> {
-  debug(`switching to remote data source: ${name} (${baseUrl})`);
-  const remoteSource = new RemoteMusicDataSource(baseUrl, remoteId);
+export async function useRemoteSource(remote: RemoteRef): Promise<void> {
+  const remoteName = remote.name ?? remote.base_url;
+  debug(`switching to remote data source: ${remoteName} (${remote.base_url})`);
+  const remoteSource = new RemoteMusicDataSource(remote);
   setActiveSource(remoteSource);
-  setCurrentRemote({ remote_id: remoteId, name, base_url: baseUrl });
+  setCurrentRemote({
+    remote_id: remote.remote_id,
+    name: remoteName,
+    base_url: remote.base_url,
+    api_key: remote.api_key,
+    transport_type: remote.transport_type,
+  });
 
   // fetch current user info from whoami (uses session cookies)
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(remote);
     const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success && whoamiResult.data) {
       setCurrentUser({
@@ -92,14 +107,14 @@ export async function useRemoteSource(
   }
 
   // persist to app state and mark remote as active
-  await setActiveRemoteId(remoteId);
-  await setActiveRemote(remoteId);
+  await setActiveRemoteId(remote.remote_id);
+  await setActiveRemote(remote.remote_id);
 }
 
 // check if remote is accessible by making a lightweight request
-async function checkRemoteAccessible(baseUrl: string): Promise<boolean> {
+async function checkRemoteAccessible(remote: RemoteRef): Promise<boolean> {
   try {
-    const client = createHttpClient(baseUrl);
+    const client = getClientForRemote(remote);
     // try whoami first - if we're authenticated, the remote is accessible
     const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success) {
@@ -110,7 +125,7 @@ async function checkRemoteAccessible(baseUrl: string): Promise<boolean> {
     const healthResult = await client.app.healthCheck();
     return healthResult.success;
   } catch (error) {
-    warn(`remote health check failed for ${baseUrl}:`, error);
+    warn(`remote health check failed for ${remote.base_url}:`, error);
     return false;
   }
 }
@@ -138,11 +153,11 @@ export async function initializeDataSource(): Promise<void> {
       debug(
         `verifying remote accessibility: ${remote.name} (${remote.base_url})`,
       );
-      const isAccessible = await checkRemoteAccessible(remote.base_url);
+      const isAccessible = await checkRemoteAccessible(remote);
 
       if (isAccessible) {
         debug(`remote accessible, activating: ${remote.name}`);
-        await useRemoteSource(remote.remote_id, remote.name, remote.base_url);
+        await useRemoteSource(remote);
       } else {
         // mark remote as offline in IDB so other code paths see the status
         await markRemoteOffline(remote.remote_id);

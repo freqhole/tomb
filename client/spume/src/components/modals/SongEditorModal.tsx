@@ -7,7 +7,7 @@ import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../mu
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
 import { queryKeys } from "../../music/queries/queryKeys";
-import { pollJobUntilComplete } from "../../utils/jobs";
+import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -319,14 +319,9 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
       // poll for job completion
       const remote = getCurrentRemote();
-      if (remote?.base_url) {
+      if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(
-          remote.base_url,
-          job_id,
-          10000,
-          remote.api_key
-        );
+        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);
@@ -815,7 +810,12 @@ export function SongEditorModal(props: SongEditorModalProps) {
                   </Show>
                 </div>
               </Show>
-              <Show when={songQuery.data?.updated_at && songQuery.data.updated_at !== songQuery.data.created_at}>
+              <Show
+                when={
+                  songQuery.data?.updated_at &&
+                  songQuery.data.updated_at !== songQuery.data.created_at
+                }
+              >
                 <div class="text-sm">
                   <span class="text-[var(--color-text-tertiary)]">updated: </span>
                   <span class="text-[var(--color-text-secondary)]">

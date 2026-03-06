@@ -1,7 +1,7 @@
 // job service — abstracts job polling from the freqhole-api-client
 // used for tracking async server operations like image uploads, music imports, etc.
 
-import { createHttpClient } from "../../api/client";
+import { getClientForRemote, type RemoteRef } from "../../api/client";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 
 // type guard helper for SafeParseResult
@@ -48,15 +48,13 @@ interface WatchedJob {
  * in a single batch request on a shared interval.
  */
 export class JobPoller {
-  private baseUrl: string;
-  private apiKey?: string;
+  private remote: RemoteRef;
   private watchedJobs: Map<string, WatchedJob> = new Map();
   private pollInterval: number;
   private timerId: ReturnType<typeof setInterval> | null = null;
 
-  constructor(baseUrl: string, apiKey?: string, pollIntervalMs: number = 3000) {
-    this.baseUrl = baseUrl;
-    this.apiKey = apiKey;
+  constructor(remote: RemoteRef, pollIntervalMs: number = 3000) {
+    this.remote = remote;
     this.pollInterval = pollIntervalMs;
   }
 
@@ -112,7 +110,7 @@ export class JobPoller {
     debug("jobs", `polling ${jobIds.length} jobs`);
 
     try {
-      const result = await createHttpClient(this.baseUrl, this.apiKey).music.getJobStatus({ job_ids: jobIds });
+      const result = await getClientForRemote(this.remote).music.getJobStatus({ job_ids: jobIds });
 
       if (!isSuccess(result)) {
         errorLog("jobs", "batch poll failed:", result.error);
@@ -164,101 +162,35 @@ export class JobPoller {
 }
 
 // ============================================================================
-// single-job polling functions (convenience wrappers for one-off jobs)
+// convenience wrapper for single-job polling
 // ============================================================================
 
 /**
- * poll for job completion on a remote server
- * @param baseUrl - remote base URL
- * @param jobId - job ID to poll
- * @param timeoutMs - timeout in milliseconds (default: 10000)
- * @param apiKey - optional api key for auth
- * @returns "completed" if job finished, "failed" if job failed/cancelled or server error,
- *          "timeout" if polling hit its time limit (job may still be processing on server)
+ * poll a single job until complete. creates a temporary JobPoller internally.
+ * for multiple jobs, use JobPoller directly to batch requests.
  */
 export async function pollJobUntilComplete(
-  baseUrl: string,
+  remote: RemoteRef,
   jobId: string,
   timeoutMs: number = 10000,
-  apiKey?: string,
 ): Promise<PollResult> {
-  const result = await pollJobWithDetails(baseUrl, jobId, timeoutMs, apiKey);
+  const poller = new JobPoller(remote, 3000);
+  const result = await poller.waitForJob(jobId, timeoutMs);
+  poller.stop();
   return result.status;
 }
 
 /**
- * poll for job completion with detailed result including error message
- * @param baseUrl - remote base URL
- * @param jobId - job ID to poll
- * @param timeoutMs - timeout in milliseconds (default: 10000)
- * @param apiKey - optional api key for auth
- * @returns detailed result with status and error message if failed
+ * poll a single job with detailed result including error message.
+ * for multiple jobs, use JobPoller directly to batch requests.
  */
 export async function pollJobWithDetails(
-  baseUrl: string,
+  remote: RemoteRef,
   jobId: string,
   timeoutMs: number = 10000,
-  apiKey?: string,
 ): Promise<PollResultDetails> {
-  const startTime = Date.now();
-  const pollInterval = 3000; // check every 3 seconds
-
-  while (Date.now() - startTime < timeoutMs) {
-    const jobResult = await createHttpClient(baseUrl, apiKey).music.getJobStatus({
-      job_ids: [jobId],
-    });
-
-    if (!isSuccess(jobResult)) {
-      errorLog("jobs", "failed to get job status:", jobResult.error);
-      return { status: "failed", errorMessage: "failed to check job status" };
-    }
-
-    // extract job from response map
-    const jobData = jobResult.data.jobs[jobId];
-    if (!jobData) {
-      errorLog("jobs", "job not found in response:", jobId);
-      return { status: "failed", errorMessage: "job not found" };
-    }
-
-    const status = jobData.status;
-
-    if (status === "Completed") {
-      debug("jobs", `job ${jobId} completed`);
-      return { status: "completed" };
-    } else if (status === "Failed" || status === "Cancelled") {
-      // errors are now properly typed in the response
-      const errors = jobData.errors ?? undefined;
-      const errMsg = errors?.[0]?.detail ?? jobData.error_message ?? undefined;
-      errorLog("jobs", "job failed or was cancelled:", errMsg);
-      return { status: "failed", errorMessage: errMsg, errors };
-    }
-
-    // wait before polling again
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
-  }
-
-  warn("jobs", "job polling timed out — job may still complete on server");
-  return { status: "timeout" };
-}
-
-/**
- * get job status (single check, no polling)
- * @param baseUrl - remote base URL
- * @param jobId - job ID to check
- * @param apiKey - optional api key for auth
- * @returns job status data or null if failed to fetch
- */
-export async function getJobStatus(
-  baseUrl: string,
-  jobId: string,
-  apiKey?: string,
-): Promise<{ status: string; error_message?: string | null } | null> {
-  const result = await createHttpClient(baseUrl, apiKey).music.getJobStatus({ job_ids: [jobId] });
-  if (isSuccess(result)) {
-    const jobData = result.data.jobs[jobId];
-    if (jobData) {
-      return { status: jobData.status, error_message: jobData.error_message };
-    }
-  }
-  return null;
+  const poller = new JobPoller(remote, 3000);
+  const result = await poller.waitForJob(jobId, timeoutMs);
+  poller.stop();
+  return result;
 }
