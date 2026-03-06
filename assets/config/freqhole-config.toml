@@ -393,9 +393,9 @@ haruspex_anon_key = ""
 # gets access. set to false for more control over who can access your server.
 auto_create_users = false
 
-# OPTIONAL: role to assign auto-created users (default: "visitor")
+# OPTIONAL: role to assign auto-created users (default: "viewer")
 # options:
-#   - "visitor": read-only (browse, play, but no edits)
+#   - "viewer": read-only (browse, play, but no edits)
 #   - "member": standard user (upload, edit, create playlists)
 #   - "admin": full access (includes user management)
-default_role = "visitor"
+default_role = "viewer"

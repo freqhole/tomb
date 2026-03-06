@@ -1,6 +1,6 @@
-//! Federation sync - syncs haruspex group members to freqhole users
+//! federation sync - syncs haruspex group members to freqhole users
 //!
-//! Takes the admin's haruspex credentials, fetches all group members,
+//! takes the admin's haruspex credentials, fetches all group members,
 //! and creates/updates corresponding freqhole users.
 
 use crate::config::FederationConfig;
@@ -10,18 +10,18 @@ use crate::response::GrimoireResponse;
 use crate::users::{User, UserPeerNode, UserRole, UserService};
 use std::collections::HashSet;
 
-/// Result of a sync operation
+/// result of a sync operation
 #[derive(Debug, Clone)]
 pub struct SyncResult {
-    /// Users that were created or updated
+    /// users that were created or updated
     pub users: Vec<User>,
-    /// Peer nodes that were registered
+    /// peer nodes that were registered
     pub peer_nodes: Vec<UserPeerNode>,
-    /// Statistics about the sync
+    /// statistics about the sync
     pub stats: SyncStats,
 }
 
-/// Statistics from the sync operation
+/// statistics from the sync operation
 #[derive(Debug, Clone, Default)]
 pub struct SyncStats {
     pub groups_found: usize,
@@ -33,14 +33,14 @@ pub struct SyncStats {
     pub errors: Vec<String>,
 }
 
-/// Sync all group members from haruspex to freqhole users
+/// sync all group members from haruspex to freqhole users
 ///
-/// This is the main sync function - it:
-/// 1. Authenticates to haruspex with the provided credentials
-/// 2. Fetches all groups the user is a member of
-/// 3. Fetches all members from each group
-/// 4. Creates/updates freqhole users for each unique member
-/// 5. Registers peer node_ids for any online peers
+/// this is the main sync function - it:
+/// 1. authenticates to haruspex with the provided credentials
+/// 2. fetches all groups the user is a member of
+/// 3. fetches all members from each group
+/// 4. creates/updates freqhole users for each unique member
+/// 5. registers peer node_ids for any online peers
 pub async fn sync_users_from_haruspex(
     config: &FederationConfig,
     email: &str,
@@ -100,7 +100,12 @@ pub async fn sync_users_from_haruspex(
             .unwrap_or_else(|| member.user_id.clone());
 
         match user_service
-            .sync_federated_user(&username, &member.user_id, default_role)
+            .sync_federated_user(
+                &username,
+                &member.user_id,
+                default_role,
+                member.avatar_url.as_deref(),
+            )
             .await
         {
             GrimoireResponse {

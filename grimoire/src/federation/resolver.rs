@@ -1,0 +1,208 @@
+//! peer resolver - resolves node_id to local freqhole user
+//!
+//! when a peer connects via P2P, we need to know who they are.
+//! this module looks up the node_id in haruspex, and optionally
+//! creates a local user if auto_create_users is enabled.
+
+use crate::config::get_config;
+use crate::federation::client::NodeIdUserInfo;
+use crate::federation::setup::get_authenticated_client;
+use crate::response::GrimoireResponse;
+use crate::users::{User, UserRole, UserService};
+use serde::{Deserialize, Serialize};
+
+/// result of resolving a peer's node_id
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedPeer {
+    /// the node_id that was looked up
+    pub node_id: String,
+    /// the resolved freqhole user (if found or created)
+    pub user: Option<User>,
+    /// info from haruspex (if lookup succeeded)
+    pub haruspex_info: Option<NodeIdUserInfo>,
+    /// whether a new user was created
+    pub user_created: bool,
+    /// why resolution failed (if it did)
+    pub error: Option<String>,
+}
+
+/// resolve a peer's node_id to a local freqhole user
+///
+/// this is the main entry point for P2P peer resolution:
+/// 1. check if federation is enabled and credentials exist
+/// 2. lookup node_id in haruspex
+/// 3. if found, check if we have a local user with that haruspex_user_id
+/// 4. if auto_create_users is enabled and no local user exists, create one
+/// 5. return the resolved user info
+pub async fn resolve_peer(node_id: &str) -> ResolvedPeer {
+    let config = get_config();
+
+    // check federation config
+    let federation_config = match &config.federation {
+        Some(fed) if fed.enabled => fed,
+        _ => {
+            return ResolvedPeer {
+                node_id: node_id.to_string(),
+                user: None,
+                haruspex_info: None,
+                user_created: false,
+                error: Some("federation not enabled".to_string()),
+            };
+        }
+    };
+
+    // get authenticated client (this will refresh token if needed)
+    let (client, _creds) = match get_authenticated_client().await {
+        Ok(c) => c,
+        Err(e) => {
+            return ResolvedPeer {
+                node_id: node_id.to_string(),
+                user: None,
+                haruspex_info: None,
+                user_created: false,
+                error: Some(format!("failed to authenticate: {}", e)),
+            };
+        }
+    };
+
+    // lookup node_id in haruspex
+    let haruspex_info = match client.get_user_by_node_id(node_id).await {
+        Ok(Some(info)) => info,
+        Ok(None) => {
+            // node_id not found or not in shared group
+            return ResolvedPeer {
+                node_id: node_id.to_string(),
+                user: None,
+                haruspex_info: None,
+                user_created: false,
+                error: Some("node_id not found or not in shared group".to_string()),
+            };
+        }
+        Err(e) => {
+            return ResolvedPeer {
+                node_id: node_id.to_string(),
+                user: None,
+                haruspex_info: None,
+                user_created: false,
+                error: Some(format!("haruspex lookup failed: {}", e)),
+            };
+        }
+    };
+
+    // check if we already have a local user with this haruspex_user_id
+    let user_service = UserService::new();
+    let existing_user = user_service
+        .get_by_haruspex_user_id(&haruspex_info.user_id)
+        .await;
+
+    if let GrimoireResponse {
+        success: true,
+        data: Some(user),
+        ..
+    } = existing_user
+    {
+        // user already exists locally
+        return ResolvedPeer {
+            node_id: node_id.to_string(),
+            user: Some(user),
+            haruspex_info: Some(haruspex_info),
+            user_created: false,
+            error: None,
+        };
+    }
+
+    // no local user - check if auto_create_users is enabled
+    if !federation_config.auto_create_users {
+        return ResolvedPeer {
+            node_id: node_id.to_string(),
+            user: None,
+            haruspex_info: Some(haruspex_info),
+            user_created: false,
+            error: Some("auto_create_users is disabled".to_string()),
+        };
+    }
+
+    // create local user
+    let username = haruspex_info
+        .display_name
+        .clone()
+        .unwrap_or_else(|| haruspex_info.user_id.clone());
+    let default_role = UserRole::from(federation_config.default_role.as_str());
+
+    match user_service
+        .sync_federated_user(
+            &username,
+            &haruspex_info.user_id,
+            default_role,
+            haruspex_info.avatar_url.as_deref(),
+        )
+        .await
+    {
+        GrimoireResponse {
+            success: true,
+            data: Some(user),
+            ..
+        } => {
+            // also register the peer node
+            let _ = user_service.upsert_peer_node(&user.id, node_id, None).await;
+
+            ResolvedPeer {
+                node_id: node_id.to_string(),
+                user: Some(user),
+                haruspex_info: Some(haruspex_info),
+                user_created: true,
+                error: None,
+            }
+        }
+        GrimoireResponse {
+            success: false,
+            message,
+            ..
+        } => ResolvedPeer {
+            node_id: node_id.to_string(),
+            user: None,
+            haruspex_info: Some(haruspex_info),
+            user_created: false,
+            error: Some(format!("failed to create user: {}", message)),
+        },
+        _ => ResolvedPeer {
+            node_id: node_id.to_string(),
+            user: None,
+            haruspex_info: Some(haruspex_info),
+            user_created: false,
+            error: Some("failed to create user: unknown error".to_string()),
+        },
+    }
+}
+
+/// check if a node_id belongs to a known peer
+///
+/// lighter-weight check that only looks at local database,
+/// without contacting haruspex. returns true if we have a
+/// peer_node record for this node_id.
+pub async fn is_known_peer(node_id: &str) -> bool {
+    let user_service = UserService::new();
+    match user_service.get_user_by_peer_node_id(node_id).await {
+        GrimoireResponse {
+            success: true,
+            data: Some(_),
+            ..
+        } => true,
+        _ => false,
+    }
+}
+
+/// get local user by peer node_id (no haruspex lookup)
+///
+/// returns the local user if we have a peer_node record for this node_id.
+pub async fn get_local_user_by_node_id(node_id: &str) -> Option<User> {
+    let user_service = UserService::new();
+    match user_service.get_user_by_peer_node_id(node_id).await {
+        GrimoireResponse {
+            success: true,
+            data: Some(user),
+            ..
+        } => Some(user),
+        _ => None,
+    }
+}

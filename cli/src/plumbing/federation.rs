@@ -55,6 +55,7 @@ struct SyncResponse {
 struct StatusResponse {
     config: Option<ConfigStatus>,
     credentials: CredentialsStatus,
+    identity: IdentityStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +85,14 @@ struct CredentialsStatus {
 }
 
 #[derive(Debug, Serialize)]
+struct IdentityStatus {
+    keypair_exists: bool,
+    keypair_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct LogoutResponse {
     cleared: bool,
 }
@@ -99,7 +108,8 @@ pub async fn handle_command(action: FederationAction) -> CommandOutput<serde_jso
 }
 
 /// Get federation config or return error
-fn get_federation_config() -> Result<&'static grimoire::config::FederationConfig, CommandOutput<serde_json::Value>> {
+fn get_federation_config(
+) -> Result<&'static grimoire::config::FederationConfig, CommandOutput<serde_json::Value>> {
     let config = grimoire::config::get_config();
     match &config.federation {
         Some(fed) if fed.enabled => Ok(fed),
@@ -117,27 +127,23 @@ fn get_federation_config() -> Result<&'static grimoire::config::FederationConfig
 }
 
 /// Prompt for email and password
-fn prompt_credentials(haruspex_url: &str) -> Result<(String, String), CommandOutput<serde_json::Value>> {
+fn prompt_credentials(
+    haruspex_url: &str,
+) -> Result<(String, String), CommandOutput<serde_json::Value>> {
     // print context for interactive mode
     eprintln!("haruspex url: {}\n", haruspex_url);
 
     let email: String = Input::new()
         .with_prompt("email")
         .interact_text()
-        .map_err(|e| CommandOutput::failure(
-            format!("failed to read email: {}", e),
-            vec![],
-            (),
-        ))?;
+        .map_err(|e| CommandOutput::failure(format!("failed to read email: {}", e), vec![], ()))?;
 
     let password: String = Password::new()
         .with_prompt("password")
         .interact()
-        .map_err(|e| CommandOutput::failure(
-            format!("failed to read password: {}", e),
-            vec![],
-            (),
-        ))?;
+        .map_err(|e| {
+            CommandOutput::failure(format!("failed to read password: {}", e), vec![], ())
+        })?;
 
     Ok((email, password))
 }
@@ -185,7 +191,8 @@ async fn sync_users() -> CommandOutput<serde_json::Value> {
 
     eprintln!("signing in...");
 
-    match grimoire::federation::sync_users_from_haruspex(federation_config, &email, &password).await {
+    match grimoire::federation::sync_users_from_haruspex(federation_config, &email, &password).await
+    {
         Ok(result) => {
             let data = SyncResponse {
                 groups_found: result.stats.groups_found,
@@ -247,9 +254,17 @@ async fn show_status() -> CommandOutput<serde_json::Value> {
         verification_error: setup_status.verification_error,
     };
 
+    let identity_info = grimoire::federation::get_identity_info();
+    let identity_status = IdentityStatus {
+        keypair_exists: identity_info.keypair_exists,
+        keypair_path: identity_info.keypair_path.display().to_string(),
+        node_id: identity_info.node_id,
+    };
+
     let data = StatusResponse {
         config: config_status,
         credentials: credentials_status,
+        identity: identity_status,
     };
 
     let message = if setup_status.credentials_exist {
@@ -267,10 +282,7 @@ async fn show_status() -> CommandOutput<serde_json::Value> {
 
 fn logout() -> CommandOutput<serde_json::Value> {
     match grimoire::federation::clear_credentials() {
-        Ok(()) => CommandOutput::success(
-            "credentials cleared",
-            LogoutResponse { cleared: true },
-        ),
+        Ok(()) => CommandOutput::success("credentials cleared", LogoutResponse { cleared: true }),
         Err(e) => CommandOutput::failure(
             format!("failed to clear credentials: {}", e),
             vec![ErrorDetail::from(e)],

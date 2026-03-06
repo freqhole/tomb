@@ -704,7 +704,8 @@ impl UserService {
 
     /// Create or update a federated user from haruspex sync
     ///
-    /// If a user with the haruspex_user_id already exists, returns that user.
+    /// If a user with the haruspex_user_id already exists, updates their profile.
+    /// If a deleted user with haruspex_user_id exists, restores them.
     /// If a user with the username exists but no haruspex_user_id, links them.
     /// Otherwise creates a new user.
     pub async fn sync_federated_user(
@@ -712,14 +713,65 @@ impl UserService {
         username: &str,
         haruspex_user_id: &str,
         role: UserRole,
+        avatar_url: Option<&str>,
     ) -> GrimoireResponse<User> {
-        // first check if user already exists by haruspex_user_id
-        if let Ok(Some(user)) = self
+        // first check if user already exists by haruspex_user_id (active users only)
+        if let Ok(Some(existing)) = self
             .repository
             .find_user_by_haruspex_id(haruspex_user_id)
             .await
         {
-            return GrimoireResponse::success("User already synced", user);
+            // user exists - update their profile (username and avatar)
+            match self
+                .repository
+                .update_federated_user_profile(&existing.id, username, avatar_url)
+                .await
+            {
+                Ok(user) => return GrimoireResponse::success("Updated federated user", user),
+                Err(err) => {
+                    return GrimoireResponse::failure(
+                        "Failed to update federated user",
+                        vec![err.into()],
+                    )
+                }
+            }
+        }
+
+        // check if there's a deleted user with this haruspex_user_id - restore them
+        if let Ok(Some(deleted)) = self
+            .repository
+            .find_user_by_haruspex_id_include_deleted(haruspex_user_id)
+            .await
+        {
+            // found a deleted user - restore them
+            if deleted.deleted_at.is_some() {
+                match self.repository.restore_user(&deleted.id).await {
+                    Ok(_) => {
+                        // now update their profile
+                        match self
+                            .repository
+                            .update_federated_user_profile(&deleted.id, username, avatar_url)
+                            .await
+                        {
+                            Ok(user) => {
+                                return GrimoireResponse::success("Restored federated user", user)
+                            }
+                            Err(err) => {
+                                return GrimoireResponse::failure(
+                                    "Failed to update restored user",
+                                    vec![err.into()],
+                                )
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        return GrimoireResponse::failure(
+                            "Failed to restore deleted user",
+                            vec![err.into()],
+                        )
+                    }
+                }
+            }
         }
 
         // check if user exists by username
@@ -765,7 +817,7 @@ impl UserService {
                 // create new user
                 match self
                     .repository
-                    .create_federated_user(username, haruspex_user_id, role)
+                    .create_federated_user(username, haruspex_user_id, role, avatar_url)
                     .await
                 {
                     Ok(user) => GrimoireResponse::success("Created federated user", user),
@@ -819,6 +871,33 @@ impl UserService {
         match self.repository.touch_peer_node(node_id).await {
             Ok(()) => GrimoireResponse::success("Peer node touched", ()),
             Err(err) => GrimoireResponse::failure("Failed to touch peer node", vec![err.into()]),
+        }
+    }
+
+    /// Get user by haruspex_user_id
+    pub async fn get_by_haruspex_user_id(&self, haruspex_user_id: &str) -> GrimoireResponse<User> {
+        match self
+            .repository
+            .find_user_by_haruspex_id(haruspex_user_id)
+            .await
+        {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => {
+                GrimoireResponse::failure("User not found", vec![AuthError::UserNotFound.into()])
+            }
+            Err(err) => GrimoireResponse::failure("Failed to find user", vec![err.into()]),
+        }
+    }
+
+    /// Get user by peer node_id
+    pub async fn get_user_by_peer_node_id(&self, node_id: &str) -> GrimoireResponse<User> {
+        match self.repository.find_user_by_node_id(node_id).await {
+            Ok(Some(user)) => GrimoireResponse::success("User found", user),
+            Ok(None) => GrimoireResponse::failure(
+                "User not found for node_id",
+                vec![AuthError::UserNotFound.into()],
+            ),
+            Err(err) => GrimoireResponse::failure("Failed to find user", vec![err.into()]),
         }
     }
 }

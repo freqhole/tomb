@@ -502,6 +502,44 @@ impl UserRepository {
         Ok(user.map(User::from))
     }
 
+    /// Find a user by haruspex_user_id, including soft-deleted users
+    pub async fn find_user_by_haruspex_id_include_deleted(
+        &self,
+        haruspex_user_id: &str,
+    ) -> AuthResult<Option<User>> {
+        let pool = database::connect().await?;
+
+        let user = sqlx::query_as!(
+            UserRow,
+            r#"
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            FROM user_accountz
+            WHERE haruspex_user_id = ?1
+            "#,
+            haruspex_user_id
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(user.map(User::from))
+    }
+
+    /// Restore a soft-deleted user (set deleted_at = NULL)
+    pub async fn restore_user(&self, user_id: &str) -> AuthResult<User> {
+        let pool = database::connect().await?;
+
+        sqlx::query!(
+            r#"UPDATE user_accountz SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?"#,
+            user_id
+        )
+        .execute(&pool)
+        .await?;
+
+        self.find_user_by_id(user_id)
+            .await?
+            .ok_or(AuthError::UserNotFound)
+    }
+
     /// Find a user by their iroh peer node_id
     pub async fn find_user_by_node_id(&self, node_id: &str) -> AuthResult<Option<User>> {
         let pool = database::connect().await?;
@@ -528,24 +566,61 @@ impl UserRepository {
         username: &str,
         haruspex_user_id: &str,
         role: UserRole,
+        avatar_url: Option<&str>,
     ) -> AuthResult<User> {
         let pool = database::connect().await?;
 
         let now = OffsetDateTime::now_utc().unix_timestamp();
         let role_str = role.to_string();
+        let metadata = avatar_url.map(|url| format!(r#"{{"avatar_url":"{}"}}"#, url));
 
         let row = sqlx::query_as!(
             UserRow,
             r#"
-            INSERT INTO user_accountz (username, role, haruspex_user_id, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO user_accountz (username, role, haruspex_user_id, metadata, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
             "#,
             username,
             role_str,
             haruspex_user_id,
+            metadata,
             now,
             now
+        )
+        .fetch_one(&pool)
+        .await?;
+
+        Ok(User::from(row))
+    }
+
+    /// Update a federated user's profile (username and avatar)
+    pub async fn update_federated_user_profile(
+        &self,
+        user_id: &str,
+        username: &str,
+        avatar_url: Option<&str>,
+    ) -> AuthResult<User> {
+        let pool = database::connect().await?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        // use json_patch to merge avatar_url into existing metadata
+        let metadata_patch = avatar_url
+            .map(|url| format!(r#"{{"avatar_url":"{}"}}"#, url))
+            .unwrap_or_else(|| "{}".to_string());
+
+        let row = sqlx::query_as!(
+            UserRow,
+            r#"
+            UPDATE user_accountz
+            SET username = ?1, metadata = json_patch(COALESCE(metadata, '{}'), ?2), updated_at = ?3
+            WHERE id = ?4
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            "#,
+            username,
+            metadata_patch,
+            now,
+            user_id
         )
         .fetch_one(&pool)
         .await?;

@@ -1,7 +1,7 @@
-//! Federation credentials storage
+//! federation credentials storage
 //!
-//! Stores haruspex (Supabase) authentication credentials in a secure file.
-//! The file is chmod 600 to prevent other users from reading it.
+//! stores haruspex (Supabase) authentication credentials in a secure file.
+//! the file is chmod 600 to prevent other users from reading it.
 
 use crate::error::{GrimoireError, GrimoireResult};
 use serde::{Deserialize, Serialize};
@@ -11,27 +11,27 @@ use time::OffsetDateTime;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-/// Stored federation credentials
+/// stored federation credentials
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FederationCredentials {
-    /// Haruspex user ID (Supabase auth.users.id)
+    /// haruspex user ID (Supabase auth.users.id)
     pub haruspex_user_id: String,
 
-    /// Email used for authentication
+    /// email used for authentication
     pub email: String,
 
     /// Supabase refresh token (long-lived)
     pub refresh_token: String,
 
-    /// When credentials were first created (unix timestamp)
+    /// when credentials were first created (unix timestamp)
     pub created_at: i64,
 
-    /// When tokens were last refreshed (unix timestamp)
+    /// when tokens were last refreshed (unix timestamp)
     pub last_refreshed_at: i64,
 }
 
 impl FederationCredentials {
-    /// Create new credentials from a sign-in session
+    /// create new credentials from a sign-in session
     pub fn new(haruspex_user_id: String, email: String, refresh_token: String) -> Self {
         let now = OffsetDateTime::now_utc().unix_timestamp();
         Self {
@@ -43,13 +43,13 @@ impl FederationCredentials {
         }
     }
 
-    /// Update the refresh token after a token refresh
+    /// update the refresh token after a token refresh
     pub fn update_token(&mut self, new_refresh_token: String) {
         self.refresh_token = new_refresh_token;
         self.last_refreshed_at = OffsetDateTime::now_utc().unix_timestamp();
     }
 
-    /// Get created_at as ISO 8601 string
+    /// get created_at as ISO 8601 string
     pub fn created_at_iso(&self) -> String {
         OffsetDateTime::from_unix_timestamp(self.created_at)
             .map(|dt| {
@@ -59,7 +59,7 @@ impl FederationCredentials {
             .unwrap_or_else(|_| self.created_at.to_string())
     }
 
-    /// Get last_refreshed_at as ISO 8601 string
+    /// get last_refreshed_at as ISO 8601 string
     pub fn last_refreshed_at_iso(&self) -> String {
         OffsetDateTime::from_unix_timestamp(self.last_refreshed_at)
             .map(|dt| {
@@ -69,18 +69,17 @@ impl FederationCredentials {
             .unwrap_or_else(|_| self.last_refreshed_at.to_string())
     }
 
-    /// Load credentials from file
+    /// load credentials from file
     pub fn load(path: &Path) -> GrimoireResult<Self> {
-        let content = std::fs::read_to_string(path).map_err(|_| {
-            GrimoireError::FederationCredentialsNotFound
-        })?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|_| GrimoireError::FederationCredentialsNotFound)?;
 
         toml::from_str(&content).map_err(|e| GrimoireError::FederationCredentialsInvalid {
             message: format!("failed to parse credentials: {}", e),
         })
     }
 
-    /// Save credentials to file with secure permissions (chmod 600)
+    /// save credentials to file with secure permissions (chmod 600)
     pub fn save(&self, path: &Path) -> GrimoireResult<()> {
         // ensure parent directory exists
         if let Some(parent) = path.parent() {
@@ -114,12 +113,12 @@ impl FederationCredentials {
         Ok(())
     }
 
-    /// Check if credentials file exists at the given path
+    /// check if credentials file exists at the given path
     pub fn exists(path: &Path) -> bool {
         path.exists()
     }
 
-    /// Delete credentials file
+    /// delete credentials file
     pub fn delete(path: &Path) -> GrimoireResult<()> {
         if path.exists() {
             std::fs::remove_file(path).map_err(|e| GrimoireError::Io(e))?;

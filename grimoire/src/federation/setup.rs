@@ -1,60 +1,71 @@
-//! Federation setup - handles initial authentication and credential storage
+//! federation setup - handles initial authentication and credential storage
 //!
-//! This module provides the setup flow for federation:
-//! 1. Authenticate to haruspex with email/password
-//! 2. Store refresh token securely in data directory
-//! 3. Provide utilities to load and refresh credentials
+//! this module provides the setup flow for federation:
+//! 1. generate/load iroh keypair for P2P identity
+//! 2. authenticate to haruspex with email/password
+//! 3. store refresh token securely in data directory
+//! 4. register node_id with all user's groups
 
 use crate::config::{get_config, FederationConfig};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::client::HaruspexClient;
 use crate::federation::credentials::FederationCredentials;
+use crate::federation::identity;
 use std::path::PathBuf;
 
-/// Result of a setup operation
+/// result of a setup operation
 #[derive(Debug, Clone)]
 pub struct SetupResult {
-    /// Whether setup was successful
+    /// whether setup was successful
     pub success: bool,
-    /// Path where credentials were saved
+    /// path where credentials were saved
     pub credentials_path: PathBuf,
-    /// Haruspex user ID
+    /// haruspex user ID
     pub haruspex_user_id: String,
-    /// Email used
+    /// email used
     pub email: String,
-    /// Message describing the result
+    /// this instance's node_id (iroh public key)
+    pub node_id: String,
+    /// number of groups registered with
+    pub groups_registered: usize,
+    /// message describing the result
     pub message: String,
 }
 
-/// Result of checking setup status
+/// result of checking setup status
 #[derive(Debug, Clone)]
 pub struct SetupStatus {
-    /// Whether federation is enabled in config
+    /// whether federation is enabled in config
     pub federation_enabled: bool,
-    /// Whether credentials file exists
+    /// whether credentials file exists
     pub credentials_exist: bool,
-    /// Path to credentials file
+    /// path to credentials file
     pub credentials_path: PathBuf,
-    /// Email from stored credentials (if any)
+    /// email from stored credentials (if any)
     pub email: Option<String>,
-    /// Haruspex user ID from stored credentials (if any)
+    /// haruspex user ID from stored credentials (if any)
     pub haruspex_user_id: Option<String>,
-    /// When credentials were created (if any)
+    /// when credentials were created (if any)
     pub created_at: Option<String>,
-    /// When tokens were last refreshed (if any)
+    /// when tokens were last refreshed (if any)
     pub last_refreshed_at: Option<String>,
-    /// Whether credentials were verified (None = not checked, Some(true) = valid)
+    /// whether credentials were verified (None = not checked, Some(true) = valid)
     pub verified: Option<bool>,
-    /// Error message if verification failed
+    /// error message if verification failed
     pub verification_error: Option<String>,
+    /// whether iroh identity exists
+    pub identity_exists: bool,
+    /// this instance's node_id (if identity exists)
+    pub node_id: Option<String>,
 }
 
-/// Perform federation setup by authenticating to haruspex
+/// perform federation setup by authenticating to haruspex
 ///
-/// This is the main setup function - it:
-/// 1. Authenticates with the provided credentials
-/// 2. Saves the refresh token to the data directory
-/// 3. Returns setup result
+/// this is the main setup function - it:
+/// 1. generates/loads iroh keypair for P2P identity
+/// 2. authenticates with the provided credentials
+/// 3. saves the refresh token to the data directory
+/// 4. registers node_id with all user's groups
 pub async fn setup_federation(
     config: &FederationConfig,
     email: &str,
@@ -63,34 +74,72 @@ pub async fn setup_federation(
     let app_config = get_config();
     let credentials_path = app_config.federation_credentials_path();
 
-    // create client and authenticate
+    // 1. generate or load iroh keypair
+    let secret_key = identity::load_or_generate_keypair()?;
+    let node_id = secret_key.public().to_string();
+
+    // 2. authenticate to haruspex
     let client = HaruspexClient::new(&config.haruspex_url, &config.haruspex_anon_key);
     let session = client.sign_in(email, password).await?;
 
-    // create credentials struct
+    // create authenticated client for subsequent calls
+    let authed_client = HaruspexClient::new(&config.haruspex_url, &config.haruspex_anon_key)
+        .with_token(&session.access_token);
+
+    // 3. save credentials
     let creds = FederationCredentials::new(
         session.user.id.clone(),
         email.to_string(),
         session.refresh_token,
     );
-
-    // save credentials
     creds.save(&credentials_path)?;
+
+    // 4. fetch groups and register node_id with each
+    let groups = authed_client.list_groups().await.unwrap_or_default();
+    let mut groups_registered = 0;
+
+    for group in &groups {
+        // get instance name from server config if available
+        let instance_name = app_config
+            .server
+            .as_ref()
+            .map(|s| s.name.as_str());
+
+        match authed_client
+            .register_peer(&node_id, &group.id, None, instance_name)
+            .await
+        {
+            Ok(_) => groups_registered += 1,
+            Err(e) => {
+                // log but don't fail - registration is best-effort
+                eprintln!("warning: failed to register with group {}: {}", group.name, e);
+            }
+        }
+    }
 
     Ok(SetupResult {
         success: true,
         credentials_path,
         haruspex_user_id: session.user.id,
         email: email.to_string(),
-        message: "federation setup complete".to_string(),
+        node_id,
+        groups_registered,
+        message: format!(
+            "federation setup complete - registered with {} groups",
+            groups_registered
+        ),
     })
 }
 
-/// Get current setup status
+/// get current setup status
 pub fn get_setup_status() -> SetupStatus {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
     let federation_enabled = config.federation.as_ref().map_or(false, |f| f.enabled);
+
+    // check identity
+    let identity_exists = identity::keypair_exists();
+    let node_id = identity::get_node_id();
 
     let mut status = SetupStatus {
         federation_enabled,
@@ -102,6 +151,8 @@ pub fn get_setup_status() -> SetupStatus {
         last_refreshed_at: None,
         verified: None,
         verification_error: None,
+        identity_exists,
+        node_id,
     };
 
     // try to load existing credentials
@@ -116,7 +167,7 @@ pub fn get_setup_status() -> SetupStatus {
     status
 }
 
-/// Get setup status and verify credentials are valid by refreshing the token
+/// get setup status and verify credentials are valid by refreshing the token
 pub async fn get_setup_status_verified() -> SetupStatus {
     let mut status = get_setup_status();
 
@@ -139,13 +190,13 @@ pub async fn get_setup_status_verified() -> SetupStatus {
     status
 }
 
-/// Load and refresh credentials, returning an authenticated client
+/// load and refresh credentials, returning an authenticated client
 ///
-/// This is the main entry point for using stored credentials:
-/// 1. Load credentials from file
-/// 2. Refresh the access token
-/// 3. Update stored credentials with new refresh token
-/// 4. Return authenticated client
+/// this is the main entry point for using stored credentials:
+/// 1. load credentials from file
+/// 2. refresh the access token
+/// 3. update stored credentials with new refresh token
+/// 4. return authenticated client
 pub async fn get_authenticated_client() -> GrimoireResult<(HaruspexClient, FederationCredentials)> {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
@@ -181,7 +232,7 @@ pub async fn get_authenticated_client() -> GrimoireResult<(HaruspexClient, Feder
     Ok((authed_client, creds))
 }
 
-/// Clear stored credentials (logout)
+/// clear stored credentials (logout)
 pub fn clear_credentials() -> GrimoireResult<()> {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
