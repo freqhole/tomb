@@ -3,6 +3,8 @@
 //! provides haruspex (Supabase) client for user/group sync and peer discovery.
 //! this module handles the coordination layer - discovering who's in your groups
 //! and syncing their identities to the local freqhole user database.
+//!
+//! the optional `transport` submodule provides the actual iroh P2P networking.
 
 mod client;
 mod credentials;
@@ -10,6 +12,7 @@ mod identity;
 mod resolver;
 mod setup;
 mod sync;
+pub mod transport;
 
 pub use client::{GroupInfo, GroupMember, HaruspexClient, NodeIdUserInfo, PeerInfo};
 pub use credentials::FederationCredentials;

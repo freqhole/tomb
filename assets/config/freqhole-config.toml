@@ -399,3 +399,12 @@ auto_create_users = false
 #   - "member": standard user (upload, edit, create playlists)
 #   - "admin": full access (includes user management)
 default_role = "viewer"
+
+# OPTIONAL: maximum message size in MB for P2P JSON payloads (default: 10)
+# this limits how large a single request/response can be over the iroh transport.
+# does NOT apply to blob streaming (audio files, images) - those stream in chunks.
+#
+# the default 10MB should be plenty for most API responses (song lists, metadata, etc.)
+# increase if you have extremely large playlists or search results that exceed this.
+# decrease if you want to limit memory usage on constrained devices.
+# max_message_size_mb = 10

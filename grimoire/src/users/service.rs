@@ -361,6 +361,33 @@ impl UserService {
         hex::encode(bytes)
     }
 
+    /// Ensure a user has an API key, generating one if missing
+    ///
+    /// Returns the user with a valid API key. If the user already has an API key,
+    /// returns them unchanged. If they don't have one, generates a new key and
+    /// returns the updated user.
+    ///
+    /// Used during federation sync to ensure federated users can authenticate
+    /// for P2P proxy requests.
+    pub async fn ensure_api_key(&self, user: User) -> GrimoireResponse<User> {
+        // check if user already has an API key
+        if user.api_key.as_ref().is_some_and(|k| !k.is_empty()) {
+            return GrimoireResponse::success("user already has api key", user);
+        }
+
+        // generate and set a new API key
+        let api_key = Self::generate_secure_api_key();
+        match self.repository.set_api_key(&user.id, &api_key).await {
+            Ok(updated_user) => {
+                GrimoireResponse::success("api key generated for federated user", updated_user)
+            }
+            Err(err) => GrimoireResponse::failure(
+                "failed to generate api key for federated user",
+                vec![err.into()],
+            ),
+        }
+    }
+
     /// List users with pagination and filtering
     pub async fn list_users(
         &self,
@@ -715,6 +742,9 @@ impl UserService {
         role: UserRole,
         avatar_url: Option<&str>,
     ) -> GrimoireResponse<User> {
+        // helper to ensure API key exists before returning
+        let ensure_key = |user: User| async move { self.ensure_api_key(user).await };
+
         // first check if user already exists by haruspex_user_id (active users only)
         if let Ok(Some(existing)) = self
             .repository
@@ -727,10 +757,10 @@ impl UserService {
                 .update_federated_user_profile(&existing.id, username, avatar_url)
                 .await
             {
-                Ok(user) => return GrimoireResponse::success("Updated federated user", user),
+                Ok(user) => return ensure_key(user).await,
                 Err(err) => {
                     return GrimoireResponse::failure(
-                        "Failed to update federated user",
+                        "failed to update federated user",
                         vec![err.into()],
                     )
                 }
@@ -753,12 +783,10 @@ impl UserService {
                             .update_federated_user_profile(&deleted.id, username, avatar_url)
                             .await
                         {
-                            Ok(user) => {
-                                return GrimoireResponse::success("Restored federated user", user)
-                            }
+                            Ok(user) => return ensure_key(user).await,
                             Err(err) => {
                                 return GrimoireResponse::failure(
-                                    "Failed to update restored user",
+                                    "failed to update restored user",
                                     vec![err.into()],
                                 )
                             }
@@ -766,7 +794,7 @@ impl UserService {
                     }
                     Err(err) => {
                         return GrimoireResponse::failure(
-                            "Failed to restore deleted user",
+                            "failed to restore deleted user",
                             vec![err.into()],
                         )
                     }
@@ -781,7 +809,7 @@ impl UserService {
                 if existing.haruspex_user_id.is_some() {
                     // different haruspex_user_id - conflict
                     return GrimoireResponse::failure(
-                        "Username already exists with different haruspex identity",
+                        "username already exists with different haruspex identity",
                         vec![AuthError::UserAlreadyExists {
                             username: username.to_string(),
                         }
@@ -795,21 +823,19 @@ impl UserService {
                     .await
                 {
                     return GrimoireResponse::failure(
-                        "Failed to link haruspex identity",
+                        "failed to link haruspex identity",
                         vec![err.into()],
                     );
                 }
                 // re-fetch with updated data
                 match self.repository.find_user_by_id(&existing.id).await {
-                    Ok(Some(user)) => {
-                        GrimoireResponse::success("Linked haruspex identity to existing user", user)
-                    }
+                    Ok(Some(user)) => ensure_key(user).await,
                     Ok(None) => GrimoireResponse::failure(
-                        "User not found after update",
+                        "user not found after update",
                         vec![AuthError::UserNotFound.into()],
                     ),
                     Err(err) => {
-                        GrimoireResponse::failure("Failed to fetch updated user", vec![err.into()])
+                        GrimoireResponse::failure("failed to fetch updated user", vec![err.into()])
                     }
                 }
             }
@@ -820,15 +846,15 @@ impl UserService {
                     .create_federated_user(username, haruspex_user_id, role, avatar_url)
                     .await
                 {
-                    Ok(user) => GrimoireResponse::success("Created federated user", user),
+                    Ok(user) => ensure_key(user).await,
                     Err(err) => GrimoireResponse::failure(
-                        "Failed to create federated user",
+                        "failed to create federated user",
                         vec![err.into()],
                     ),
                 }
             }
             Err(err) => {
-                GrimoireResponse::failure("Failed to check existing user", vec![err.into()])
+                GrimoireResponse::failure("failed to check existing user", vec![err.into()])
             }
         }
     }
@@ -898,6 +924,62 @@ impl UserService {
                 vec![AuthError::UserNotFound.into()],
             ),
             Err(err) => GrimoireResponse::failure("Failed to find user", vec![err.into()]),
+        }
+    }
+
+    /// Get API key for a peer by node_id
+    ///
+    /// Used by federation proxy handler to authenticate requests to local server.
+    /// Returns the API key if the user exists and has one, otherwise an error.
+    /// If the user exists but has no API key, generates one first.
+    pub async fn get_api_key_for_peer(&self, node_id: &str) -> GrimoireResponse<String> {
+        // first find the user
+        let user = match self.repository.find_user_by_node_id(node_id).await {
+            Ok(Some(user)) => user,
+            Ok(None) => {
+                return GrimoireResponse::failure(
+                    "peer not found",
+                    vec![AuthError::UserNotFound.into()],
+                );
+            }
+            Err(err) => {
+                return GrimoireResponse::failure("failed to find peer", vec![err.into()]);
+            }
+        };
+
+        // check if user has API key
+        if let Some(api_key) = &user.api_key {
+            if !api_key.is_empty() {
+                return GrimoireResponse::success("api key found", api_key.clone());
+            }
+        }
+
+        // user has no API key - generate one
+        match self.ensure_api_key(user).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(updated_user),
+                ..
+            } => {
+                if let Some(api_key) = updated_user.api_key {
+                    GrimoireResponse::success("api key generated", api_key)
+                } else {
+                    GrimoireResponse::failure(
+                        "failed to generate api key",
+                        vec![AuthError::InsufficientPermissions.into()],
+                    )
+                }
+            }
+            GrimoireResponse {
+                success: false,
+                message,
+                errors,
+                ..
+            } => GrimoireResponse::failure(&message, errors),
+            _ => GrimoireResponse::failure(
+                "unexpected error generating api key",
+                vec![AuthError::InsufficientPermissions.into()],
+            ),
         }
     }
 }

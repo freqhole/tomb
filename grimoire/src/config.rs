@@ -176,10 +176,25 @@ pub struct FederationConfig {
     /// Role to assign auto-created users: "visitor", "member", etc.
     #[serde(default = "default_federation_role")]
     pub default_role: String,
+    /// Maximum message size in MB for P2P requests (default: 10)
+    /// This does not apply to blob streaming, only JSON message payloads.
+    #[serde(default = "default_max_message_size_mb")]
+    pub max_message_size_mb: u32,
 }
 
 fn default_federation_role() -> String {
     "visitor".to_string()
+}
+
+fn default_max_message_size_mb() -> u32 {
+    10
+}
+
+impl FederationConfig {
+    /// Get the max message size in bytes
+    pub fn max_message_size_bytes(&self) -> usize {
+        (self.max_message_size_mb as usize) * 1024 * 1024
+    }
 }
 
 /// Logging configuration

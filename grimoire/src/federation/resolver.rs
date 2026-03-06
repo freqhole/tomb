@@ -101,10 +101,27 @@ pub async fn resolve_peer(node_id: &str) -> ResolvedPeer {
         ..
     } = existing_user
     {
-        // user already exists locally
+        // user already exists locally - ensure they have an API key
+        let user_with_key = match user_service.ensure_api_key(user).await {
+            GrimoireResponse {
+                success: true,
+                data: Some(u),
+                ..
+            } => u,
+            _ => {
+                return ResolvedPeer {
+                    node_id: node_id.to_string(),
+                    user: None,
+                    haruspex_info: Some(haruspex_info),
+                    user_created: false,
+                    error: Some("failed to ensure api key for existing user".to_string()),
+                };
+            }
+        };
+
         return ResolvedPeer {
             node_id: node_id.to_string(),
-            user: Some(user),
+            user: Some(user_with_key),
             haruspex_info: Some(haruspex_info),
             user_created: false,
             error: None,
