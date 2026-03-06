@@ -12,9 +12,7 @@
 // - data validation beyond auth (see stateful.ts)
 //
 // runs without API_KEY - uses placeholder data to trigger auth checks
-import * as app from "../app.js";
-import * as auth from "../auth.js";
-import * as music from "../music.js";
+import { createHttpClient } from "../FreqholeClient.js";
 import * as utils from "../utils.js";
 import {
   fixtures,
@@ -23,7 +21,9 @@ import {
 } from "./fixtures.js";
 
 const baseUrl = process.env.API_URL || "http://localhost:8080";
-// const apiKey = process.env.API_KEY;
+
+// client without auth - should get 401/403 on protected routes
+const client = createHttpClient(baseUrl);
 
 export async function runIntegrationTests() {
   let passed = 0;
@@ -46,7 +46,7 @@ export async function runIntegrationTests() {
 
   // health check (no auth required)
   await test("app.healthCheck - server is alive", async () => {
-    const result = await app.healthCheck(baseUrl);
+    const result = await client.app.healthCheck();
     if (!result.success) {
       throw new Error(`health check failed: ${result.error.message}`);
     }
@@ -60,245 +60,238 @@ export async function runIntegrationTests() {
 
   const protectedRoutes = [
     // auth routes
-    { name: "auth.whoami", fn: () => auth.whoami(baseUrl) },
-    { name: "auth.apiKeyStatus", fn: () => auth.apiKeyStatus(baseUrl) },
-    { name: "auth.regenerateApiKey", fn: () => auth.regenerateApiKey(baseUrl) },
-    { name: "auth.logout", fn: () => auth.logout(baseUrl) },
+    { name: "auth.whoami", fn: () => client.auth.whoami() },
+    { name: "auth.apiKeyStatus", fn: () => client.auth.apiKeyStatus() },
+    { name: "auth.regenerateApiKey", fn: () => client.auth.regenerateApiKey() },
+    { name: "auth.logout", fn: () => client.auth.logout() },
 
     // songs
     {
       name: "music.querySongs",
-      fn: () => music.querySongs(baseUrl, queryParams),
+      fn: () => client.music.querySongs(queryParams),
     },
     {
       name: "music.recentSongs",
-      fn: () => music.recentSongs(baseUrl, { limit: 10 }),
+      fn: () => client.music.recentSongs({ limit: 10 }),
     },
     {
       name: "music.updateSongs",
-      fn: () => music.updateSongs(baseUrl, fixtures.updateSongs),
+      fn: () => client.music.updateSongs(fixtures.updateSongs),
     },
     {
       name: "music.deleteSong",
-      fn: () => music.deleteSong(baseUrl, fixtures.deleteSong),
+      fn: () => client.music.deleteSong(fixtures.deleteSong),
     },
 
     // albums
     {
       name: "music.queryAlbums",
-      fn: () => music.queryAlbums(baseUrl, fixtures.queryParams),
+      fn: () => client.music.queryAlbums(fixtures.queryParams),
     },
     {
       name: "music.getAlbum",
-      fn: () => music.getAlbum(baseUrl, fixtures.getAlbum),
+      fn: () => client.music.getAlbum(fixtures.getAlbum),
     },
     {
       name: "music.deleteAlbum",
-      fn: () => music.deleteAlbum(baseUrl, fixtures.deleteAlbum),
+      fn: () => client.music.deleteAlbum(fixtures.deleteAlbum),
     },
 
     // artists
     {
       name: "music.queryArtists",
-      fn: () => music.queryArtists(baseUrl, fixtures.queryParams),
+      fn: () => client.music.queryArtists(fixtures.queryParams),
     },
     {
       name: "music.getArtist",
-      fn: () => music.getArtist(baseUrl, fixtures.getArtist),
+      fn: () => client.music.getArtist(fixtures.getArtist),
     },
     {
       name: "music.createArtist",
-      fn: () => music.createArtist(baseUrl, fixtures.createArtist),
+      fn: () => client.music.createArtist(fixtures.createArtist),
     },
     {
       name: "music.deleteArtist",
-      fn: () => music.deleteArtist(baseUrl, fixtures.deleteArtist),
+      fn: () => client.music.deleteArtist(fixtures.deleteArtist),
     },
 
     // playlists
     {
       name: "music.listPlaylists",
-      fn: () => music.listPlaylists(baseUrl, fixtures.queryParams),
+      fn: () => client.music.listPlaylists(fixtures.queryParams),
     },
     {
       name: "music.getPlaylistById",
-      fn: () => music.getPlaylistById(baseUrl, { id: PLACEHOLDER_ID }),
+      fn: () => client.music.getPlaylistById({ id: PLACEHOLDER_ID }),
     },
     {
       name: "music.createPlaylist",
-      fn: () => music.createPlaylist(baseUrl, fixtures.createPlaylist),
+      fn: () => client.music.createPlaylist(fixtures.createPlaylist),
     },
     {
       name: "music.updatePlaylist",
-      fn: () => music.updatePlaylist(baseUrl, fixtures.updatePlaylist),
+      fn: () => client.music.updatePlaylist(fixtures.updatePlaylist),
     },
     {
       name: "music.deletePlaylist",
-      fn: () => music.deletePlaylist(baseUrl, fixtures.deletePlaylist),
+      fn: () => client.music.deletePlaylist(fixtures.deletePlaylist),
     },
     {
       name: "music.queryPlaylistSongs",
-      fn: () => music.queryPlaylistSongs(baseUrl, fixtures.queryPlaylistSongs),
+      fn: () => client.music.queryPlaylistSongs(fixtures.queryPlaylistSongs),
     },
     {
       name: "music.addSongsToPlaylist",
-      fn: () => music.addSongsToPlaylist(baseUrl, fixtures.addSongsToPlaylist),
+      fn: () => client.music.addSongsToPlaylist(fixtures.addSongsToPlaylist),
     },
     {
       name: "music.removeSongsFromPlaylist",
       fn: () =>
-        music.removeSongsFromPlaylist(
-          baseUrl,
-          fixtures.removeSongsFromPlaylist,
-        ),
+        client.music.removeSongsFromPlaylist(fixtures.removeSongsFromPlaylist),
     },
     {
       name: "music.reorderPlaylistSongs",
       fn: () =>
-        music.reorderPlaylistSongs(baseUrl, fixtures.reorderPlaylistSongs),
+        client.music.reorderPlaylistSongs(fixtures.reorderPlaylistSongs),
     },
     {
       name: "music.deleteImage",
-      fn: () =>
-        music.deleteImage(
-          baseUrl,
-          fixtures.deleteImage,
-        ),
+      fn: () => client.music.deleteImage(fixtures.deleteImage),
     },
 
     // genres
     {
       name: "music.queryGenres",
-      fn: () => music.queryGenres(baseUrl, fixtures.queryParams),
+      fn: () => client.music.queryGenres(fixtures.queryParams),
     },
     {
       name: "music.getGenre",
-      fn: () => music.getGenre(baseUrl, fixtures.getGenre),
+      fn: () => client.music.getGenre(fixtures.getGenre),
     },
 
     // favorites
     {
       name: "music.listFavorites",
-      fn: () => music.listFavorites(baseUrl, fixtures.listFavorites),
+      fn: () => client.music.listFavorites(fixtures.listFavorites),
     },
     {
       name: "music.setFavorite",
-      fn: () => music.setFavorite(baseUrl, fixtures.setFavorite),
+      fn: () => client.music.setFavorite(fixtures.setFavorite),
     },
 
     // ratings
     {
       name: "music.setRating",
-      fn: () => music.setRating(baseUrl, fixtures.setRating),
+      fn: () => client.music.setRating(fixtures.setRating),
     },
     {
       name: "music.removeRating",
-      fn: () => music.removeRating(baseUrl, fixtures.removeRating),
+      fn: () => client.music.removeRating(fixtures.removeRating),
     },
     {
       name: "music.getRatingStats",
-      fn: () => music.getRatingStats(baseUrl, fixtures.getRatingStats),
+      fn: () => client.music.getRatingStats(fixtures.getRatingStats),
     },
 
     // tags
-    { name: "music.listTags", fn: () => music.listTags(baseUrl) },
+    { name: "music.listTags", fn: () => client.music.listTags() },
     {
       name: "music.queryTags",
-      fn: () => music.queryTags(baseUrl, fixtures.queryTags),
+      fn: () => client.music.queryTags(fixtures.queryTags),
     },
     {
       name: "music.getTag",
-      fn: () => music.getTag(baseUrl, fixtures.getTag),
+      fn: () => client.music.getTag(fixtures.getTag),
     },
     {
       name: "music.deleteTag",
-      fn: () => music.deleteTag(baseUrl, fixtures.deleteTag),
+      fn: () => client.music.deleteTag(fixtures.deleteTag),
     },
     {
       name: "music.getAlbumsTags",
-      fn: () => music.getAlbumsTags(baseUrl, fixtures.getAlbumTags),
+      fn: () => client.music.getAlbumsTags(fixtures.getAlbumTags),
     },
     {
       name: "music.addAlbumsTags",
-      fn: () => music.addAlbumsTags(baseUrl, fixtures.addAlbumTags),
+      fn: () => client.music.addAlbumsTags(fixtures.addAlbumTags),
     },
     {
       name: "music.removeAlbumsTags",
-      fn: () => music.removeAlbumsTags(baseUrl, fixtures.removeAlbumTags),
+      fn: () => client.music.removeAlbumsTags(fixtures.removeAlbumTags),
     },
     {
       name: "music.replaceAlbumsTags",
-      fn: () => music.replaceAlbumsTags(baseUrl, fixtures.replaceAlbumTags),
+      fn: () => client.music.replaceAlbumsTags(fixtures.replaceAlbumTags),
     },
 
     // analytics
     {
       name: "music.recordPlay",
-      fn: () => music.recordPlay(baseUrl, fixtures.recordPlay),
+      fn: () => client.music.recordPlay(fixtures.recordPlay),
     },
     {
       name: "music.songAnalytics",
-      fn: () => music.songAnalytics(baseUrl, fixtures.songAnalytics),
+      fn: () => client.music.songAnalytics(fixtures.songAnalytics),
     },
     {
       name: "music.listeningHistory",
-      fn: () => music.listeningHistory(baseUrl, fixtures.listeningHistory),
+      fn: () => client.music.listeningHistory(fixtures.listeningHistory),
     },
     {
       name: "music.topSongs",
-      fn: () => music.topSongs(baseUrl, fixtures.topSongs),
+      fn: () => client.music.topSongs(fixtures.topSongs),
     },
     {
       name: "music.topArtists",
-      fn: () => music.topArtists(baseUrl, fixtures.topArtists),
+      fn: () => client.music.topArtists(fixtures.topArtists),
     },
     {
       name: "music.topAlbums",
-      fn: () => music.topAlbums(baseUrl, fixtures.topAlbums),
+      fn: () => client.music.topAlbums(fixtures.topAlbums),
     },
     {
       name: "music.activityFeed",
-      fn: () => music.activityFeed(baseUrl, fixtures.feed),
+      fn: () => client.music.activityFeed(fixtures.feed),
     },
 
     // musicbrainz
     {
       name: "music.searchMusicbrainzReleases",
       fn: () =>
-        music.searchMusicbrainzReleases(baseUrl, fixtures.searchReleases),
+        client.music.searchMusicbrainzReleases(fixtures.searchReleases),
     },
     {
       name: "music.getMusicbrainzRelease",
-      fn: () => music.getMusicbrainzRelease(baseUrl, fixtures.getRelease),
+      fn: () => client.music.getMusicbrainzRelease(fixtures.getRelease),
     },
 
     // jobs
     {
       name: "music.listJobs",
-      fn: () => music.listJobs(baseUrl, fixtures.listJobs),
+      fn: () => client.music.listJobs(fixtures.listJobs),
     },
     {
       name: "music.getJobStatus",
-      fn: () => music.getJobStatus(baseUrl, fixtures.getJobsStatus),
+      fn: () => client.music.getJobStatus(fixtures.getJobsStatus),
     },
 
     // fetch
     {
       name: "music.createFetchJob",
-      fn: () => music.createFetchJob(baseUrl, fixtures.fetchMedia),
+      fn: () => client.music.createFetchJob(fixtures.fetchMedia),
     },
     {
       name: "music.getFetchJob",
-      fn: () => music.getFetchJob(baseUrl, { id: PLACEHOLDER_ID }),
+      fn: () => client.music.getFetchJob({ job_id: PLACEHOLDER_ID }),
     },
 
-    // blobs - now using utils module
+    // blobs - still using utils module (HTTP-specific)
     {
       name: "utils.fetchBlobMetadata",
       fn: () => utils.fetchBlobMetadata(baseUrl, PLACEHOLDER_ID),
     },
 
-    // uploads - now using utils module with FormData
+    // uploads - still using utils module (HTTP-specific FormData)
     {
       name: "utils.uploadImage",
       fn: () => utils.uploadImage(baseUrl, new Blob(["test"])),

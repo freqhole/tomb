@@ -6,7 +6,7 @@ import {
   AlbumQueryResultSchema,
   ArtistQueryResultSchema,
   PlaylistQueryResultSchema,
-} from "./codegen/schema.js";
+} from "../codegen/schema.js";
 
 // discriminated union for favorite items
 // matches rust's FavoriteItem enum with #[serde(tag = "type", rename_all = "lowercase")]
