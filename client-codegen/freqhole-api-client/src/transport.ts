@@ -34,6 +34,14 @@ export interface Transport {
   request(method: string, path: string, body?: string): Promise<TransportResponse>;
 
   /**
+   * upload a file via FormData
+   * @param path - API path (e.g., /api/upload/music)
+   * @param formData - FormData with file and metadata
+   * @returns response with status code and body string
+   */
+  upload(path: string, formData: FormData): Promise<TransportResponse>;
+
+  /**
    * fetch a blob by ID
    * @param blobId - the blob ID to fetch
    * @returns blob data with content type
@@ -84,6 +92,30 @@ export class HttpTransport implements Transport {
     }
 
     const response = await fetch(url, options);
+    const responseBody = await response.text();
+
+    return {
+      status: response.status,
+      body: responseBody,
+    };
+  }
+
+  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+    const url = this.baseUrl + path;
+    const headers: Record<string, string> = {};
+
+    // don't set Content-Type - browser sets it with boundary for FormData
+    if (this.apiKey) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+      credentials: this.apiKey ? "omit" : "include",
+    });
+
     const responseBody = await response.text();
 
     return {

@@ -13,7 +13,6 @@
 //
 // runs without API_KEY - uses placeholder data to trigger auth checks
 import { createHttpClient } from "../FreqholeClient.js";
-import * as utils from "../utils.js";
 import {
   fixtures,
   PLACEHOLDER_ID,
@@ -285,20 +284,14 @@ export async function runIntegrationTests() {
       fn: () => client.music.getFetchJob({ job_id: PLACEHOLDER_ID }),
     },
 
-    // blobs - still using utils module (HTTP-specific)
+    // uploads - via client.upload (uses transport)
     {
-      name: "utils.fetchBlobMetadata",
-      fn: () => utils.fetchBlobMetadata(baseUrl, PLACEHOLDER_ID),
-    },
-
-    // uploads - still using utils module (HTTP-specific FormData)
-    {
-      name: "utils.uploadImage",
-      fn: () => utils.uploadImage(baseUrl, new Blob(["test"])),
+      name: "upload.image",
+      fn: () => client.upload.image(new Blob(["test"])),
     },
     {
-      name: "utils.uploadMusic",
-      fn: () => utils.uploadMusic(baseUrl, new Blob(["test"])),
+      name: "upload.music",
+      fn: () => client.upload.music(new Blob(["test"])),
     },
   ];
 

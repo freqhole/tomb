@@ -1,6 +1,6 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
-import { getClientForRemote, utils } from "../../app/api/client";
+import { getClientForRemote } from "../../app/api/client";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
@@ -120,7 +120,8 @@ export async function uploadFilesToRemote(
     // fire off each upload + poll chain without blocking the others
     (async () => {
       try {
-        const result = await utils.uploadMusic(remote.base_url, file, remote.api_key);
+        const client = getClientForRemote(remote);
+        const result = await client.upload.music(file);
         if (!result.success) {
           // extract error message from the ZodError
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";

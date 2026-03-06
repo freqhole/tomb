@@ -5,7 +5,6 @@ import {
   isAuthError,
   isNetworkError,
   permissions,
-  utils,
   type ApiClient,
   type ApiQueryParams,
   type RemoteRef,
@@ -1035,7 +1034,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }> {
-    const result = await utils.uploadImage(this.baseUrl, params.file, {
+    const result = await this.client.upload.image(params.file, {
       associate: {
         entity_type: params.entityType,
         entity_id: params.entityId,

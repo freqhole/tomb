@@ -9,6 +9,7 @@ import { HttpTransport } from "./transport.js";
 import { createAppMethods } from "./domains/app.js";
 import { createAuthMethods } from "./domains/auth.js";
 import { createMusicMethods } from "./domains/music.js";
+import { createUploadMethods } from "./domains/upload.js";
 import type { CallFn, SafeParseResult } from "./domains/types.js";
 
 // re-export types for consumers
@@ -25,12 +26,14 @@ export class FreqholeClient {
   public readonly app: ReturnType<typeof createAppMethods>;
   public readonly auth: ReturnType<typeof createAuthMethods>;
   public readonly music: ReturnType<typeof createMusicMethods>;
+  public readonly upload: ReturnType<typeof createUploadMethods>;
 
   constructor(public readonly transport: Transport) {
     const call = this.createCallFn();
     this.app = createAppMethods(call);
     this.auth = createAuthMethods(call);
     this.music = createMusicMethods(call);
+    this.upload = createUploadMethods(transport);
   }
 
   // -------------------------------------------------------------------------
