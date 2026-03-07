@@ -103,6 +103,15 @@ export function revokeBlobUrl(blobId: string, remoteId: string): void {
 }
 
 /**
+ * synchronously check if a P2P blob URL is already cached.
+ * use this for instant render without async lookup.
+ */
+export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | null {
+  const cacheKey = `${remoteId}/${blobId}`;
+  return activeBlobUrls.get(cacheKey) ?? null;
+}
+
+/**
  * clear all cached blob URLs.
  * call this on logout or when switching remotes.
  */

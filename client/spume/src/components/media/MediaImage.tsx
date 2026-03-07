@@ -1,6 +1,10 @@
 import { createEffect, createMemo, createSignal, JSX, on, Show } from "solid-js";
-import { getBlobObjectURL } from "../../music/services/storage/blobs";
-import { resolveBlobUrl, isP2PRemote } from "../../music/services/storage/blobResolver";
+import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
+import {
+  resolveBlobUrl,
+  isP2PRemote,
+  getCachedP2PBlobUrl,
+} from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 import { Icon } from "../icons/registry";
@@ -55,18 +59,33 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   };
   const initialSource = getInitialSource();
 
-  // initialize resolvedUrl with remoteUrl if no blobId needs async lookup
-  // (for P2P remotes, this will be null and resolved later)
-  const initialUrl =
-    !initialSource.blobId && initialSource.remoteUrl && !initialSource.remoteServerId
-      ? initialSource.remoteUrl
-      : null;
+  // compute initial URL synchronously:
+  // - local blob: check OPFS cache
+  // - P2P: check activeBlobUrls cache
+  // - HTTP: use URL directly
+  const getInitialUrl = (): string | null => {
+    // priority 1: local blob (OPFS cache)
+    if (initialSource.blobId) {
+      return getCachedBlobObjectURL(initialSource.blobId);
+    }
+    // priority 2: P2P remote - check sync cache
+    if (initialSource.remoteBlobId && initialSource.remoteServerId) {
+      return getCachedP2PBlobUrl(initialSource.remoteBlobId, initialSource.remoteServerId);
+    }
+    // priority 3: HTTP remote URL
+    if (initialSource.remoteUrl) {
+      return initialSource.remoteUrl;
+    }
+    return null;
+  };
+  const initialUrl = getInitialUrl();
 
   const [imageError, setImageError] = createSignal(false);
   const [imageLoaded, setImageLoaded] = createSignal(false);
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(initialUrl);
+  // only need async loading if we have a source but no cached URL
   const [isLoading, setIsLoading] = createSignal(
-    initialSource.blobId || initialSource.remoteServerId ? true : false
+    (initialSource.blobId || initialSource.remoteServerId) && !initialUrl
   );
 
   // compute the image source (blobId or url) - this is what we actually track

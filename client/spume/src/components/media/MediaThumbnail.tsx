@@ -1,7 +1,11 @@
 // reusable media thumbnail with index overlay and play icon hover
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
-import { resolveBlobUrl, isP2PRemote } from "../../music/services/storage/blobResolver";
+import {
+  resolveBlobUrl,
+  isP2PRemote,
+  getCachedP2PBlobUrl,
+} from "../../music/services/storage/blobResolver";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
@@ -66,14 +70,21 @@ export interface MediaThumbnailProps {
 
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   // compute initial image URL synchronously to avoid first-render flicker
-  // note: P2P remotes (with remote_server_id) need async resolution, so they return null here
   const getInitialUrl = (): string | null => {
     const image = pickBestImage(props.images);
-    // skip remote_url if this is a P2P remote (needs async resolution)
-    if (image?.remote_url && !image.remote_server_id) return image.remote_url;
-    if (props.thumbnailUrl) return props.thumbnailUrl;
+    // priority 1: local blob (OPFS)
     const blobId = image?.local_blob_id || props.thumbnailBlobId;
     if (blobId) return getCachedBlobObjectURL(blobId);
+    // priority 2: P2P remote - check sync cache (instant if previously resolved)
+    if (image?.remote_blob_id && image?.remote_server_id) {
+      const cached = getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id);
+      if (cached) return cached;
+      // not cached yet - will resolve async, return null for now
+      return null;
+    }
+    // priority 3: HTTP remote URL
+    if (image?.remote_url) return image.remote_url;
+    if (props.thumbnailUrl) return props.thumbnailUrl;
     return null;
   };
 
