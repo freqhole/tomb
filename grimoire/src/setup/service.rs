@@ -6,7 +6,9 @@
 use serde::Serialize;
 use std::path::PathBuf;
 
-use crate::config::{create_config_full, get_config, init_config, ConfigError};
+use crate::config::{
+    create_config_full, ensure_server_image_blob, get_config, init_config, ConfigError,
+};
 use crate::database;
 use crate::error::SetupStep;
 use crate::users::{
@@ -151,6 +153,14 @@ impl SetupService {
             result
                 .errors
                 .push(format!("wordlist initialization failed (non-fatal): {}", e));
+        }
+
+        // step 4b: create server image blob if image_path is configured (non-fatal)
+        if let Err(e) = self.ensure_server_image_blob(&config).await {
+            result.errors.push(format!(
+                "server image blob creation failed (non-fatal): {}",
+                e
+            ));
         }
 
         // step 5: create system root user (always created)
@@ -331,6 +341,34 @@ impl SetupService {
                 message: "wordlist initialization failed".to_string(),
             })
         }
+    }
+
+    /// step 4b: create server image blob if image_path is configured
+    ///
+    /// reads the server image from the configured path, creates a media blob,
+    /// and updates the config file with the blob_id for P2P transport
+    async fn ensure_server_image_blob(&self, config: &SetupConfig) -> Result<(), GrimoireError> {
+        // check if image_path is configured
+        let grimoire_config = get_config();
+        if grimoire_config
+            .server
+            .as_ref()
+            .and_then(|s| s.image_path.as_ref())
+            .is_none()
+        {
+            // no image configured, skip
+            return Ok(());
+        }
+
+        // create the blob and update config
+        ensure_server_image_blob(&config.config_path)
+            .await
+            .map_err(|e| GrimoireError::SetupFailed {
+                step: SetupStep::Config,
+                message: format!("failed to create server image blob: {}", e),
+            })?;
+
+        Ok(())
     }
 
     /// step 5: create system root user (hardcoded username)

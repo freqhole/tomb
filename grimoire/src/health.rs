@@ -33,6 +33,8 @@ pub struct ServerInfoResponse {
     pub description: Option<String>,
     /// server version
     pub version: String,
-    /// optional server image url (publicly accessible)
+    /// optional server image url (publicly accessible via HTTP)
     pub image_url: Option<String>,
+    /// optional server image blob id (for P2P transport)
+    pub image_blob_id: Option<String>,
 }

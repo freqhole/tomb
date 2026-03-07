@@ -2,7 +2,9 @@
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
-use grimoire::config::{create_config, find_config, ConfigValidationResponse, GrimoireConfig};
+use grimoire::config::{
+    create_config, ensure_server_image_blob, find_config, ConfigValidationResponse, GrimoireConfig,
+};
 use grimoire::error::GrimoireError;
 use std::path::PathBuf;
 
@@ -22,6 +24,9 @@ pub enum ConfigAction {
     },
     /// Validate configuration file (uses global --config flag)
     Validate,
+    /// Update server image blob for P2P transport
+    /// reads server.image_path, creates a media blob, and stores the blob_id in config
+    UpdateServerImage,
 }
 
 /// Handle config commands
@@ -104,6 +109,42 @@ pub async fn handle_command(
 
             let message = format!("Configuration is valid: {}", path.display());
             CommandOutput::success(message, response)
+        }
+        ConfigAction::UpdateServerImage => {
+            let path = match find_config(global_config) {
+                Ok(p) => p,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to find config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
+
+            match ensure_server_image_blob(&path).await {
+                Ok(blob_id) => {
+                    let message = format!("Server image blob created: {}", blob_id);
+                    CommandOutput::success(
+                        message,
+                        serde_json::json!({
+                            "blob_id": blob_id,
+                            "config_path": path.display().to_string()
+                        }),
+                    )
+                }
+                Err(e) => CommandOutput::failure(
+                    "Failed to update server image blob",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
         }
     }
 }

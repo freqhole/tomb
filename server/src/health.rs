@@ -65,12 +65,16 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         .as_ref()
         .map(|_| "/api/hello/image".to_string());
 
+    // image_blob_id for P2P transport (stored in config after running update-server-image)
+    let image_blob_id = server_config.image_blob_id.clone();
+
     Ok(Json(ServerInfoResponse {
         server_id,
         name,
         description,
         version,
         image_url,
+        image_blob_id,
     }))
 }
 

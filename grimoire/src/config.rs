@@ -236,6 +236,10 @@ pub struct ServerConfig {
     /// Optional path to server image (served publicly for remote identification)
     /// Path is relative to data_dir unless absolute
     pub image_path: Option<PathBuf>,
+    /// Blob ID for the server image (for P2P transport)
+    /// Set automatically when using `freqhole config update-server-image`
+    #[serde(default)]
+    pub image_blob_id: Option<String>,
 }
 
 /// Authentication configuration
@@ -849,6 +853,90 @@ fn set_nested_value(
     }
 
     Ok(())
+}
+
+/// ensure server image is stored as a media blob and update config
+///
+/// reads the image at server.image_path from the config, creates a media blob
+/// (or finds existing by sha256), and updates the config file with the blob_id.
+///
+/// # arguments
+/// * `config_path` - path to the freqhole-config.toml
+///
+/// # returns
+/// the blob_id of the server image
+pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, ConfigError> {
+    use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
+    use crate::Bytes;
+    use sha2::{Digest, Sha256};
+
+    // load config to get image_path and data_dir
+    let config = GrimoireConfig::load(config_path)?;
+
+    let server_config = config.server.as_ref().ok_or_else(|| {
+        ConfigError::InvalidValue("server section required to update server image".to_string())
+    })?;
+
+    let image_path = server_config.image_path.as_ref().ok_or_else(|| {
+        ConfigError::InvalidValue("server.image_path required to create image blob".to_string())
+    })?;
+
+    // resolve image path (relative to data_dir or absolute)
+    let full_path = if image_path.is_absolute() {
+        image_path.to_path_buf()
+    } else {
+        config.data_dir.join(image_path)
+    };
+
+    // read image file
+    let data = std::fs::read(&full_path).map_err(|e| ConfigError::FileNotFound {
+        path: full_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+
+    // compute sha256
+    let mut hasher = Sha256::new();
+    hasher.update(&data);
+    let sha256 = format!("{:x}", hasher.finalize());
+
+    // get mime type
+    let mime = mime_guess::from_path(&full_path)
+        .first()
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| "image/png".to_string());
+
+    let filename = full_path
+        .file_name()
+        .and_then(|n: &std::ffi::OsStr| n.to_str())
+        .unwrap_or("server-image")
+        .to_string();
+
+    // create media blob (idempotent - returns existing if same sha256)
+    let request = CreateMediaBlobRequest {
+        sha256: sha256.clone(),
+        size: Some(data.len() as i64),
+        mime: Some(mime),
+        source_client_id: None,
+        local_path: None,
+        filename: Some(filename),
+        parent_blob_id: None,
+        blob_type: Some(BlobType::Original),
+        metadata: serde_json::json!({}),
+        created_by: None,
+        data: Some(Bytes::from(data)),
+    };
+
+    let blob = create_media_blob(request)
+        .await
+        .map_err(|e| ConfigError::InvalidValue(format!("failed to create media blob: {}", e)))?;
+
+    // update config with blob_id
+    set_config_values(
+        config_path,
+        &[("server.image_blob_id", blob.id.clone().into())],
+    )?;
+
+    Ok(blob.id)
 }
 
 #[cfg(test)]

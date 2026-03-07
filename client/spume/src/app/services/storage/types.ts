@@ -100,7 +100,8 @@ export interface Remote {
   // server info (fetched from /api/hello)
   server_id: string | null; // stable unique identifier from server
   description: string | null; // server description
-  image_url: string | null; // server image/logo url
+  image_url: string | null; // server image/logo url (for HTTP transport)
+  image_blob_id: string | null; // server image blob id (for P2P transport)
   version: string | null; // server version
   last_info_check: number | null; // timestamp of last server info fetch
   // api key auth (optional - when set, uses Bearer token instead of cookies)

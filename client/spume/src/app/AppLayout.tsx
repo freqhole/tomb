@@ -568,6 +568,8 @@ export function AppLayout(props: AppLayoutProps) {
           name: r.name,
           url: r.base_url,
           imageUrl: r.image_url ?? undefined,
+          imageBlobId: r.image_blob_id ?? undefined,
+          peerAddr: r.peer_addr,
           isOffline: r.is_offline,
           lastChecked: r.last_checked,
         }))}

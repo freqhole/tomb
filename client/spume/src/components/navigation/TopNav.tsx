@@ -1,5 +1,14 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+  type JSX,
+} from "solid-js";
 import { Icon } from "../icons/registry";
 import { debug } from "../../utils/logger";
 import { toast } from "../feedback/Toast";
@@ -14,6 +23,7 @@ import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions"
 import { formatRelativeTime } from "../../utils/dateTime";
 import { isTauriMode } from "../../utils/tauri";
 import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
+import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -88,6 +98,8 @@ export interface TopNavProps {
     name: string;
     url: string;
     imageUrl?: string;
+    imageBlobId?: string | null;
+    peerAddr?: string;
     isOffline?: boolean;
     lastChecked?: number | null;
   }>;
@@ -117,6 +129,75 @@ export interface TopNavProps {
   onAddMusic?: () => void;
   /** additional classes */
   class?: string;
+}
+
+// remote type used internally
+type RemoteItem = NonNullable<TopNavProps["remotes"]>[number];
+
+// component to render remote server images (handles P2P blob resolution)
+function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: string }) {
+  const isP2P = () => !!props.remote.peerAddr;
+
+  // resolve P2P blob URL asynchronously
+  const [resolvedP2PUrl] = createResource(
+    () =>
+      isP2P() && props.remote.imageBlobId
+        ? { blobId: props.remote.imageBlobId, remoteId: props.remote.id }
+        : null,
+    async (params) => {
+      if (!params) return null;
+      try {
+        return await resolveBlobUrl(params.blobId, params.remoteId);
+      } catch (e) {
+        debug("RemoteServerImage", `failed to resolve blob: ${e}`);
+        return null;
+      }
+    }
+  );
+
+  // for HTTP remotes, use direct URL
+  const httpImageUrl = () =>
+    !isP2P() && props.remote.imageUrl ? `${props.remote.url}${props.remote.imageUrl}` : null;
+
+  const imageUrl = () => (isP2P() ? resolvedP2PUrl() : httpImageUrl());
+
+  return (
+    <Show
+      when={imageUrl() || (isP2P() && props.remote.imageBlobId && resolvedP2PUrl.loading)}
+      fallback={
+        <div
+          class={`bg-[var(--color-bg-tertiary)] flex items-center justify-center ${props.class || ""}`}
+        >
+          <Icon name="freqhole" size={16} color="var(--color-accent-500)" />
+        </div>
+      }
+    >
+      <Show
+        when={!resolvedP2PUrl.loading}
+        fallback={
+          <div
+            class={`bg-[var(--color-bg-tertiary)] flex items-center justify-center animate-pulse ${props.class || ""}`}
+          >
+            <Icon
+              name="freqhole"
+              size={16}
+              color="var(--color-accent-500)"
+              className="opacity-50"
+            />
+          </div>
+        }
+      >
+        <img
+          src={imageUrl()!}
+          alt={props.alt || ""}
+          class={props.class}
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
+      </Show>
+    </Show>
+  );
 }
 
 // compact top nav with brand icon + search, responsive flyout menu
@@ -269,9 +350,8 @@ export function TopNav(props: TopNavProps) {
                   fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
                 >
                   {(remote) => (
-                    <MediaImage
-                      imageUrl={remote().imageUrl ? `${remote().url}${remote().imageUrl}` : null}
-                      alt=""
+                    <RemoteServerImage
+                      remote={remote()}
                       class="w-7 h-7 rounded object-cover flex-shrink-0"
                     />
                   )}
@@ -434,14 +514,16 @@ export function TopNav(props: TopNavProps) {
                                           color="var(--color-accent-500)"
                                         />
                                       </Show>
-                                      <MediaImage
-                                        imageUrl={
-                                          remote.imageUrl ? `${remote.url}${remote.imageUrl}` : null
-                                        }
-                                        alt=""
+                                      <RemoteServerImage
+                                        remote={remote}
                                         class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
                                       />
                                       <span class="truncate">{remote.name}</span>
+                                      <Show when={remote.peerAddr}>
+                                        <span class="px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 rounded">
+                                          p2p
+                                        </span>
+                                      </Show>
                                       <Show when={remote.isOffline && !isRechecking()}>
                                         <span class="text-xs text-[var(--color-status-error)] ml-auto">
                                           offline

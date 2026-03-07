@@ -83,6 +83,7 @@ export async function upsertTauriRemote(config: {
     description: null,
     // server image is served at /api/hello/image
     image_url: "/api/hello/image",
+    image_blob_id: null,
     version: null,
     last_info_check: null,
     is_tauri_managed: true,
@@ -150,7 +151,7 @@ export async function createRemote(data: {
   let serverInfo = null;
   try {
     if (isP2P) {
-      const client = await getClientForRemoteAsync({ remote_id: "temp", peer_addr: data.peer_addr });
+      const client = await getClientForRemoteAsync({ peer_addr: data.peer_addr, transport_type: "wasm" });
       const result = await client.app.serverInfo();
       if (result.success && result.data) {
         serverInfo = result.data;
@@ -189,6 +190,7 @@ export async function createRemote(data: {
     name: remoteName,
     base_url: baseUrl,
     peer_addr: data.peer_addr,
+    transport_type: isP2P ? "wasm" : "http",
     is_active: false,
     last_connected_at: null,
     created_at: Date.now(),
@@ -197,6 +199,7 @@ export async function createRemote(data: {
     server_id: serverInfo.server_id,
     description: serverInfo.description ?? null,
     image_url: serverInfo.image_url ?? null,
+    image_blob_id: serverInfo.image_blob_id ?? null,
     version: serverInfo.version,
     last_info_check: Date.now(),
     // api key auth (optional)

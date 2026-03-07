@@ -2021,7 +2021,8 @@ export const ServerInfoResponseSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   version: z.string(),
-  image_url: z.string().nullable()
+  image_url: z.string().nullable(),
+  image_blob_id: z.string().nullable()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
 

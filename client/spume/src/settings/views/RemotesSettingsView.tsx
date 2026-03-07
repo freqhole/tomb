@@ -1,5 +1,5 @@
 // remotes settings view - displays configured remotes and allows deletion
-import { createSignal, onMount, Show, For } from "solid-js";
+import { createSignal, createResource, onMount, Show, For } from "solid-js";
 import {
   getAllRemotes,
   deleteRemote,
@@ -16,6 +16,7 @@ import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
 import { ReauthModal } from "../../components/auth/ReauthModal";
 import { formatDate } from "../../utils/dateTime";
+import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -48,6 +49,63 @@ function ConfirmDialog(props: {
           </div>
         </div>
       </div>
+    </Show>
+  );
+}
+
+// remote image component that handles P2P blob resolution
+function RemoteImage(props: { remote: Remote }) {
+  // for P2P remotes with image_blob_id, resolve via blob resolver
+  const isP2P = () => props.remote.transport_type === "wasm" || !!props.remote.peer_addr;
+
+  const [resolvedUrl] = createResource(
+    () =>
+      isP2P() && props.remote.image_blob_id
+        ? { blobId: props.remote.image_blob_id, remoteId: props.remote.remote_id }
+        : null,
+    async (params) => {
+      if (!params) return null;
+      try {
+        return await resolveBlobUrl(params.blobId, params.remoteId);
+      } catch (e) {
+        debug("RemoteImage", `failed to resolve blob: ${e}`);
+        return null;
+      }
+    }
+  );
+
+  // for HTTP remotes, use direct URL
+  const httpImageUrl = () =>
+    !isP2P() && props.remote.image_url ? `${props.remote.base_url}${props.remote.image_url}` : null;
+
+  const imageUrl = () => (isP2P() ? resolvedUrl() : httpImageUrl());
+
+  return (
+    <Show
+      when={imageUrl() || (isP2P() && props.remote.image_blob_id && resolvedUrl.loading)}
+      fallback={
+        <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
+          <span class="text-xl">🌐</span>
+        </div>
+      }
+    >
+      <Show
+        when={resolvedUrl.loading}
+        fallback={
+          <img
+            src={imageUrl()!}
+            alt={props.remote.name}
+            class="w-12 h-12 rounded-lg object-cover shrink-0"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        }
+      >
+        <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0 animate-pulse">
+          <span class="text-xl opacity-50">🌐</span>
+        </div>
+      </Show>
     </Show>
   );
 }
@@ -304,31 +362,11 @@ export function RemotesSettingsView() {
           <div class="space-y-3">
             <For each={remotes()}>
               {(remote) => {
-                // construct full image URL from base_url + relative path
-                const imageUrl = () =>
-                  remote.image_url ? `${remote.base_url}${remote.image_url}` : null;
-
                 return (
                   <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
                     <div class="flex items-start gap-4">
                       {/* server image */}
-                      <Show
-                        when={imageUrl()}
-                        fallback={
-                          <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
-                            <span class="text-xl">🌐</span>
-                          </div>
-                        }
-                      >
-                        <img
-                          src={imageUrl()!}
-                          alt={remote.name}
-                          class="w-12 h-12 rounded-lg object-cover shrink-0"
-                          onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                          }}
-                        />
-                      </Show>
+                      <RemoteImage remote={remote} />
 
                       <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-1">
