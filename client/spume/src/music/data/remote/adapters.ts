@@ -95,10 +95,11 @@ export interface ApiSongQueryItem {
 }
 
 // helper to convert API image to app ImageMetadata
-export function adaptApiImage(img: ApiImage, baseUrl: string) {
+export function adaptApiImage(img: ApiImage, baseUrl: string, remoteServerId?: string) {
   return {
     remote_blob_id: img.blob_id,
     remote_url: getRemoteMediaUrl(baseUrl, img.blob_id),
+    remote_server_id: remoteServerId,
     is_primary: !!img.is_primary,
     blob_type: (img.blob_type || 'original') as 'thumbnail' | 'waveform' | 'original' | 'preview',
   };
@@ -157,7 +158,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_primary_genre_name: album?.genres?.[0]?.name ?? item.genre?.name ?? null,
 
     // song-specific images only (album images stored separately in album_images)
-    images: item.images?.map(img => adaptApiImage(img, baseUrl)) ?? [],
+    images: item.images?.map(img => adaptApiImage(img, baseUrl, remoteServerId)) ?? [],
 
     // user-specific metadata (from API response top-level)
     is_favorite: item.is_favorite ?? false,
@@ -166,7 +167,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_rating: item.album_rating ?? undefined,
     album_tags: item.album_tags ?? [],
     album_genres: album?.genres ?? [],
-    album_images: album?.images?.map(img => adaptApiImage(img, baseUrl)) ?? [],
+    album_images: album?.images?.map(img => adaptApiImage(img, baseUrl, remoteServerId)) ?? [],
 
     // entity URLs (convert null fields to undefined)
     urls: adaptApiUrls(song.urls) ?? [],

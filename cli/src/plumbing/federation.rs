@@ -28,6 +28,23 @@ pub enum FederationAction {
 
     /// Clear stored federation credentials (logout)
     Logout,
+
+    /// Allow a P2P peer to connect by node_id
+    ///
+    /// Links a peer node_id to a user account. Creates a new user if the
+    /// username doesn't exist.
+    AllowPeer {
+        /// The 64-character hex node_id of the peer to allow
+        node_id: String,
+
+        /// Username to associate with this peer (default: peer_<node_id prefix>)
+        #[arg(short, long)]
+        username: Option<String>,
+
+        /// Role for the user: admin, member, or viewer (default: viewer)
+        #[arg(short, long)]
+        role: Option<String>,
+    },
 }
 
 // Response types for JSON serialization
@@ -97,6 +114,14 @@ struct LogoutResponse {
     cleared: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct AllowPeerResponse {
+    user_id: String,
+    username: String,
+    node_id: String,
+    created_user: bool,
+}
+
 /// Handle federation commands
 pub async fn handle_command(action: FederationAction) -> CommandOutput<serde_json::Value> {
     match action {
@@ -104,6 +129,11 @@ pub async fn handle_command(action: FederationAction) -> CommandOutput<serde_jso
         FederationAction::Sync => sync_users().await,
         FederationAction::Status => show_status().await,
         FederationAction::Logout => logout(),
+        FederationAction::AllowPeer {
+            node_id,
+            username,
+            role,
+        } => allow_peer(node_id, username, role).await,
     }
 }
 
@@ -289,4 +319,93 @@ fn logout() -> CommandOutput<serde_json::Value> {
             (),
         ),
     }
+}
+
+async fn allow_peer(
+    node_id: String,
+    username: Option<String>,
+    role: Option<String>,
+) -> CommandOutput<serde_json::Value> {
+    use grimoire::users::{CreateUserRequest, UserRole, UserService};
+
+    // validate node_id looks reasonable (64 hex chars)
+    if node_id.len() != 64 || !node_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return CommandOutput::failure("invalid node_id: expected 64 hex characters", vec![], ());
+    }
+
+    // parse role (default to viewer)
+    let user_role = match role.as_deref().unwrap_or("viewer") {
+        "admin" => UserRole::Admin,
+        "member" => UserRole::Member,
+        "viewer" => UserRole::Viewer,
+        other => {
+            return CommandOutput::failure(
+                format!(
+                    "invalid role '{}': expected admin, member, or viewer",
+                    other
+                ),
+                vec![],
+                (),
+            );
+        }
+    };
+
+    // determine username - use provided or generate from node_id prefix
+    let username = username.unwrap_or_else(|| format!("peer_{}", &node_id[..8]));
+
+    let service = UserService::new();
+
+    // try to find existing user by username
+    let (user, created_user) = {
+        let find_result = service.get_user_by_username(&username).await;
+        if let Some(existing) = find_result.data {
+            (existing, false)
+        } else {
+            // create new user
+            let request = CreateUserRequest {
+                username: username.clone(),
+                role: Some(user_role),
+                invite_code: None,
+            };
+            let create_result = service.register_user(&request).await;
+            match create_result.data {
+                Some(user) => (user, true),
+                None => {
+                    let err = create_result
+                        .errors
+                        .first()
+                        .map(|e| e.detail.clone())
+                        .unwrap_or_else(|| "failed to create user".to_string());
+                    return CommandOutput::failure(err, create_result.errors, ());
+                }
+            }
+        }
+    };
+
+    // link node_id to user
+    let peer_result = service.upsert_peer_node(&user.id, &node_id, None).await;
+
+    if peer_result.data.is_none() {
+        let err = peer_result
+            .errors
+            .first()
+            .map(|e| e.detail.clone())
+            .unwrap_or_else(|| "failed to link peer node".to_string());
+        return CommandOutput::failure(err, peer_result.errors, ());
+    }
+
+    let data = AllowPeerResponse {
+        user_id: user.id,
+        username: user.username,
+        node_id,
+        created_user,
+    };
+
+    let message = if created_user {
+        format!("created user '{}' and linked peer node", data.username)
+    } else {
+        format!("linked peer node to existing user '{}'", data.username)
+    };
+
+    CommandOutput::success(message, data)
 }

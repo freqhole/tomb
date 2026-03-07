@@ -8,6 +8,7 @@ export interface ImageMetadata {
   local_blob_id?: string; // for local/downloaded images
   remote_blob_id?: string; // server blob ID (from API)
   remote_url?: string; // for remote images (already includes base URL)
+  remote_server_id?: string; // which remote server this image is from (for P2P resolution)
   is_primary: boolean; // primary/featured image
   blob_type: 'thumbnail' | 'waveform' | 'original' | 'preview'; // image type
 }

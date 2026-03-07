@@ -4,6 +4,7 @@ import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 import { debug } from "../../../utils/logger";
+import { resolveBlobUrl, isP2PRemote } from "./blobResolver";
 
 // cache of active blob urls to prevent memory leaks
 const activeBlobURLs = new Map<string, string>();
@@ -69,6 +70,21 @@ export async function getAudioURL(song: Song): Promise<string> {
 
   // remote files: check cache first, then fall back to direct streaming URL
   if (song.source_type === "remote") {
+    // check if this is a P2P remote - needs special handling
+    if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
+      debug("audioAccess", `using P2P transport for remote song: ${song.sha256}`);
+      try {
+        // P2P: use blobResolver which fetches via WasmTransport and caches
+        const url = await resolveBlobUrl(song.sha256, song.remote_server_id);
+        activeBlobURLs.set(song.sha256, url);
+        return url;
+      } catch (error) {
+        console.error(`failed to fetch P2P audio:`, error);
+        throw new Error(`failed to fetch audio from P2P peer`);
+      }
+    }
+
+    // HTTP remote: use direct URL approach
     if (!song.source_url) {
       throw new Error(`remote song has no source url: ${song.sha256}`);
     }
@@ -184,21 +200,37 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     }
   }
 
-  // remote: try API Cache first
-  if (song.source_type === "remote" && song.source_url) {
-    const cachedResponse = await getCachedBlob(song.source_url);
-    if (cachedResponse) {
-      const blob = await cachedResponse.blob();
-      const url = URL.createObjectURL(blob);
-      activeBlobURLs.set(song.sha256, url);
-      debug("audioAccess", `refreshed blob URL from API Cache: ${song.sha256}`);
-      return url;
+  // remote: try API Cache first (or use P2P resolver)
+  if (song.source_type === "remote") {
+    // P2P remotes: use blobResolver
+    if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
+      try {
+        const url = await resolveBlobUrl(song.sha256, song.remote_server_id);
+        activeBlobURLs.set(song.sha256, url);
+        debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);
+        return url;
+      } catch (error) {
+        console.error(`failed to refresh P2P blob:`, error);
+        return null;
+      }
     }
-    // not in cache - fall back to remote URL (browser will handle it)
-    debug("audioAccess", `not in cache, falling back to remote URL: ${song.source_url}`);
-    directURLSongs.set(song.sha256, song.source_url);
-    addToDirectURLSet(song.sha256);
-    return song.source_url;
+
+    // HTTP remotes: use cache
+    if (song.source_url) {
+      const cachedResponse = await getCachedBlob(song.source_url);
+      if (cachedResponse) {
+        const blob = await cachedResponse.blob();
+        const url = URL.createObjectURL(blob);
+        activeBlobURLs.set(song.sha256, url);
+        debug("audioAccess", `refreshed blob URL from API Cache: ${song.sha256}`);
+        return url;
+      }
+      // not in cache - fall back to remote URL (browser will handle it)
+      debug("audioAccess", `not in cache, falling back to remote URL: ${song.source_url}`);
+      directURLSongs.set(song.sha256, song.source_url);
+      addToDirectURLSet(song.sha256);
+      return song.source_url;
+    }
   }
 
   console.error(`cannot refresh: unsupported source type: ${song.source_type}`);

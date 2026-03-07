@@ -9,18 +9,20 @@ import { queryKeys } from "./queryKeys";
 function adaptFeedImages(
   images: Array<{ blob_id: string; is_primary: number; blob_type: string }> | null | undefined,
   baseUrl: string,
+  remoteId?: string,
 ): ImageMetadata[] | null {
   if (!images || images.length === 0) return null;
   return images.map((img) => ({
     remote_blob_id: img.blob_id,
     remote_url: getRemoteMediaUrl(baseUrl, img.blob_id),
+    remote_server_id: remoteId,
     is_primary: img.is_primary === 1,
     blob_type: (img.blob_type as ImageMetadata["blob_type"]) ?? "thumbnail",
   }));
 }
 
 // adapt a raw API feed response to app-level types
-function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
+function adaptFeedResponse(data: any, baseUrl: string, remoteId?: string): FeedResponse {
   return {
     items: (data.items ?? []).map((item: any): FeedItem => ({
       id: item.id,
@@ -31,7 +33,7 @@ function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
       playlist_id: item.playlist_id ?? null,
       title: item.title,
       subtitle: item.subtitle ?? null,
-      images: adaptFeedImages(item.images, baseUrl),
+      images: adaptFeedImages(item.images, baseUrl, remoteId),
       created_at: item.created_at,
       user_id: item.user_id ?? null,
       username: item.username ?? null,
@@ -54,7 +56,7 @@ function adaptFeedResponse(data: any, baseUrl: string): FeedResponse {
       description: item.description ?? null,
       tags: item.tags ?? null,
       is_favorite: item.is_favorite ?? false,
-      collage_images: adaptFeedImages(item.collage_images, baseUrl),
+      collage_images: adaptFeedImages(item.collage_images, baseUrl, remoteId),
       entity_created_at: item.entity_created_at ?? null,
     })),
     total: data.total ?? 0,
@@ -80,7 +82,7 @@ export function useActivityFeedQuery(limit: number = 50) {
         throw new Error("failed to fetch activity feed");
       }
 
-      return adaptFeedResponse(result.data, remote.base_url);
+      return adaptFeedResponse(result.data, remote.base_url, remote.remote_id);
     },
     enabled: !!getCurrentRemote(),
     staleTime: 30_000,
@@ -146,7 +148,7 @@ export function useActivityFeedInfiniteQuery(
           throw new Error("failed to fetch activity feed");
         }
 
-        return adaptFeedResponse(result.data, remote.base_url);
+        return adaptFeedResponse(result.data, remote.base_url, remote.remote_id);
       },
       getNextPageParam: (lastPage: FeedResponse, allPages: FeedResponse[]) => {
         const totalFetched = allPages.reduce((sum, page) => sum + page.items.length, 0);

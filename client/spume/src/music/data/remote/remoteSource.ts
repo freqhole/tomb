@@ -239,7 +239,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
-            ? item.images.map((img) => adaptApiImage(img, this.baseUrl))
+            ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
             : undefined,
           urls: adaptApiUrls(item.album.urls),
           is_favorite: item.is_favorite ?? undefined,
@@ -309,7 +309,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           song_count: item.song_count,
           total_duration: item.total_duration ? Math.floor(item.total_duration / 1000) : 0, // convert ms to seconds
           images: item.images && item.images.length > 0
-            ? item.images.map((img) => adaptApiImage(img, this.baseUrl))
+            ? item.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
             : undefined,
           urls: adaptApiUrls(item.artist.urls),
           is_favorite: item.is_favorite ?? undefined,
@@ -427,7 +427,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         description: item.playlist.description,
         is_public: item.playlist.is_public === 1,
         images: item.playlist.images && item.playlist.images.length > 0
-          ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl))
+          ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
           : undefined,
         urls: adaptApiUrls(item.playlist.urls),
         song_count: item.song_count,
@@ -726,7 +726,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
               total_duration: apiFav.album.album.total_duration,
               images: apiFav.album.images && apiFav.album.images.length > 0
                 ? apiFav.album.images.map((img) => ({
+                    remote_blob_id: img.blob_id,
                     remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id),
+                    remote_server_id: this.remoteId,
                     is_primary: img.is_primary ? true : false,
                     blob_type: 'thumbnail' as const,
                   }))
@@ -753,7 +755,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
               total_duration: apiFav.artist.total_duration ? Math.floor(apiFav.artist.total_duration / 1000) : 0,
               images: apiFav.artist.images && apiFav.artist.images.length > 0
                 ? apiFav.artist.images.map((img) => ({
+                    remote_blob_id: img.blob_id,
                     remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id),
+                    remote_server_id: this.remoteId,
                     is_primary: img.is_primary ? true : false,
                     blob_type: 'thumbnail' as const,
                   }))
@@ -772,8 +776,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
               description: apiFav.playlist.playlist.description,
               is_public: apiFav.playlist.playlist.is_public === 1,
               images: (apiFav.playlist.playlist.images || []).map((img) => ({
-                blob_id: img.blob_id,
+                remote_blob_id: img.blob_id,
                 remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id),
+                remote_server_id: this.remoteId,
                 is_primary: img.is_primary === 1,
                 blob_type: img.blob_type as 'thumbnail' | 'waveform',
               })),

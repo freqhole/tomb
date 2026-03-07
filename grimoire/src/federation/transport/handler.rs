@@ -163,7 +163,7 @@ async fn handle_stream(
             debug!("blob stream: {} from {}", blob_id, node_id_short);
 
             // stream blob via local server's blob endpoint
-            let url = format!("{}/api/blobs/{}/stream", base_url, blob_id);
+            let url = format!("{}/api/blobs/{}", base_url, blob_id);
             let response = http_client.get(&url).bearer_auth(api_key).send().await;
 
             match response {

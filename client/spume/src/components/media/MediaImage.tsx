@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, JSX, on, Show } from "solid-js";
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
+import { resolveBlobUrl, isP2PRemote } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 import { Icon } from "../icons/registry";
@@ -48,60 +49,101 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     const bestImage = pickBestImage(props.images);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-    return { blobId, remoteUrl };
+    const remoteBlobId = bestImage?.remote_blob_id;
+    const remoteServerId = bestImage?.remote_server_id;
+    return { blobId, remoteUrl, remoteBlobId, remoteServerId };
   };
   const initialSource = getInitialSource();
 
   // initialize resolvedUrl with remoteUrl if no blobId needs async lookup
+  // (for P2P remotes, this will be null and resolved later)
   const initialUrl =
-    !initialSource.blobId && initialSource.remoteUrl ? initialSource.remoteUrl : null;
+    !initialSource.blobId && initialSource.remoteUrl && !initialSource.remoteServerId
+      ? initialSource.remoteUrl
+      : null;
 
   const [imageError, setImageError] = createSignal(false);
   const [imageLoaded, setImageLoaded] = createSignal(false);
   const [resolvedUrl, setResolvedUrl] = createSignal<string | null>(initialUrl);
-  const [isLoading, setIsLoading] = createSignal(initialSource.blobId ? true : false);
+  const [isLoading, setIsLoading] = createSignal(
+    initialSource.blobId || initialSource.remoteServerId ? true : false
+  );
 
   // compute the image source (blobId or url) - this is what we actually track
   const imageSource = createMemo(() => {
     const bestImage = pickBestImage(props.images);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-    return { blobId, remoteUrl };
+    const remoteBlobId = bestImage?.remote_blob_id;
+    const remoteServerId = bestImage?.remote_server_id;
+    return { blobId, remoteUrl, remoteBlobId, remoteServerId };
   });
 
-  // only re-run when blobId or remoteUrl actually changes (not when array reference changes)
+  // only re-run when source properties actually change (not when array reference changes)
   createEffect(
     on(
-      () => ({ blobId: imageSource().blobId, remoteUrl: imageSource().remoteUrl }),
-      (source, prevSource) => {
+      () => ({
+        blobId: imageSource().blobId,
+        remoteUrl: imageSource().remoteUrl,
+        remoteBlobId: imageSource().remoteBlobId,
+        remoteServerId: imageSource().remoteServerId,
+      }),
+      async (source, prevSource) => {
         // skip if nothing actually changed
         if (
           prevSource &&
           source.blobId === prevSource.blobId &&
-          source.remoteUrl === prevSource.remoteUrl
+          source.remoteUrl === prevSource.remoteUrl &&
+          source.remoteBlobId === prevSource.remoteBlobId &&
+          source.remoteServerId === prevSource.remoteServerId
         ) {
           return;
         }
 
-        // only clear the current image if we're switching to a different source
-        // this prevents flicker when the same image is being reloaded
+        // priority 1: local blob ID (from OPFS)
         if (source.blobId) {
           setIsLoading(true);
-          getBlobObjectURL(source.blobId).then((objectUrl) => {
-            if (objectUrl) {
-              setResolvedUrl(objectUrl);
+          try {
+            const objectUrl = await getBlobObjectURL(source.blobId);
+            setResolvedUrl(objectUrl ?? null);
+          } catch {
+            setResolvedUrl(null);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // priority 2: P2P remote (has remote_server_id)
+        if (source.remoteBlobId && source.remoteServerId) {
+          setIsLoading(true);
+          try {
+            // check if this remote uses P2P transport
+            const isP2P = await isP2PRemote(source.remoteServerId);
+            if (isP2P) {
+              const url = await resolveBlobUrl(source.remoteBlobId, source.remoteServerId);
+              setResolvedUrl(url);
             } else {
-              setResolvedUrl(null);
+              // HTTP remote - use the remote_url directly
+              setResolvedUrl(source.remoteUrl ?? null);
             }
-            setIsLoading(false);
-          });
-        } else if (source.remoteUrl) {
+          } catch (err) {
+            console.error("failed to resolve P2P image:", err);
+            setResolvedUrl(null);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // priority 3: HTTP remote URL
+        if (source.remoteUrl) {
           setResolvedUrl(source.remoteUrl);
           setIsLoading(false);
-        } else {
-          setResolvedUrl(null);
-          setIsLoading(false);
+          return;
         }
+
+        // no source
+        setResolvedUrl(null);
+        setIsLoading(false);
       },
       { defer: false }
     )
