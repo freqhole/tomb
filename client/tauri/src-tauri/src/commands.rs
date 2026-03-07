@@ -1729,3 +1729,92 @@ pub fn toggle_federation_enabled(app_handle: tauri::AppHandle) -> Result<bool, S
 
     Ok(new_value)
 }
+
+/// result for allow_peer command
+#[derive(Debug, Serialize)]
+pub struct AllowPeerResult {
+    pub user_id: String,
+    pub username: String,
+    pub node_id: String,
+    pub created_user: bool,
+}
+
+/// allow a peer by node_id - creates/finds user and links node_id
+#[tauri::command]
+pub async fn allow_peer(
+    app_handle: tauri::AppHandle,
+    node_id: String,
+    username: Option<String>,
+    role: Option<String>,
+) -> Result<AllowPeerResult, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let service = grimoire::users::UserService::new();
+
+    // validate node_id looks reasonable (64 hex chars)
+    if node_id.len() != 64 || !node_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("invalid node_id: expected 64 hex characters".to_string());
+    }
+
+    // parse role (default to viewer)
+    let user_role = match role.as_deref().unwrap_or("viewer") {
+        "admin" => grimoire::users::UserRole::Admin,
+        "member" => grimoire::users::UserRole::Member,
+        "viewer" => grimoire::users::UserRole::Viewer,
+        other => {
+            return Err(format!(
+                "invalid role '{}': expected admin, member, or viewer",
+                other
+            ))
+        }
+    };
+
+    // determine username - use provided or generate from node_id prefix
+    let username = username.unwrap_or_else(|| format!("peer_{}", &node_id[..8]));
+
+    // try to find existing user by username
+    let (user, created_user) = {
+        let find_result = service.get_user_by_username(&username).await;
+        if let Some(existing) = find_result.data {
+            (existing, false)
+        } else {
+            // create new user
+            let request = grimoire::users::CreateUserRequest {
+                username: username.clone(),
+                role: Some(user_role),
+                invite_code: None,
+            };
+            let create_result = service.register_user(&request).await;
+            match create_result.data {
+                Some(user) => (user, true),
+                None => {
+                    let err = create_result
+                        .errors
+                        .first()
+                        .map(|e| e.detail.clone())
+                        .unwrap_or_else(|| "failed to create user".to_string());
+                    return Err(err);
+                }
+            }
+        }
+    };
+
+    // link node_id to user
+    let peer_result = service.upsert_peer_node(&user.id, &node_id, None).await;
+
+    if peer_result.data.is_none() {
+        let err = peer_result
+            .errors
+            .first()
+            .map(|e| e.detail.clone())
+            .unwrap_or_else(|| "failed to link peer node".to_string());
+        return Err(err);
+    }
+
+    Ok(AllowPeerResult {
+        user_id: user.id,
+        username: user.username,
+        node_id,
+        created_user,
+    })
+}

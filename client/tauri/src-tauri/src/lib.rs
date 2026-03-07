@@ -169,6 +169,7 @@ pub fn run() {
             commands::federation_sync,
             commands::federation_logout,
             commands::toggle_federation_enabled,
+            commands::allow_peer,
             sidecar::server_status,
             sidecar::server_start,
             sidecar::server_stop,

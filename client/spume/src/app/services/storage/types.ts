@@ -87,13 +87,16 @@ export type TransportType = 'http' | 'wasm' | 'app';
 export interface Remote {
   remote_id: string; // uuid
   name: string; // user-friendly name (e.g. "home server", "work laptop")
-  base_url: string; // server url (e.g. "https://music.example.com")
+  base_url: string; // server url for http transport (e.g. "https://music.example.com")
   is_active: boolean; // currently selected remote
   last_connected_at: number | null; // timestamp of last successful connection
   created_at: number;
   updated_at: number;
   // transport type: http (default), wasm (P2P), app (embedded tauri server)
   transport_type?: TransportType;
+  // P2P peer address: node_id or full endpoint JSON with relay/IP hints
+  // only used when transport_type is 'wasm'
+  peer_addr?: string;
   // server info (fetched from /api/hello)
   server_id: string | null; // stable unique identifier from server
   description: string | null; // server description

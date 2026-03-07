@@ -1,5 +1,5 @@
 // add remote modal - multi-step wizard for adding a new remote server
-// steps: 1) enter url, 2) test connection, 3) authenticate, 4) complete
+// steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
 import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
 import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
@@ -7,6 +7,33 @@ import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
 import { debug } from "../../utils/logger";
+
+// detect if input is a P2P peer address (node_id or JSON endpoint)
+function parsePeerAddress(
+  input: string
+): { type: "p2p"; peer_addr: string } | { type: "http"; url: string } | null {
+  const trimmed = input.trim();
+
+  // 64 hex characters = node_id
+  if (/^[a-fA-F0-9]{64}$/.test(trimmed)) {
+    return { type: "p2p", peer_addr: trimmed };
+  }
+
+  // JSON blob with id field = full endpoint
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed.id && typeof parsed.id === "string") {
+        return { type: "p2p", peer_addr: trimmed };
+      }
+    } catch {
+      // not valid JSON, fall through
+    }
+  }
+
+  // otherwise treat as URL
+  return { type: "http", url: trimmed };
+}
 
 export interface AddRemoteModalProps {
   isOpen: boolean;
@@ -19,6 +46,7 @@ type Step = "url" | "testing" | "auth" | "complete";
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const [step, setStep] = createSignal<Step>("url");
   const [url, setUrl] = createSignal("");
+  const [peerAddr, setPeerAddr] = createSignal<string | null>(null); // set when input is P2P
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
   const [serverInfo, setServerInfo] = createSignal<{
@@ -64,16 +92,48 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     )
   );
 
-  // step 1: collect url and test connection
+  // step 1: collect url/peer and test connection
   const handleTestConnection = async () => {
     setError(null);
+    setPeerAddr(null);
 
-    let remoteUrl = url().trim();
+    const input = url().trim();
 
-    if (!remoteUrl) {
-      setError("please enter a server url");
+    if (!input) {
+      setError("please enter a server url or peer id");
       return;
     }
+
+    // detect if this is a P2P address or HTTP URL
+    const parsed = parsePeerAddress(input);
+
+    if (parsed?.type === "p2p") {
+      // P2P connection via midden
+      setPeerAddr(parsed.peer_addr);
+      setUrl(""); // clear URL display for P2P
+      setIsLoading(true);
+      setStep("testing");
+
+      try {
+        // for P2P, we'll create the remote directly (no browser-based auth yet)
+        // the createRemote function will test the connection via midden
+        await completeSetup();
+      } catch (err) {
+        console.error("failed to connect via P2P:", err);
+        setError(
+          err instanceof Error
+            ? `P2P connection failed: ${err.message}`
+            : "failed to connect via P2P"
+        );
+        setStep("url");
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // HTTP connection - existing logic
+    let remoteUrl = input;
 
     // auto-prefix with scheme if not provided
     if (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://")) {
@@ -195,8 +255,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     try {
       // createRemote will fetch server name from /api/hello
       const remoteUrl = url();
+      const currentPeerAddr = peerAddr();
+
       const remote = await createRemote({
-        base_url: remoteUrl,
+        base_url: remoteUrl || undefined,
+        peer_addr: currentPeerAddr || undefined,
       });
 
       setStep("complete");
@@ -217,6 +280,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     if (isLoading()) return;
     setStep("url");
     setUrl("");
+    setPeerAddr(null);
     setError(null);
     setServerInfo(null);
     setOriginHint(null);
@@ -301,19 +365,19 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       for="remote-url"
                       class="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
                     >
-                      server url
+                      server url or peer id
                     </label>
                     <input
                       id="remote-url"
-                      type="url"
+                      type="text"
                       value={url()}
                       onInput={(e) => setUrl(e.currentTarget.value)}
-                      placeholder="https://music.example.com"
-                      class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:border-transparent"
+                      placeholder="https://music.example.com or node_id"
+                      class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:border-transparent font-mono text-sm"
                       disabled={isLoading()}
                     />
                     <p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                      the full url of the remote music server
+                      enter a URL for HTTP, or paste a 64-char node_id for P2P
                     </p>
                   </div>
 
@@ -350,7 +414,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               <Match when={step() === "testing"}>
                 <div class="flex flex-col items-center justify-center py-8 space-y-4">
                   <div class="w-12 h-12 border-4 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
-                  <p class="text-sm text-[var(--color-text-secondary)]">connecting to {url()}...</p>
+                  <p class="text-sm text-[var(--color-text-secondary)]">
+                    {peerAddr()
+                      ? `connecting via P2P to ${peerAddr().slice(0, 16)}...`
+                      : `connecting to ${url()}...`}
+                  </p>
                 </div>
               </Match>
 
@@ -414,7 +482,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       remote added!
                     </h3>
                     <p class="text-sm text-[var(--color-text-secondary)]">
-                      {url()} is ready to use
+                      {peerAddr()
+                        ? `P2P peer ${peerAddr().slice(0, 16)}... is ready`
+                        : `${url()} is ready to use`}
                     </p>
                   </div>
                 </div>

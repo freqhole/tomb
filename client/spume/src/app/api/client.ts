@@ -14,8 +14,8 @@ import {
   isNetworkError,
   FreqholeClient,
   HttpTransport,
-  // AppTransport,   // TODO: implement for tauri
-  // WasmTransport,  // TODO: implement for P2P
+  WasmTransport,
+  type MiddenNodeLike,
 } from "freqhole-api-client";
 
 // re-export for call sites that still need direct access
@@ -66,6 +66,7 @@ export type RemoteLike = {
   base_url?: string;
   api_key?: string;
   transport_type?: TransportType;
+  peer_addr?: string; // for wasm transport: node_id or full endpoint JSON
 };
 
 /**
@@ -78,6 +79,7 @@ export type RemoteRef = {
   name?: string;
   api_key?: string;
   transport_type?: TransportType;
+  peer_addr?: string; // for wasm transport: node_id or full endpoint JSON
 };
 
 /**
@@ -88,26 +90,84 @@ export function httpRemote(baseUrl: string, apiKey?: string): RemoteLike {
   return { base_url: baseUrl, api_key: apiKey, transport_type: 'http' };
 }
 
+// ============================================================================
+// midden node singleton (lazy initialization for P2P transport)
+// ============================================================================
+
+let middenNode: MiddenNodeLike | null = null;
+let middenNodePromise: Promise<MiddenNodeLike> | null = null;
+
+/**
+ * get or create the midden node singleton.
+ * call this when you need the node, not at app startup.
+ */
+export async function getMiddenNode(): Promise<MiddenNodeLike> {
+  if (middenNode) {
+    return middenNode;
+  }
+
+  if (middenNodePromise) {
+    return middenNodePromise;
+  }
+
+  // lazy import midden to avoid bundling it when not used
+  middenNodePromise = (async () => {
+    const { MiddenNode } = await import("midden");
+    middenNode = await MiddenNode.create();
+    const nodeId = middenNode.node_id();
+    console.log("[midden] node created, full node_id:", nodeId);
+    return middenNode;
+  })();
+
+  return middenNodePromise;
+}
+
+/**
+ * get our local node_id (for sharing with peers).
+ * returns null if midden not initialized yet.
+ */
+export function getLocalNodeId(): string | null {
+  return middenNode?.node_id() ?? null;
+}
+
+/**
+ * check if midden node is initialized
+ */
+export function isMiddenInitialized(): boolean {
+  return middenNode !== null;
+}
+
+// ============================================================================
+// client factory
+// ============================================================================
+
 /**
  * create a client for a remote.
  * transport selection happens HERE - call sites don't need to know which
  * transport is used.
+ *
+ * NOTE: for wasm transport, use getClientForRemoteAsync instead to ensure
+ * the midden node is initialized.
  */
 export function getClientForRemote(remote: RemoteLike): ApiClient {
-  const transportType = remote.transport_type ?? 'http';
+  // infer transport type: use wasm if peer_addr is present, otherwise http
+  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
   
   switch (transportType) {
     case 'app':
       // TODO: implement AppTransport for tauri embedded server
-      // return new FreqholeClient(new AppTransport());
       console.warn('app transport not yet implemented, falling back to http');
       return new FreqholeClient(new HttpTransport(remote.base_url!, remote.api_key));
       
     case 'wasm':
-      // TODO: implement WasmTransport for P2P connections
-      // return new FreqholeClient(new WasmTransport(config.peer_id, config.peer_key));
-      console.warn('wasm transport not yet implemented, falling back to http');
-      return new FreqholeClient(new HttpTransport(remote.base_url!, remote.api_key));
+      // for sync access, midden must be initialized first
+      if (!middenNode) {
+        throw new Error('midden node not initialized - use getClientForRemoteAsync for wasm transport');
+      }
+      if (!remote.peer_addr) {
+        throw new Error('peer_addr required for wasm transport');
+      }
+      return new FreqholeClient(new WasmTransport(middenNode, remote.peer_addr));
       
     case 'http':
     default:
@@ -116,4 +176,24 @@ export function getClientForRemote(remote: RemoteLike): ApiClient {
       }
       return new FreqholeClient(new HttpTransport(remote.base_url, remote.api_key));
   }
+}
+
+/**
+ * create a client for a remote (async version).
+ * initializes midden node if needed for wasm transport.
+ */
+export async function getClientForRemoteAsync(remote: RemoteLike): Promise<ApiClient> {
+  // infer transport type: use wasm if peer_addr is present, otherwise http
+  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
+  
+  if (transportType === 'wasm') {
+    if (!remote.peer_addr) {
+      throw new Error('peer_addr required for wasm transport');
+    }
+    const node = await getMiddenNode();
+    return new FreqholeClient(new WasmTransport(node, remote.peer_addr));
+  }
+  
+  // for non-wasm transports, just use sync version
+  return getClientForRemote(remote);
 }

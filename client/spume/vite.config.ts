@@ -7,6 +7,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { defineConfig, type Plugin } from "vite";
 import solidPlugin from "vite-plugin-solid";
+import topLevelAwait from "vite-plugin-top-level-await";
+import wasm from "vite-plugin-wasm";
 
 const dirname =
   typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
@@ -51,7 +53,7 @@ function serviceWorkerPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [solidPlugin(), serviceWorkerPlugin()],
+  plugins: [wasm(), topLevelAwait(), solidPlugin(), serviceWorkerPlugin()],
   // use relative paths so assets work in Tauri's tauri:// protocol
   base: process.env.VITE_TAURI_MODE ? "./" : "/",
   define: {

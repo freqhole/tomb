@@ -18,7 +18,8 @@
     "ts-prune": "ts-prune"
   },
   "dependencies": {
-    "freqhole-api-client": "file:../../client-codegen/freqhole-api-client"
+    "freqhole-api-client": "file:../../client-codegen/freqhole-api-client",
+    "midden": "file:../midden/pkg"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
@@ -53,6 +54,8 @@
     "tailwindcss": "^4.2.0",
     "ts-prune": "^0.10.3",
     "typescript": "^5.9.3",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.5.0",
     "vitest": "^4.0.17"
   },
   "prettier": {

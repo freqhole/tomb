@@ -47,6 +47,13 @@ interface FederationSyncResult {
   errors: string[];
 }
 
+interface AllowPeerResult {
+  user_id: string;
+  username: string;
+  node_id: string;
+  created_user: boolean;
+}
+
 export default function FederationView() {
   const [status, setStatus] = createSignal<FederationStatus | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -70,6 +77,14 @@ export default function FederationView() {
 
   // toggle
   const [toggling, setToggling] = createSignal(false);
+
+  // allow peer
+  const [peerNodeId, setPeerNodeId] = createSignal("");
+  const [peerUsername, setPeerUsername] = createSignal("");
+  const [peerRole, setPeerRole] = createSignal("viewer");
+  const [allowPeerLoading, setAllowPeerLoading] = createSignal(false);
+  const [allowPeerResult, setAllowPeerResult] =
+    createSignal<AllowPeerResult | null>(null);
 
   onMount(async () => {
     await loadStatus();
@@ -176,6 +191,35 @@ export default function FederationView() {
     }
   }
 
+  async function handleAllowPeer(e: Event) {
+    e.preventDefault();
+    setAllowPeerLoading(true);
+    setError("");
+    setSuccess("");
+    setAllowPeerResult(null);
+
+    try {
+      const result = await invoke<AllowPeerResult>("allow_peer", {
+        nodeId: peerNodeId(),
+        username: peerUsername() || undefined,
+        role: peerRole(),
+      });
+      setAllowPeerResult(result);
+      setSuccess(
+        result.created_user
+          ? `peer allowed: created user "${result.username}"`
+          : `peer allowed: linked to existing user "${result.username}"`,
+      );
+      // clear form
+      setPeerNodeId("");
+      setPeerUsername("");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAllowPeerLoading(false);
+    }
+  }
+
   const isConfigured = () => status()?.config?.enabled ?? false;
   const hasCredentials = () => status()?.credentials.stored ?? false;
   const isVerified = () => status()?.credentials.verified === true;
@@ -274,6 +318,67 @@ export default function FederationView() {
                 </span>
               </div>
             </div>
+          </section>
+
+          {/* allow peer - manual node_id registration */}
+          <section class="status-section">
+            <h2>allow peer</h2>
+            <p class="help-text">
+              manually allow a P2P peer by their node_id. creates a user if
+              needed.
+            </p>
+            <form onSubmit={handleAllowPeer}>
+              <div class="form-group">
+                <label for="peer-node-id">node_id</label>
+                <input
+                  id="peer-node-id"
+                  type="text"
+                  value={peerNodeId()}
+                  onInput={(e) => setPeerNodeId(e.currentTarget.value)}
+                  placeholder="64-character hex node id"
+                  pattern="[0-9a-fA-F]{64}"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="peer-username">username (optional)</label>
+                <input
+                  id="peer-username"
+                  type="text"
+                  value={peerUsername()}
+                  onInput={(e) => setPeerUsername(e.currentTarget.value)}
+                  placeholder="auto-generated if empty"
+                />
+              </div>
+              <div class="form-group">
+                <label for="peer-role">role</label>
+                <select
+                  id="peer-role"
+                  value={peerRole()}
+                  onChange={(e) => setPeerRole(e.currentTarget.value)}
+                >
+                  <option value="viewer">viewer (read-only)</option>
+                  <option value="member">member (can upload)</option>
+                  <option value="admin">admin (full access)</option>
+                </select>
+              </div>
+              <button type="submit" disabled={allowPeerLoading()}>
+                {allowPeerLoading() ? "allowing..." : "allow peer"}
+              </button>
+            </form>
+            <Show when={allowPeerResult()}>
+              <div class="sync-result" style="margin-top: 1rem">
+                <div class="stat">
+                  <span class="label">user</span>
+                  <span class="num">{allowPeerResult()?.username}</span>
+                </div>
+                <div class="stat">
+                  <span class="label">
+                    {allowPeerResult()?.created_user ? "created" : "linked"}
+                  </span>
+                </div>
+              </div>
+            </Show>
           </section>
 
           {/* credentials status with sign-in form */}

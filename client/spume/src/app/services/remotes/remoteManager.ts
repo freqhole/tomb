@@ -1,7 +1,7 @@
 // remote server management - CRUD operations for remote configurations
 // auth is handled via cookies, so no credentials stored here
 
-import { getClientForRemote, httpRemote } from "../../api/client";
+import { getClientForRemote, getClientForRemoteAsync, httpRemote } from "../../api/client";
 import { initAppDB } from "../storage/db";
 import { STORE_REMOTES, type Remote } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
@@ -125,29 +125,44 @@ function sanitizeServerId(serverId: string): string {
 // create a new remote
 export async function createRemote(data: {
   name?: string; // optional - uses server name from /api/hello if not provided
-  base_url: string;
+  base_url?: string; // required for HTTP remotes
+  peer_addr?: string; // node_id or JSON endpoint for P2P remotes
   api_key?: string; // optional - for api key authentication
 }): Promise<Remote> {
   const db = await initAppDB();
 
-  // normalize url - remove trailing slash
-  const baseUrl = data.base_url.replace(/\/$/, "");
+  const isP2P = !!data.peer_addr;
+  const baseUrl = data.base_url?.replace(/\/$/, "") ?? "";
 
-  // check if remote with this url already exists
-  const existingByUrl = await getRemoteByUrl(baseUrl);
-  if (existingByUrl) {
-    throw new Error(`remote already exists for this url: ${existingByUrl.name}`);
+  if (!isP2P && !baseUrl) {
+    throw new Error("base_url is required for HTTP remotes");
   }
 
-  // fetch server info from /api/hello
+  // check if remote with this url/peer already exists
+  if (baseUrl) {
+    const existingByUrl = await getRemoteByUrl(baseUrl);
+    if (existingByUrl) {
+      throw new Error(`remote already exists for this url: ${existingByUrl.name}`);
+    }
+  }
+
+  // fetch server info - use async client for P2P remotes
   let serverInfo = null;
   try {
-    const result = await getClientForRemote(httpRemote(baseUrl)).app.serverInfo();
-    if (result.success && result.data) {
-      serverInfo = result.data;
+    if (isP2P) {
+      const client = await getClientForRemoteAsync({ remote_id: "temp", peer_addr: data.peer_addr });
+      const result = await client.app.serverInfo();
+      if (result.success && result.data) {
+        serverInfo = result.data;
+      }
+    } else {
+      const result = await getClientForRemote(httpRemote(baseUrl)).app.serverInfo();
+      if (result.success && result.data) {
+        serverInfo = result.data;
+      }
     }
   } catch (error) {
-    errorLog(`failed to fetch server info from ${baseUrl}:`, error);
+    errorLog(`failed to fetch server info:`, error);
     throw new Error(
       "failed to connect to server - could not fetch server info",
     );
@@ -167,12 +182,13 @@ export async function createRemote(data: {
   }
 
   // use server name from /api/hello if no name provided
-  const remoteName = data.name || serverInfo.name || baseUrl;
+  const remoteName = data.name || serverInfo.name || baseUrl || `p2p-${remoteId.slice(0, 8)}`;
 
   const remote: Remote = {
     remote_id: remoteId,
     name: remoteName,
     base_url: baseUrl,
+    peer_addr: data.peer_addr,
     is_active: false,
     last_connected_at: null,
     created_at: Date.now(),
