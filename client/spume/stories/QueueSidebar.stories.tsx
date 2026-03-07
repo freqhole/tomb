@@ -9,26 +9,46 @@ const meta = {
   title: "Components/Player/QueueSidebar",
   component: QueueSidebar,
   tags: ["autodocs"],
-  argTypes: {
-    isOpen: {
-      control: "boolean",
-      description: "whether sidebar is open",
-    },
-  },
 } satisfies Meta<typeof QueueSidebar>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// generate mock songs using domain type
-const mockQueueSongs: Song[] = generateBulkSongs(8);
+// generate mock songs - long queue for realistic testing
+const mockQueueSongs: Song[] = generateBulkSongs(50);
 
-// interactive example
+// single interactive story with all features
 export const Interactive: Story = {
   render: () => {
     const [isOpen, setIsOpen] = createSignal(true);
     const [songs, setSongs] = createSignal(mockQueueSongs);
-    const [currentIndex, setCurrentIndex] = createSignal(0);
+    const [currentIndex, setCurrentIndex] = createSignal(3); // start with 4th song playing
+    const [currentTime, setCurrentTime] = createSignal(45);
+    const [isPlaying, setIsPlaying] = createSignal(true);
+
+    // simulate which songs are "loading" (being preloaded)
+    // in real app this would be songs within next ~30 min of queue
+    const [loadingSongIds, setLoadingSongIds] = createSignal<Set<string>>(
+      new Set(
+        [
+          mockQueueSongs[3]?.sha256, // currently playing
+          mockQueueSongs[4]?.sha256, // next song
+          mockQueueSongs[5]?.sha256, // preloading
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    // toggle loading state for demo
+    const toggleLoading = (sha256: string) => {
+      const current = loadingSongIds();
+      const next = new Set(current);
+      if (next.has(sha256)) {
+        next.delete(sha256);
+      } else {
+        next.add(sha256);
+      }
+      setLoadingSongIds(next);
+    };
 
     const handleSongClick = (index: number) => {
       console.log("song clicked:", index);
@@ -38,22 +58,12 @@ export const Interactive: Story = {
     const handleSongDoubleClick = (index: number) => {
       console.log("song double-clicked (play):", index);
       setCurrentIndex(index);
+      setCurrentTime(0);
     };
 
     const handleRemoveSong = (index: number) => {
       const currentSongs = songs();
-      console.log("handleRemoveSong called with index:", index);
-      console.log(
-        "current songs:",
-        currentSongs.map((s, i) => `${i}: ${s.title}`)
-      );
-      console.log("removing song at index:", index, currentSongs[index]?.title);
-
       const newSongs = currentSongs.filter((_, i) => i !== index);
-      console.log(
-        "new songs after remove:",
-        newSongs.map((s, i) => `${i}: ${s.title}`)
-      );
       setSongs(newSongs);
 
       if (currentIndex() >= index && currentIndex() > 0) {
@@ -62,7 +72,6 @@ export const Interactive: Story = {
     };
 
     const handleClearAll = () => {
-      console.log("clear all");
       setSongs([]);
       setCurrentIndex(0);
     };
@@ -72,9 +81,17 @@ export const Interactive: Story = {
         label: "play now",
         icon: "play" as const,
         onClick: () => {
-          console.log("play song:", index, song.title);
           setCurrentIndex(index);
+          setCurrentTime(0);
         },
+      },
+      {
+        type: "separator",
+      },
+      {
+        label: "toggle loading state",
+        icon: "refresh" as const,
+        onClick: () => toggleLoading(song.sha256),
       },
       {
         type: "separator",
@@ -105,531 +122,112 @@ export const Interactive: Story = {
       },
     ];
 
+    // simulate playback progress
+    const interval = setInterval(() => {
+      if (isPlaying()) {
+        setCurrentTime((t) => {
+          const song = songs()[currentIndex()];
+          const duration = song?.duration_seconds ?? 180;
+          if (t >= duration) {
+            // next song
+            if (currentIndex() < songs().length - 1) {
+              setCurrentIndex((i) => i + 1);
+              return 0;
+            }
+            setIsPlaying(false);
+            return duration;
+          }
+          return t + 1;
+        });
+      }
+    }, 1000);
+    void interval;
+
+    const currentSong = () => songs()[currentIndex()];
+
     return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-          <p class="mt-4 text-[var(--color-text-secondary)] text-sm">
-            currently playing: track {currentIndex() + 1}
-          </p>
+      <div class="relative h-screen flex">
+        {/* main content area */}
+        <div class="flex-1 p-8 overflow-auto">
+          <h2 class="text-xl font-semibold text-[var(--color-text-primary)] mb-4">
+            queue sidebar demo
+          </h2>
+
+          <div class="flex gap-4 mb-6">
+            <button
+              onClick={() => setIsOpen(!isOpen())}
+              class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
+            >
+              {isOpen() ? "close queue" : "open queue"}
+            </button>
+
+            <button
+              onClick={() => setIsPlaying(!isPlaying())}
+              class="px-4 py-2 bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] rounded transition-colors"
+            >
+              {isPlaying() ? "pause" : "play"}
+            </button>
+          </div>
+
+          <div class="space-y-2 text-sm text-[var(--color-text-secondary)]">
+            <p>
+              <strong>currently playing:</strong> {currentSong()?.title ?? "none"} (track{" "}
+              {currentIndex() + 1} of {songs().length})
+            </p>
+            <p>
+              <strong>progress:</strong> {Math.floor(currentTime())}s /{" "}
+              {currentSong()?.duration_seconds ?? 0}s
+            </p>
+            <p>
+              <strong>loading songs:</strong> {loadingSongIds().size} songs
+            </p>
+          </div>
+
+          <div class="mt-6 p-4 bg-[var(--color-bg-secondary)] rounded-lg">
+            <h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-2">
+              loading state demo
+            </h3>
+            <p class="text-xs text-[var(--color-text-muted)] mb-3">
+              right-click songs in queue to toggle loading state. loading songs show a spinning ring
+              around the duration.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              {songs()
+                .slice(currentIndex(), currentIndex() + 6)
+                .map((song, i) => (
+                  <button
+                    onClick={() => toggleLoading(song.sha256)}
+                    class={`px-2 py-1 text-xs rounded transition-colors ${
+                      loadingSongIds().has(song.sha256)
+                        ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                        : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
+                    }`}
+                  >
+                    {i === 0 ? "playing" : `+${i}`}:{" "}
+                    {loadingSongIds().has(song.sha256) ? "loading" : "cached"}
+                  </button>
+                ))}
+            </div>
+          </div>
         </div>
 
+        {/* queue sidebar */}
         <QueueSidebar
           historyEntries={[]}
           songs={songs()}
           currentIndex={currentIndex()}
           isOpen={isOpen()}
+          variant="inline"
           onClose={() => setIsOpen(false)}
           onSongClick={handleSongClick}
           onSongDoubleClick={handleSongDoubleClick}
           onRemoveSong={handleRemoveSong}
           onClearAll={handleClearAll}
           getContextMenuActions={getContextMenuActions}
+          currentTime={currentTime()}
+          duration={currentSong()?.duration_seconds}
+          loadingSongIds={loadingSongIds()}
         />
-      </div>
-    );
-  },
-};
-
-// open with songs
-export const Open: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-    const [songs, setSongs] = createSignal(mockQueueSongs);
-    const [currentIndex, setCurrentIndex] = createSignal(2);
-
-    const handleSongClick = (index: number) => {
-      console.log("song clicked:", index);
-      setCurrentIndex(index);
-    };
-
-    const handleSongDoubleClick = (index: number) => {
-      console.log("song double-clicked (play):", index);
-      setCurrentIndex(index);
-    };
-
-    const handleRemoveSong = (index: number) => {
-      const currentSongs = songs();
-      console.log("handleRemoveSong called with index:", index);
-      console.log(
-        "current songs:",
-        currentSongs.map((s, i) => `${i}: ${s.title}`)
-      );
-      console.log("removing song at index:", index, currentSongs[index]?.title);
-
-      const newSongs = currentSongs.filter((_, i) => i !== index);
-      console.log(
-        "new songs after remove:",
-        newSongs.map((s, i) => `${i}: ${s.title}`)
-      );
-      setSongs(newSongs);
-
-      if (currentIndex() >= index && currentIndex() > 0) {
-        setCurrentIndex((prev) => prev - 1);
-      }
-    };
-
-    const handleClearAll = () => {
-      console.log("clear all");
-      setSongs([]);
-      setCurrentIndex(0);
-    };
-
-    const getContextMenuActions = (index: number, song: Song): MenuAction[] => [
-      {
-        label: "play now",
-        icon: "play" as const,
-        onClick: () => {
-          console.log("play song:", index, song.title);
-          setCurrentIndex(index);
-        },
-      },
-      {
-        type: "separator",
-      },
-      {
-        label: "add to playlist",
-        icon: "add" as const,
-        onClick: () => console.log("add to playlist:", song.title),
-      },
-      {
-        label: "view album",
-        icon: "album" as const,
-        onClick: () => console.log("view album for:", song.title),
-      },
-      {
-        label: "view artist",
-        icon: "artist" as const,
-        onClick: () => console.log("view artist:", song.artist_name),
-      },
-      {
-        type: "separator",
-      },
-      {
-        label: "remove from queue",
-        icon: "close" as const,
-        onClick: () => handleRemoveSong(index),
-        destructive: true,
-      },
-    ];
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-          <p class="mt-4 text-[var(--color-text-secondary)] text-sm">
-            currently playing: track {currentIndex() + 1}
-          </p>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={songs()}
-          currentIndex={currentIndex()}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={handleSongClick}
-          onSongDoubleClick={handleSongDoubleClick}
-          onRemoveSong={handleRemoveSong}
-          onClearAll={handleClearAll}
-          getContextMenuActions={getContextMenuActions}
-        />
-      </div>
-    );
-  },
-};
-
-// closed
-export const Closed: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(false);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={mockQueueSongs}
-          currentIndex={0}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// empty queue
-export const EmptyQueue: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={[]}
-          currentIndex={0}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// single song
-export const SingleSong: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={[mockQueueSongs[0]]}
-          currentIndex={0}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// long queue
-export const LongQueue: Story = {
-  render: () => {
-    const longQueue: Song[] = generateBulkSongs(50);
-
-    const [isOpen, setIsOpen] = createSignal(true);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={longQueue}
-          currentIndex={10}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// playing first song
-export const PlayingFirstSong: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={mockQueueSongs}
-          currentIndex={0}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// playing last song
-export const PlayingLastSong: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={mockQueueSongs}
-          currentIndex={mockQueueSongs.length - 1}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// mixed thumbnails
-export const MixedThumbnails: Story = {
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-
-    return (
-      <div class="relative h-screen">
-        <div class="p-8">
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-        <QueueSidebar
-          historyEntries={[]}
-          songs={[
-            mockQueueSongs[0], // with thumbnail
-            mockQueueSongs[1], // no thumbnail
-            mockQueueSongs[2], // with thumbnail
-            mockQueueSongs[4], // no thumbnail
-            mockQueueSongs[5], // with thumbnail
-          ]}
-          currentIndex={2}
-          isOpen={isOpen()}
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// ============================================================================
-// responsive / narrow viewport stories - bottom sheet behavior
-// ============================================================================
-
-// narrow viewport - bottom sheet open
-export const NarrowBottomSheetOpen: Story = {
-  parameters: {
-    viewport: {
-      defaultViewport: "mobile1",
-    },
-  },
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(true);
-    const [songs, setSongs] = createSignal(mockQueueSongs);
-    const [currentIndex, setCurrentIndex] = createSignal(2);
-
-    const handleRemoveSong = (index: number) => {
-      setSongs(songs().filter((_, i) => i !== index));
-      if (currentIndex() >= index && currentIndex() > 0) {
-        setCurrentIndex((prev) => prev - 1);
-      }
-    };
-
-    return (
-      <div class="relative h-screen w-[320px] bg-[var(--color-bg-primary)]">
-        <div class="p-4">
-          <h2 class="text-lg font-medium text-[var(--color-text-primary)] mb-4">
-            narrow viewport (320px)
-          </h2>
-          <p class="text-sm text-[var(--color-text-secondary)] mb-4">
-            queue appears as bottom sheet
-          </p>
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors w-full"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-
-        <QueueSidebar
-          historyEntries={[]}
-          songs={songs()}
-          currentIndex={currentIndex()}
-          isOpen={isOpen()}
-          variant="overlay"
-          onClose={() => setIsOpen(false)}
-          onSongClick={(index) => setCurrentIndex(index)}
-          onSongDoubleClick={(index) => setCurrentIndex(index)}
-          onRemoveSong={handleRemoveSong}
-          onClearAll={() => {
-            setSongs([]);
-            setCurrentIndex(0);
-          }}
-        />
-      </div>
-    );
-  },
-};
-
-// narrow viewport - bottom sheet closed
-export const NarrowBottomSheetClosed: Story = {
-  parameters: {
-    viewport: {
-      defaultViewport: "mobile1",
-    },
-  },
-  render: () => {
-    const [isOpen, setIsOpen] = createSignal(false);
-
-    return (
-      <div class="relative h-screen w-[320px] bg-[var(--color-bg-primary)]">
-        <div class="p-4">
-          <h2 class="text-lg font-medium text-[var(--color-text-primary)] mb-4">
-            narrow viewport (320px) - closed
-          </h2>
-          <p class="text-sm text-[var(--color-text-secondary)] mb-4">
-            tap button to see bottom sheet slide up
-          </p>
-          <button
-            onClick={() => setIsOpen(!isOpen())}
-            class="px-4 py-2 bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] rounded transition-colors w-full"
-          >
-            {isOpen() ? "close queue" : "open queue"}
-          </button>
-        </div>
-
-        <QueueSidebar
-          historyEntries={[]}
-          songs={mockQueueSongs}
-          currentIndex={0}
-          isOpen={isOpen()}
-          variant="overlay"
-          onClose={() => setIsOpen(false)}
-          onSongClick={(i) => console.log("clicked:", i)}
-          onRemoveSong={(i) => console.log("remove:", i)}
-          onClearAll={() => console.log("clear all")}
-        />
-      </div>
-    );
-  },
-};
-
-// comparison: narrow vs wide
-export const ResponsiveComparison: Story = {
-  render: () => {
-    const [narrowOpen, setNarrowOpen] = createSignal(true);
-    const [wideOpen, setWideOpen] = createSignal(true);
-
-    return (
-      <div class="flex gap-8 p-4">
-        {/* narrow - bottom sheet */}
-        <div>
-          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">
-            narrow (bottom sheet)
-          </h3>
-          <div class="relative h-[500px] w-[320px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden">
-            <div class="p-4">
-              <button
-                onClick={() => setNarrowOpen(!narrowOpen())}
-                class="px-3 py-1.5 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] rounded text-sm"
-              >
-                {narrowOpen() ? "close" : "open"}
-              </button>
-            </div>
-            <QueueSidebar
-              historyEntries={[]}
-              songs={mockQueueSongs.slice(0, 5)}
-              currentIndex={1}
-              isOpen={narrowOpen()}
-              variant="overlay"
-              onClose={() => setNarrowOpen(false)}
-              onSongClick={(i) => console.log("clicked:", i)}
-              onRemoveSong={(i) => console.log("remove:", i)}
-              onClearAll={() => console.log("clear all")}
-            />
-          </div>
-        </div>
-
-        {/* wide - sidebar */}
-        <div>
-          <h3 class="text-lg font-medium text-[var(--color-text-primary)] mb-2">wide (sidebar)</h3>
-          <div class="relative h-[500px] w-[500px] bg-[var(--color-bg-secondary)] rounded-lg overflow-hidden flex">
-            <div class="flex-1 p-4">
-              <button
-                onClick={() => setWideOpen(!wideOpen())}
-                class="px-3 py-1.5 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] rounded text-sm"
-              >
-                {wideOpen() ? "close" : "open"}
-              </button>
-            </div>
-            <QueueSidebar
-              historyEntries={[]}
-              songs={mockQueueSongs.slice(0, 5)}
-              currentIndex={1}
-              isOpen={wideOpen()}
-              variant="inline"
-              onClose={() => setWideOpen(false)}
-              onSongClick={(i) => console.log("clicked:", i)}
-              onRemoveSong={(i) => console.log("remove:", i)}
-              onClearAll={() => console.log("clear all")}
-            />
-          </div>
-        </div>
       </div>
     );
   },

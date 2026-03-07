@@ -52,6 +52,7 @@ const mockSong: PlayerBarSong = {
 export const Interactive: Story = {
   render: () => {
     const [isPlaying, setIsPlaying] = createSignal(false);
+    const [isLoading, setIsLoading] = createSignal(false);
     const [currentTime, setCurrentTime] = createSignal(45);
     const [duration] = createSignal(383);
     const [volume, setVolume] = createSignal(0.7);
@@ -61,6 +62,7 @@ export const Interactive: Story = {
     void setSong; // may be used for dynamic song switching later
 
     const handlePlayPause = () => {
+      if (isLoading()) return;
       setIsPlaying(!isPlaying());
       console.log(isPlaying() ? "playing" : "paused");
     };
@@ -96,6 +98,16 @@ export const Interactive: Story = {
       console.log("favorite toggled for:", songId);
     };
 
+    // simulate loading delay
+    const simulateLoading = () => {
+      setIsLoading(true);
+      setIsPlaying(false);
+      setTimeout(() => {
+        setIsLoading(false);
+        setIsPlaying(true);
+      }, 3000);
+    };
+
     // simulate playback
     const interval = setInterval(() => {
       if (isPlaying()) {
@@ -111,10 +123,34 @@ export const Interactive: Story = {
     void interval; // tracked for cleanup
 
     return (
-      <div class="relative min-h-[120px]">
+      <div class="relative min-h-[200px]">
+        {/* control buttons for story */}
+        <div class="mb-4 p-4 bg-[var(--color-bg-secondary)] rounded-lg flex gap-4 items-center">
+          <button
+            onClick={() => setIsLoading(!isLoading())}
+            class={`px-3 py-1.5 rounded text-sm transition-colors ${
+              isLoading()
+                ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
+            }`}
+          >
+            loading: {isLoading() ? "on" : "off"}
+          </button>
+          <button
+            onClick={simulateLoading}
+            class="px-3 py-1.5 bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] rounded text-sm transition-colors"
+          >
+            simulate 3s load
+          </button>
+          <span class="text-xs text-[var(--color-text-muted)]">
+            {isLoading() ? "loading song..." : isPlaying() ? "playing" : "paused"}
+          </span>
+        </div>
+
         <PlayerBar
           song={{ ...song(), isFavorite: isFavorite() }}
           isPlaying={isPlaying()}
+          isLoading={isLoading()}
           currentTime={currentTime()}
           duration={duration()}
           volume={volume()}

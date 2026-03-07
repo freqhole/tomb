@@ -7,6 +7,7 @@ import {
 import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
 import { getDataSource } from "../../data";
 import { preCacheNextSongs } from "../cache/blobCache";
+import { preCacheNextP2PSongs } from "../storage/blobResolver";
 import {
   canGoNext,
   canGoPrevious,
@@ -347,10 +348,11 @@ function handlePreCacheNext() {
   const {queue, current_sha256} = state;
   if (!current_sha256 || !queue.length) return;
 
-  // pre-cache next ~30 minutes of songs
+  // pre-cache next ~30 minutes of songs (HTTP + P2P)
   debug("player", "pre-caching next songs (~30 min)");
   hasPreCachedNext = true;
   void preCacheNextSongs(current_sha256, queue, 30);
+  void preCacheNextP2PSongs(current_sha256, queue, 30);
 }
 
 // swap from direct remote URL to cached blob URL while player is stopped

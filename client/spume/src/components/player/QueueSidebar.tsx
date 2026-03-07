@@ -91,6 +91,8 @@ export interface QueueSidebarProps {
   duration?: number;
   /** max progress per queue_entry_id for played songs (reactive signal) */
   progressMap?: Map<string, number>;
+  /** set of song sha256s currently being loaded/preloaded */
+  loadingSongIds?: Set<string>;
 }
 
 // queue sidebar component
@@ -480,24 +482,60 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       </div>
 
                       {/* duration and favorite indicator */}
-                      <div class="flex items-center gap-2 ml-3 flex-shrink-0 relative z-10">
-                        <div
-                          class="text-xs text-shadow-glow"
-                          style={{
-                            color:
-                              isBlobCachedReactive(song()?.source_url) &&
-                              !(isCurrentlyPlaying() && isPlayingDirectURLReactive(song()?.sha256))
-                                ? "var(--color-text-secondary)"
-                                : "var(--color-text-muted)",
-                          }}
-                        >
-                          {formatDuration(song()?.duration_seconds)}
+                      <div class="flex flex-col items-center ml-3 flex-shrink-0 relative z-10">
+                        {/* favorite icon above duration */}
+                        <div class="h-3 flex items-center -mt-2 mb-1.5">
+                          <Show when={song()?.is_favorite}>
+                            <Icon name="favorite" size={10} color="var(--color-accent-500)" />
+                          </Show>
                         </div>
-                        <Show when={song()?.is_favorite}>
-                          <div title="favorited">
-                            <Icon name="favorite" size={12} color="var(--color-accent-500)" />
-                          </div>
-                        </Show>
+                        {/* duration with loading underline */}
+                        <div class="relative inline-flex flex-col items-center">
+                          <span
+                            class="text-xs text-shadow-glow px-1"
+                            style={{
+                              color: (() => {
+                                const isLoading = props.loadingSongIds?.has(song()?.sha256 ?? "");
+                                // if loadingSongIds provided, use that for color logic (story mode)
+                                if (props.loadingSongIds !== undefined) {
+                                  // when loading, animation handles color; when done, bright white
+                                  return isLoading ? undefined : "var(--color-text-primary)";
+                                }
+                                // otherwise use blob cache logic
+                                return isBlobCachedReactive(song()?.source_url) &&
+                                  !(
+                                    isCurrentlyPlaying() &&
+                                    isPlayingDirectURLReactive(song()?.sha256)
+                                  )
+                                  ? "var(--color-text-primary)"
+                                  : "var(--color-text-muted)";
+                              })(),
+                              animation: props.loadingSongIds?.has(song()?.sha256 ?? "")
+                                ? "pulse-text 4s ease-in-out infinite"
+                                : undefined,
+                            }}
+                          >
+                            {formatDuration(song()?.duration_seconds)}
+                          </span>
+                          {/* loading underline - bouncing bar */}
+                          <Show when={props.loadingSongIds?.has(song()?.sha256 ?? "")}>
+                            <div
+                              class="w-full h-0.5 overflow-hidden rounded-full"
+                              style={{ "margin-top": "-2px" }}
+                            >
+                              <div
+                                style={{
+                                  width: "100%",
+                                  height: "100%",
+                                  background:
+                                    "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
+                                  animation: "bounce-bar 2s ease-in-out infinite",
+                                  "border-radius": "9999px",
+                                }}
+                              />
+                            </div>
+                          </Show>
+                        </div>
                       </div>
 
                       {/* remove button */}
@@ -622,11 +660,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       {/* label + song count + progress */}
                       <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-medium text-[var(--color-text-primary)] m-0">
-                          <MarqueeText
-                            text={entry().label}
-                            hoverOnly
-                            isHovering={isRowHovered}
-                          />
+                          <MarqueeText text={entry().label} hoverOnly isHovering={isRowHovered} />
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
                           {entry().type} &middot;{" "}

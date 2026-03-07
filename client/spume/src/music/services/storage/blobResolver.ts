@@ -7,6 +7,7 @@
 //   const url = await resolveBlobUrl(blobId, remoteId);
 //   <img src={url} /> or <audio src={url} />
 
+import { createSignal } from "solid-js";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import {
   getMiddenNode,
@@ -18,6 +19,35 @@ import { debug } from "../../../utils/logger";
 // cache of active blob URLs to prevent memory leaks
 // keyed by `${remoteId}/${blobId}`
 const activeBlobUrls = new Map<string, string>();
+
+// reactive set of P2P blob sha256s currently being fetched (for UI loading indicators)
+const [loadingP2PSha256s, setLoadingP2PSha256s] = createSignal<Set<string>>(new Set());
+
+// get the set of currently loading P2P song sha256s (for UI binding)
+export function getLoadingP2PSongIds(): Set<string> {
+  return loadingP2PSha256s();
+}
+
+function addToP2PLoadingSet(sha256: string): void {
+  setLoadingP2PSha256s((prev) => {
+    if (prev.has(sha256)) return prev;
+    const next = new Set(prev);
+    next.add(sha256);
+    return next;
+  });
+}
+
+function removeFromP2PLoadingSet(sha256: string): void {
+  setLoadingP2PSha256s((prev) => {
+    if (!prev.has(sha256)) return prev;
+    const next = new Set(prev);
+    next.delete(sha256);
+    return next;
+  });
+}
+
+// track in-progress P2P fetches to avoid duplicates
+const inProgressP2PFetches = new Set<string>();
 
 /**
  * resolve a blob ID to a URL for display/playback.
@@ -111,8 +141,11 @@ export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | 
   return activeBlobUrls.get(cacheKey) ?? null;
 }
 
+// unified cache name for all remote blobs (HTTP + P2P) - must match blobCache.ts and WasmTransport
+const BLOB_CACHE_NAME = "freqhole-blobs-v1";
+
 /**
- * clear all cached blob URLs.
+ * clear all cached blob URLs (memory only, not Cache API).
  * call this on logout or when switching remotes.
  */
 export function clearAllBlobUrls(): void {
@@ -123,6 +156,40 @@ export function clearAllBlobUrls(): void {
   }
   activeBlobUrls.clear();
   debug("blobResolver", "cleared all blob URLs");
+}
+
+/**
+ * clear all P2P cache data (Cache API + memory).
+ * call this when clearing cache storage.
+ */
+export async function clearAllP2PCache(): Promise<void> {
+  // clear in-memory blob URLs
+  clearAllBlobUrls();
+  
+  // note: P2P blobs are now in the unified cache (freqhole-blobs-v1)
+  // which is cleared by storageManager.clearCacheApiData()
+  debug("blobResolver", "cleared P2P in-memory blob URLs");
+}
+
+/**
+ * evict a specific P2P blob from cache.
+ * call this when a song is removed from the queue.
+ */
+export async function evictP2PBlob(blobId: string, remoteId: string): Promise<void> {
+  // clear in-memory URL
+  revokeBlobUrl(blobId, remoteId);
+  
+  // clear from unified Cache API
+  try {
+    const cache = await caches.open(BLOB_CACHE_NAME);
+    const cacheKey = `${remoteId}/${blobId}`;
+    const deleted = await cache.delete(cacheKey);
+    if (deleted) {
+      debug("blobResolver", `evicted P2P blob from cache: ${blobId.slice(0, 8)}...`);
+    }
+  } catch (err) {
+    console.error("failed to evict P2P blob:", err);
+  }
 }
 
 /**
@@ -144,4 +211,142 @@ export async function getRemoteTransportType(
   const remote = await getRemoteById(remoteId);
   if (!remote) return null;
   return remote.transport_type ?? (remote.peer_addr ? "wasm" : "http");
+}
+
+/**
+ * check if a P2P blob is already cached.
+ */
+export async function isP2PBlobCached(blobId: string, remoteId: string): Promise<boolean> {
+  // check in-memory cache
+  const cacheKey = `${remoteId}/${blobId}`;
+  if (activeBlobUrls.has(cacheKey)) {
+    return true;
+  }
+  
+  // check unified Cache API
+  try {
+    const cache = await caches.open(BLOB_CACHE_NAME);
+    const response = await cache.match(cacheKey);
+    return response !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * pre-cache a P2P blob (fetch in background for later use).
+ * tracks loading state for UI feedback.
+ */
+export async function preCacheP2PBlob(
+  blobId: string,
+  remoteId: string,
+  sha256?: string,
+): Promise<void> {
+  const cacheKey = `${remoteId}/${blobId}`;
+  
+  // check if already cached or in progress
+  if (activeBlobUrls.has(cacheKey)) {
+    debug("blobResolver", `P2P blob already cached: ${blobId.slice(0, 8)}...`);
+    return;
+  }
+  
+  if (inProgressP2PFetches.has(cacheKey)) {
+    debug("blobResolver", `P2P blob fetch already in progress: ${blobId.slice(0, 8)}...`);
+    return;
+  }
+  
+  // check Cache API
+  if (await isP2PBlobCached(blobId, remoteId)) {
+    debug("blobResolver", `P2P blob already in cache: ${blobId.slice(0, 8)}...`);
+    return;
+  }
+  
+  // mark as in progress
+  inProgressP2PFetches.add(cacheKey);
+  if (sha256) {
+    addToP2PLoadingSet(sha256);
+  }
+  
+  try {
+    debug("blobResolver", `pre-caching P2P blob: ${blobId.slice(0, 8)}...`);
+    
+    // resolve and cache the blob (this fetches via WasmTransport + stores in Cache API)
+    await resolveBlobUrl(blobId, remoteId);
+    
+    debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
+  } catch (err) {
+    console.error(`failed to pre-cache P2P blob ${blobId}:`, err);
+  } finally {
+    inProgressP2PFetches.delete(cacheKey);
+    if (sha256) {
+      removeFromP2PLoadingSet(sha256);
+    }
+  }
+}
+
+/**
+ * pre-cache next P2P songs from queue (rolling ~30 minute cache).
+ */
+export async function preCacheNextP2PSongs(
+  currentSongSha256: string | null,
+  queue: Array<{
+    sha256: string;
+    duration_seconds: number;
+    source_type: string;
+    remote_server_id: string | null;
+  }>,
+  targetMinutes: number = 30,
+): Promise<void> {
+  if (!currentSongSha256 || queue.length === 0) {
+    return;
+  }
+  
+  // find current song index
+  const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
+  if (currentIdx < 0 || currentIdx >= queue.length - 1) {
+    return;
+  }
+  
+  const songsToCache: Array<{ sha256: string; remoteId: string }> = [];
+  let totalSeconds = 0;
+  const targetSeconds = targetMinutes * 60;
+  
+  // iterate from next song onwards
+  for (let i = currentIdx + 1; i < queue.length; i++) {
+    const song = queue[i];
+    
+    // only cache P2P remote songs
+    if (song.source_type !== "remote" || !song.remote_server_id) {
+      continue;
+    }
+    
+    // check if remote is P2P
+    const isP2P = await isP2PRemote(song.remote_server_id);
+    if (!isP2P) {
+      continue;
+    }
+    
+    songsToCache.push({
+      sha256: song.sha256,
+      remoteId: song.remote_server_id,
+    });
+    
+    totalSeconds += song.duration_seconds || 0;
+    
+    if (totalSeconds >= targetSeconds) {
+      break;
+    }
+  }
+  
+  if (songsToCache.length === 0) {
+    debug("blobResolver", "no P2P songs to pre-cache");
+    return;
+  }
+  
+  debug("blobResolver", `pre-caching ${songsToCache.length} P2P songs (~${targetMinutes} min)`);
+  
+  // start pre-caching (fire and forget, parallel)
+  for (const song of songsToCache) {
+    void preCacheP2PBlob(song.sha256, song.remoteId, song.sha256);
+  }
 }

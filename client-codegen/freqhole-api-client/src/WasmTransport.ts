@@ -30,7 +30,8 @@ export interface MiddenNodeLike {
   fetch_blob(peer_addr: string, blob_id: string): Promise<BlobResultLike>;
 }
 
-const CACHE_NAME = "freqhole-p2p-blobs";
+// unified cache for all remote blobs (HTTP + P2P)
+const CACHE_NAME = "freqhole-blobs-v1";
 
 /**
  * WASM transport - uses midden for P2P connections

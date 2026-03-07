@@ -75,9 +75,10 @@ export function resumeTracking(
 }
 
 // stop tracking (called when queue is cleared or playback stops completely)
-export function stopTracking(): void {
+// skipQueueSave: true when clearing queue (avoids race condition with setQueue)
+export function stopTracking(skipQueueSave = false): void {
   if (activeHistoryEntryId()) {
-    void flushProgress(true);
+    void flushProgress(true, skipQueueSave);
   }
 
   setActiveHistoryEntryId(null);
@@ -147,7 +148,8 @@ export function getCurrentProgress(): {
 
 // flush accumulated progress to IDB
 // force=true bypasses the isPlaying check (used for explicit flushes like stop/clear)
-async function flushProgress(force = false): Promise<void> {
+// skipQueueSave=true skips saving progress to queue songs (avoids race when clearing)
+async function flushProgress(force = false, skipQueueSave = false): Promise<void> {
   const entryId = activeHistoryEntryId();
   if (!entryId) return;
   
@@ -162,8 +164,10 @@ async function flushProgress(force = false): Promise<void> {
       current_song_position: currentSongPosition,
     });
     
-    // also save queue item progress for visual fill
-    await saveProgressToIDB();
+    // save queue item progress for visual fill (skip when clearing to avoid race)
+    if (!skipQueueSave) {
+      await saveProgressToIDB();
+    }
   } catch (error) {
     console.error("failed to flush listen progress:", error);
   }

@@ -241,22 +241,31 @@ export function PlayerBar(props: PlayerBarProps) {
               <Icon name="previous" size={16} />
             </button>
 
-            <button
-              class="w-10 h-10 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-colors flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
-              onClick={() => props.onPlayPause()}
-              disabled={props.isLoading}
-              title={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
-              aria-label={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
-            >
-              <Show
-                when={!props.isLoading}
-                fallback={
-                  <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                }
+            <div class="relative">
+              {/* loading ring - gradient arc */}
+              <Show when={props.isLoading}>
+                <div
+                  class="absolute inset-[-3px] rounded-full"
+                  style={{
+                    background:
+                      "conic-gradient(from 0deg, transparent 0%, #8b5cf680 10%, #a855f7 30%, #d946ef 55%, #ec4899 70%, transparent 75%)",
+                    mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                    "-webkit-mask":
+                      "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                    animation: "spin 1.5s linear infinite",
+                  }}
+                />
+              </Show>
+              <button
+                class="w-10 h-10 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-colors flex items-center justify-center disabled:cursor-wait"
+                onClick={() => props.onPlayPause()}
+                disabled={props.isLoading}
+                title={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
+                aria-label={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
               >
                 <Icon name={props.isPlaying ? "pause" : "play"} size={20} />
-              </Show>
-            </button>
+              </button>
+            </div>
 
             <button
               class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -449,22 +458,31 @@ export function PlayerBar(props: PlayerBarProps) {
             <Icon name="previous" size={20} />
           </button>
 
-          <button
-            class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
-            onClick={() => props.onPlayPause()}
-            disabled={props.isLoading}
-            title={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
-            aria-label={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
-          >
-            <Show
-              when={!props.isLoading}
-              fallback={
-                <div class="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              }
+          <div class="relative">
+            {/* loading ring - gradient arc */}
+            <Show when={props.isLoading}>
+              <div
+                class="absolute inset-[-3px] rounded-full"
+                style={{
+                  background:
+                    "conic-gradient(from 0deg, transparent 0%, #8b5cf680 10%, #a855f7 30%, #d946ef 55%, #ec4899 70%, transparent 75%)",
+                  mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                  "-webkit-mask":
+                    "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                  animation: "spin 1.5s linear infinite",
+                }}
+              />
+            </Show>
+            <button
+              class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:scale-105 disabled:cursor-wait"
+              onClick={() => props.onPlayPause()}
+              disabled={props.isLoading}
+              title={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
+              aria-label={props.isLoading ? "loading..." : props.isPlaying ? "pause" : "play"}
             >
               <Icon name={props.isPlaying ? "pause" : "play"} size={24} />
-            </Show>
-          </button>
+            </button>
+          </div>
 
           <button
             class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"

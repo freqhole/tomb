@@ -9,6 +9,7 @@ import {
 } from "../../../app/services/storage/db";
 import type { QueueHistoryEntry, QueueSourceContext } from "../../../app/services/storage/types";
 import { evictCachedBlob } from "../cache/blobCache";
+import { evictP2PBlob, preCacheNextP2PSongs } from "../storage/blobResolver";
 import { playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
@@ -47,9 +48,31 @@ export async function playQueue(
 ): Promise<void> {
   if (songs.length === 0) return;
 
+  // evict cached songs from old queue that aren't in the new queue
+  const state = appState();
+  if (state?.queue) {
+    const newSha256Set = new Set(songs.map((s) => s.sha256));
+    for (const oldSong of state.queue) {
+      if (oldSong.source_type === "remote" && !newSha256Set.has(oldSong.sha256)) {
+        // evict HTTP cache
+        if (oldSong.source_url) {
+          void evictCachedBlob(oldSong.source_url);
+        }
+        // evict P2P cache
+        if (oldSong.remote_server_id) {
+          void evictP2PBlob(oldSong.sha256, oldSong.remote_server_id);
+        }
+      }
+    }
+  }
+
   const startIndex = options?.startIndex ?? 0;
   await setQueue(songs);
   await playSong(songs[startIndex]);
+
+  // pre-cache P2P songs (~30 min ahead)
+  const startSong = songs[startIndex];
+  void preCacheNextP2PSongs(startSong.sha256, songs);
 
   // record history and start progress tracking
   if (options?.source) {
@@ -118,6 +141,12 @@ export async function addToQueue(
     await playSong(songs[0]);
   }
 
+  // pre-cache P2P songs (~30 min ahead from current position)
+  const currentSha256 = currentId ?? songs[0]?.sha256;
+  if (currentSha256) {
+    void preCacheNextP2PSongs(currentSha256, newQueue);
+  }
+
   // sync history + server session with the full queue
   if (options?.source) {
     const existingEntryId = activeHistoryEntryId();
@@ -166,10 +195,17 @@ export async function removeFromQueue(index: number): Promise<void> {
   }
 
   // evict from cache if remote song is no longer anywhere in the queue
-  if (removedSong?.source_url && removedSong.source_type === "remote") {
+  if (removedSong?.source_type === "remote") {
     const stillInQueue = newQueue.some((s) => s.sha256 === removedSong.sha256);
     if (!stillInQueue) {
-      void evictCachedBlob(removedSong.source_url);
+      // evict HTTP cache (if applicable)
+      if (removedSong.source_url) {
+        void evictCachedBlob(removedSong.source_url);
+      }
+      // evict P2P cache (if applicable)
+      if (removedSong.remote_server_id) {
+        void evictP2PBlob(removedSong.sha256, removedSong.remote_server_id);
+      }
     }
   }
 
@@ -213,7 +249,7 @@ export async function clearQueue(): Promise<void> {
   const state = appState();
 
   stop();
-  stopTracking();
+  stopTracking(true); // skipQueueSave - avoids race with setQueue([])
   clearAllQueueProgress();
   void stopServerSession("abandoned");
   await setCurrentSong(null);
@@ -221,8 +257,15 @@ export async function clearQueue(): Promise<void> {
   // evict cached audio for all remote songs in the queue
   if (state?.queue) {
     for (const song of state.queue) {
-      if (song.source_url && song.source_type === "remote") {
-        void evictCachedBlob(song.source_url);
+      if (song.source_type === "remote") {
+        // evict HTTP cache (if applicable)
+        if (song.source_url) {
+          void evictCachedBlob(song.source_url);
+        }
+        // evict P2P cache (if applicable)
+        if (song.remote_server_id) {
+          void evictP2PBlob(song.sha256, song.remote_server_id);
+        }
       }
     }
   }

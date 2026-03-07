@@ -32,6 +32,7 @@ import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
   currentTime,
   duration,
+  isLoading,
   isPlaying,
   playNext,
   playPrevious,
@@ -41,6 +42,8 @@ import {
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
+import { getLoadingSongIds } from "../music/services/cache/blobCache";
+import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
 import {
   canGoNext,
   canGoPrevious,
@@ -674,6 +677,20 @@ export function AppLayout(props: AppLayoutProps) {
           currentTime={currentTime()}
           duration={duration()}
           progressMap={progressMap()}
+          loadingSongIds={(() => {
+            // combine: HTTP pre-caching + P2P pre-caching + current song loading
+            const loadingSet = new Set(getLoadingSongIds());
+            // add P2P loading songs
+            for (const sha256 of getLoadingP2PSongIds()) {
+              loadingSet.add(sha256);
+            }
+            // add current song if audio is loading (includes P2P fetch wait)
+            const currentSha256 = appState()?.current_sha256;
+            if (isLoading() && currentSha256) {
+              loadingSet.add(currentSha256);
+            }
+            return loadingSet;
+          })()}
           onClose={() => void setQueueOpen(false)}
           onSongClick={(index) => {
             const state = appState();
@@ -765,7 +782,7 @@ export function AppLayout(props: AppLayoutProps) {
               : undefined
           }
           isPlaying={isPlaying()}
-          isLoading={false}
+          isLoading={isLoading()}
           currentTime={currentTime()}
           duration={duration()}
           volume={volume()}

@@ -240,7 +240,9 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         <img
           src={resolvedUrl()!}
           alt={props.alt}
+          draggable={false}
           class={`${props.class || ""} "absolute inset-0 w-full h-full object-cover z-30"`}
+          style={{ "user-select": "none" }}
           onLoad={() => {
             setImageLoaded(true);
             setImageError(false);

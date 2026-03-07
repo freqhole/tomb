@@ -39,6 +39,32 @@ function clearCachedSet(): void {
   setCachedAudioURLs(new Set<string>());
 }
 
+// reactive set of song sha256s currently being pre-cached (for UI loading indicators)
+const [loadingSha256s, setLoadingSha256s] = createSignal<Set<string>>(new Set());
+
+// get the set of currently loading song sha256s (for UI binding)
+export function getLoadingSongIds(): Set<string> {
+  return loadingSha256s();
+}
+
+function addToLoadingSet(sha256: string): void {
+  setLoadingSha256s((prev) => {
+    if (prev.has(sha256)) return prev;
+    const next = new Set(prev);
+    next.add(sha256);
+    return next;
+  });
+}
+
+function removeFromLoadingSet(sha256: string): void {
+  setLoadingSha256s((prev) => {
+    if (!prev.has(sha256)) return prev;
+    const next = new Set(prev);
+    next.delete(sha256);
+    return next;
+  });
+}
+
 // seed the reactive set from existing cache metadata on startup
 export async function initCachedAudioURLs(): Promise<void> {
   try {
@@ -393,10 +419,12 @@ async function evictIfNeeded(): Promise<void> {
 }
 
 // pre-cache a blob URL (fetch and cache in background with retry logic)
+// sha256 is optional - when provided for audio, tracks in loadingSha256s for UI feedback
 export async function preCacheBlob(
   url: string,
   type: "audio" | "image",
   maxRetries: number = 3,
+  sha256?: string,
 ): Promise<void> {
   // check if already cached
   if (await isCached(url)) {
@@ -421,6 +449,11 @@ export async function preCacheBlob(
 
   // mark as in progress
   inProgressFetches.add(url);
+  
+  // track sha256 in reactive loading set for UI feedback (audio only)
+  if (sha256 && type === "audio") {
+    addToLoadingSet(sha256);
+  }
 
   try {
     // retry with exponential backoff
@@ -472,6 +505,10 @@ export async function preCacheBlob(
   } finally {
     // always remove from in-progress
     inProgressFetches.delete(url);
+    // remove from loading set
+    if (sha256 && type === "audio") {
+      removeFromLoadingSet(sha256);
+    }
   }
 }
 
@@ -784,13 +821,13 @@ export async function preCacheNextSongs(
     const cachePromises = songsToCache.map(async (song) => {
       const results = { audio: "skipped", waveform: "skipped" };
 
-      // cache audio
+      // cache audio (pass sha256 for loading tracking)
       if (await isCached(song.source_url)) {
         results.audio = "already_cached";
       } else if (inProgressFetches.has(song.source_url)) {
         results.audio = "in_progress";
       } else {
-        void preCacheBlob(song.source_url, "audio");
+        void preCacheBlob(song.source_url, "audio", 3, song.sha256);
         results.audio = "started";
       }
 

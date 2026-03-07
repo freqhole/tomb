@@ -404,3 +404,48 @@ body {
         transform: translateX(400%);
     }
 }
+
+@keyframes sweep {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(150%);
+    }
+}
+
+@keyframes bounce-bar {
+    0% {
+        clip-path: inset(0 100% 0 0);
+    }
+    25% {
+        clip-path: inset(0 0% 0 0);
+    }
+    50% {
+        clip-path: inset(0 0 0 100%);
+    }
+    75% {
+        clip-path: inset(0 0 0 0%);
+    }
+    100% {
+        clip-path: inset(0 100% 0 0);
+    }
+}
+
+@keyframes stretch {
+    0%, 100% {
+        transform: scaleX(0);
+    }
+    50% {
+        transform: scaleX(1);
+    }
+}
+
+@keyframes pulse-text {
+    0%, 100% {
+        color: var(--color-text-muted);
+    }
+    50% {
+        color: var(--color-text-secondary);
+    }
+}
