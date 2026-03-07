@@ -8,11 +8,13 @@ LLVM_AR := /opt/homebrew/opt/llvm/bin/llvm-ar
 .PHONY: build
 build:
 	CC=$(LLVM_CC) AR=$(LLVM_AR) wasm-pack build --dev --weak-refs --reference-types -t bundler
+	rm -f pkg/.gitignore
 
 # Build WASM (release mode, optimized)
 .PHONY: build-release
 build-release:
 	CC=$(LLVM_CC) AR=$(LLVM_AR) wasm-pack build --release --weak-refs --reference-types -t bundler
+	rm -f pkg/.gitignore
 
 # Clean build artifacts
 .PHONY: clean
