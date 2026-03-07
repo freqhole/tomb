@@ -36,7 +36,7 @@ pub fn generate_keypair() -> GrimoireResult<SecretKey> {
         });
     }
 
-    // generate 32 random bytes using getrandom (same as ruhroh)
+    // generate 32 random bytes using getrandom
     let mut bytes = [0u8; 32];
     getrandom::getrandom(&mut bytes).map_err(|e| GrimoireError::FederationApiError {
         message: format!("failed to generate random bytes: {}", e),

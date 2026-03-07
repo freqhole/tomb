@@ -8,7 +8,6 @@ members = [
 ]
 exclude = [
     "client/midden", # WASM package, built separately with wasm-pack
-    "ruhroh",        # prototype, not part of main workspace
 ]
 resolver = "2"
 

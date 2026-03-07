@@ -89,13 +89,13 @@ supabase db push
 supabase functions deploy
 ```
 
-## integration with ruhroh
+## integration with spume
 
-ruhroh-client uses haruspex for:
+can use haruspex for:
 
 1. **auth**: magic link → get JWT
 2. **register peer**: call `update_peer_presence()` on startup
 3. **discover peers**: call `get_online_peers()` to find peers
 4. **heartbeat**: periodically call `update_peer_presence()`
 
-the browser client (ruhroh-wasm) uses `@supabase/supabase-js` directly.
+the browser client (wasm) uses `@supabase/supabase-js` directly.

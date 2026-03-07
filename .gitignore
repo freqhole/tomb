@@ -18,7 +18,4 @@ data/dev.db
 /cli/coverage/
 *.profraw
 /freqhole-config.toml
-/ruhroh/demo-alice
-/ruhroh/demo-bob
-/ruhroh/demo-filez
-/ruhroh/ruhroh-wasm/www/.vite
+
