@@ -3,7 +3,10 @@
 //! uses iroh to connect to freqhole peers from the browser.
 //! accepts either plain node_id or full endpoint address JSON with relay/IP hints.
 
-use iroh::endpoint::{RecvStream, SendStream};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
@@ -79,7 +82,7 @@ fn start() {
     console_error_panic_hook::set_once();
 
     tracing_subscriber::fmt()
-        .with_max_level(LevelFilter::DEBUG)
+        .with_max_level(LevelFilter::INFO)
         .with_writer(MakeConsoleWriter::default().map_trace_level_to(tracing::Level::DEBUG))
         .without_time()
         .with_ansi(false)
@@ -113,6 +116,9 @@ fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
 #[wasm_bindgen]
 pub struct MiddenNode {
     endpoint: Endpoint,
+    secret_key_bytes: [u8; 32],
+    /// cached connections per peer (avoids NAT traversal on every request)
+    connections: RefCell<HashMap<PublicKey, Connection>>,
 }
 
 #[wasm_bindgen]
@@ -120,11 +126,31 @@ impl MiddenNode {
     /// create a new node with random identity
     /// waits for relay connection before returning
     pub async fn create() -> Result<MiddenNode, JsError> {
-        info!("creating midden node...");
+        info!("creating midden node with random identity...");
 
         // generate random secret key
         let mut bytes = [0u8; 32];
         getrandom::getrandom(&mut bytes).map_err(|e| JsError::new(&e.to_string()))?;
+
+        Self::create_with_secret_key(bytes).await
+    }
+
+    /// create a node from existing secret key bytes (for persistence)
+    /// key_bytes must be exactly 32 bytes
+    pub async fn create_from_key(key_bytes: &[u8]) -> Result<MiddenNode, JsError> {
+        if key_bytes.len() != 32 {
+            return Err(JsError::new("secret key must be exactly 32 bytes"));
+        }
+
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(key_bytes);
+
+        info!("creating midden node from existing key...");
+        Self::create_with_secret_key(bytes).await
+    }
+
+    /// internal: create node with given secret key bytes
+    async fn create_with_secret_key(bytes: [u8; 32]) -> Result<MiddenNode, JsError> {
         let secret_key = SecretKey::from_bytes(&bytes);
 
         // create endpoint with freqhole ALPN
@@ -141,12 +167,52 @@ impl MiddenNode {
         let node_id = endpoint.secret_key().public().to_string();
         info!("midden node ready: {}", &node_id[..16]);
 
-        Ok(MiddenNode { endpoint })
+        Ok(MiddenNode {
+            endpoint,
+            secret_key_bytes: bytes,
+            connections: RefCell::new(HashMap::new()),
+        })
+    }
+
+    /// get the secret key bytes for persistence (32 bytes)
+    /// store this in IndexedDB to maintain the same identity across sessions
+    pub fn secret_key(&self) -> Uint8Array {
+        Uint8Array::from(&self.secret_key_bytes[..])
     }
 
     /// get our node_id (iroh public key)
     pub fn node_id(&self) -> String {
         self.endpoint.secret_key().public().to_string()
+    }
+
+    /// get a cached connection or create a new one
+    /// connections are expensive (NAT traversal), streams are cheap
+    async fn get_or_connect(&self, addr: &EndpointAddr) -> Result<Connection, JsError> {
+        // check if we have a valid cached connection
+        {
+            let connections = self.connections.borrow();
+            if let Some(conn) = connections.get(&addr.id) {
+                // close_reason() returns None if connection is still open
+                if conn.close_reason().is_none() {
+                    return Ok(conn.clone());
+                }
+            }
+        }
+
+        // need to create new connection
+        let node_id_short = &addr.id.to_string()[..16];
+        info!("creating new connection to {}", node_id_short);
+
+        let conn = self
+            .endpoint
+            .connect(addr.clone(), FREQHOLE_ALPN)
+            .await
+            .map_err(to_js_err)?;
+
+        // cache it
+        self.connections.borrow_mut().insert(addr.id, conn.clone());
+
+        Ok(conn)
     }
 
     /// send an API request to a peer
@@ -163,12 +229,8 @@ impl MiddenNode {
 
         info!("proxy {} {} to {}", method, path, node_id_short);
 
-        // connect to peer
-        let conn = self
-            .endpoint
-            .connect(addr, FREQHOLE_ALPN)
-            .await
-            .map_err(to_js_err)?;
+        // get cached connection or create new one
+        let conn = self.get_or_connect(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
@@ -213,11 +275,8 @@ impl MiddenNode {
             node_id_short
         );
 
-        let conn = self
-            .endpoint
-            .connect(addr, FREQHOLE_ALPN)
-            .await
-            .map_err(to_js_err)?;
+        // get cached connection or create new one
+        let conn = self.get_or_connect(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;

@@ -347,6 +347,12 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
   }
 }
 
+// check if a remote uses P2P transport
+export function isP2PTransport(remote: Remote): boolean {
+  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
+  return transportType === 'wasm';
+}
+
 // check if a remote is online (quick health check via /api/hello)
 // returns true if online, false if offline
 // also updates server info (image_url, version, etc.) when online
@@ -355,7 +361,9 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
   const now = Date.now();
 
   try {
-    const result = await getClientForRemote(remote).app.serverInfo();
+    // use async client getter for P2P remotes (starts midden node if needed)
+    const client = await getClientForRemoteAsync(remote);
+    const result = await client.app.serverInfo();
     const isOnline = result.success && !!result.data;
 
     // re-read remote from IDB to get latest data (avoids overwriting with stale data)

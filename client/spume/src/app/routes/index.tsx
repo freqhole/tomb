@@ -7,6 +7,8 @@ import {
   getActiveRemote,
   getRemoteById,
   getTauriManagedRemote,
+  checkRemoteHealth,
+  isP2PTransport,
 } from "../../app/services/remotes/remoteManager";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
@@ -21,7 +23,12 @@ import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { AppLayout } from "../AppLayout";
-import { SettingsLayout, StorageSettingsView, RemotesSettingsView } from "../../settings";
+import {
+  SettingsLayout,
+  StorageSettingsView,
+  RemotesSettingsView,
+  FederationSettingsView,
+} from "../../settings";
 import { getSavedRoute } from "../../utils/tauri/routePersistence";
 import { debug } from "../../utils/logger";
 import { isTauriMode } from "../../utils/tauri";
@@ -57,7 +64,9 @@ function RootRedirect() {
       if (routeContext && routeContext !== "local" && routeContext !== "settings") {
         // try to restore remote context
         const remote = await getRemoteById(routeContext);
-        if (remote && !remote.is_offline) {
+        // allow P2P remotes to try even if marked offline (midden node may not have been initialized)
+        const canTryRemote = remote && (!remote.is_offline || isP2PTransport(remote));
+        if (canTryRemote) {
           await useRemoteSource(remote);
           queryClient.invalidateQueries();
           navigate(savedRoute, { replace: true });
@@ -75,8 +84,10 @@ function RootRedirect() {
 
     // fallback: check if there's an active remote in IndexedDB
     const activeRemote = await getActiveRemote();
+    // allow P2P remotes to try even if marked offline
+    const canTryActive = activeRemote && (!activeRemote.is_offline || isP2PTransport(activeRemote));
 
-    if (activeRemote && !activeRemote.is_offline) {
+    if (canTryActive) {
       // switch to that remote and navigate to its route
       await useRemoteSource(activeRemote);
       queryClient.invalidateQueries();
@@ -100,6 +111,7 @@ export function routes(props: RoutesProps) {
       <Route path="/settings" component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}>
         <Route path="/storage" component={StorageSettingsView} />
         <Route path="/remotes" component={RemotesSettingsView} />
+        <Route path="/federation" component={FederationSettingsView} />
         {/* redirect /settings to /settings/storage */}
         <Route
           path="/"
@@ -243,8 +255,11 @@ function RemoteContextHandler(props: { children?: any }) {
       return;
     }
 
-    // if remote is offline, redirect to fallback (tauri remote or local)
-    if (remote.is_offline) {
+    // for P2P remotes, always try to connect (even if marked offline)
+    // because the midden node may not have been initialized when offline was set
+    const shouldTryConnect = isP2PTransport(remote) || !remote.is_offline;
+
+    if (!shouldTryConnect) {
       debug("routes", `remote ${remote.name} is offline, redirecting to fallback`);
       toast.error(`${remote.name} is offline`);
 
@@ -260,6 +275,22 @@ function RemoteContextHandler(props: { children?: any }) {
       await useLocalSource();
       navigate("/local/songs", { replace: true });
       return;
+    }
+
+    // for P2P remotes that were offline, do a fresh health check first
+    if (isP2PTransport(remote) && remote.is_offline) {
+      debug("routes", `P2P remote ${remote.name} was offline, trying fresh connection...`);
+      const isOnline = await checkRemoteHealth(remote);
+      if (!isOnline) {
+        debug("routes", `P2P remote ${remote.name} still not reachable`);
+        toast.error(`cannot reach ${remote.name}`);
+        if (!isTauriMode()) {
+          await useLocalSource();
+          navigate("/local/songs", { replace: true });
+        }
+        return;
+      }
+      debug("routes", `P2P remote ${remote.name} is now online`);
     }
 
     setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });

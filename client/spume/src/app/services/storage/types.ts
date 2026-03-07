@@ -113,12 +113,20 @@ export interface Remote {
   last_checked?: number | null; // timestamp of last health check
 }
 
+// P2P identity stored in app_state store with id: "p2p_identity"
+export interface P2PIdentity {
+  id: "p2p_identity";
+  secret_key: Uint8Array; // 32-byte iroh secret key
+  node_id: string; // public node_id derived from secret key
+  created_at: number;
+}
+
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
 export const APP_DB_VERSION = 4; // bumped for analytics_events store + history progress fields
 
 // app store names
-export const STORE_APP_STATE = "app_state";
+export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
 export const STORE_REMOTES = "remotes";
 export const STORE_QUEUE_HISTORY = "queue_history";
 export const STORE_ANALYTICS_EVENTS = "analytics_events";

@@ -11,6 +11,7 @@ import {
   STORE_QUEUE_HISTORY,
   STORE_REMOTES,
   type AppState,
+  type P2PIdentity,
 } from "./types";
 import { debug } from "../../../utils/logger";
 import { generateUUID } from "../../../utils/uuid";
@@ -187,12 +188,47 @@ function closeAppDB(): void {
   }
 }
 
+// ============================================================================
+// P2P identity persistence (midden)
+// ============================================================================
+
+// get stored P2P identity (returns null if not yet created)
+async function getP2PIdentity(): Promise<P2PIdentity | null> {
+  const db = await initAppDB();
+  const identity = await db.get(STORE_APP_STATE, "p2p_identity");
+  return identity ?? null;
+}
+
+// save P2P identity to IDB
+async function saveP2PIdentity(secretKey: Uint8Array, nodeId: string): Promise<P2PIdentity> {
+  const db = await initAppDB();
+  const identity: P2PIdentity = {
+    id: "p2p_identity",
+    secret_key: secretKey,
+    node_id: nodeId,
+    created_at: Date.now(),
+  };
+  await db.put(STORE_APP_STATE, identity);
+  debug("appDB", "saved P2P identity:", nodeId.slice(0, 16) + "...");
+  return identity;
+}
+
+// delete P2P identity (for reset/regeneration)
+async function deleteP2PIdentity(): Promise<void> {
+  const db = await initAppDB();
+  await db.delete(STORE_APP_STATE, "p2p_identity");
+  debug("appDB", "deleted P2P identity");
+}
+
 export {
   appState,
   clearAppData,
   closeAppDB,
+  deleteP2PIdentity,
+  getP2PIdentity,
   initAppDB,
   loadAppState,
+  saveP2PIdentity,
   setActiveRemoteId,
   setCurrentSong,
   setQueue,

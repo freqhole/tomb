@@ -20,6 +20,7 @@ export interface BlobResultLike {
  */
 export interface MiddenNodeLike {
   node_id(): string;
+  secret_key(): Uint8Array;
   proxy_request(
     peer_addr: string,
     method: string,

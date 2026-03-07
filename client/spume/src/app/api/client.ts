@@ -94,12 +94,14 @@ export function httpRemote(baseUrl: string, apiKey?: string): RemoteLike {
 // midden node singleton (lazy initialization for P2P transport)
 // ============================================================================
 
+import { getP2PIdentity, saveP2PIdentity } from "../services/storage/db";
+
 let middenNode: MiddenNodeLike | null = null;
 let middenNodePromise: Promise<MiddenNodeLike> | null = null;
 
 /**
  * get or create the midden node singleton.
- * call this when you need the node, not at app startup.
+ * uses persisted identity from IndexedDB if available, otherwise creates new.
  */
 export async function getMiddenNode(): Promise<MiddenNodeLike> {
   if (middenNode) {
@@ -113,9 +115,25 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
   // lazy import midden to avoid bundling it when not used
   middenNodePromise = (async () => {
     const { MiddenNode } = await import("midden");
-    middenNode = await MiddenNode.create();
+
+    // check for persisted identity
+    const existingIdentity = await getP2PIdentity();
+
+    if (existingIdentity) {
+      // restore from persisted key
+      console.log("[midden] restoring identity from IndexedDB:", existingIdentity.node_id.slice(0, 16) + "...");
+      middenNode = await MiddenNode.create_from_key(existingIdentity.secret_key);
+    } else {
+      // create new identity and persist it
+      middenNode = await MiddenNode.create();
+      const secretKey = middenNode.secret_key();
+      const nodeId = middenNode.node_id();
+      await saveP2PIdentity(secretKey, nodeId);
+      console.log("[midden] created new identity:", nodeId.slice(0, 16) + "...");
+    }
+
     const nodeId = middenNode.node_id();
-    console.log("[midden] node created, full node_id:", nodeId);
+    console.log("[midden] node ready, node_id:", nodeId);
     return middenNode;
   })();
 

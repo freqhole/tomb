@@ -1,27 +1,40 @@
 // reusable media thumbnail with index overlay and play icon hover
 import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
+import { resolveBlobUrl, isP2PRemote } from "../../music/services/storage/blobResolver";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 
 /**
- * get the URL for an image - handles local_blob_id, remote_url, or legacy thumbnailUrl
+ * get the URL for an image - handles local_blob_id, remote_url, P2P remotes, or legacy
  */
 async function resolveImageUrl(
   image: ImageMetadata | null,
   legacyBlobId?: string | null,
   legacyUrl?: string | null
 ): Promise<string | null> {
-  // try remote_url first (already a usable URL)
-  if (image?.remote_url) return image.remote_url;
-  if (legacyUrl) return legacyUrl;
-
-  // try local_blob_id (needs OPFS lookup)
+  // priority 1: local blob ID (OPFS lookup)
   const blobId = image?.local_blob_id || legacyBlobId;
   if (blobId) {
     return await getBlobObjectURL(blobId);
   }
+
+  // priority 2: P2P remote (has remote_server_id)
+  if (image?.remote_blob_id && image?.remote_server_id) {
+    try {
+      const isP2P = await isP2PRemote(image.remote_server_id);
+      if (isP2P) {
+        return await resolveBlobUrl(image.remote_blob_id, image.remote_server_id);
+      }
+    } catch (err) {
+      console.error("failed to resolve P2P thumbnail:", err);
+    }
+  }
+
+  // priority 3: HTTP remote URL
+  if (image?.remote_url) return image.remote_url;
+  if (legacyUrl) return legacyUrl;
 
   return null;
 }
@@ -53,9 +66,11 @@ export interface MediaThumbnailProps {
 
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   // compute initial image URL synchronously to avoid first-render flicker
+  // note: P2P remotes (with remote_server_id) need async resolution, so they return null here
   const getInitialUrl = (): string | null => {
     const image = pickBestImage(props.images);
-    if (image?.remote_url) return image.remote_url;
+    // skip remote_url if this is a P2P remote (needs async resolution)
+    if (image?.remote_url && !image.remote_server_id) return image.remote_url;
     if (props.thumbnailUrl) return props.thumbnailUrl;
     const blobId = image?.local_blob_id || props.thumbnailBlobId;
     if (blobId) return getCachedBlobObjectURL(blobId);

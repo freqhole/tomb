@@ -12,6 +12,7 @@ interface SettingsNavItem {
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
   { path: "/settings/remotes", label: "remotes", icon: "" },
+  { path: "/settings/federation", label: "federation", icon: "" },
   // future items:
   // { path: "/settings/playback", label: "playback", icon: "" },
   // { path: "/settings/appearance", label: "appearance", icon: "" },
