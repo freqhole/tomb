@@ -416,7 +416,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   <div class="w-12 h-12 border-4 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
                   <p class="text-sm text-[var(--color-text-secondary)]">
                     {peerAddr()
-                      ? `connecting via P2P to ${peerAddr().slice(0, 16)}...`
+                      ? `connecting via P2P to ${peerAddr()!.slice(0, 16)}...`
                       : `connecting to ${url()}...`}
                   </p>
                 </div>
@@ -483,7 +483,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     </h3>
                     <p class="text-sm text-[var(--color-text-secondary)]">
                       {peerAddr()
-                        ? `P2P peer ${peerAddr().slice(0, 16)}... is ready`
+                        ? `P2P peer ${peerAddr()!.slice(0, 16)}... is ready`
                         : `${url()} is ready to use`}
                     </p>
                   </div>

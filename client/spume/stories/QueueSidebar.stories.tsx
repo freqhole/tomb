@@ -90,7 +90,7 @@ export const Interactive: Story = {
       },
       {
         label: "toggle loading state",
-        icon: "refresh" as const,
+        icon: "loader" as const,
         onClick: () => toggleLoading(song.sha256),
       },
       {
