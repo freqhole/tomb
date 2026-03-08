@@ -238,6 +238,7 @@ function RemoteContextHandler(props: { children?: any }) {
     remote_id: string;
     name: string;
     base_url: string;
+    is_tauri_managed?: boolean;
   } | null>(null);
 
   // re-auth modal state
@@ -293,7 +294,12 @@ function RemoteContextHandler(props: { children?: any }) {
       debug("routes", `P2P remote ${remote.name} is now online`);
     }
 
-    setRemoteInfo({ remote_id: remote.remote_id, name: remote.name, base_url: remote.base_url });
+    setRemoteInfo({
+      remote_id: remote.remote_id,
+      name: remote.name,
+      base_url: remote.base_url,
+      is_tauri_managed: remote.is_tauri_managed,
+    });
     await useRemoteSource(remote);
     queryClient.invalidateQueries();
   });
@@ -306,9 +312,9 @@ function RemoteContextHandler(props: { children?: any }) {
     const needsAuth = getRemoteNeedsAuth(info.remote_id);
     if (!needsAuth) return;
 
-    // in tauri mode, auth refresh is handled automatically by rust pushing a fresh invite code
-    // so we don't need to show the toast - just wait for the refresh to complete
-    if (isTauriMode()) {
+    // for the tauri-managed sidecar remote, auth refresh is handled automatically
+    // by rust pushing a fresh invite code - no need to show the toast
+    if (info.is_tauri_managed) {
       return;
     }
 
