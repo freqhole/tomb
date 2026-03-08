@@ -306,6 +306,12 @@ function RemoteContextHandler(props: { children?: any }) {
     const needsAuth = getRemoteNeedsAuth(info.remote_id);
     if (!needsAuth) return;
 
+    // in tauri mode, auth refresh is handled automatically by rust pushing a fresh invite code
+    // so we don't need to show the toast - just wait for the refresh to complete
+    if (isTauriMode()) {
+      return;
+    }
+
     // confirm it's actually an auth issue (not just server being down)
     try {
       const whoamiResult = await whoami(info.base_url);

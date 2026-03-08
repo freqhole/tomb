@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager, Wry};
 
 use crate::app_config::get_server_config_path_resolved;
 use crate::sidecar::{self, ServerManager};
-use crate::spume_bridge::push_config_to_spume;
+use crate::spume_bridge::{push_auth_refresh_to_spume, push_config_to_spume};
 use crate::wizard::open_setup_wizard_at_route;
 
 /// server control action
@@ -40,6 +40,9 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
                     if result.success {
                         // push updated config to spume window
                         let _ = push_config_to_spume(&app);
+                        // give server a moment to be fully ready, then push fresh auth
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        let _ = push_auth_refresh_to_spume(&app).await;
                     }
                 }
             }
@@ -51,6 +54,9 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
                 if result.success {
                     // push updated config to spume window
                     let _ = push_config_to_spume(&app);
+                    // give server a moment to be fully ready, then push fresh auth
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    let _ = push_auth_refresh_to_spume(&app).await;
                 }
             }
         }

@@ -6,6 +6,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::app_config::FreqholeAppConfig;
 use crate::commands::{get_freqhole_config, FreqholeConfig};
 
 /// message types that can be sent to spume
@@ -69,13 +70,6 @@ pub fn generate_config_script(config: &FreqholeConfig) -> String {
     };
     format!(
         r#"{}window.__FREQHOLE_CONFIG__ = {};
-console.log('[freqhole] config injected:', {{
-    server_id: window.__FREQHOLE_CONFIG__?.server_id,
-    server_name: window.__FREQHOLE_CONFIG__?.server_name,
-    server_url: window.__FREQHOLE_CONFIG__?.server_url,
-    has_invite_code: !!window.__FREQHOLE_CONFIG__?.invite_code,
-    invite_code_prefix: window.__FREQHOLE_CONFIG__?.invite_code?.substring(0, 10) + '...'
-}});
 
 // helper to wait for tauri to be ready
 function waitForTauri(callback, maxAttempts = 50) {{
@@ -83,29 +77,25 @@ function waitForTauri(callback, maxAttempts = 50) {{
     const check = () => {{
         attempts++;
         if (window.__TAURI__?.core?.invoke) {{
-            console.log('[freqhole] tauri ready after', attempts, 'attempts');
             callback();
         }} else if (attempts < maxAttempts) {{
             setTimeout(check, 100);
-        }} else {{
-            console.error('[freqhole] tauri API not available after', maxAttempts * 100, 'ms');
         }}
     }};
     check();
 }}
 
 // set up auth-needed listener to auto-refresh auth via tauri
+// note: in dev mode with external URLs, tauri IPC isn't available,
+// so auth refresh is pushed from rust via push_auth_refresh_to_spume()
 window.addEventListener('freqhole:auth-needed', async (event) => {{
     const remoteId = event.detail?.remote_id;
-    console.log('[freqhole] auth-needed event received for:', remoteId);
     
     // ensure tauri is ready before invoking
     if (!window.__TAURI__?.core?.invoke) {{
-        console.error('[freqhole] tauri API not available yet, waiting...');
         waitForTauri(async () => {{
             try {{
                 const inviteCode = await window.__TAURI__.core.invoke('generate_auto_auth_invite');
-                console.log('[freqhole] got invite code from tauri');
                 window.dispatchEvent(new CustomEvent('freqhole:auth-refresh', {{
                     detail: {{ invite_code: inviteCode, remote_id: remoteId }}
                 }}));
@@ -117,19 +107,14 @@ window.addEventListener('freqhole:auth-needed', async (event) => {{
     }}
     
     try {{
-        // call tauri command to generate invite code
         const inviteCode = await window.__TAURI__.core.invoke('generate_auto_auth_invite');
-        console.log('[freqhole] got invite code from tauri');
-        
-        // dispatch auth-refresh event with the invite code
         window.dispatchEvent(new CustomEvent('freqhole:auth-refresh', {{
             detail: {{ invite_code: inviteCode, remote_id: remoteId }}
         }}));
     }} catch (err) {{
         console.error('[freqhole] failed to generate auth invite:', err);
     }}
-}});
-console.log('[freqhole] auth-needed listener installed');"#,
+}});"#,
         no_blur_attr, json
     )
 }
@@ -138,22 +123,9 @@ console.log('[freqhole] auth-needed listener installed');"#,
 ///
 /// returns empty string if config not available yet
 pub fn get_init_script(app: &AppHandle<Wry>) -> String {
-    eprintln!("[spume_bridge] get_init_script called");
     match get_freqhole_config(app.clone()) {
-        Some(config) => {
-            eprintln!(
-                "[spume_bridge] injecting config: server_id={}, server_url={}, has_invite_code={}",
-                config.server_id,
-                config.server_url,
-                config.invite_code.is_some()
-            );
-            generate_config_script(&config)
-        }
-        None => {
-            // no config yet - spume will fall back to local mode
-            eprintln!("[spume_bridge] no config available at window creation");
-            "console.log('[freqhole] no config available at window creation');".to_string()
-        }
+        Some(config) => generate_config_script(&config),
+        None => String::new(),
     }
 }
 
@@ -226,4 +198,60 @@ pub fn notify_scan_jobs_complete(
             artists_added,
         },
     )
+}
+
+/// push a fresh auth invite code to spume
+///
+/// generates a new invite code linked to the admin user and dispatches
+/// a `freqhole:auth-refresh` event to spume. this is used after server
+/// start to enable auto-authentication without relying on tauri IPC
+/// (which doesn't work for external URLs in dev mode).
+pub async fn push_auth_refresh_to_spume(app: &AppHandle<Wry>) -> Result<(), String> {
+    // get config to find the remote_id (server_id)
+    let config = get_freqhole_config(app.clone()).ok_or("config not available")?;
+    let remote_id = config.server_id.clone();
+
+    // load app config to get stored admin user id
+    let app_config =
+        FreqholeAppConfig::load(app).ok_or_else(|| "app config not found".to_string())?;
+
+    let admin_user_id = app_config
+        .admin_user
+        .user_id
+        .ok_or_else(|| "admin user not configured".to_string())?;
+
+    // ensure wordlist is initialized (needed for invite code generation)
+    if !grimoire::wordlist::is_initialized() {
+        let wordlist_config = grimoire::wordlist::ManagementWordlistConfig::default();
+        let result = grimoire::wordlist::initialize_wordlist(&wordlist_config);
+        if !result.is_success() {
+            return Err(format!("failed to initialize wordlist: {}", result.message));
+        }
+    }
+
+    // generate a fresh invite code
+    let service = grimoire::users::UserService::new();
+    let result = service
+        .create_account_link_code_internal(&admin_user_id)
+        .await;
+
+    let invite_code = result
+        .data
+        .map(|c| c.code)
+        .ok_or_else(|| format!("failed to generate invite code: {}", result.message))?;
+
+    // dispatch freqhole:auth-refresh event to spume
+    let window = app
+        .get_webview_window("main")
+        .ok_or("main window not found")?;
+
+    let script = format!(
+        r#"window.dispatchEvent(new CustomEvent('freqhole:auth-refresh', {{
+            detail: {{ invite_code: '{}', remote_id: '{}' }}
+        }}));"#,
+        invite_code, remote_id
+    );
+
+    window.eval(&script).map_err(|e| e.to_string())?;
+    Ok(())
 }

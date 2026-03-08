@@ -77,6 +77,7 @@ pub fn run() {
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 let app_handle = app.handle().clone();
                 let app_handle_for_server = app_handle.clone();
+                let app_handle_for_auth = app_handle.clone();
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     let result =
@@ -88,6 +89,11 @@ pub fn run() {
                         eprintln!("[tauri] server started successfully");
                         // server started - check for pending jobs and resume polling
                         commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
+                        // push fresh auth to spume (after brief delay for server to be ready)
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        if let Err(e) = spume_bridge::push_auth_refresh_to_spume(&app_handle_for_auth).await {
+                            eprintln!("[tauri] failed to push auth refresh: {}", e);
+                        }
                     }
                 });
 
