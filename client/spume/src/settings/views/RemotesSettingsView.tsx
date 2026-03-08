@@ -14,6 +14,7 @@ import {
 } from "../../app/services/storage/types";
 import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
+import { Icon } from "../../components/icons/registry";
 import { ReauthModal } from "../../components/auth/ReauthModal";
 import { formatDate } from "../../utils/dateTime";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
@@ -362,17 +363,46 @@ export function RemotesSettingsView() {
           <div class="space-y-3">
             <For each={remotes()}>
               {(remote) => {
+                const isLocal = () => {
+                  const url = remote.base_url.toLowerCase();
+                  return (
+                    url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]")
+                  );
+                };
+                const isP2P = () => remote.transport_type === "wasm" || !!remote.peer_addr;
                 return (
                   <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
                     <div class="flex items-start gap-4">
-                      {/* server image */}
-                      <RemoteImage remote={remote} />
+                      {/* server image or home icon for tauri-managed */}
+                      <Show
+                        when={remote.is_tauri_managed}
+                        fallback={<RemoteImage remote={remote} />}
+                      >
+                        <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
+                          <Icon name="home" size={24} color="var(--color-accent-500)" />
+                        </div>
+                      </Show>
 
                       <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2 mb-1">
+                        <div class="flex items-center gap-2 mb-1 flex-wrap">
                           <h3 class="text-sm font-medium text-[var(--color-text-primary)] truncate">
                             {remote.name}
                           </h3>
+                          <Show when={remote.is_tauri_managed}>
+                            <span class="px-1.5 py-0.5 text-xs font-medium bg-[var(--color-accent-500)]/20 text-[var(--color-accent-500)] rounded">
+                              embedded
+                            </span>
+                          </Show>
+                          <Show when={isP2P()}>
+                            <span class="px-1.5 py-0.5 text-xs font-medium bg-purple-600/20 text-purple-400 rounded">
+                              p2p
+                            </span>
+                          </Show>
+                          <Show when={isLocal() && !remote.is_tauri_managed}>
+                            <span class="px-1.5 py-0.5 text-xs font-medium bg-blue-600/20 text-blue-400 rounded">
+                              local
+                            </span>
+                          </Show>
                           <Show when={remote.is_active}>
                             <span class="px-1.5 py-0.5 text-xs font-medium bg-green-600/20 text-green-400 rounded">
                               active
@@ -389,9 +419,16 @@ export function RemotesSettingsView() {
                             </span>
                           </Show>
                         </div>
-                        <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
-                          {remote.base_url}
-                        </p>
+                        <Show when={remote.base_url}>
+                          <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
+                            {remote.base_url}
+                          </p>
+                        </Show>
+                        <Show when={remote.peer_addr}>
+                          <p class="text-xs text-[var(--color-text-muted)] truncate mb-2 font-mono">
+                            node: {remote.peer_addr}
+                          </p>
+                        </Show>
                         {/* logged in user info */}
                         {(() => {
                           const info = authStatus().get(remote.remote_id);

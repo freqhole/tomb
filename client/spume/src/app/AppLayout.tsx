@@ -563,16 +563,23 @@ export function AppLayout(props: AppLayoutProps) {
         currentPath={location.pathname + location.search}
         currentSourceName={currentSourceName()}
         currentSourceId={getCurrentRemote()?.remote_id ?? null}
-        remotes={remotes().map((r) => ({
-          id: r.remote_id,
-          name: r.name,
-          url: r.base_url,
-          imageUrl: r.image_url ?? undefined,
-          imageBlobId: r.image_blob_id ?? undefined,
-          peerAddr: r.peer_addr,
-          isOffline: r.is_offline,
-          lastChecked: r.last_checked,
-        }))}
+        remotes={remotes().map((r) => {
+          const url = r.base_url.toLowerCase();
+          const isLocal =
+            url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]");
+          return {
+            id: r.remote_id,
+            name: r.name,
+            url: r.base_url,
+            imageUrl: r.image_url ?? undefined,
+            imageBlobId: r.image_blob_id ?? undefined,
+            peerAddr: r.peer_addr,
+            isOffline: r.is_offline,
+            lastChecked: r.last_checked,
+            isTauriManaged: r.is_tauri_managed,
+            isLocal,
+          };
+        })}
         onSwitchToLocal={handleSwitchToLocal}
         onSwitchToRemote={handleSwitchToRemote}
         onRecheckRemote={handleRecheckRemote}

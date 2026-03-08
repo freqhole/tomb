@@ -102,6 +102,8 @@ export interface TopNavProps {
     peerAddr?: string;
     isOffline?: boolean;
     lastChecked?: number | null;
+    isTauriManaged?: boolean;
+    isLocal?: boolean;
   }>;
   /** callback to switch to local source */
   onSwitchToLocal?: () => void;
@@ -514,14 +516,31 @@ export function TopNav(props: TopNavProps) {
                                           color="var(--color-accent-500)"
                                         />
                                       </Show>
-                                      <RemoteServerImage
-                                        remote={remote}
-                                        class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
-                                      />
+                                      <Show
+                                        when={remote.isTauriManaged}
+                                        fallback={
+                                          <RemoteServerImage
+                                            remote={remote}
+                                            class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
+                                          />
+                                        }
+                                      >
+                                        <Icon
+                                          name="home"
+                                          size={16}
+                                          color="var(--color-accent-500)"
+                                          className="flex-shrink-0"
+                                        />
+                                      </Show>
                                       <span class="truncate">{remote.name}</span>
                                       <Show when={remote.peerAddr}>
                                         <span class="px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 rounded">
                                           p2p
+                                        </span>
+                                      </Show>
+                                      <Show when={remote.isLocal && !remote.isTauriManaged}>
+                                        <span class="px-1.5 py-0.5 text-[10px] font-medium bg-blue-600/20 text-blue-400 rounded">
+                                          local
                                         </span>
                                       </Show>
                                       <Show when={remote.isOffline && !isRechecking()}>
