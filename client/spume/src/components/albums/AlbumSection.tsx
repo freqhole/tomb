@@ -310,6 +310,12 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             const trackDisplay =
               song.disc_number > 1 ? `${song.disc_number}-${song.track_number}` : song.track_number;
 
+            // show track_artist for compilation albums
+            const trackArtist =
+              song.album_type === "compilation" && song.track_artist?.trim()
+                ? song.track_artist.trim()
+                : undefined;
+
             return (
               <SongRow
                 title={song.title}
@@ -329,6 +335,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
                 onFavoriteToggle={(isFavorite) => props.onSongFavoriteToggle?.(song.id, isFavorite)}
                 songId={song.id}
                 sha256={song.sha256}
+                artist={trackArtist}
               />
             );
           }}

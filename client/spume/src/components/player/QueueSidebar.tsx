@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
@@ -14,7 +14,6 @@ import { isSongCachedReactive, getLoadingProgress } from "../../music/services/c
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { getCachedP2PBlobUrl, isValidHttpUrl } from "../../music/services/storage/blobResolver";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
-import { debug } from "../../utils/logger";
 
 type QueueTab = "queue" | "history";
 
@@ -102,6 +101,9 @@ export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
   let historyScrollRef: HTMLDivElement | undefined;
 
+  // track which song we've scrolled to (plain var, not reactive)
+  let lastScrolledSongId: string | null = null;
+
   const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
@@ -122,6 +124,30 @@ export function QueueSidebar(props: QueueSidebarProps) {
     getScrollElement: () => historyScrollRef ?? null,
     estimateSize: () => 56,
     overscan: 5,
+  });
+
+  // scroll to current song when it changes (once per song change)
+  createEffect(() => {
+    const currentSong = props.songs[props.currentIndex];
+    const currentSongId = currentSong?.id;
+
+    // only scroll if song changed and we have a valid song
+    if (currentSongId && currentSongId !== lastScrolledSongId) {
+      lastScrolledSongId = currentSongId;
+
+      // check visibility before scrolling (subtract overscan to get actual viewport)
+      const visibleItems = virtualizer.getVirtualItems();
+      const visibleIndices = visibleItems.map((item) => item.index);
+      const minVisible = Math.min(...visibleIndices) + 5; // account for overscan
+      const maxVisible = Math.max(...visibleIndices) - 6;
+      const isActuallyVisible =
+        props.currentIndex >= minVisible && props.currentIndex <= maxVisible;
+
+      // only scroll if not actually in viewport (excluding overscan buffer)
+      if (!isActuallyVisible) {
+        virtualizer.scrollToIndex(props.currentIndex, { align: "auto", behavior: "smooth" });
+      }
+    }
   });
 
   const handleSongDoubleClick = (index: number) => {
@@ -343,16 +369,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         waveformImg.remote_server_id
                       );
                       if (cached) {
-                        debug(
-                          "QueueSidebar",
-                          `waveform cache HIT: ${waveformImg.remote_blob_id.slice(0, 8)}...`
-                        );
                         return cached;
                       }
-                      debug(
-                        "QueueSidebar",
-                        `waveform cache MISS: ${waveformImg.remote_blob_id.slice(0, 8)}...`
-                      );
                       // P2P not cached - only fall back if we have a valid HTTP URL
                     }
 
