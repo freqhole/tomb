@@ -1,18 +1,20 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
-import { getSongDisplayImages } from "../../utils/images";
+import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
-import { isBlobCachedReactive, getLoadingProgress } from "../../music/services/cache/blobCache";
+import { isSongCachedReactive, getLoadingProgress } from "../../music/services/cache/blobCache";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
+import { getCachedP2PBlobUrl, isValidHttpUrl } from "../../music/services/storage/blobResolver";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
+import { debug } from "../../utils/logger";
 
 type QueueTab = "queue" | "history";
 
@@ -326,13 +328,41 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     }
                   };
 
-                  // check for waveform image
-                  const waveformUrl = (): string | undefined => {
+                  // get waveform URL - memo tracks P2P cache reactively
+                  const waveformUrl = createMemo(() => {
                     const s = song();
                     if (!s?.images) return undefined;
-                    const waveformImg = s.images.find((img) => img.blob_type === "waveform");
-                    return waveformImg?.remote_url;
-                  };
+
+                    const waveformImg = getWaveformImage(s.images);
+                    if (!waveformImg) return undefined;
+
+                    // check if waveform has P2P blob info - use cached URL if available
+                    if (waveformImg.remote_blob_id && waveformImg.remote_server_id) {
+                      const cached = getCachedP2PBlobUrl(
+                        waveformImg.remote_blob_id,
+                        waveformImg.remote_server_id
+                      );
+                      if (cached) {
+                        debug(
+                          "QueueSidebar",
+                          `waveform cache HIT: ${waveformImg.remote_blob_id.slice(0, 8)}...`
+                        );
+                        return cached;
+                      }
+                      debug(
+                        "QueueSidebar",
+                        `waveform cache MISS: ${waveformImg.remote_blob_id.slice(0, 8)}...`
+                      );
+                      // P2P not cached - only fall back if we have a valid HTTP URL
+                    }
+
+                    // only use remote_url if it's a valid full HTTP URL (not relative paths)
+                    if (isValidHttpUrl(waveformImg.remote_url)) {
+                      return waveformImg.remote_url!;
+                    }
+
+                    return undefined;
+                  });
 
                   const songRow = (
                     <div
@@ -496,23 +526,29 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             style={{
                               color: (() => {
                                 const isLoading = props.loadingSongIds?.has(song()?.sha256 ?? "");
-                                // if loadingSongIds provided, use that for color logic (story mode)
-                                if (props.loadingSongIds !== undefined) {
-                                  // when loading, animation handles color; when done, bright white
-                                  return isLoading ? undefined : "var(--color-text-primary)";
+                                // if loading, let animation handle color
+                                if (isLoading) {
+                                  return undefined;
                                 }
-                                // otherwise use blob cache logic
-                                return isBlobCachedReactive(song()?.source_url) &&
-                                  !(
-                                    isCurrentlyPlaying() &&
-                                    isPlayingDirectURLReactive(song()?.sha256)
-                                  )
-                                  ? "var(--color-text-primary)"
-                                  : "var(--color-text-muted)";
+                                return "var(--color-text-secondary)";
                               })(),
                               animation: props.loadingSongIds?.has(song()?.sha256 ?? "")
                                 ? "pulse-text 4s ease-in-out infinite"
                                 : undefined,
+                              "text-decoration": (() => {
+                                const isLoading = props.loadingSongIds?.has(song()?.sha256 ?? "");
+                                // don't underline if currently loading
+                                if (isLoading) return undefined;
+                                // underline only when cached (not when playing direct URL)
+                                const isCached = isSongCachedReactive(
+                                  song()?.remote_server_id,
+                                  song()?.sha256
+                                );
+                                const isPlayingDirect =
+                                  isCurrentlyPlaying() &&
+                                  isPlayingDirectURLReactive(song()?.sha256);
+                                return isCached && !isPlayingDirect ? "underline" : undefined;
+                              })(),
                             }}
                           >
                             {formatDuration(song()?.duration_seconds)}

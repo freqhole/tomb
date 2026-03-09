@@ -423,6 +423,10 @@ async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<vo
   debug("player", `swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`);
 }
 
+// track the intended song
+// when user switches songs quickly, we need to know if a pending download should still play
+let intendedSongSha256: string | null = null;
+
 // play a specific song
 export async function playSong(songOrId: string | Song): Promise<void> {
   const audio = initAudio();
@@ -460,9 +464,19 @@ export async function playSong(songOrId: string | Song): Promise<void> {
       song = songOrId;
     }
 
+    // mark this song as the intended target (before any async work)
+    // this allows us to detect if user switched songs during download
+    intendedSongSha256 = song.sha256;
+
     // update app state first (before loading audio)
     // this ensures media session gets correct song when events fire
     await setCurrentSong(song.sha256);
+
+    // NOTE: we intentionally don't pre-cache here when user clicks a song
+    // pre-caching is handled by:
+    // 1. queue setup (playQueue/addToQueue) - when songs first enter queue
+    // 2. >50% playback trigger - rolling pre-cache as user listens
+    // this prevents chaos when user skips around the queue rapidly
 
     // cleanup previous audio url and any pending swap listener
     if (currentSongId) {
@@ -473,8 +487,27 @@ export async function playSong(songOrId: string | Song): Promise<void> {
       pendingSwapCleanup = null;
     }
 
-    // get audio url using abstraction
-    const audioURL = await getAudioURL(song);
+    // get audio url using abstraction (this can be slow for P2P downloads)
+    let audioURL: string;
+    try {
+      audioURL = await getAudioURL(song);
+    } catch (urlError) {
+      console.error(
+        `[playSong] getAudioURL failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
+        urlError instanceof Error ? urlError.message : urlError
+      );
+      setIsLoading(false);
+      throw urlError;
+    }
+    
+    // verify this song is still the intended one
+    // user may have selected a different song while we were downloading
+    if (intendedSongSha256 !== song.sha256) {
+      debug("player", `aborting playSong - user switched to different song during download`);
+      setIsLoading(false);
+      return;
+    }
+    
     currentSongId = song.sha256;
 
     // reset progress tracking for new song (before loading audio)
@@ -492,16 +525,31 @@ export async function playSong(songOrId: string | Song): Promise<void> {
 
     // load and play
     audio.src = audioURL;
-    await audio.play();
+    try {
+      await audio.play();
+    } catch (playError) {
+      console.error(
+        `[playSong] audio.play() failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
+        playError instanceof Error ? playError.message : playError,
+        `URL type: ${audioURL.startsWith("blob:") ? "blob" : audioURL.startsWith("http") ? "http" : "other"}`
+      );
+      setIsLoading(false);
+      throw playError;
+    }
 
     // reset playback ended flag since we're playing now
     resetPlaybackEnded();
 
     setIsLoading(false);
   } catch (error) {
-    console.error("failed to play song:", error);
+    // catch-all for any other unexpected errors
+    if (!(error instanceof Error) || !error.message.includes("playSong")) {
+      console.error(
+        `[playSong] unexpected error for "${(typeof songOrId === "string" ? songOrId : songOrId.title)}"`,
+        error
+      );
+    }
     setIsLoading(false);
-    // don't throw - let caller decide whether to skip to next
     throw error;
   }
 }
@@ -673,20 +721,21 @@ export async function playNext(): Promise<void> {
 
   while (currentIdx < queue.length - 1 && attempts < maxAttempts) {
     const nextIdx = currentIdx + 1;
+    const nextSong = queue[nextIdx];
     attempts++;
 
     try {
-      await playSong(queue[nextIdx]);
+      await playSong(nextSong);
       return; // success!
     } catch (error) {
       console.warn(
-        `failed to play song at index ${nextIdx}, trying next...`,
-        error,
+        `[playNext] failed to play "${nextSong?.title}" at index ${nextIdx} (attempt ${attempts}/${maxAttempts}):`,
+        error instanceof Error ? error.message : error,
       );
       currentIdx = nextIdx; // move to next song
       // if this was the last song, stop trying
       if (nextIdx >= queue.length - 1) {
-        console.error("reached end of queue, no playable songs found");
+        console.error("[playNext] reached end of queue, no playable songs found");
         markPlaybackEnded();
         void stopServerSession("completed");
         return;
@@ -694,7 +743,7 @@ export async function playNext(): Promise<void> {
     }
   }
 
-  console.error("exceeded max attempts to find playable song");
+  console.error(`[playNext] exceeded max attempts (${maxAttempts}) to find playable song`);
 }
 
 // play previous song in queue

@@ -52,6 +52,8 @@ export interface SongRowProps {
   onRatingChange?: (rating: number) => void;
   /** whether this row is highlighted (e.g. from search navigation) — more prominent than isSelected */
   isHighlighted?: boolean;
+  /** artist name - shown before title (for compilation albums) */
+  artist?: string;
 }
 
 export function SongRow(props: SongRowProps): JSX.Element {
@@ -99,11 +101,14 @@ export function SongRow(props: SongRowProps): JSX.Element {
         />
       </Show>
 
-      {/* song title */}
+      {/* song title (with optional artist prefix for compilations) */}
       <div class="flex-1 min-w-0">
         <div class={getPlayingTextClasses(!!props.isPlaying)}>
           <MarqueeText text={props.title} hoverOnly={true} />
         </div>
+        <Show when={props.artist}>
+          <div class="text-xs text-[var(--color-text-tertiary)]">{props.artist}</div>
+        </Show>
       </div>
 
       {/* favorite indicator/toggle */}

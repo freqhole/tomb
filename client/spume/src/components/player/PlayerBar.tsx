@@ -1,4 +1,4 @@
-import { Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
+import { Show, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
@@ -94,6 +94,14 @@ export function PlayerBar(props: PlayerBarProps) {
   // track waveform image errors (use fallback progress bar instead)
   const [waveformError, setWaveformError] = createSignal(false);
 
+  // track the "display waveform" - the waveform shown in the progress bar
+  // we delay switching to new song's waveform until loading completes
+  // this is initialized as null, meaning "use incoming waveform"
+  const [displayWaveform, setDisplayWaveform] = createSignal<
+    ReturnType<typeof getWaveformImage> | null | undefined
+  >(undefined);
+  const [wasLoading, setWasLoading] = createSignal(false);
+
   onMount(() => {
     const handleResize = () => {
       setIsCompact(window.innerWidth >= 801 && window.innerWidth <= COMPACT_MAX_WIDTH);
@@ -102,10 +110,37 @@ export function PlayerBar(props: PlayerBarProps) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
-  // get waveform image from song (reset error state when song changes)
-  const waveformImage = createMemo(() => {
-    setWaveformError(false); // reset error when song changes
+  // get waveform image from current song
+  const incomingWaveform = createMemo(() => {
     return props.song ? getWaveformImage(props.song.images) : undefined;
+  });
+
+  // update display waveform when loading transitions to complete
+  // keep previous waveform visible while loading a new song
+  createEffect(() => {
+    const isLoading = props.isLoading ?? false;
+    const prevLoading = wasLoading();
+
+    if (prevLoading && !isLoading) {
+      // loading just completed - update display waveform to current song
+      setDisplayWaveform(incomingWaveform());
+      setWaveformError(false); // reset error for new waveform
+    } else if (!prevLoading && isLoading) {
+      // loading just started - keep showing the current display waveform (no change)
+    } else if (!isLoading && displayWaveform() === undefined) {
+      // not loading and no display waveform set yet - use incoming
+      setDisplayWaveform(incomingWaveform());
+      setWaveformError(false);
+    }
+
+    setWasLoading(isLoading);
+  });
+
+  // the waveform to actually display in the progress bar
+  const waveformImage = createMemo(() => {
+    // if we have a stored display waveform, use it
+    // otherwise fall back to incoming (initial state)
+    return displayWaveform() ?? incomingWaveform();
   });
 
   // show waveform only if we have image data AND no load error

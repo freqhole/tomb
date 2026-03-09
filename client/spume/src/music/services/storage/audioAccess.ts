@@ -4,11 +4,12 @@ import { getCachedBlob, preCacheBlob, addToLoadingSet, updateLoadingProgress, re
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 import { debug } from "../../../utils/logger";
-import { resolveBlobUrl, isP2PRemote } from "./blobResolver";
+import { resolveBlobUrl, isP2PRemote, revokeBlobUrl } from "./blobResolver";
 import type { BlobProgressCallback } from "freqhole-api-client";
 
 // cache of active blob urls to prevent memory leaks
-const activeBlobURLs = new Map<string, string>();
+// stores {url, remoteId} so we can properly cleanup from blobResolver too
+const activeBlobURLs = new Map<string, { url: string; remoteId: string | null }>();
 
 // track songs currently playing from a direct (non-cached) remote URL
 // maps sha256 -> { sourceUrl, remoteId } so we can swap to cached version later
@@ -44,8 +45,12 @@ export async function getAudioURL(song: Song): Promise<string> {
 
   // cleanup previous url if exists
   if (activeBlobURLs.has(song.sha256)) {
-    const oldURL = activeBlobURLs.get(song.sha256)!;
-    URL.revokeObjectURL(oldURL);
+    const entry = activeBlobURLs.get(song.sha256)!;
+    URL.revokeObjectURL(entry.url);
+    // also remove from blobResolver's store for P2P songs
+    if (entry.remoteId) {
+      revokeBlobUrl(song.sha256, entry.remoteId);
+    }
     activeBlobURLs.delete(song.sha256);
   }
   directURLSongs.delete(song.sha256);
@@ -61,7 +66,7 @@ export async function getAudioURL(song: Song): Promise<string> {
       debug("audioAccess", `reading from opfs: ${song.opfs_path}`);
       const file = await readAudioFromOPFS(song.opfs_path);
       const url = URL.createObjectURL(file);
-      activeBlobURLs.set(song.sha256, url);
+      activeBlobURLs.set(song.sha256, { url, remoteId: null });
       return url;
     } catch (error) {
       console.error(`failed to read from opfs:`, error);
@@ -88,7 +93,7 @@ export async function getAudioURL(song: Song): Promise<string> {
           }
         };
         const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio", onProgress);
-        activeBlobURLs.set(song.sha256, url);
+        activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
         return url;
       } catch (error) {
         console.error(`failed to fetch P2P audio:`, error);
@@ -111,16 +116,15 @@ export async function getAudioURL(song: Song): Promise<string> {
     // try to get from cache (keyed by remoteId + sha256)
     const cachedResponse = await getCachedBlob(song.remote_server_id, song.sha256);
     if (cachedResponse) {
-      debug("audioAccess", `using cached audio: ${song.source_url}`);
+      debug("audioAccess", `CACHE HIT - using cached audio for: ${song.sha256.slice(0, 8)}...`);
       const blob = await cachedResponse.blob();
       const url = URL.createObjectURL(blob);
-      activeBlobURLs.set(song.sha256, url);
+      activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
       return url;
     }
 
     // not cached: return direct URL for immediate streaming
-    // the browser will handle range requests and buffering natively
-    debug("audioAccess", `streaming direct URL (not cached): ${song.source_url}`);
+    debug("audioAccess", `CACHE MISS - streaming direct URL for: ${song.sha256.slice(0, 8)}...`);
     directURLSongs.set(song.sha256, { sourceUrl: song.source_url, remoteId: song.remote_server_id });
     addToDirectURLSet(song.sha256);
 
@@ -158,9 +162,13 @@ export async function trySwapToCachedURL(sha256: string): Promise<string | null>
 
   // cleanup old blob URL if any
   if (activeBlobURLs.has(sha256)) {
-    URL.revokeObjectURL(activeBlobURLs.get(sha256)!);
+    const oldEntry = activeBlobURLs.get(sha256)!;
+    URL.revokeObjectURL(oldEntry.url);
+    if (oldEntry.remoteId) {
+      revokeBlobUrl(sha256, oldEntry.remoteId);
+    }
   }
-  activeBlobURLs.set(sha256, url);
+  activeBlobURLs.set(sha256, { url, remoteId: entry.remoteId });
   directURLSongs.delete(sha256);
   removeFromDirectURLSet(sha256);
 
@@ -171,8 +179,12 @@ export async function trySwapToCachedURL(sha256: string): Promise<string | null>
 // cleanup audio url for a song
 export function cleanupAudioURL(songId: string): void {
   if (activeBlobURLs.has(songId)) {
-    const url = activeBlobURLs.get(songId)!;
-    URL.revokeObjectURL(url);
+    const entry = activeBlobURLs.get(songId)!;
+    URL.revokeObjectURL(entry.url);
+    // also remove from blobResolver's store for P2P songs
+    if (entry.remoteId) {
+      revokeBlobUrl(songId, entry.remoteId);
+    }
     activeBlobURLs.delete(songId);
     debug("audioAccess", `cleaned up audio url for song: ${songId}`);
   }
@@ -180,8 +192,11 @@ export function cleanupAudioURL(songId: string): void {
 
 // cleanup all audio urls
 export function cleanupAllAudioURLs(): void {
-  for (const [songId, url] of activeBlobURLs.entries()) {
-    URL.revokeObjectURL(url);
+  for (const [songId, entry] of activeBlobURLs.entries()) {
+    URL.revokeObjectURL(entry.url);
+    if (entry.remoteId) {
+      revokeBlobUrl(songId, entry.remoteId);
+    }
     debug("audioAccess", `cleaned up audio url for song: ${songId}`);
   }
   activeBlobURLs.clear();
@@ -194,8 +209,11 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
 
   // cleanup old blob URL if exists
   if (activeBlobURLs.has(song.sha256)) {
-    const oldURL = activeBlobURLs.get(song.sha256)!;
-    URL.revokeObjectURL(oldURL);
+    const entry = activeBlobURLs.get(song.sha256)!;
+    URL.revokeObjectURL(entry.url);
+    if (entry.remoteId) {
+      revokeBlobUrl(song.sha256, entry.remoteId);
+    }
     activeBlobURLs.delete(song.sha256);
   }
 
@@ -208,7 +226,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     try {
       const file = await readAudioFromOPFS(song.opfs_path);
       const url = URL.createObjectURL(file);
-      activeBlobURLs.set(song.sha256, url);
+      activeBlobURLs.set(song.sha256, { url, remoteId: null });
       debug("audioAccess", `refreshed blob URL from OPFS: ${song.sha256}`);
       return url;
     } catch (error) {
@@ -223,7 +241,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
       try {
         const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio");
-        activeBlobURLs.set(song.sha256, url);
+        activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
         debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);
         return url;
       } catch (error) {
@@ -238,7 +256,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
       if (cachedResponse) {
         const blob = await cachedResponse.blob();
         const url = URL.createObjectURL(blob);
-        activeBlobURLs.set(song.sha256, url);
+        activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
         debug("audioAccess", `refreshed blob URL from API Cache: ${song.sha256}`);
         return url;
       }

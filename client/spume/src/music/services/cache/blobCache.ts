@@ -3,10 +3,12 @@
 // caches are partitioned by remote for easy management and cleanup
 
 import { createSignal } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { isP2PRemote } from "../storage/blobResolver";
 
 // ===== per-remote cache naming =====
 // cache names follow pattern: freqhole-blobs-{remoteId}
@@ -55,34 +57,36 @@ export async function shouldSkipCaching(remoteId: string): Promise<boolean> {
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// reactive set of cached audio URLs for UI feedback
-const [cachedAudioURLs, setCachedAudioURLs] = createSignal<Set<string>>(new Set());
+// store of cached audio URLs for UI feedback (granular reactivity)
+// keys are in the format: `${remoteId}/${blobId}` -> true/false
+// using store instead of signal<Set> so each key can be tracked independently
+const [cacheStatus, setCacheStatus] = createStore<Record<string, boolean>>({});
 
 // check if a URL is in the reactive cache set (for UI binding)
+// NOTE: this expects the key format `${remoteId}/${blobId}`, not a full URL
 export function isBlobCachedReactive(url: string | null | undefined): boolean {
   if (!url) return false;
-  return cachedAudioURLs().has(url);
+  return cacheStatus[url] ?? false;
+}
+
+// check if a song is cached using remoteId and blobId (sha256)
+// this is the correct way to check cache status for both HTTP and P2P transports
+export function isSongCachedReactive(remoteId: string | null | undefined, sha256: string | null | undefined): boolean {
+  if (!remoteId || !sha256) return false;
+  const key = `${remoteId}/${sha256}`;
+  return cacheStatus[key] ?? false;
 }
 
 function addToCachedSet(url: string): void {
-  setCachedAudioURLs((prev) => {
-    const next = new Set(prev);
-    next.add(url);
-    return next;
-  });
+  setCacheStatus(url, true);
 }
 
 function removeFromCachedSet(url: string): void {
-  setCachedAudioURLs((prev) => {
-    if (!prev.has(url)) return prev;
-    const next = new Set(prev);
-    next.delete(url);
-    return next;
-  });
+  setCacheStatus(url, false);
 }
 
 function clearCachedSet(): void {
-  setCachedAudioURLs(new Set<string>());
+  setCacheStatus(reconcile({}));
 }
 
 // reactive set of song sha256s currently being pre-cached (for UI loading indicators)
@@ -144,16 +148,56 @@ export function removeFromLoadingSet(sha256: string): void {
 }
 
 // seed the reactive set from existing cache metadata on startup
+// validates that blobs actually exist in Cache API before marking as cached
 export async function initCachedAudioURLs(): Promise<void> {
   try {
     const allMetadata = await getAllMetadata();
-    const audioUrls = new Set(
-      allMetadata
-        .filter((m) => m.type === "audio")
-        .map((m) => m.url),
-    );
-    setCachedAudioURLs(audioUrls);
-    debug(`initialized cached audio URL set with ${audioUrls.size} entries`);
+    const audioMetadata = allMetadata.filter((m) => m.type === "audio");
+    
+    // validate each entry actually exists in Cache API
+    const validatedKeys: Record<string, boolean> = {};
+    const staleEntries: string[] = [];
+    
+    // group by remote for efficient cache access
+    const byRemote = new Map<string, typeof audioMetadata>();
+    for (const m of audioMetadata) {
+      const list = byRemote.get(m.remoteId) || [];
+      list.push(m);
+      byRemote.set(m.remoteId, list);
+    }
+    
+    // validate each remote's cached blobs
+    for (const [remoteId, entries] of byRemote) {
+      try {
+        const cacheName = getRemoteCacheName(remoteId);
+        const cache = await caches.open(cacheName);
+        
+        for (const entry of entries) {
+          const response = await cache.match(entry.blobId);
+          if (response) {
+            validatedKeys[entry.url] = true;
+          } else {
+            // blob not in cache - mark for cleanup
+            staleEntries.push(entry.url);
+          }
+        }
+      } catch (err) {
+        // if cache access fails, skip this remote's entries
+        warn(`failed to validate cache for remote ${remoteId}:`, err);
+      }
+    }
+    
+    // batch update store with all validated entries
+    setCacheStatus(reconcile(validatedKeys));
+    debug(`initialized cache status store with ${Object.keys(validatedKeys).length} validated entries`);
+    
+    // clean up stale metadata entries in background
+    if (staleEntries.length > 0) {
+      debug(`cleaning up ${staleEntries.length} stale metadata entries`);
+      for (const url of staleEntries) {
+        void deleteMetadata(url);
+      }
+    }
   } catch (error) {
     errorLog("failed to initialize cached audio URL set:", error);
   }
@@ -445,25 +489,29 @@ export async function saveP2PBlobMetadata(
 
     // check if metadata already exists
     const metadataKey = `${remoteId}/${blobId}`;
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
+    
+    // only proceed if blob is actually in cache
+    if (!response) {
+      debug(`saveP2PBlobMetadata: blob not in cache: ${blobId.slice(0, 8)}...`);
+      return;
+    }
+    
     const existing = await getMetadata(metadataKey);
     if (existing) {
       // just update last accessed time
       existing.lastAccessedAt = Date.now();
       await saveMetadata(existing);
+      // ensure reactive set stays in sync (blob verified above)
+      if (type === "audio") {
+        addToCachedSet(metadataKey);
+      }
       return;
     }
 
-    // get the cached blob to determine size
-    const cacheName = getRemoteCacheName(remoteId);
-    const cache = await caches.open(cacheName);
-    const response = await cache.match(blobId);
-    
-    if (!response) {
-      debug(`saveP2PBlobMetadata: blob not in cache yet: ${blobId.slice(0, 8)}...`);
-      return;
-    }
-
-    // get size from response
+    // get size from response (already verified response exists above)
     const clonedResponse = response.clone();
     const blob = await clonedResponse.blob();
     const size = blob.size;
@@ -511,6 +559,16 @@ export async function getCachedBlob(remoteId: string, blobId: string): Promise<R
       return response;
     }
 
+    // cache miss - check if we thought it was cached (indicates stale metadata)
+    const metadataKey = `${remoteId}/${blobId}`;
+    const wasInStore = cacheStatus[metadataKey];
+    if (wasInStore) {
+      warn(`CACHE MISMATCH: ${blobId.slice(0, 8)}... was in cacheStatus but NOT in Cache API - removing from store`);
+      removeFromCachedSet(metadataKey);
+      // also clean up stale metadata
+      void deleteMetadata(metadataKey);
+    }
+    
     debug(`cache miss: ${blobId.slice(0, 8)}...`);
     return null;
   } catch (error) {
@@ -1203,6 +1261,14 @@ export async function preCacheNextSongs(
     const cachePromises = songsToCache.map(async (song) => {
       const results = { audio: "skipped", waveform: "skipped" };
       const progressKey = `${song.remote_id}/${song.sha256}`;
+
+      // skip P2P remotes - they're handled by preCacheNextP2PSongs in blobResolver
+      // (HTTP fetch doesn't work for P2P remotes and would cache bad data)
+      if (await isP2PRemote(song.remote_id)) {
+        results.audio = "p2p_remote";
+        results.waveform = "p2p_remote";
+        return results;
+      }
 
       // cache audio (pass sha256 for loading tracking)
       if (await isCached(song.remote_id, song.sha256)) {

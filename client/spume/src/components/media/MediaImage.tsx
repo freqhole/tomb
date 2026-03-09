@@ -98,7 +98,16 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     return { blobId, remoteUrl, remoteBlobId, remoteServerId };
   });
 
-  // only re-run when source properties actually change (not when array reference changes)
+  // track P2P cached URL reactively - will update when pre-caching completes
+  const p2pCachedUrl = createMemo(() => {
+    const source = imageSource();
+    if (source.remoteBlobId && source.remoteServerId) {
+      return getCachedP2PBlobUrl(source.remoteBlobId, source.remoteServerId);
+    }
+    return null;
+  });
+
+  // only re-run when source properties or P2P cache changes
   createEffect(
     on(
       () => ({
@@ -106,6 +115,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         remoteUrl: imageSource().remoteUrl,
         remoteBlobId: imageSource().remoteBlobId,
         remoteServerId: imageSource().remoteServerId,
+        p2pCached: p2pCachedUrl(),
       }),
       async (source, prevSource) => {
         // skip if nothing actually changed
@@ -114,7 +124,8 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           source.blobId === prevSource.blobId &&
           source.remoteUrl === prevSource.remoteUrl &&
           source.remoteBlobId === prevSource.remoteBlobId &&
-          source.remoteServerId === prevSource.remoteServerId
+          source.remoteServerId === prevSource.remoteServerId &&
+          source.p2pCached === prevSource.p2pCached
         ) {
           return;
         }
@@ -132,7 +143,14 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           return;
         }
 
-        // priority 2: P2P remote (has remote_server_id)
+        // priority 2: P2P cached URL (from reactive signal)
+        if (source.p2pCached) {
+          setResolvedUrl(source.p2pCached);
+          setIsLoading(false);
+          return;
+        }
+
+        // priority 3: P2P remote - try async resolution
         if (source.remoteBlobId && source.remoteServerId) {
           setIsLoading(true);
           try {

@@ -406,6 +406,11 @@ export function AlbumDetailView() {
                         <div ref={rowEl}>
                           <SongRow
                             title={song.title}
+                            artist={
+                              song.album_type === "compilation" && song.track_artist?.trim()
+                                ? song.track_artist
+                                : undefined
+                            }
                             trackNumber={trackDisplay}
                             duration={formatDuration(song.duration_seconds)}
                             isPlaying={isPlaying()}

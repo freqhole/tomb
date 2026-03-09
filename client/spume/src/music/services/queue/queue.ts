@@ -137,13 +137,20 @@ export async function addToQueue(
   await setQueue(newQueue);
 
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
-  if (startPlaying || !currentId || hasPlaybackEnded()) {
+  const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();
+  if (willAutoPlay) {
     await playSong(songs[0]);
   }
 
   // pre-cache P2P songs (~30 min ahead from current position)
+  // only trigger pre-cache when:
+  // 1. starting playback (need immediate cache for smooth playback)
+  // 2. adding as "next" (the song is within the 30-min rolling window)
+  // skip pre-cache when adding to "end" and not starting playback
+  // (the rolling 50% progress check will pick it up later if needed)
+  const shouldPreCache = willAutoPlay || position === "next";
   const currentSha256 = currentId ?? songs[0]?.sha256;
-  if (currentSha256) {
+  if (shouldPreCache && currentSha256) {
     void preCacheNextP2PSongs(currentSha256, newQueue);
   }
 

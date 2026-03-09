@@ -8,6 +8,7 @@
 //   <img src={url} /> or <audio src={url} />
 
 import { createSignal } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import {
   getMiddenNode,
@@ -23,9 +24,26 @@ import {
   removeFromLoadingSet,
 } from "../cache/blobCache";
 
-// cache of active blob URLs to prevent memory leaks
-// keyed by `${remoteId}/${blobId}`
-const activeBlobUrls = new Map<string, string>();
+// store of active blob URLs - provides granular reactivity per key
+// keyed by `${remoteId}/${blobId}` -> URL string
+// using store instead of signal<Map> so each key can be tracked independently
+const [activeBlobUrls, setActiveBlobUrls] = createStore<Record<string, string>>({});
+
+// helper to add a URL to the reactive store
+function addActiveBlobUrl(key: string, url: string) {
+  debug("blobResolver", `adding to activeBlobUrls store: ${key.split('/')[1]?.slice(0, 8) ?? key.slice(0, 8)}...`);
+  setActiveBlobUrls(key, url);
+}
+
+// helper to remove a URL from the reactive store
+function removeActiveBlobUrl(key: string) {
+  setActiveBlobUrls(key, undefined as unknown as string);
+}
+
+// helper to clear all URLs from the reactive store
+function clearActiveBlobUrls() {
+  setActiveBlobUrls(reconcile({}));
+}
 
 // reactive set of P2P blob sha256s currently being fetched (for UI loading indicators)
 // NOTE: now deprecated - P2P loading uses blobCache's unified loading set
@@ -38,8 +56,8 @@ export function getLoadingP2PSongIds(): Set<string> {
   return loadingP2PSha256s();
 }
 
-// track in-progress P2P fetches to avoid duplicates
-const inProgressP2PFetches = new Set<string>();
+// track in-progress P2P fetches with their promises so callers can await them
+const inProgressP2PFetches = new Map<string, Promise<string>>();
 
 /**
  * resolve a blob ID to a URL for display/playback.
@@ -55,26 +73,43 @@ export async function resolveBlobUrl(
   type: "audio" | "image" = "image",
   onProgress?: BlobProgressCallback,
 ): Promise<string> {
-  debug("blobResolver", `resolving blob ${blobId.slice(0, 8)}... for remote ${remoteId}`);
+  // check if we already have an active blob URL (fast path, no logging)
+  const cacheKey = `${remoteId}/${blobId}`;
+  const cached = activeBlobUrls[cacheKey];
+  if (cached) {
+    return cached;
+  }
 
   const remote = await getRemoteById(remoteId);
   if (!remote) {
     throw new Error(`remote not found: ${remoteId}`);
   }
 
-  // check if we already have an active blob URL
-  const cacheKey = `${remoteId}/${blobId}`;
-  const cached = activeBlobUrls.get(cacheKey);
-  if (cached) {
-    debug("blobResolver", `using cached blob URL for ${blobId.slice(0, 8)}...`);
-    return cached;
-  }
-
   // determine transport type
   const transportType = remote.transport_type ?? (remote.peer_addr ? "wasm" : "http");
 
   if (transportType === "wasm") {
-    return resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
+    // check if there's already a fetch in progress for this blob
+    // if so, wait for it instead of starting a duplicate fetch
+    const inProgress = inProgressP2PFetches.get(cacheKey);
+    if (inProgress) {
+      debug("blobResolver", `waiting for in-progress P2P fetch: ${blobId.slice(0, 8)}...`);
+      return inProgress;
+    }
+    
+    // only log when we're actually starting a new fetch
+    debug("blobResolver", `starting P2P fetch for ${blobId.slice(0, 8)}...`);
+    
+    // start the fetch and track it
+    const fetchPromise = resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
+    inProgressP2PFetches.set(cacheKey, fetchPromise);
+    
+    try {
+      const url = await fetchPromise;
+      return url;
+    } finally {
+      inProgressP2PFetches.delete(cacheKey);
+    }
   } else {
     // HTTP transport - return direct URL
     return `${remote.base_url}/api/blobs/${blobId}`;
@@ -83,7 +118,7 @@ export async function resolveBlobUrl(
 
 /**
  * resolve a blob via P2P transport.
- * fetches the blob, caches it, and returns a blob URL.
+ * checks Cache API first, then fetches from peer if not cached.
  * @param onProgress - optional callback for download progress (received, total)
  */
 async function resolveP2PBlob(
@@ -93,11 +128,30 @@ async function resolveP2PBlob(
   type: "audio" | "image",
   onProgress?: BlobProgressCallback,
 ): Promise<string> {
-  debug("blobResolver", `fetching P2P blob ${blobId.slice(0, 8)}...`);
+  // check Cache API first - blob might be cached from a previous session
+  try {
+    const cacheName = getRemoteCacheName(remote.remote_id);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
+    if (response) {
+      debug("blobResolver", `cache hit for P2P blob: ${blobId.slice(0, 8)}...`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      addActiveBlobUrl(cacheKey, url);
+      // ensure metadata is up to date
+      void saveP2PBlobMetadata(remote.remote_id, blobId, type);
+      return url;
+    }
+  } catch (err) {
+    debug("blobResolver", `cache check failed for ${blobId.slice(0, 8)}...: ${err}`);
+  }
 
+  // not in cache - fetch from peer
   if (!remote.peer_addr) {
     throw new Error(`remote ${remote.remote_id} has no peer_addr for P2P transport`);
   }
+
+  debug("blobResolver", `fetching from peer: ${blobId.slice(0, 8)}...`);
 
   // get midden node and create transport with per-remote cache
   const node = await getMiddenNode();
@@ -112,13 +166,13 @@ async function resolveP2PBlob(
     url = await transport.getBlobUrl(blobId);
   }
 
-  // track the URL for cleanup
-  activeBlobUrls.set(cacheKey, url);
+  // track the URL for cleanup and trigger reactive updates
+  addActiveBlobUrl(cacheKey, url);
 
   // save metadata for P2P-cached blobs so stats tracking works
   void saveP2PBlobMetadata(remote.remote_id, blobId, type);
 
-  debug("blobResolver", `resolved P2P blob ${blobId.slice(0, 8)}... to blob URL`);
+  debug("blobResolver", `fetched P2P blob: ${blobId.slice(0, 8)}...`);
   return url;
 }
 
@@ -128,13 +182,13 @@ async function resolveP2PBlob(
  */
 export function revokeBlobUrl(blobId: string, remoteId: string): void {
   const cacheKey = `${remoteId}/${blobId}`;
-  const url = activeBlobUrls.get(cacheKey);
+  const url = activeBlobUrls[cacheKey];
   if (url) {
     // only revoke blob: URLs (not http: URLs)
     if (url.startsWith("blob:")) {
       URL.revokeObjectURL(url);
     }
-    activeBlobUrls.delete(cacheKey);
+    removeActiveBlobUrl(cacheKey);
     debug("blobResolver", `revoked blob URL for ${blobId.slice(0, 8)}...`);
   }
 }
@@ -142,10 +196,11 @@ export function revokeBlobUrl(blobId: string, remoteId: string): void {
 /**
  * synchronously check if a P2P blob URL is already cached.
  * use this for instant render without async lookup.
+ * reactive - components re-render when THIS key changes (granular tracking).
  */
 export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | null {
   const cacheKey = `${remoteId}/${blobId}`;
-  return activeBlobUrls.get(cacheKey) ?? null;
+  return activeBlobUrls[cacheKey] ?? null;
 }
 
 /**
@@ -153,12 +208,12 @@ export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | 
  * call this on logout or when switching remotes.
  */
 export function clearAllBlobUrls(): void {
-  for (const url of activeBlobUrls.values()) {
-    if (url.startsWith("blob:")) {
+  for (const url of Object.values(activeBlobUrls)) {
+    if (url && url.startsWith("blob:")) {
       URL.revokeObjectURL(url);
     }
   }
-  activeBlobUrls.clear();
+  clearActiveBlobUrls();
   debug("blobResolver", "cleared all blob URLs");
 }
 
@@ -223,7 +278,7 @@ export async function getRemoteTransportType(
 export async function isP2PBlobCached(blobId: string, remoteId: string): Promise<boolean> {
   // check in-memory cache
   const cacheKey = `${remoteId}/${blobId}`;
-  if (activeBlobUrls.has(cacheKey)) {
+  if (activeBlobUrls[cacheKey]) {
     return true;
   }
   
@@ -250,36 +305,39 @@ export async function preCacheP2PBlob(
 ): Promise<void> {
   const cacheKey = `${remoteId}/${blobId}`;
   
-  // check if already cached or in progress
-  if (activeBlobUrls.has(cacheKey)) {
-    debug("blobResolver", `P2P blob already cached: ${blobId.slice(0, 8)}...`);
+  // check if already in memory
+  if (activeBlobUrls[cacheKey]) {
+    debug("blobResolver", `P2P blob already in memory: ${blobId.slice(0, 8)}...`);
     return;
   }
   
+  // check if fetch is already in progress (will be awaited by resolveBlobUrl)
   if (inProgressP2PFetches.has(cacheKey)) {
     debug("blobResolver", `P2P blob fetch already in progress: ${blobId.slice(0, 8)}...`);
     return;
   }
   
-  // check Cache API
-  if (await isP2PBlobCached(blobId, remoteId)) {
-    debug("blobResolver", `P2P blob already in cache: ${blobId.slice(0, 8)}...`);
-    return;
+  // check Cache API - if cached, create blob URL from it
+  try {
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
+    if (response) {
+      // blob is in Cache API - create blob URL and add to memory
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      addActiveBlobUrl(cacheKey, url);
+      debug("blobResolver", `restored P2P blob URL from cache: ${blobId.slice(0, 8)}...`);
+      return;
+    }
+  } catch (err) {
+    debug("blobResolver", `failed to check cache for ${blobId.slice(0, 8)}...: ${err}`);
   }
   
-  // get remote to check transport type
-  const remote = await getRemoteById(remoteId);
-  if (!remote) {
-    debug("blobResolver", `remote not found for P2P pre-cache: ${remoteId}`);
-    return;
-  }
-  
-  // mark as in progress (use blobCache's unified loading set for UI consistency)
-  inProgressP2PFetches.add(cacheKey);
+  // track loading state for UI (use blobCache's unified loading set)
   if (sha256 && type === "audio") {
     addToLoadingSet(sha256);
-    // initialize as indeterminate until we get total size
-    updateLoadingProgress(sha256, null);
+    updateLoadingProgress(sha256, null); // indeterminate until we get total size
   }
   
   try {
@@ -295,14 +353,13 @@ export async function preCacheP2PBlob(
           }
         : undefined;
     
-    // resolve and cache the blob directly with progress callback
-    await resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
+    // use resolveBlobUrl which handles in-progress tracking and deduplication
+    await resolveBlobUrl(blobId, remoteId, type, onProgress);
     
     debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
   } catch (err) {
     console.error(`failed to pre-cache P2P blob ${blobId}:`, err);
   } finally {
-    inProgressP2PFetches.delete(cacheKey);
     if (sha256 && type === "audio") {
       removeFromLoadingSet(sha256);
     }
@@ -311,6 +368,8 @@ export async function preCacheP2PBlob(
 
 /**
  * pre-cache next P2P songs from queue (rolling ~30 minute cache).
+ * awaits the first song to ensure immediate playback works, then fires off the rest in parallel.
+ * also pre-caches waveform images for P2P songs.
  */
 export async function preCacheNextP2PSongs(
   currentSongSha256: string | null,
@@ -319,6 +378,11 @@ export async function preCacheNextP2PSongs(
     duration_seconds: number;
     source_type: string;
     remote_server_id: string | null;
+    images?: Array<{
+      remote_blob_id?: string;
+      remote_server_id?: string;
+      blob_type: string;
+    }>;
   }>,
   targetMinutes: number = 30,
 ): Promise<void> {
@@ -328,16 +392,36 @@ export async function preCacheNextP2PSongs(
   
   // find current song index
   const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
-  if (currentIdx < 0 || currentIdx >= queue.length - 1) {
+  if (currentIdx < 0) {
     return;
   }
   
-  const songsToCache: Array<{ sha256: string; remoteId: string }> = [];
+  const songsToCache: Array<{ 
+    sha256: string; 
+    remoteId: string;
+    waveformBlobId?: string;
+    waveformRemoteId?: string;
+    thumbnailBlobId?: string;
+    thumbnailRemoteId?: string;
+  }> = [];
   let totalSeconds = 0;
   const targetSeconds = targetMinutes * 60;
   
-  // iterate from next song onwards
-  for (let i = currentIdx + 1; i < queue.length; i++) {
+  // cache isP2PRemote results to avoid repeated async lookups
+  const p2pRemoteCache = new Map<string, boolean>();
+  
+  // helper to check if remote is P2P (with caching)
+  const checkP2PRemote = async (remoteId: string): Promise<boolean> => {
+    let isP2P = p2pRemoteCache.get(remoteId);
+    if (isP2P === undefined) {
+      isP2P = await isP2PRemote(remoteId);
+      p2pRemoteCache.set(remoteId, isP2P);
+    }
+    return isP2P;
+  };
+  
+  // iterate from CURRENT song onwards (include current for immediate waveform display)
+  for (let i = currentIdx; i < queue.length; i++) {
     const song = queue[i];
     
     // only cache P2P remote songs
@@ -345,15 +429,45 @@ export async function preCacheNextP2PSongs(
       continue;
     }
     
-    // check if remote is P2P
-    const isP2P = await isP2PRemote(song.remote_server_id);
-    if (!isP2P) {
+    // check if remote is P2P (use cached result if available)
+    if (!await checkP2PRemote(song.remote_server_id)) {
       continue;
+    }
+    
+    // find waveform image info
+    const waveformImg = song.images?.find((img) => img.blob_type === "waveform");
+    let waveformBlobId: string | undefined;
+    let waveformRemoteId: string | undefined;
+    if (waveformImg?.remote_blob_id && waveformImg?.remote_server_id) {
+      if (await checkP2PRemote(waveformImg.remote_server_id)) {
+        waveformBlobId = waveformImg.remote_blob_id;
+        waveformRemoteId = waveformImg.remote_server_id;
+      }
+    }
+    
+    // debug: log if song has images but no waveform found
+    if (song.images && song.images.length > 0 && !waveformImg) {
+      debug("blobResolver", `song ${song.sha256.slice(0, 8)}... has ${song.images.length} images but no waveform (types: ${song.images.map(i => i.blob_type).join(", ")})`);
+    }
+    
+    // find thumbnail image info
+    const thumbnailImg = song.images?.find((img) => img.blob_type === "thumbnail");
+    let thumbnailBlobId: string | undefined;
+    let thumbnailRemoteId: string | undefined;
+    if (thumbnailImg?.remote_blob_id && thumbnailImg?.remote_server_id) {
+      if (await checkP2PRemote(thumbnailImg.remote_server_id)) {
+        thumbnailBlobId = thumbnailImg.remote_blob_id;
+        thumbnailRemoteId = thumbnailImg.remote_server_id;
+      }
     }
     
     songsToCache.push({
       sha256: song.sha256,
       remoteId: song.remote_server_id,
+      waveformBlobId,
+      waveformRemoteId,
+      thumbnailBlobId,
+      thumbnailRemoteId,
     });
     
     totalSeconds += song.duration_seconds || 0;
@@ -368,10 +482,106 @@ export async function preCacheNextP2PSongs(
     return;
   }
   
-  debug("blobResolver", `pre-caching ${songsToCache.length} P2P songs (~${targetMinutes} min)`);
+  const waveformCount = songsToCache.filter(s => s.waveformBlobId).length;
+  const thumbnailCount = songsToCache.filter(s => s.thumbnailBlobId).length;
+  debug("blobResolver", `pre-caching ${songsToCache.length} P2P songs (~${targetMinutes} min) [${waveformCount} waveforms, ${thumbnailCount} thumbnails]`);
   
-  // start pre-caching (fire and forget, parallel)
-  for (const song of songsToCache) {
-    void preCacheP2PBlob(song.sha256, song.remoteId, song.sha256);
+  // await first song to ensure immediate next song is ready for playback
+  // this prevents the "none of the queue items play" issue
+  const [firstSong, ...restSongs] = songsToCache;
+  try {
+    await preCacheP2PBlob(firstSong.sha256, firstSong.remoteId, firstSong.sha256);
+    debug("blobResolver", `first P2P song pre-cached: ${firstSong.sha256.slice(0, 8)}...`);
+    // also pre-cache first song's waveform and thumbnail (awaited for immediate display)
+    if (firstSong.waveformBlobId && firstSong.waveformRemoteId) {
+      debug("blobResolver", `pre-caching first song waveform: ${firstSong.waveformBlobId.slice(0, 8)}...`);
+      void preCacheP2PBlob(firstSong.waveformBlobId, firstSong.waveformRemoteId, undefined, "image");
+    }
+    if (firstSong.thumbnailBlobId && firstSong.thumbnailRemoteId) {
+      void preCacheP2PBlob(firstSong.thumbnailBlobId, firstSong.thumbnailRemoteId, undefined, "image");
+    }
+  } catch (err) {
+    // log but don't fail the whole pre-cache
+    console.warn(`failed to pre-cache first P2P song ${firstSong.sha256}:`, err);
   }
+  
+  // fire off the rest in parallel (fire and forget) - audio, waveform, and thumbnail images
+  for (const song of restSongs) {
+    void preCacheP2PBlob(song.sha256, song.remoteId, song.sha256);
+    if (song.waveformBlobId && song.waveformRemoteId) {
+      void preCacheP2PBlob(song.waveformBlobId, song.waveformRemoteId, undefined, "image");
+    }
+    if (song.thumbnailBlobId && song.thumbnailRemoteId) {
+      void preCacheP2PBlob(song.thumbnailBlobId, song.thumbnailRemoteId, undefined, "image");
+    }
+  }
+}
+
+// ===== unified image resolution =====
+// centralized logic for resolving image URLs across all transports
+// components should use resolveImageUrlSync() for instant render, letting pre-caching handle P2P fetches
+
+import type { ImageMetadata } from "./types";
+import { getCachedBlobObjectURL } from "./blobs";
+
+/**
+ * check if a URL is a valid full HTTP(S) URL.
+ * rejects relative paths like "/api/blobs/{id}" which don't work for P2P.
+ */
+export function isValidHttpUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+/**
+ * synchronously resolve an image URL - for instant render without flicker.
+ * 
+ * priority order:
+ * 1. local blob (OPFS cache)
+ * 2. P2P cached blob (in-memory activeBlobUrls)
+ * 3. valid HTTP URL (full URL with protocol, not relative paths)
+ * 
+ * returns null if no cached URL available - components should handle gracefully.
+ * P2P images should be pre-cached by preCacheNextP2PSongs().
+ */
+export function resolveImageUrlSync(
+  image: ImageMetadata | null | undefined,
+  legacyBlobId?: string | null,
+  legacyUrl?: string | null,
+): string | null {
+  // priority 1: local blob (OPFS cache)
+  const localBlobId = image?.local_blob_id || legacyBlobId;
+  if (localBlobId) {
+    const cached = getCachedBlobObjectURL(localBlobId);
+    if (cached) return cached;
+    // not in sync cache - would need async lookup, return null
+    return null;
+  }
+
+  // priority 2: P2P cached blob (in-memory)
+  if (image?.remote_blob_id && image?.remote_server_id) {
+    const cached = getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id);
+    if (cached) return cached;
+    // not cached - fall through to check HTTP fallback
+  }
+
+  // priority 3: valid HTTP URL (not relative paths)
+  const httpUrl = image?.remote_url || legacyUrl;
+  if (isValidHttpUrl(httpUrl)) {
+    return httpUrl!;
+  }
+
+  return null;
+}
+
+/**
+ * check if an image needs async resolution (has local_blob_id but not in sync cache).
+ */
+export function imageNeedsAsyncResolution(
+  image: ImageMetadata | null | undefined,
+  legacyBlobId?: string | null,
+): boolean {
+  const localBlobId = image?.local_blob_id || legacyBlobId;
+  if (!localBlobId) return false;
+  return !getCachedBlobObjectURL(localBlobId);
 }

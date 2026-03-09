@@ -188,8 +188,8 @@ export const Interactive: Story = {
               loading state demo
             </h3>
             <p class="text-xs text-[var(--color-text-muted)] mb-3">
-              right-click songs in queue to toggle loading state. loading songs show a spinning ring
-              around the duration.
+              right-click songs in queue to toggle loading state. cached songs show underlined
+              duration text.
             </p>
             <div class="flex flex-wrap gap-2">
               {songs()
