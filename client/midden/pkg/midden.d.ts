@@ -81,6 +81,12 @@ export class MiddenNode {
      */
     fetch_blob(peer_addr: string, blob_id: string): Promise<BlobResult>;
     /**
+     * fetch a blob from a peer with progress callback
+     * callback is called with (received_bytes, total_bytes) as arguments
+     * if total_bytes is 0, the size is unknown
+     */
+    fetch_blob_with_progress(peer_addr: string, blob_id: string, on_progress: Function): Promise<BlobResult>;
+    /**
      * get our node_id (iroh public key)
      */
     node_id(): string;

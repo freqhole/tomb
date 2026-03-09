@@ -1,12 +1,58 @@
 // blob cache manager for remote audio/image caching
 // uses hybrid time-based + LRU eviction strategy
+// caches are partitioned by remote for easy management and cleanup
 
 import { createSignal } from "solid-js";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
+import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 
-const CACHE_NAME = "freqhole-blobs-v1";
+// ===== per-remote cache naming =====
+// cache names follow pattern: freqhole-blobs-{remoteId}
+// this allows easy per-remote stats, clearing, and cleanup on remote deletion
+
+export const REMOTE_CACHE_PREFIX = "freqhole-blobs-";
+
+/** get cache name for a specific remote */
+export function getRemoteCacheName(remoteId: string): string {
+  return `${REMOTE_CACHE_PREFIX}${remoteId}`;
+}
+
+/** check if a cache name is a remote blob cache */
+export function isRemoteBlobCache(cacheName: string): boolean {
+  return cacheName.startsWith(REMOTE_CACHE_PREFIX);
+}
+
+/** extract remoteId from cache name */
+export function getRemoteIdFromCacheName(cacheName: string): string | null {
+  if (!isRemoteBlobCache(cacheName)) return null;
+  return cacheName.slice(REMOTE_CACHE_PREFIX.length);
+}
+
+/** list all remote blob cache names */
+export async function listRemoteBlobCaches(): Promise<string[]> {
+  const allCaches = await caches.keys();
+  return allCaches.filter(isRemoteBlobCache);
+}
+
+/** check if remote should skip caching (localhost or tauri-managed) */
+export async function shouldSkipCaching(remoteId: string): Promise<boolean> {
+  const remote = await getRemoteById(remoteId);
+  if (!remote) return false;
+  
+  // skip for tauri-managed remotes
+  if (remote.is_tauri_managed) return true;
+  
+  // skip for localhost URLs
+  const url = remote.base_url.toLowerCase();
+  if (url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]")) {
+    return true;
+  }
+  
+  return false;
+}
+
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // reactive set of cached audio URLs for UI feedback
@@ -42,12 +88,27 @@ function clearCachedSet(): void {
 // reactive set of song sha256s currently being pre-cached (for UI loading indicators)
 const [loadingSha256s, setLoadingSha256s] = createSignal<Set<string>>(new Set());
 
+// reactive map of sha256 -> progress (0-1) for songs being downloaded
+// null or undefined means indeterminate progress (no content-length header)
+const [loadingProgress, setLoadingProgress] = createSignal<Map<string, number | null>>(new Map());
+
 // get the set of currently loading song sha256s (for UI binding)
 export function getLoadingSongIds(): Set<string> {
   return loadingSha256s();
 }
 
-function addToLoadingSet(sha256: string): void {
+// get loading progress for a song (0-1, or null for indeterminate)
+export function getLoadingProgress(sha256: string): number | null | undefined {
+  return loadingProgress().get(sha256);
+}
+
+// get all loading progress as a map (for UI binding)
+export function getAllLoadingProgress(): Map<string, number | null> {
+  return loadingProgress();
+}
+
+// made public for P2P blob resolver to track loading state
+export function addToLoadingSet(sha256: string): void {
   setLoadingSha256s((prev) => {
     if (prev.has(sha256)) return prev;
     const next = new Set(prev);
@@ -56,10 +117,27 @@ function addToLoadingSet(sha256: string): void {
   });
 }
 
-function removeFromLoadingSet(sha256: string): void {
+// made public for P2P blob resolver to update progress
+export function updateLoadingProgress(sha256: string, progress: number | null): void {
+  setLoadingProgress((prev) => {
+    const next = new Map(prev);
+    next.set(sha256, progress);
+    return next;
+  });
+}
+
+// made public for P2P blob resolver to track loading state
+export function removeFromLoadingSet(sha256: string): void {
   setLoadingSha256s((prev) => {
     if (!prev.has(sha256)) return prev;
     const next = new Set(prev);
+    next.delete(sha256);
+    return next;
+  });
+  // clear progress when done loading
+  setLoadingProgress((prev) => {
+    if (!prev.has(sha256)) return prev;
+    const next = new Map(prev);
     next.delete(sha256);
     return next;
   });
@@ -81,10 +159,12 @@ export async function initCachedAudioURLs(): Promise<void> {
   }
 }
 
-// pending cache queue - tracks URLs waiting to be cached
+// pending cache queue - tracks blobs waiting to be cached
 interface PendingCacheItem {
   url: string;
   type: "audio" | "image";
+  remoteId: string;
+  blobId: string;
   retries: number;
   addedAt: number;
 }
@@ -93,7 +173,7 @@ let pendingCacheQueue: PendingCacheItem[] = [];
 let isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 let processingPending = false;
 
-// in-progress cache fetches - tracks URLs currently being fetched
+// in-progress cache fetches - tracks remoteId/blobId combos currently being fetched
 const inProgressFetches = new Set<string>();
 
 // dynamic cache size limits based on available storage
@@ -105,6 +185,8 @@ const TOTAL_QUOTA_CRITICAL = 0.95; // critical if total storage >95% full
 
 interface CacheMetadata {
   url: string;
+  remoteId: string; // which remote this blob belongs to
+  blobId: string; // the blob id (sha256 or similar) as cache key
   cachedAt: number;
   lastAccessedAt: number;
   size: number;
@@ -116,7 +198,7 @@ const METADATA_DB_NAME = "freqhole_cache_metadata";
 const METADATA_STORE_NAME = "blob_metadata";
 
 let metadataDB: IDBDatabase | null = null;
-const METADATA_DB_VERSION = 2; // bump version to ensure schema upgrade
+const METADATA_DB_VERSION = 3; // bumped for remoteId field + index
 
 // close metadata database connection (required before deletion in Safari)
 export function closeMetadataDB(): void {
@@ -141,14 +223,18 @@ async function initMetadataDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(METADATA_STORE_NAME)) {
-        const store = db.createObjectStore(METADATA_STORE_NAME, {
-          keyPath: "url",
-        });
-        store.createIndex("lastAccessedAt", "lastAccessedAt", {
-          unique: false,
-        });
+      
+      // drop and recreate store on version upgrade to handle schema changes
+      if (db.objectStoreNames.contains(METADATA_STORE_NAME)) {
+        db.deleteObjectStore(METADATA_STORE_NAME);
       }
+      
+      const store = db.createObjectStore(METADATA_STORE_NAME, {
+        keyPath: "url",
+      });
+      store.createIndex("lastAccessedAt", "lastAccessedAt", { unique: false });
+      store.createIndex("remoteId", "remoteId", { unique: false });
+      store.createIndex("type", "type", { unique: false });
     };
   });
 }
@@ -162,6 +248,20 @@ async function getMetadata(url: string): Promise<CacheMetadata | null> {
     const request = store.get(url);
 
     request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// get all metadata for a specific remote
+async function getMetadataByRemote(remoteId: string): Promise<CacheMetadata[]> {
+  const db = await initMetadataDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(METADATA_STORE_NAME, "readonly");
+    const store = tx.objectStore(METADATA_STORE_NAME);
+    const index = store.index("remoteId");
+    const request = index.getAll(remoteId);
+
+    request.onsuccess = () => resolve(request.result || []);
     request.onerror = () => reject(request.error);
   });
 }
@@ -265,13 +365,22 @@ async function getStorageInfo(): Promise<{
   };
 }
 
-// cache a blob (audio or image)
+// cache a blob (audio or image) for a specific remote
+// skips caching for localhost/tauri-managed remotes
 export async function cacheBlob(
-  url: string,
+  _url: string, // original fetch URL (kept for future debugging/metadata)
   response: Response,
   type: "audio" | "image",
+  remoteId: string,
+  blobId: string,
 ): Promise<void> {
   try {
+    // skip caching for localhost/tauri remotes
+    if (await shouldSkipCaching(remoteId)) {
+      debug(`skipping cache for local/tauri remote: ${remoteId}`);
+      return;
+    }
+
     // check if we have space before caching
     const storageInfo = await getStorageInfo();
 
@@ -283,19 +392,23 @@ export async function cacheBlob(
       return;
     }
 
-    const cache = await caches.open(CACHE_NAME);
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
 
     // clone response to read size
     const clonedResponse = response.clone();
     const blob = await clonedResponse.blob();
     const size = blob.size;
 
-    // cache the response
-    await cache.put(url, response);
+    // cache the response using blobId as key
+    await cache.put(blobId, response);
 
-    // save metadata
+    // save metadata - use remoteId/blobId as composite key
+    const metadataKey = `${remoteId}/${blobId}`;
     const metadata: CacheMetadata = {
-      url,
+      url: metadataKey, // composite key for uniqueness
+      remoteId,
+      blobId,
       cachedAt: Date.now(),
       lastAccessedAt: Date.now(),
       size,
@@ -303,39 +416,102 @@ export async function cacheBlob(
     };
     await saveMetadata(metadata);
 
-    debug(`cached blob: ${url} (${(size / 1024).toFixed(1)} kb)`);
+    debug(`cached blob: ${blobId.slice(0, 8)}... for remote ${remoteId} (${(size / 1024).toFixed(1)} kb)`);
 
-    // update reactive cache set for audio blobs
+    // update reactive cache set for audio blobs (use original URL for compatibility)
     if (type === "audio") {
-      addToCachedSet(url);
+      addToCachedSet(metadataKey);
     }
 
     // check if we need to evict old entries
-    await evictIfNeeded();
+    await evictIfNeeded(remoteId);
   } catch (error) {
     errorLog("failed to cache blob:", error);
   }
 }
 
-// get a blob from cache (and update last accessed time)
-export async function getCachedBlob(url: string): Promise<Response | null> {
+// save metadata for a P2P blob that was cached by WasmTransport
+// this allows stats tracking to include P2P-cached blobs
+export async function saveP2PBlobMetadata(
+  remoteId: string,
+  blobId: string,
+  type: "audio" | "image",
+): Promise<void> {
   try {
-    const cache = await caches.open(CACHE_NAME);
-    const response = await cache.match(url);
+    // skip for localhost/tauri remotes
+    if (await shouldSkipCaching(remoteId)) {
+      return;
+    }
+
+    // check if metadata already exists
+    const metadataKey = `${remoteId}/${blobId}`;
+    const existing = await getMetadata(metadataKey);
+    if (existing) {
+      // just update last accessed time
+      existing.lastAccessedAt = Date.now();
+      await saveMetadata(existing);
+      return;
+    }
+
+    // get the cached blob to determine size
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
+    
+    if (!response) {
+      debug(`saveP2PBlobMetadata: blob not in cache yet: ${blobId.slice(0, 8)}...`);
+      return;
+    }
+
+    // get size from response
+    const clonedResponse = response.clone();
+    const blob = await clonedResponse.blob();
+    const size = blob.size;
+
+    // save metadata
+    const metadata: CacheMetadata = {
+      url: metadataKey,
+      remoteId,
+      blobId,
+      cachedAt: Date.now(),
+      lastAccessedAt: Date.now(),
+      size,
+      type,
+    };
+    await saveMetadata(metadata);
+
+    debug(`saved P2P blob metadata: ${blobId.slice(0, 8)}... (${(size / 1024).toFixed(1)} kb)`);
+
+    // update reactive cache set for audio blobs
+    if (type === "audio") {
+      addToCachedSet(metadataKey);
+    }
+  } catch (error) {
+    errorLog("failed to save P2P blob metadata:", error);
+  }
+}
+
+// get a blob from cache (and update last accessed time)
+export async function getCachedBlob(remoteId: string, blobId: string): Promise<Response | null> {
+  try {
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
 
     if (response) {
       // update last accessed time
-      const metadata = await getMetadata(url);
+      const metadataKey = `${remoteId}/${blobId}`;
+      const metadata = await getMetadata(metadataKey);
       if (metadata) {
         metadata.lastAccessedAt = Date.now();
         await saveMetadata(metadata);
       }
 
-      debug(`cache hit: ${url}`);
+      debug(`cache hit: ${blobId.slice(0, 8)}...`);
       return response;
     }
 
-    debug(`cache miss: ${url}`);
+    debug(`cache miss: ${blobId.slice(0, 8)}...`);
     return null;
   } catch (error) {
     errorLog("failed to get cached blob:", error);
@@ -343,11 +519,12 @@ export async function getCachedBlob(url: string): Promise<Response | null> {
   }
 }
 
-// check if a url is cached
-export async function isCached(url: string): Promise<boolean> {
+// check if a blob is cached for a specific remote
+export async function isCached(remoteId: string, blobId: string): Promise<boolean> {
   try {
-    const cache = await caches.open(CACHE_NAME);
-    const response = await cache.match(url);
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
     return !!response;
   } catch (error) {
     errorLog("failed to check cache:", error);
@@ -356,12 +533,12 @@ export async function isCached(url: string): Promise<boolean> {
 }
 
 // evict old/unused entries based on time and dynamic cache size limits
-async function evictIfNeeded(): Promise<void> {
+// if remoteId is provided, only evict from that remote's cache
+async function evictIfNeeded(remoteId?: string): Promise<void> {
   try {
     const storageInfo = await getStorageInfo();
-    const allMetadata = await getAllMetadata();
+    const allMetadata = remoteId ? await getMetadataByRemote(remoteId) : await getAllMetadata();
     const now = Date.now();
-    const cache = await caches.open(CACHE_NAME);
 
     const cacheSizeMB = storageInfo.cacheSize / (1024 * 1024);
     const maxCacheSizeMB = storageInfo.maxCacheSize / (1024 * 1024);
@@ -407,10 +584,26 @@ async function evictIfNeeded(): Promise<void> {
 
     if (itemsToDelete.length > 0) {
       debug(`evicting ${itemsToDelete.length} cached items`);
+      // group by remote for efficient cache access
+      const byRemote = new Map<string, CacheMetadata[]>();
       for (const metadata of itemsToDelete) {
-        await cache.delete(metadata.url);
-        await deleteMetadata(metadata.url);
-        removeFromCachedSet(metadata.url);
+        const items = byRemote.get(metadata.remoteId) || [];
+        items.push(metadata);
+        byRemote.set(metadata.remoteId, items);
+      }
+      
+      for (const [rid, items] of byRemote) {
+        try {
+          const cacheName = getRemoteCacheName(rid);
+          const cache = await caches.open(cacheName);
+          for (const metadata of items) {
+            await cache.delete(metadata.blobId);
+            await deleteMetadata(metadata.url);
+            removeFromCachedSet(metadata.url);
+          }
+        } catch (err) {
+          errorLog(`failed to evict from remote ${rid}:`, err);
+        }
       }
     }
   } catch (error) {
@@ -419,40 +612,52 @@ async function evictIfNeeded(): Promise<void> {
 }
 
 // pre-cache a blob URL (fetch and cache in background with retry logic)
+// remoteId and blobId are required for per-remote cache management
 // sha256 is optional - when provided for audio, tracks in loadingSha256s for UI feedback
 export async function preCacheBlob(
   url: string,
   type: "audio" | "image",
+  remoteId: string,
+  blobId: string,
   maxRetries: number = 3,
   sha256?: string,
 ): Promise<void> {
+  // skip caching for localhost/tauri remotes
+  if (await shouldSkipCaching(remoteId)) {
+    debug(`skipping pre-cache for local/tauri remote: ${remoteId}`);
+    return;
+  }
+
   // check if already cached
-  if (await isCached(url)) {
-    debug(`already cached: ${url}`);
+  if (await isCached(remoteId, blobId)) {
+    debug(`already cached: ${blobId.slice(0, 8)}...`);
     return;
   }
 
   // check if already in progress
-  if (inProgressFetches.has(url)) {
-    debug(`already in progress: ${url}`);
+  const progressKey = `${remoteId}/${blobId}`;
+  if (inProgressFetches.has(progressKey)) {
+    debug(`already in progress: ${blobId.slice(0, 8)}...`);
     return;
   }
 
   // if offline, add to pending queue and return
   if (!isOnline) {
-    debug(`offline - adding to pending queue: ${url}`);
-    addToPendingQueue(url, type);
+    debug(`offline - adding to pending queue: ${blobId.slice(0, 8)}...`);
+    addToPendingQueue(url, type, remoteId, blobId);
     return;
   }
 
-  debug(`pre-caching blob: ${url}`);
+  debug(`pre-caching blob: ${blobId.slice(0, 8)}...`);
 
   // mark as in progress
-  inProgressFetches.add(url);
+  inProgressFetches.add(progressKey);
   
   // track sha256 in reactive loading set for UI feedback (audio only)
   if (sha256 && type === "audio") {
     addToLoadingSet(sha256);
+    // initialize progress as null (indeterminate until we know total size)
+    updateLoadingProgress(sha256, null);
   }
 
   try {
@@ -466,7 +671,50 @@ export async function preCacheBlob(
           throw new Error(`fetch failed: ${response.status}`);
         }
 
-        await cacheBlob(url, response, type);
+        // track download progress if we have content-length and sha256
+        const contentLength = response.headers.get("Content-Length");
+        const totalBytes = contentLength ? parseInt(contentLength, 10) : null;
+        
+        let responseToCache: Response;
+        
+        if (sha256 && type === "audio" && totalBytes && response.body) {
+          // stream the response to track progress
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let receivedBytes = 0;
+          
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            receivedBytes += value.length;
+            // update progress (0-1)
+            updateLoadingProgress(sha256, receivedBytes / totalBytes);
+          }
+          
+          // concatenate chunks into single buffer
+          const allChunks = new Uint8Array(receivedBytes);
+          let offset = 0;
+          for (const chunk of chunks) {
+            allChunks.set(chunk, offset);
+            offset += chunk.length;
+          }
+          
+          // reconstruct response for caching
+          const blob = new Blob([allChunks], { 
+            type: response.headers.get("Content-Type") || "application/octet-stream" 
+          });
+          responseToCache = new Response(blob, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          });
+        } else {
+          // no progress tracking - use response as-is
+          responseToCache = response;
+        }
+
+        await cacheBlob(url, responseToCache, type, remoteId, blobId);
         debug(`pre-cache successful after ${attempt + 1} attempt(s)`);
         return; // success!
       } catch (error) {
@@ -475,9 +723,9 @@ export async function preCacheBlob(
         // if we lost connection, add to pending queue
         if (!isOnline) {
           debug(
-            `lost connection during pre-cache - adding to pending queue: ${url}`,
+            `lost connection during pre-cache - adding to pending queue: ${blobId.slice(0, 8)}...`,
           );
-          addToPendingQueue(url, type);
+          addToPendingQueue(url, type, remoteId, blobId);
           return;
         }
 
@@ -498,13 +746,13 @@ export async function preCacheBlob(
       `failed to pre-cache blob after ${maxRetries} attempts, adding to pending queue:`,
       lastError,
     );
-    addToPendingQueue(url, type);
+    addToPendingQueue(url, type, remoteId, blobId);
   } catch (error) {
     errorLog("failed to pre-cache blob:", error);
-    addToPendingQueue(url, type);
+    addToPendingQueue(url, type, remoteId, blobId);
   } finally {
     // always remove from in-progress
-    inProgressFetches.delete(url);
+    inProgressFetches.delete(progressKey);
     // remove from loading set
     if (sha256 && type === "audio") {
       removeFromLoadingSet(sha256);
@@ -512,32 +760,54 @@ export async function preCacheBlob(
   }
 }
 
-// evict a specific cached blob by URL
-export async function evictCachedBlob(url: string): Promise<void> {
+// evict a specific cached blob
+export async function evictCachedBlob(remoteId: string, blobId: string): Promise<void> {
   try {
-    const cache = await caches.open(CACHE_NAME);
-    const deleted = await cache.delete(url);
-    await deleteMetadata(url);
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const deleted = await cache.delete(blobId);
+    const metadataKey = `${remoteId}/${blobId}`;
+    await deleteMetadata(metadataKey);
 
     if (deleted) {
-      removeFromCachedSet(url);
-      debug(`evicted cached blob: ${url}`);
+      removeFromCachedSet(metadataKey);
+      debug(`evicted cached blob: ${blobId.slice(0, 8)}...`);
     }
   } catch (error) {
     errorLog("failed to evict cached blob:", error);
   }
 }
 
-// clear all cached blobs
-export async function clearBlobCache(): Promise<void> {
+// clear all cached blobs for a specific remote (or all remotes if not specified)
+export async function clearBlobCache(remoteId?: string): Promise<void> {
   try {
-    await caches.delete(CACHE_NAME);
-    const db = await initMetadataDB();
-    const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
-    const store = tx.objectStore(METADATA_STORE_NAME);
-    await store.clear();
-    clearCachedSet();
-    debug("blob cache cleared");
+    if (remoteId) {
+      // clear specific remote's cache
+      const cacheName = getRemoteCacheName(remoteId);
+      await caches.delete(cacheName);
+      
+      // clear metadata for this remote
+      const metadata = await getMetadataByRemote(remoteId);
+      for (const m of metadata) {
+        await deleteMetadata(m.url);
+        removeFromCachedSet(m.url);
+      }
+      debug(`cleared blob cache for remote: ${remoteId}`);
+    } else {
+      // clear all remote caches
+      const remoteCaches = await listRemoteBlobCaches();
+      for (const cacheName of remoteCaches) {
+        await caches.delete(cacheName);
+      }
+      
+      // clear all metadata
+      const db = await initMetadataDB();
+      const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
+      const store = tx.objectStore(METADATA_STORE_NAME);
+      await store.clear();
+      clearCachedSet();
+      debug("cleared all blob caches");
+    }
   } catch (error) {
     errorLog("failed to clear cache:", error);
   }
@@ -595,21 +865,127 @@ export async function getCacheStats(): Promise<{
   }
 }
 
+// per-remote cache stats type
+export interface RemoteCacheStats {
+  remoteId: string;
+  itemCount: number;
+  totalSize: number;
+  audioCount: number;
+  audioSize: number;
+  imageCount: number;
+  imageSize: number;
+}
+
+// get cache stats for a specific remote
+export async function getRemoteCacheStats(remoteId: string): Promise<RemoteCacheStats> {
+  try {
+    const metadata = await getMetadataByRemote(remoteId);
+    
+    let audioCount = 0;
+    let audioSize = 0;
+    let imageCount = 0;
+    let imageSize = 0;
+    
+    for (const m of metadata) {
+      if (m.type === "audio") {
+        audioCount++;
+        audioSize += m.size || 0;
+      } else if (m.type === "image") {
+        imageCount++;
+        imageSize += m.size || 0;
+      }
+    }
+    
+    return {
+      remoteId,
+      itemCount: metadata.length,
+      totalSize: audioSize + imageSize,
+      audioCount,
+      audioSize,
+      imageCount,
+      imageSize,
+    };
+  } catch (error) {
+    errorLog(`failed to get cache stats for remote ${remoteId}:`, error);
+    return {
+      remoteId,
+      itemCount: 0,
+      totalSize: 0,
+      audioCount: 0,
+      audioSize: 0,
+      imageCount: 0,
+      imageSize: 0,
+    };
+  }
+}
+
+// get cache stats for all remotes
+export async function getAllRemoteCacheStats(): Promise<RemoteCacheStats[]> {
+  try {
+    const allMetadata = await getAllMetadata();
+    
+    // group by remoteId
+    const byRemote = new Map<string, CacheMetadata[]>();
+    for (const m of allMetadata) {
+      if (!m.remoteId) continue;
+      const existing = byRemote.get(m.remoteId) || [];
+      existing.push(m);
+      byRemote.set(m.remoteId, existing);
+    }
+    
+    const stats: RemoteCacheStats[] = [];
+    for (const [remoteId, metadata] of byRemote) {
+      let audioCount = 0;
+      let audioSize = 0;
+      let imageCount = 0;
+      let imageSize = 0;
+      
+      for (const m of metadata) {
+        if (m.type === "audio") {
+          audioCount++;
+          audioSize += m.size || 0;
+        } else if (m.type === "image") {
+          imageCount++;
+          imageSize += m.size || 0;
+        }
+      }
+      
+      stats.push({
+        remoteId,
+        itemCount: metadata.length,
+        totalSize: audioSize + imageSize,
+        audioCount,
+        audioSize,
+        imageCount,
+        imageSize,
+      });
+    }
+    
+    return stats;
+  } catch (error) {
+    errorLog("failed to get all remote cache stats:", error);
+    return [];
+  }
+}
+
 // add item to pending cache queue (for retry when online)
-function addToPendingQueue(url: string, type: "audio" | "image"): void {
+function addToPendingQueue(url: string, type: "audio" | "image", remoteId: string, blobId: string): void {
   // check if already in queue
-  if (pendingCacheQueue.some((item) => item.url === url)) {
+  const queueKey = `${remoteId}/${blobId}`;
+  if (pendingCacheQueue.some((item) => `${item.remoteId}/${item.blobId}` === queueKey)) {
     return;
   }
 
   pendingCacheQueue.push({
     url,
     type,
+    remoteId,
+    blobId,
     retries: 0,
     addedAt: Date.now(),
   });
 
-  debug(`added to pending cache queue: ${url}`);
+  debug(`added to pending cache queue: ${blobId.slice(0, 8)}...`);
 }
 
 // process pending cache queue (attempt to cache failed items)
@@ -637,8 +1013,8 @@ async function processPendingQueue(): Promise<void> {
       }
 
       // check if already cached (might have been cached by another process)
-      if (await isCached(item.url)) {
-        debug(`pending item already cached: ${item.url}`);
+      if (await isCached(item.remoteId, item.blobId)) {
+        debug(`pending item already cached: ${item.blobId.slice(0, 8)}...`);
         continue;
       }
 
@@ -649,8 +1025,8 @@ async function processPendingQueue(): Promise<void> {
         throw new Error(`fetch failed: ${response.status}`);
       }
 
-      await cacheBlob(item.url, response, item.type);
-      debug(`successfully cached pending item: ${item.url}`);
+      await cacheBlob(item.url, response, item.type, item.remoteId, item.blobId);
+      debug(`successfully cached pending item: ${item.blobId.slice(0, 8)}...`);
     } catch (error) {
       warn(
         `failed to cache pending item (attempt ${item.retries + 1}):`,
@@ -665,7 +1041,7 @@ async function processPendingQueue(): Promise<void> {
         });
       } else {
         errorLog(
-          `giving up on pending item after ${maxRetries} attempts: ${item.url}`,
+          `giving up on pending item after ${maxRetries} attempts: ${item.blobId.slice(0, 8)}...`,
         );
       }
     }
@@ -741,9 +1117,10 @@ export function getNextSongsToCache(
     source_type: string;
     source_url?: string | null;
     images?: ImageMetadata[] | null;
+    remote_server_id?: string | null;
   }>,
   targetMinutes: number = 30,
-): Array<{ sha256: string; source_url: string; waveform_url?: string }> {
+): Array<{ sha256: string; source_url: string; remote_id: string; waveform_url?: string; waveform_blob_id?: string }> {
   if (!currentSongId || queue.length === 0) {
     return [];
   }
@@ -754,7 +1131,7 @@ export function getNextSongsToCache(
     return [];
   }
 
-  const songsToCache: Array<{ sha256: string; source_url: string; waveform_url?: string }> = [];
+  const songsToCache: Array<{ sha256: string; source_url: string; remote_id: string; waveform_url?: string; waveform_blob_id?: string }> = [];
   let totalSeconds = 0;
   const targetSeconds = targetMinutes * 60;
 
@@ -762,19 +1139,23 @@ export function getNextSongsToCache(
   for (let i = currentIdx + 1; i < queue.length; i++) {
     const song = queue[i];
 
-    // only cache remote songs with source URLs
-    if (song.source_type !== "remote" || !song.source_url) {
+    // only cache remote songs with source URLs and remote_server_id
+    if (song.source_type !== "remote" || !song.source_url || !song.remote_server_id) {
       continue;
     }
 
     // get waveform URL if available
     const waveformImage = getWaveformImage(song.images);
     const waveform_url = waveformImage?.remote_url || undefined;
+    // extract blob_id from waveform URL path (e.g., /api/blobs/abc123 -> abc123)
+    const waveform_blob_id = waveform_url ? waveform_url.split('/').pop() : undefined;
 
     songsToCache.push({
       sha256: song.sha256,
       source_url: song.source_url,
+      remote_id: song.remote_server_id,
       waveform_url,
+      waveform_blob_id,
     });
 
     totalSeconds += song.duration_seconds || 0;
@@ -797,6 +1178,7 @@ export async function preCacheNextSongs(
     source_type: string;
     source_url?: string | null;
     images?: ImageMetadata[] | null;
+    remote_server_id?: string | null;
   }>,
   targetMinutes: number = 30,
 ): Promise<void> {
@@ -820,25 +1202,27 @@ export async function preCacheNextSongs(
     // use Promise.allSettled to allow parallel fetching without blocking
     const cachePromises = songsToCache.map(async (song) => {
       const results = { audio: "skipped", waveform: "skipped" };
+      const progressKey = `${song.remote_id}/${song.sha256}`;
 
       // cache audio (pass sha256 for loading tracking)
-      if (await isCached(song.source_url)) {
+      if (await isCached(song.remote_id, song.sha256)) {
         results.audio = "already_cached";
-      } else if (inProgressFetches.has(song.source_url)) {
+      } else if (inProgressFetches.has(progressKey)) {
         results.audio = "in_progress";
       } else {
-        void preCacheBlob(song.source_url, "audio", 3, song.sha256);
+        void preCacheBlob(song.source_url, "audio", song.remote_id, song.sha256, 3, song.sha256);
         results.audio = "started";
       }
 
       // cache waveform image if available
-      if (song.waveform_url) {
-        if (await isCached(song.waveform_url)) {
+      if (song.waveform_url && song.waveform_blob_id) {
+        const waveformProgressKey = `${song.remote_id}/${song.waveform_blob_id}`;
+        if (await isCached(song.remote_id, song.waveform_blob_id)) {
           results.waveform = "already_cached";
-        } else if (inProgressFetches.has(song.waveform_url)) {
+        } else if (inProgressFetches.has(waveformProgressKey)) {
           results.waveform = "in_progress";
         } else {
-          void preCacheBlob(song.waveform_url, "image");
+          void preCacheBlob(song.waveform_url, "image", song.remote_id, song.waveform_blob_id);
           results.waveform = "started";
         }
       }

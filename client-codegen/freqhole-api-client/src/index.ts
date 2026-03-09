@@ -7,7 +7,7 @@ export type { SafeParseResult } from "./FreqholeClient.js";
 // transport abstraction
 export { HttpTransport } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
-export type { MiddenNodeLike, BlobResultLike } from "./WasmTransport.js";
+export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 
 // export utilities (url helpers, uploads, etc)

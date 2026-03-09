@@ -327,6 +327,98 @@ impl MiddenNode {
             _ => Err(JsError::new("unexpected response type")),
         }
     }
+
+    /// fetch a blob from a peer with progress callback
+    /// callback is called with (received_bytes, total_bytes) as arguments
+    /// if total_bytes is 0, the size is unknown
+    pub async fn fetch_blob_with_progress(
+        &self,
+        peer_addr: &str,
+        blob_id: &str,
+        on_progress: &js_sys::Function,
+    ) -> Result<BlobResult, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let node_id_short = &addr.id.to_string()[..16];
+
+        info!(
+            "fetch blob (w/progress) {} from {}",
+            &blob_id[..16.min(blob_id.len())],
+            node_id_short
+        );
+
+        // get cached connection or create new one
+        let conn = self.get_or_connect(&addr).await?;
+
+        let (mut send, mut recv): (SendStream, RecvStream) =
+            conn.open_bi().await.map_err(to_js_err)?;
+
+        // send request
+        let request = PeerMessage::BlobStreamRequest {
+            id: 1,
+            blob_id: blob_id.to_string(),
+        };
+        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
+        send.write_all(&bytes).await.map_err(to_js_err)?;
+        send.finish().map_err(to_js_err)?;
+
+        // read length-prefixed header
+        let mut len_buf = [0u8; 4];
+        recv.read_exact(&mut len_buf).await.map_err(to_js_err)?;
+        let header_len = u32::from_be_bytes(len_buf) as usize;
+
+        let mut header_buf = vec![0u8; header_len];
+        recv.read_exact(&mut header_buf).await.map_err(to_js_err)?;
+
+        let response: PeerMessage = serde_json::from_slice(&header_buf).map_err(to_js_err)?;
+
+        match response {
+            PeerMessage::BlobStreamResponse {
+                size,
+                content_type,
+                error,
+                ..
+            } => {
+                if let Some(err) = error {
+                    return Err(JsError::new(&err));
+                }
+
+                let total_size = size.unwrap_or(0);
+                info!("receiving {} bytes (with progress)", total_size);
+
+                // read in chunks with progress callback
+                let chunk_size = 64 * 1024; // 64KB chunks
+                let mut data = Vec::with_capacity(total_size as usize);
+                let mut received: u64 = 0;
+
+                loop {
+                    let mut chunk = vec![0u8; chunk_size];
+                    let bytes_read = recv.read(&mut chunk).await.map_err(to_js_err)?;
+
+                    if let Some(n) = bytes_read {
+                        if n == 0 {
+                            break;
+                        }
+                        data.extend_from_slice(&chunk[..n]);
+                        received += n as u64;
+
+                        // call progress callback
+                        let this = JsValue::null();
+                        let received_js = JsValue::from_f64(received as f64);
+                        let total_js = JsValue::from_f64(total_size as f64);
+                        let _ = on_progress.call2(&this, &received_js, &total_js);
+                    } else {
+                        // stream closed
+                        break;
+                    }
+                }
+
+                info!("received {} bytes", data.len());
+
+                Ok(BlobResult { data, content_type })
+            }
+            _ => Err(JsError::new("unexpected response type")),
+        }
+    }
 }
 
 fn to_js_err<E: std::fmt::Display>(e: E) -> JsError {

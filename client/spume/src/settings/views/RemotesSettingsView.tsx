@@ -18,6 +18,12 @@ import { Icon } from "../../components/icons/registry";
 import { ReauthModal } from "../../components/auth/ReauthModal";
 import { formatDate } from "../../utils/dateTime";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import {
+  getRemoteCacheStats,
+  clearBlobCache,
+  type RemoteCacheStats,
+} from "../../music/services/cache/blobCache";
+import { formatBytes } from "../services/storageManager";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -147,6 +153,9 @@ export function RemotesSettingsView() {
   const [authStatus, setAuthStatus] = createSignal<Map<string, AuthInfo | null>>(new Map());
   // reauth modal state
   const [reauthRemote, setReauthRemote] = createSignal<Remote | null>(null);
+  // cache stats per remote
+  const [cacheStats, setCacheStats] = createSignal<Map<string, RemoteCacheStats>>(new Map());
+  const [clearingCache, setClearingCache] = createSignal<string | null>(null);
 
   // confirmation dialog state
   const [confirmDialog, setConfirmDialog] = createSignal<{
@@ -165,11 +174,28 @@ export function RemotesSettingsView() {
       setRemotes(data);
       // check auth status for each remote
       checkAllAuthStatus(data);
+      // fetch cache stats for each remote
+      refreshCacheStats(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to load remotes");
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshCacheStats = async (remoteList: Remote[]) => {
+    const statsMap = new Map<string, RemoteCacheStats>();
+    await Promise.all(
+      remoteList.map(async (remote) => {
+        try {
+          const stats = await getRemoteCacheStats(remote.remote_id);
+          statsMap.set(remote.remote_id, stats);
+        } catch {
+          // ignore errors, just don't show stats for this remote
+        }
+      })
+    );
+    setCacheStats(statsMap);
   };
 
   const checkAllAuthStatus = async (remoteList: Remote[]) => {
@@ -253,6 +279,10 @@ export function RemotesSettingsView() {
         `deleted ${deletedCount} queue history entries for remote ${dialog.remote.name}`
       );
 
+      // clear cached blobs for this remote
+      await clearBlobCache(dialog.remote.remote_id);
+      debug("RemotesSettings", `cleared blob cache for remote ${dialog.remote.name}`);
+
       // then delete the remote itself
       await deleteRemote(dialog.remote.remote_id);
       await refreshRemotes();
@@ -260,6 +290,25 @@ export function RemotesSettingsView() {
       setError(err instanceof Error ? err.message : "failed to delete remote");
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleClearCache = async (remote: Remote) => {
+    setClearingCache(remote.remote_id);
+    try {
+      await clearBlobCache(remote.remote_id);
+      toast.success(`cleared cache for ${remote.name}`);
+      // refresh stats
+      const stats = await getRemoteCacheStats(remote.remote_id);
+      setCacheStats((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, stats);
+        return next;
+      });
+    } catch (err) {
+      toast.error("failed to clear cache");
+    } finally {
+      setClearingCache(null);
     }
   };
 
@@ -450,6 +499,29 @@ export function RemotesSettingsView() {
                             <span>last connected {formatDate(remote.last_connected_at!)}</span>
                           </Show>
                         </div>
+                        {/* cache stats */}
+                        {(() => {
+                          const stats = cacheStats().get(remote.remote_id);
+                          if (!stats || stats.totalSize === 0) return null;
+                          return (
+                            <div class="flex items-center gap-3 mt-2 text-xs">
+                              <span class="text-[var(--color-text-muted)]">
+                                cache: {formatBytes(stats.totalSize)}
+                                {stats.audioCount > 0 && ` (${stats.audioCount} audio`}
+                                {stats.audioCount > 0 && stats.imageCount > 0 && ", "}
+                                {stats.imageCount > 0 && `${stats.imageCount} images`}
+                                {(stats.audioCount > 0 || stats.imageCount > 0) && ")"}
+                              </span>
+                              <button
+                                class="text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] disabled:opacity-50"
+                                onClick={() => handleClearCache(remote)}
+                                disabled={clearingCache() === remote.remote_id}
+                              >
+                                {clearingCache() === remote.remote_id ? "clearing..." : "clear"}
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* action buttons */}

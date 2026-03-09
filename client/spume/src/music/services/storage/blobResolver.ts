@@ -4,7 +4,7 @@
 // for P2P remotes: fetches via WasmTransport, caches in Cache API, returns blob URL
 //
 // usage:
-//   const url = await resolveBlobUrl(blobId, remoteId);
+//   const url = await resolveBlobUrl(blobId, remoteId, "audio");
 //   <img src={url} /> or <audio src={url} />
 
 import { createSignal } from "solid-js";
@@ -13,37 +13,29 @@ import {
   getMiddenNode,
   type Remote,
 } from "../../../app/api/client";
-import { WasmTransport } from "freqhole-api-client";
+import { WasmTransport, type BlobProgressCallback } from "freqhole-api-client";
 import { debug } from "../../../utils/logger";
+import { 
+  getRemoteCacheName, 
+  saveP2PBlobMetadata, 
+  updateLoadingProgress,
+  addToLoadingSet,
+  removeFromLoadingSet,
+} from "../cache/blobCache";
 
 // cache of active blob URLs to prevent memory leaks
 // keyed by `${remoteId}/${blobId}`
 const activeBlobUrls = new Map<string, string>();
 
 // reactive set of P2P blob sha256s currently being fetched (for UI loading indicators)
-const [loadingP2PSha256s, setLoadingP2PSha256s] = createSignal<Set<string>>(new Set());
+// NOTE: now deprecated - P2P loading uses blobCache's unified loading set
+// kept for backward compatibility with AppLayout.tsx
+const [loadingP2PSha256s, _setLoadingP2PSha256s] = createSignal<Set<string>>(new Set());
 
 // get the set of currently loading P2P song sha256s (for UI binding)
+// NOTE: now deprecated - returns empty set since P2P loading uses blobCache's unified loading set
 export function getLoadingP2PSongIds(): Set<string> {
   return loadingP2PSha256s();
-}
-
-function addToP2PLoadingSet(sha256: string): void {
-  setLoadingP2PSha256s((prev) => {
-    if (prev.has(sha256)) return prev;
-    const next = new Set(prev);
-    next.add(sha256);
-    return next;
-  });
-}
-
-function removeFromP2PLoadingSet(sha256: string): void {
-  setLoadingP2PSha256s((prev) => {
-    if (!prev.has(sha256)) return prev;
-    const next = new Set(prev);
-    next.delete(sha256);
-    return next;
-  });
 }
 
 // track in-progress P2P fetches to avoid duplicates
@@ -54,11 +46,14 @@ const inProgressP2PFetches = new Set<string>();
  *
  * @param blobId - the blob ID (sha256 or server blob ID)
  * @param remoteId - the remote server ID (for looking up transport type)
+ * @param type - the blob type ("audio" or "image") for cache metadata tracking
  * @returns URL string usable in <img src> or <audio src>
  */
 export async function resolveBlobUrl(
   blobId: string,
   remoteId: string,
+  type: "audio" | "image" = "image",
+  onProgress?: BlobProgressCallback,
 ): Promise<string> {
   debug("blobResolver", `resolving blob ${blobId.slice(0, 8)}... for remote ${remoteId}`);
 
@@ -79,7 +74,7 @@ export async function resolveBlobUrl(
   const transportType = remote.transport_type ?? (remote.peer_addr ? "wasm" : "http");
 
   if (transportType === "wasm") {
-    return resolveP2PBlob(blobId, remote, cacheKey);
+    return resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
   } else {
     // HTTP transport - return direct URL
     return `${remote.base_url}/api/blobs/${blobId}`;
@@ -89,11 +84,14 @@ export async function resolveBlobUrl(
 /**
  * resolve a blob via P2P transport.
  * fetches the blob, caches it, and returns a blob URL.
+ * @param onProgress - optional callback for download progress (received, total)
  */
 async function resolveP2PBlob(
   blobId: string,
   remote: Remote,
   cacheKey: string,
+  type: "audio" | "image",
+  onProgress?: BlobProgressCallback,
 ): Promise<string> {
   debug("blobResolver", `fetching P2P blob ${blobId.slice(0, 8)}...`);
 
@@ -101,15 +99,24 @@ async function resolveP2PBlob(
     throw new Error(`remote ${remote.remote_id} has no peer_addr for P2P transport`);
   }
 
-  // get midden node and create transport
+  // get midden node and create transport with per-remote cache
   const node = await getMiddenNode();
-  const transport = new WasmTransport(node, remote.peer_addr);
+  const cacheName = getRemoteCacheName(remote.remote_id);
+  const transport = new WasmTransport(node, remote.peer_addr, cacheName);
 
-  // use WasmTransport's getBlobUrl which fetches, caches, and returns blob URL
-  const url = await transport.getBlobUrl(blobId);
+  // use progress-enabled fetch if callback provided
+  let url: string;
+  if (onProgress) {
+    url = await transport.getBlobUrlWithProgress(blobId, onProgress);
+  } else {
+    url = await transport.getBlobUrl(blobId);
+  }
 
   // track the URL for cleanup
   activeBlobUrls.set(cacheKey, url);
+
+  // save metadata for P2P-cached blobs so stats tracking works
+  void saveP2PBlobMetadata(remote.remote_id, blobId, type);
 
   debug("blobResolver", `resolved P2P blob ${blobId.slice(0, 8)}... to blob URL`);
   return url;
@@ -141,9 +148,6 @@ export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | 
   return activeBlobUrls.get(cacheKey) ?? null;
 }
 
-// unified cache name for all remote blobs (HTTP + P2P) - must match blobCache.ts and WasmTransport
-const BLOB_CACHE_NAME = "freqhole-blobs-v1";
-
 /**
  * clear all cached blob URLs (memory only, not Cache API).
  * call this on logout or when switching remotes.
@@ -166,8 +170,8 @@ export async function clearAllP2PCache(): Promise<void> {
   // clear in-memory blob URLs
   clearAllBlobUrls();
   
-  // note: P2P blobs are now in the unified cache (freqhole-blobs-v1)
-  // which is cleared by storageManager.clearCacheApiData()
+  // note: P2P blobs are stored in per-remote caches (freqhole-blobs-{remoteId})
+  // which are cleared by storageManager.clearCacheApiData()
   debug("blobResolver", "cleared P2P in-memory blob URLs");
 }
 
@@ -179,11 +183,11 @@ export async function evictP2PBlob(blobId: string, remoteId: string): Promise<vo
   // clear in-memory URL
   revokeBlobUrl(blobId, remoteId);
   
-  // clear from unified Cache API
+  // clear from per-remote Cache API (blobId is the key, not ${remoteId}/${blobId})
   try {
-    const cache = await caches.open(BLOB_CACHE_NAME);
-    const cacheKey = `${remoteId}/${blobId}`;
-    const deleted = await cache.delete(cacheKey);
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const deleted = await cache.delete(blobId);
     if (deleted) {
       debug("blobResolver", `evicted P2P blob from cache: ${blobId.slice(0, 8)}...`);
     }
@@ -223,10 +227,11 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
     return true;
   }
   
-  // check unified Cache API
+  // check per-remote Cache API (blobId is the key)
   try {
-    const cache = await caches.open(BLOB_CACHE_NAME);
-    const response = await cache.match(cacheKey);
+    const cacheName = getRemoteCacheName(remoteId);
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(blobId);
     return response !== undefined;
   } catch {
     return false;
@@ -235,12 +240,13 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
 
 /**
  * pre-cache a P2P blob (fetch in background for later use).
- * tracks loading state for UI feedback.
+ * tracks loading state and progress for UI feedback.
  */
 export async function preCacheP2PBlob(
   blobId: string,
   remoteId: string,
   sha256?: string,
+  type: "audio" | "image" = "audio",
 ): Promise<void> {
   const cacheKey = `${remoteId}/${blobId}`;
   
@@ -261,25 +267,44 @@ export async function preCacheP2PBlob(
     return;
   }
   
-  // mark as in progress
+  // get remote to check transport type
+  const remote = await getRemoteById(remoteId);
+  if (!remote) {
+    debug("blobResolver", `remote not found for P2P pre-cache: ${remoteId}`);
+    return;
+  }
+  
+  // mark as in progress (use blobCache's unified loading set for UI consistency)
   inProgressP2PFetches.add(cacheKey);
-  if (sha256) {
-    addToP2PLoadingSet(sha256);
+  if (sha256 && type === "audio") {
+    addToLoadingSet(sha256);
+    // initialize as indeterminate until we get total size
+    updateLoadingProgress(sha256, null);
   }
   
   try {
     debug("blobResolver", `pre-caching P2P blob: ${blobId.slice(0, 8)}...`);
     
-    // resolve and cache the blob (this fetches via WasmTransport + stores in Cache API)
-    await resolveBlobUrl(blobId, remoteId);
+    // create progress callback if we have sha256 for tracking
+    const onProgress: BlobProgressCallback | undefined = 
+      (sha256 && type === "audio") 
+        ? (received, total) => {
+            if (total > 0) {
+              updateLoadingProgress(sha256, received / total);
+            }
+          }
+        : undefined;
+    
+    // resolve and cache the blob directly with progress callback
+    await resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
     
     debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
   } catch (err) {
     console.error(`failed to pre-cache P2P blob ${blobId}:`, err);
   } finally {
     inProgressP2PFetches.delete(cacheKey);
-    if (sha256) {
-      removeFromP2PLoadingSet(sha256);
+    if (sha256 && type === "audio") {
+      removeFromLoadingSet(sha256);
     }
   }
 }

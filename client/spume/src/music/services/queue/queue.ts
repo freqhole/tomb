@@ -54,9 +54,9 @@ export async function playQueue(
     const newSha256Set = new Set(songs.map((s) => s.sha256));
     for (const oldSong of state.queue) {
       if (oldSong.source_type === "remote" && !newSha256Set.has(oldSong.sha256)) {
-        // evict HTTP cache
-        if (oldSong.source_url) {
-          void evictCachedBlob(oldSong.source_url);
+        // evict HTTP cache (keyed by remoteId + sha256)
+        if (oldSong.remote_server_id) {
+          void evictCachedBlob(oldSong.remote_server_id, oldSong.sha256);
         }
         // evict P2P cache
         if (oldSong.remote_server_id) {
@@ -198,9 +198,9 @@ export async function removeFromQueue(index: number): Promise<void> {
   if (removedSong?.source_type === "remote") {
     const stillInQueue = newQueue.some((s) => s.sha256 === removedSong.sha256);
     if (!stillInQueue) {
-      // evict HTTP cache (if applicable)
-      if (removedSong.source_url) {
-        void evictCachedBlob(removedSong.source_url);
+      // evict HTTP cache (keyed by remoteId + sha256)
+      if (removedSong.remote_server_id) {
+        void evictCachedBlob(removedSong.remote_server_id, removedSong.sha256);
       }
       // evict P2P cache (if applicable)
       if (removedSong.remote_server_id) {
@@ -258,9 +258,9 @@ export async function clearQueue(): Promise<void> {
   if (state?.queue) {
     for (const song of state.queue) {
       if (song.source_type === "remote") {
-        // evict HTTP cache (if applicable)
-        if (song.source_url) {
-          void evictCachedBlob(song.source_url);
+        // evict HTTP cache (keyed by remoteId + sha256)
+        if (song.remote_server_id) {
+          void evictCachedBlob(song.remote_server_id, song.sha256);
         }
         // evict P2P cache (if applicable)
         if (song.remote_server_id) {

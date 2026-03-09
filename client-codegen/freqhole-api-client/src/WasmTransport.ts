@@ -28,10 +28,23 @@ export interface MiddenNodeLike {
     body?: string | null,
   ): Promise<{ status: number; body: string }>;
   fetch_blob(peer_addr: string, blob_id: string): Promise<BlobResultLike>;
+  // optional - only available after midden rebuild with progress support
+  fetch_blob_with_progress?(
+    peer_addr: string,
+    blob_id: string,
+    on_progress: (received: number, total: number) => void,
+  ): Promise<BlobResultLike>;
 }
 
-// unified cache for all remote blobs (HTTP + P2P)
-const CACHE_NAME = "freqhole-blobs-v1";
+/**
+ * progress callback for blob fetching
+ * @param received - bytes received so far
+ * @param total - total bytes expected (0 if unknown)
+ */
+export type BlobProgressCallback = (received: number, total: number) => void;
+
+// unified cache for all remote blobs (HTTP + P2P) - default if no custom cache name provided
+const DEFAULT_CACHE_NAME = "freqhole-blobs-v1";
 
 /**
  * WASM transport - uses midden for P2P connections
@@ -48,11 +61,15 @@ const CACHE_NAME = "freqhole-blobs-v1";
  */
 export class WasmTransport implements Transport {
   private blobUrlCache = new Map<string, string>();
+  private readonly cacheName: string;
 
   constructor(
     private readonly node: MiddenNodeLike,
     private readonly peerAddr: string, // node_id or full endpoint JSON
-  ) {}
+    cacheName?: string, // optional custom cache name for per-remote caching
+  ) {
+    this.cacheName = cacheName ?? DEFAULT_CACHE_NAME;
+  }
 
   /**
    * get our local node's ID
@@ -93,9 +110,9 @@ export class WasmTransport implements Transport {
 
   async fetchBlob(blobId: string): Promise<BlobData> {
     // check Cache API first
-    const cache = await caches.open(CACHE_NAME);
-    const cacheKey = `${this.peerAddr}/${blobId}`;
-    const cached = await cache.match(cacheKey);
+    const cache = await caches.open(this.cacheName);
+    // use just blobId as key (cache name already partitions by remote)
+    const cached = await cache.match(blobId);
 
     if (cached) {
       const data = new Uint8Array(await cached.arrayBuffer());
@@ -114,7 +131,55 @@ export class WasmTransport implements Transport {
     const response = new Response(arrayBuffer, {
       headers: { "Content-Type": contentType },
     });
-    await cache.put(cacheKey, response);
+    await cache.put(blobId, response);
+
+    return { data, contentType };
+  }
+
+  /**
+   * fetch a blob with progress callback
+   * @param blobId - the blob ID to fetch
+   * @param onProgress - callback with (received, total) bytes
+   * @returns blob data with content type
+   */
+  async fetchBlobWithProgress(
+    blobId: string,
+    onProgress: BlobProgressCallback,
+  ): Promise<BlobData> {
+    // check Cache API first
+    const cache = await caches.open(this.cacheName);
+    const cached = await cache.match(blobId);
+
+    if (cached) {
+      const data = new Uint8Array(await cached.arrayBuffer());
+      const contentType =
+        cached.headers.get("Content-Type") || "application/octet-stream";
+      // report 100% progress for cached blobs
+      onProgress(data.length, data.length);
+      return { data, contentType };
+    }
+
+    // fetch from peer - use progress-enabled method if available
+    let result: BlobResultLike;
+    if (this.node.fetch_blob_with_progress) {
+      result = await this.node.fetch_blob_with_progress(
+        this.peerAddr,
+        blobId,
+        onProgress,
+      );
+    } else {
+      // fallback to non-progress fetch
+      result = await this.node.fetch_blob(this.peerAddr, blobId);
+    }
+    const data = result.data();
+    const contentType = result.content_type() ?? "application/octet-stream";
+
+    // cache for future use
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const response = new Response(arrayBuffer, {
+      headers: { "Content-Type": contentType },
+    });
+    await cache.put(blobId, response);
 
     return { data, contentType };
   }
@@ -128,6 +193,34 @@ export class WasmTransport implements Transport {
 
     // fetch and create object URL
     const { data, contentType } = await this.fetchBlob(blobId);
+    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    const blob = new Blob([arrayBuffer], { type: contentType });
+    const url = URL.createObjectURL(blob);
+
+    this.blobUrlCache.set(blobId, url);
+    return url;
+  }
+
+  /**
+   * get a blob URL with progress callback
+   * @param blobId - the blob ID to fetch
+   * @param onProgress - callback with (received, total) bytes
+   * @returns URL usable in <audio>/<img> src
+   */
+  async getBlobUrlWithProgress(
+    blobId: string,
+    onProgress: BlobProgressCallback,
+  ): Promise<string> {
+    // check in-memory cache first
+    const cached = this.blobUrlCache.get(blobId);
+    if (cached) {
+      // report 100% progress for cached URLs
+      onProgress(1, 1);
+      return cached;
+    }
+
+    // fetch with progress and create object URL
+    const { data, contentType } = await this.fetchBlobWithProgress(blobId, onProgress);
     const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
     const blob = new Blob([arrayBuffer], { type: contentType });
     const url = URL.createObjectURL(blob);

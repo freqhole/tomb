@@ -9,6 +9,7 @@ export const blobresult_size: (a: number) => number;
 export const middennode_create: () => any;
 export const middennode_create_from_key: (a: number, b: number) => any;
 export const middennode_fetch_blob: (a: number, b: number, c: number, d: number, e: number) => any;
+export const middennode_fetch_blob_with_progress: (a: number, b: number, c: number, d: number, e: number, f: any) => any;
 export const middennode_node_id: (a: number) => [number, number];
 export const middennode_proxy_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => any;
 export const middennode_secret_key: (a: number) => any;

@@ -10,7 +10,7 @@ import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
-import { isBlobCachedReactive } from "../../music/services/cache/blobCache";
+import { isBlobCachedReactive, getLoadingProgress } from "../../music/services/cache/blobCache";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
@@ -517,23 +517,39 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           >
                             {formatDuration(song()?.duration_seconds)}
                           </span>
-                          {/* loading underline - bouncing bar */}
+                          {/* loading underline - shows progress or bouncing bar */}
                           <Show when={props.loadingSongIds?.has(song()?.sha256 ?? "")}>
-                            <div
-                              class="w-full h-0.5 overflow-hidden rounded-full"
-                              style={{ "margin-top": "-2px" }}
-                            >
-                              <div
-                                style={{
-                                  width: "100%",
-                                  height: "100%",
-                                  background:
-                                    "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
-                                  animation: "bounce-bar 2s ease-in-out infinite",
-                                  "border-radius": "9999px",
-                                }}
-                              />
-                            </div>
+                            {(() => {
+                              const sha256 = song()?.sha256;
+                              const progress = sha256 ? getLoadingProgress(sha256) : undefined;
+                              const hasProgress = typeof progress === "number" && progress >= 0;
+
+                              return (
+                                <div
+                                  class="w-full h-0.5 overflow-hidden rounded-full"
+                                  style={{
+                                    "margin-top": "-2px",
+                                    background: "rgba(168, 85, 247, 0.2)",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: hasProgress
+                                        ? `${Math.min(progress * 100, 100)}%`
+                                        : "100%",
+                                      height: "100%",
+                                      background:
+                                        "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
+                                      animation: hasProgress
+                                        ? undefined
+                                        : "bounce-bar 2s ease-in-out infinite",
+                                      "border-radius": "9999px",
+                                      transition: hasProgress ? "width 150ms ease-out" : undefined,
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })()}
                           </Show>
                         </div>
                       </div>

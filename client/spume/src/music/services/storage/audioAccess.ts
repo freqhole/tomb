@@ -1,17 +1,18 @@
 // audio access abstraction - handles getting audio urls from various sources
 import { createSignal } from "solid-js";
-import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
+import { getCachedBlob, preCacheBlob, addToLoadingSet, updateLoadingProgress, removeFromLoadingSet } from "../cache/blobCache";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 import { debug } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote } from "./blobResolver";
+import type { BlobProgressCallback } from "freqhole-api-client";
 
 // cache of active blob urls to prevent memory leaks
 const activeBlobURLs = new Map<string, string>();
 
 // track songs currently playing from a direct (non-cached) remote URL
-// maps sha256 -> source_url so we can swap to cached version later
-const directURLSongs = new Map<string, string>();
+// maps sha256 -> { sourceUrl, remoteId } so we can swap to cached version later
+const directURLSongs = new Map<string, { sourceUrl: string; remoteId: string }>();
 
 // reactive signal tracking which sha256s are playing from direct URL
 const [directURLSet, setDirectURLSet] = createSignal<Set<string>>(new Set());
@@ -73,14 +74,27 @@ export async function getAudioURL(song: Song): Promise<string> {
     // check if this is a P2P remote - needs special handling
     if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
       debug("audioAccess", `using P2P transport for remote song: ${song.sha256}`);
+      
+      // track loading state for UI feedback
+      addToLoadingSet(song.sha256);
+      updateLoadingProgress(song.sha256, null); // indeterminate until we get total size
+      
       try {
         // P2P: use blobResolver which fetches via WasmTransport and caches
-        const url = await resolveBlobUrl(song.sha256, song.remote_server_id);
+        // pass progress callback for 0-100% loading indicator
+        const onProgress: BlobProgressCallback = (received, total) => {
+          if (total > 0) {
+            updateLoadingProgress(song.sha256, received / total);
+          }
+        };
+        const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio", onProgress);
         activeBlobURLs.set(song.sha256, url);
         return url;
       } catch (error) {
         console.error(`failed to fetch P2P audio:`, error);
         throw new Error(`failed to fetch audio from P2P peer`);
+      } finally {
+        removeFromLoadingSet(song.sha256);
       }
     }
 
@@ -88,11 +102,14 @@ export async function getAudioURL(song: Song): Promise<string> {
     if (!song.source_url) {
       throw new Error(`remote song has no source url: ${song.sha256}`);
     }
+    if (!song.remote_server_id) {
+      throw new Error(`remote song has no remote_server_id: ${song.sha256}`);
+    }
 
     debug("audioAccess", `checking cache for remote url: ${song.source_url}`);
 
-    // try to get from cache
-    const cachedResponse = await getCachedBlob(song.source_url);
+    // try to get from cache (keyed by remoteId + sha256)
+    const cachedResponse = await getCachedBlob(song.remote_server_id, song.sha256);
     if (cachedResponse) {
       debug("audioAccess", `using cached audio: ${song.source_url}`);
       const blob = await cachedResponse.blob();
@@ -104,11 +121,11 @@ export async function getAudioURL(song: Song): Promise<string> {
     // not cached: return direct URL for immediate streaming
     // the browser will handle range requests and buffering natively
     debug("audioAccess", `streaming direct URL (not cached): ${song.source_url}`);
-    directURLSongs.set(song.sha256, song.source_url);
+    directURLSongs.set(song.sha256, { sourceUrl: song.source_url, remoteId: song.remote_server_id });
     addToDirectURLSet(song.sha256);
 
     // start background caching so the song is available offline later
-    void preCacheBlob(song.source_url, "audio");
+    void preCacheBlob(song.source_url, "audio", song.remote_server_id, song.sha256);
 
     return song.source_url;
   }
@@ -130,10 +147,10 @@ export function isPlayingDirectURLReactive(sha256: string | undefined): boolean 
 // attempt to swap a direct-URL song to its cached version
 // returns the new blob URL if swap is possible, null otherwise
 export async function trySwapToCachedURL(sha256: string): Promise<string | null> {
-  const sourceUrl = directURLSongs.get(sha256);
-  if (!sourceUrl) return null; // not playing from direct URL
+  const entry = directURLSongs.get(sha256);
+  if (!entry) return null; // not playing from direct URL
 
-  const cached = await getCachedBlob(sourceUrl);
+  const cached = await getCachedBlob(entry.remoteId, sha256);
   if (!cached) return null; // not yet cached
 
   const blob = await cached.blob();
@@ -205,7 +222,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     // P2P remotes: use blobResolver
     if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
       try {
-        const url = await resolveBlobUrl(song.sha256, song.remote_server_id);
+        const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio");
         activeBlobURLs.set(song.sha256, url);
         debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);
         return url;
@@ -216,8 +233,8 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     }
 
     // HTTP remotes: use cache
-    if (song.source_url) {
-      const cachedResponse = await getCachedBlob(song.source_url);
+    if (song.source_url && song.remote_server_id) {
+      const cachedResponse = await getCachedBlob(song.remote_server_id, song.sha256);
       if (cachedResponse) {
         const blob = await cachedResponse.blob();
         const url = URL.createObjectURL(blob);
@@ -227,7 +244,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
       }
       // not in cache - fall back to remote URL (browser will handle it)
       debug("audioAccess", `not in cache, falling back to remote URL: ${song.source_url}`);
-      directURLSongs.set(song.sha256, song.source_url);
+      directURLSongs.set(song.sha256, { sourceUrl: song.source_url, remoteId: song.remote_server_id });
       addToDirectURLSet(song.sha256);
       return song.source_url;
     }

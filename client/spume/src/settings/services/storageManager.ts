@@ -6,12 +6,10 @@ import { closeMusicDB } from "../../music/services/storage/db/init";
 import { closeBlobDB, BLOB_DB_NAME } from "../../music/services/storage/blobs";
 import { APP_DB_NAME } from "../../app/services/storage/types";
 import { closeAppDB } from "../../app/services/storage/db";
-import { closeMetadataDB } from "../../music/services/cache/blobCache";
+import { closeMetadataDB, clearBlobCache, listRemoteBlobCaches } from "../../music/services/cache/blobCache";
 import { clearAllP2PCache } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
 
-// unified cache name for all remote blobs (HTTP + P2P)
-const BLOB_CACHE_NAME = "freqhole-blobs-v1";
 const CACHE_METADATA_DB_NAME = "freqhole_cache_metadata";
 
 // opfs directories
@@ -103,22 +101,28 @@ async function estimateIDBSize(dbName: string): Promise<number> {
   });
 }
 
-// get cache api storage size and entry count
+// get cache api storage size and entry count (aggregates all per-remote caches)
 async function getCacheApiStats(): Promise<{ size: number; entryCount: number }> {
   try {
-    const cache = await caches.open(BLOB_CACHE_NAME);
-    const keys = await cache.keys();
+    const cacheNames = await listRemoteBlobCaches();
     let totalSize = 0;
+    let totalEntryCount = 0;
     
-    for (const request of keys) {
-      const response = await cache.match(request);
-      if (response) {
-        const blob = await response.blob();
-        totalSize += blob.size;
+    for (const cacheName of cacheNames) {
+      const cache = await caches.open(cacheName);
+      const keys = await cache.keys();
+      totalEntryCount += keys.length;
+      
+      for (const request of keys) {
+        const response = await cache.match(request);
+        if (response) {
+          const blob = await response.blob();
+          totalSize += blob.size;
+        }
       }
     }
     
-    return { size: totalSize, entryCount: keys.length };
+    return { size: totalSize, entryCount: totalEntryCount };
   } catch (error) {
     console.warn("failed to get cache api stats:", error);
     return { size: 0, entryCount: 0 };
@@ -228,17 +232,17 @@ export async function getStorageBreakdown(): Promise<StorageBreakdown> {
   };
 }
 
-// delete all cache api data (HTTP + P2P blobs share unified cache)
+// delete all cache api data (HTTP + P2P blobs in per-remote caches)
 export async function clearCacheApiData(): Promise<void> {
   const errors: string[] = [];
   
-  // clear unified blob cache (contains both HTTP and P2P blobs)
+  // clear all per-remote blob caches
   try {
-    await caches.delete(BLOB_CACHE_NAME);
-    debug("storageManager", "cleared unified blob cache");
+    await clearBlobCache(); // no remoteId = clear all remote caches
+    debug("storageManager", "cleared all per-remote blob caches");
   } catch (error) {
-    console.error("failed to clear blob cache:", error);
-    errors.push("blob cache");
+    console.error("failed to clear blob caches:", error);
+    errors.push("blob caches");
   }
   
   // clear P2P in-memory URLs

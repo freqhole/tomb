@@ -17,6 +17,13 @@ import {
   forceRefresh,
 } from "../../app/services/serviceWorker";
 import { isTauriMode } from "../../utils/tauri";
+import {
+  getAllRemoteCacheStats,
+  clearBlobCache,
+  type RemoteCacheStats,
+} from "../../music/services/cache/blobCache";
+import { getAllRemotes } from "../../app/services/remotes/remoteManager";
+import type { Remote } from "../../app/services/storage/types";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -120,6 +127,10 @@ export function StorageSettingsView() {
   const [swCacheSize, setSwCacheSize] = createSignal<number>(0);
   const [checkingUpdates, setCheckingUpdates] = createSignal(false);
   const [updateCheckResult, setUpdateCheckResult] = createSignal<string | null>(null);
+  // per-remote cache stats
+  const [remoteCacheStats, setRemoteCacheStats] = createSignal<RemoteCacheStats[]>([]);
+  const [remotes, setRemotes] = createSignal<Remote[]>([]);
+  const [clearingRemoteCache, setClearingRemoteCache] = createSignal<string | null>(null);
 
   // confirmation dialog state
   const [confirmDialog, setConfirmDialog] = createSignal<{
@@ -169,10 +180,30 @@ export function StorageSettingsView() {
         }
         setSwCacheSize(totalSize);
       }
+
+      // fetch per-remote cache stats
+      const [stats, allRemotes] = await Promise.all([getAllRemoteCacheStats(), getAllRemotes()]);
+      setRemoteCacheStats(stats);
+      setRemotes(allRemotes);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to load storage info");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearRemoteCache = async (remoteId: string) => {
+    setClearingRemoteCache(remoteId);
+    try {
+      await clearBlobCache(remoteId);
+      // refresh stats
+      const stats = await getAllRemoteCacheStats();
+      setRemoteCacheStats(stats);
+      // also refresh overall breakdown
+      const data = await getStorageBreakdown();
+      setBreakdown(data);
+    } finally {
+      setClearingRemoteCache(null);
     }
   };
 
@@ -428,15 +459,77 @@ export function StorageSettingsView() {
               </Show>
 
               {/* cache api */}
-              <StorageCard
-                title="remote cache"
-                icon=""
-                size={data().cacheApi.size}
-                details={[{ label: "cached items", value: data().cacheApi.entryCount.toString() }]}
-                onClear={handleClearCache}
-                clearLabel="clear cached data"
-                loading={clearing() === "cache"}
-              />
+              <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
+                <div class="flex items-start justify-between mb-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl"></span>
+                    <h3 class="text-sm font-medium text-[var(--color-text-primary)]">
+                      remote cache
+                    </h3>
+                  </div>
+                  <span class="text-lg font-semibold text-[var(--color-text-primary)]">
+                    {formatBytes(data().cacheApi.size)}
+                  </span>
+                </div>
+
+                <div class="space-y-1 mb-4">
+                  <div class="flex justify-between text-xs">
+                    <span class="text-[var(--color-text-muted)]">cached items</span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {data().cacheApi.entryCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* per-remote breakdown */}
+                <Show when={remoteCacheStats().length > 0}>
+                  <div class="border-t border-[var(--color-border-subtle)] pt-3 mb-4">
+                    <div class="text-xs text-[var(--color-text-muted)] mb-2">
+                      per-remote breakdown
+                    </div>
+                    <div class="space-y-2">
+                      <For each={remoteCacheStats().filter((s) => s.totalSize > 0)}>
+                        {(stats) => {
+                          const remote = remotes().find((r) => r.remote_id === stats.remoteId);
+                          const remoteName = remote?.name || stats.remoteId.slice(0, 8) + "...";
+                          return (
+                            <div class="flex items-center justify-between text-xs">
+                              <div class="flex items-center gap-2 min-w-0 flex-1">
+                                <span class="text-[var(--color-text-secondary)] truncate">
+                                  {remoteName}
+                                </span>
+                                <span class="text-[var(--color-text-muted)]">
+                                  ({stats.audioCount} audio, {stats.imageCount} images)
+                                </span>
+                              </div>
+                              <div class="flex items-center gap-2 shrink-0">
+                                <span class="text-[var(--color-text-secondary)]">
+                                  {formatBytes(stats.totalSize)}
+                                </span>
+                                <button
+                                  class="text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] disabled:opacity-50"
+                                  onClick={() => handleClearRemoteCache(stats.remoteId)}
+                                  disabled={clearingRemoteCache() === stats.remoteId}
+                                >
+                                  {clearingRemoteCache() === stats.remoteId ? "..." : "clear"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                <button
+                  class="w-full px-3 py-2 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)]"
+                  onClick={handleClearCache}
+                  disabled={clearing() === "cache"}
+                >
+                  {clearing() === "cache" ? "clearing..." : "clear all cached data"}
+                </button>
+              </div>
 
               {/* opfs */}
               <StorageCard
