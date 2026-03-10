@@ -3,6 +3,7 @@
 mod app_config;
 mod commands;
 mod menu;
+mod p2p_commands;
 mod server_controls;
 mod sidecar;
 mod spume_bridge;
@@ -78,6 +79,7 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 let app_handle_for_server = app_handle.clone();
                 let app_handle_for_auth = app_handle.clone();
+                let config_path_for_p2p = config_path.clone();
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     let result =
@@ -87,6 +89,13 @@ pub fn run() {
                         eprintln!("[tauri] failed to start server: {}", result.message);
                     } else {
                         eprintln!("[tauri] server started successfully");
+
+                        // initialize P2P client endpoint for outbound connections
+                        // (runs in Tauri process, separate from server's endpoint)
+                        if let Err(e) = p2p_commands::init_p2p_client(&config_path_for_p2p).await {
+                            eprintln!("[tauri] failed to init P2P client: {}", e);
+                        }
+
                         // server started - check for pending jobs and resume polling
                         commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
                         // push fresh auth to spume (after brief delay for server to be ready)
@@ -186,6 +195,13 @@ pub fn run() {
             sidecar::get_server_logs,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
+            // P2P native transport commands
+            p2p_commands::p2p_is_available,
+            p2p_commands::p2p_get_node_id,
+            p2p_commands::p2p_proxy_request,
+            p2p_commands::p2p_fetch_blob,
+            p2p_commands::p2p_close_connection,
+            p2p_commands::p2p_close_all_connections,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

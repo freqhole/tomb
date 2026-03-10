@@ -1,7 +1,7 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
 import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
-import { getClientForRemoteAsync } from "../../app/api/client";
+import { getClientForRemote, isTauriAvailable } from "../../app/api/client";
 import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
@@ -162,9 +162,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       try {
         // first, try to get server info via P2P to verify connection
-        const client = await getClientForRemoteAsync({
+        const client = await getClientForRemote({
           peer_addr: parsed.peer_addr,
-          transport_type: "wasm",
+          transport_type: isTauriAvailable() ? "app" : "wasm",
         });
 
         // check if cancelled while initializing
@@ -359,9 +359,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         }
 
         // get P2P client and redeem invite
-        const client = await getClientForRemoteAsync({
+        const client = await getClientForRemote({
           peer_addr: currentPeerAddr,
-          transport_type: "wasm",
+          transport_type: isTauriAvailable() ? "app" : "wasm",
         });
 
         debug("auth", "redeeming invite code via P2P...");

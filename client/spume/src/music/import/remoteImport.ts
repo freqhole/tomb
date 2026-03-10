@@ -120,7 +120,7 @@ export async function uploadFilesToRemote(
     // fire off each upload + poll chain without blocking the others
     (async () => {
       try {
-        const client = getClientForRemote(remote);
+        const client = await getClientForRemote(remote);
         const result = await client.upload.music(file);
         if (!result.success) {
           // extract error message from the ZodError
@@ -199,7 +199,8 @@ export async function fetchUrlsOnRemote(
 
     (async () => {
       try {
-        const result = await getClientForRemote(remote).music.createFetchJob({
+        const client = await getClientForRemote(remote);
+        const result = await client.music.createFetchJob({
           url,
           user_id: userId ?? null,
         });

@@ -46,6 +46,11 @@ impl PeerConnection {
         self.peer_id
     }
 
+    /// check if the connection is still open
+    pub fn is_open(&self) -> bool {
+        self.conn.close_reason().is_none()
+    }
+
     /// get next request id
     fn next_request_id(&self) -> u64 {
         self.request_id.fetch_add(1, Ordering::SeqCst)

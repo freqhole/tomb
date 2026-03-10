@@ -1,7 +1,12 @@
 // federation settings view - P2P identity management
 import { createSignal, onMount, Show } from "solid-js";
 import { getP2PIdentity, deleteP2PIdentity } from "../../app/services/storage/db";
-import { getMiddenNode, isMiddenInitialized } from "../../app/api/client";
+import {
+  getMiddenNode,
+  isMiddenInitialized,
+  isTauriAvailable,
+  getLocalNodeIdAsync,
+} from "../../app/api/client";
 import type { P2PIdentity } from "../../app/services/storage/types";
 import { toast } from "../../components/feedback/Toast";
 import { formatDateTime } from "../../utils/dateTime";
@@ -43,26 +48,36 @@ function ConfirmDialog(props: {
 
 export function FederationSettingsView() {
   const [identity, setIdentity] = createSignal<P2PIdentity | null>(null);
+  const [tauriNodeId, setTauriNodeId] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(false);
   const [showResetConfirm, setShowResetConfirm] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
 
+  const isTauri = isTauriAvailable();
+
   // load existing identity on mount
   onMount(async () => {
     setIsLoading(true);
     try {
-      const existing = await getP2PIdentity();
-      setIdentity(existing);
+      if (isTauri) {
+        // in tauri, get node_id from server
+        const nodeId = await getLocalNodeIdAsync();
+        setTauriNodeId(nodeId);
+      } else {
+        // in browser, get from IndexedDB
+        const existing = await getP2PIdentity();
+        setIdentity(existing);
+      }
     } catch (err) {
       console.error("failed to load P2P identity:", err);
     }
     setIsLoading(false);
   });
 
-  // initialize P2P node (generates or restores identity)
+  // initialize P2P node (generates or restores identity) - browser only
   const handleInitialize = async () => {
-    if (isInitializing()) return;
+    if (isInitializing() || isTauri) return;
 
     setIsInitializing(true);
     try {
@@ -78,8 +93,9 @@ export function FederationSettingsView() {
     setIsInitializing(false);
   };
 
-  // reset identity (delete and allow re-generation)
+  // reset identity (delete and allow re-generation) - browser only
   const handleReset = async () => {
+    if (isTauri) return;
     setShowResetConfirm(false);
     try {
       await deleteP2PIdentity();
@@ -94,17 +110,21 @@ export function FederationSettingsView() {
 
   // copy node ID to clipboard
   const copyNodeId = async () => {
-    const id = identity();
-    if (!id) return;
+    const nodeId = isTauri ? tauriNodeId() : identity()?.node_id;
+    if (!nodeId) return;
 
     try {
-      await navigator.clipboard.writeText(id.node_id);
+      await navigator.clipboard.writeText(nodeId);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error("failed to copy");
     }
   };
+
+  // get current node ID for display
+  const currentNodeId = () => (isTauri ? tauriNodeId() : identity()?.node_id);
+  const hasIdentity = () => (isTauri ? !!tauriNodeId() : !!identity());
 
   return (
     <div class="p-6 max-w-2xl">
@@ -118,8 +138,8 @@ export function FederationSettingsView() {
       </Show>
 
       <Show when={!isLoading()}>
-        {/* no identity yet */}
-        <Show when={!identity()}>
+        {/* no identity yet - browser only */}
+        <Show when={!hasIdentity() && !isTauri}>
           <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6">
             <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
               P2P not initialized
@@ -138,57 +158,79 @@ export function FederationSettingsView() {
           </div>
         </Show>
 
-        {/* has identity */}
-        <Show when={identity()}>
-          {(id) => (
-            <div class="space-y-6">
-              {/* node ID display */}
-              <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6">
-                <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
-                  node ID
-                </h2>
-                <div class="flex items-center gap-3">
-                  <code class="flex-1 font-mono text-sm text-[var(--color-text-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2 rounded break-all select-all">
-                    {id().node_id}
-                  </code>
-                  <button
-                    class="px-3 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors whitespace-nowrap"
-                    onClick={copyNodeId}
-                  >
-                    {copied() ? "copied!" : "copy"}
-                  </button>
-                </div>
-                <p class="text-xs text-[var(--color-text-muted)] mt-3">
-                  share this ID with the remote server admin to allow P2P connections
-                </p>
-              </div>
+        {/* tauri: no node id from server yet */}
+        <Show when={!hasIdentity() && isTauri}>
+          <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6">
+            <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
+              P2P not available
+            </h2>
+            <p class="text-sm text-[var(--color-text-secondary)]">
+              the server's federation endpoint is not running. check server logs for details.
+            </p>
+          </div>
+        </Show>
 
-              {/* identity info */}
-              <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6">
-                <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
-                  identity info
-                </h2>
-                <dl class="space-y-2 text-sm">
+        {/* has identity */}
+        <Show when={hasIdentity()}>
+          <div class="space-y-6">
+            {/* node ID display */}
+            <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6">
+              <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
+                node ID
+              </h2>
+              <div class="flex items-center gap-3">
+                <code class="flex-1 font-mono text-sm text-[var(--color-text-primary)] bg-[var(--color-bg-tertiary)] px-3 py-2 rounded break-all select-all">
+                  {currentNodeId()}
+                </code>
+                <button
+                  class="px-3 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors whitespace-nowrap"
+                  onClick={copyNodeId}
+                >
+                  {copied() ? "copied!" : "copy"}
+                </button>
+              </div>
+              <p class="text-xs text-[var(--color-text-muted)] mt-3">
+                share this ID with the remote server admin to allow P2P connections
+              </p>
+            </div>
+
+            {/* identity info */}
+            <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6">
+              <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
+                identity info
+              </h2>
+              <dl class="space-y-2 text-sm">
+                <Show when={!isTauri && identity()}>
                   <div class="flex justify-between">
                     <dt class="text-[var(--color-text-muted)]">created</dt>
                     <dd class="text-[var(--color-text-primary)]">
-                      {formatDateTime(id().created_at)}
+                      {formatDateTime(identity()!.created_at)}
                     </dd>
                   </div>
-                  <div class="flex justify-between">
-                    <dt class="text-[var(--color-text-muted)]">node status</dt>
-                    <dd class="text-[var(--color-text-primary)]">
-                      {isMiddenInitialized() ? (
-                        <span class="text-green-400">connected</span>
-                      ) : (
-                        <span class="text-yellow-400">not started</span>
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
+                </Show>
+                <div class="flex justify-between">
+                  <dt class="text-[var(--color-text-muted)]">transport</dt>
+                  <dd class="text-[var(--color-text-primary)]">
+                    {isTauri ? "app" : "WASM (browser)"}
+                  </dd>
+                </div>
+                <div class="flex justify-between">
+                  <dt class="text-[var(--color-text-muted)]">node status</dt>
+                  <dd class="text-[var(--color-text-primary)]">
+                    {isTauri ? (
+                      <span class="text-green-400">connected</span>
+                    ) : isMiddenInitialized() ? (
+                      <span class="text-green-400">connected</span>
+                    ) : (
+                      <span class="text-yellow-400">not started</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </div>
 
-              {/* actions */}
+            {/* actions - browser only */}
+            <Show when={!isTauri}>
               <div class="flex gap-3">
                 <Show when={!isMiddenInitialized()}>
                   <button
@@ -206,8 +248,8 @@ export function FederationSettingsView() {
                   reset identity
                 </button>
               </div>
-            </div>
-          )}
+            </Show>
+          </div>
         </Show>
       </Show>
 

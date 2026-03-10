@@ -71,7 +71,8 @@ export function useActivityFeedQuery(limit: number = 50) {
       const remote = getCurrentRemote();
       if (!remote) return { items: [], total: 0 };
 
-      const result = await getRemoteClient()!.music.activityFeed({
+      const client = await getRemoteClient();
+      const result = await client!.music.activityFeed({
         limit,
         offset: null,
         feed_types: null,
@@ -137,7 +138,8 @@ export function useActivityFeedInfiniteQuery(
         const remote = getCurrentRemote();
         if (!remote) return { items: [], total: 0 };
 
-        const result = await getRemoteClient()!.music.activityFeed({
+        const client = await getRemoteClient();
+        const result = await client!.music.activityFeed({
           limit: pageSize,
           offset: pageParam,
           feed_types: types,
@@ -171,7 +173,8 @@ export function useTopSongsQuery(limit: number = 10, days?: number) {
       const remote = getCurrentRemote();
       if (!remote) return [];
 
-      const result = await getRemoteClient()!.music.topSongs({
+      const client = await getRemoteClient();
+      const result = await client!.music.topSongs({
         limit,
         days: days ?? null,
       });
@@ -196,7 +199,8 @@ export function useTopAlbumsQuery(limit: number = 10, days?: number) {
       const remote = getCurrentRemote();
       if (!remote) return [];
 
-      const result = await getRemoteClient()!.music.topAlbums({
+      const clientAlbum = await getRemoteClient();
+      const result = await clientAlbum!.music.topAlbums({
         limit,
         days: days ?? null,
       });
@@ -221,7 +225,8 @@ export function useTopArtistsQuery(limit: number = 10, days?: number) {
       const remote = getCurrentRemote();
       if (!remote) return [];
 
-      const result = await getRemoteClient()!.music.topArtists({
+      const clientArtist = await getRemoteClient();
+      const result = await clientArtist!.music.topArtists({
         limit,
         days: days ?? null,
       });

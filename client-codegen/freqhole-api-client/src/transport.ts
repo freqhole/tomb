@@ -53,6 +53,15 @@ export interface Transport {
    * HTTP transport returns direct URL, P2P transports may need caching
    */
   getBlobUrl(blobId: string): string | Promise<string>;
+
+  /**
+   * get a URL for a blob with progress callback (optional).
+   * only implemented by transports that support streaming progress (WasmTransport).
+   */
+  getBlobUrlWithProgress?(
+    blobId: string,
+    onProgress: (received: number, total: number) => void,
+  ): Promise<string>;
 }
 
 /**

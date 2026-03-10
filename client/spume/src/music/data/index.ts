@@ -56,7 +56,7 @@ export function getCurrentRemote() {
  * returns null if no remote is active (using local source).
  * this is the main entry point for making API calls - handles transport selection.
  */
-export function getRemoteClient(): ApiClient | null {
+export async function getRemoteClient(): Promise<ApiClient | null> {
   const remote = currentRemote();
   if (!remote) return null;
   return getClientForRemote(remote);
@@ -90,7 +90,7 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
 
   // fetch current user info from whoami (uses session cookies)
   try {
-    const client = getClientForRemote(remote);
+    const client = await getClientForRemote(remote);
     const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success && whoamiResult.data) {
       setCurrentUser({
@@ -114,7 +114,7 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
 // check if remote is accessible by making a lightweight request
 async function checkRemoteAccessible(remote: RemoteRef): Promise<boolean> {
   try {
-    const client = getClientForRemote(remote);
+    const client = await getClientForRemote(remote);
     // try whoami first - if we're authenticated, the remote is accessible
     const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success) {

@@ -15,11 +15,17 @@ import {
   FreqholeClient,
   HttpTransport,
   WasmTransport,
+  createTauriTransport,
+  getTauriNodeId,
   type MiddenNodeLike,
+  type Transport,
 } from "freqhole-api-client";
+import { isTauriMode } from "../../utils/tauri";
 
 // re-export for call sites that still need direct access
+// note: isTauriAvailable uses local isTauriMode which checks both env var and window.__TAURI__
 export { createHttpClient, isAuthError, isNetworkError };
+export { isTauriMode as isTauriAvailable };
 
 // client type (inferred from factory function)
 export type { FreqholeClient } from "freqhole-api-client";
@@ -102,8 +108,14 @@ let middenNodePromise: Promise<MiddenNodeLike> | null = null;
 /**
  * get or create the midden node singleton.
  * uses persisted identity from IndexedDB if available, otherwise creates new.
+ * NOTE: throws in Tauri builds - use TauriTransport instead.
  */
 export async function getMiddenNode(): Promise<MiddenNodeLike> {
+  // midden WASM is not available in Tauri builds - use app P2P
+  if (isTauriMode()) {
+    throw new Error("midden WASM not available in Tauri - use transport_type: 'app' for P2P");
+  }
+
   if (middenNode) {
     return middenNode;
   }
@@ -142,10 +154,27 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
 
 /**
  * get our local node_id (for sharing with peers).
- * returns null if midden not initialized yet.
+ * returns null if P2P not initialized yet.
  */
 export function getLocalNodeId(): string | null {
   return middenNode?.node_id() ?? null;
+}
+
+/**
+ * get local node_id (async - works for both midden and tauri)
+ */
+export async function getLocalNodeIdAsync(): Promise<string | null> {
+  if (middenNode) {
+    return middenNode.node_id();
+  }
+  if (isTauriMode()) {
+    try {
+      return await getTauriNodeId();
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /**
@@ -163,29 +192,24 @@ export function isMiddenInitialized(): boolean {
  * create a client for a remote.
  * transport selection happens HERE - call sites don't need to know which
  * transport is used.
- *
- * NOTE: for wasm transport, use getClientForRemoteAsync instead to ensure
- * the midden node is initialized.
  */
-export function getClientForRemote(remote: RemoteLike): ApiClient {
+export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient> {
   // infer transport type: use wasm if peer_addr is present, otherwise http
   const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
   
   switch (transportType) {
     case 'app':
-      // TODO: implement AppTransport for tauri embedded server
-      console.warn('app transport not yet implemented, falling back to http');
-      return new FreqholeClient(new HttpTransport(remote.base_url!, remote.api_key));
+      if (!remote.peer_addr) {
+        throw new Error('peer_addr required for app transport');
+      }
+      return new FreqholeClient(await createTauriTransport(remote.peer_addr));
       
     case 'wasm':
-      // for sync access, midden must be initialized first
-      if (!middenNode) {
-        throw new Error('midden node not initialized - use getClientForRemoteAsync for wasm transport');
-      }
       if (!remote.peer_addr) {
         throw new Error('peer_addr required for wasm transport');
       }
-      return new FreqholeClient(new WasmTransport(middenNode, remote.peer_addr));
+      const node = await getMiddenNode();
+      return new FreqholeClient(new WasmTransport(node, remote.peer_addr));
       
     case 'http':
     default:
@@ -196,22 +220,45 @@ export function getClientForRemote(remote: RemoteLike): ApiClient {
   }
 }
 
+// ============================================================================
+// transport factory - for direct transport access (blob operations, etc.)
+// ============================================================================
+
 /**
- * create a client for a remote (async version).
- * initializes midden node if needed for wasm transport.
+ * get a transport for a remote (async).
+ * use this when you need direct transport access for blob operations.
+ * the Transport interface abstracts away wasm/app/http differences.
  */
-export async function getClientForRemoteAsync(remote: RemoteLike): Promise<ApiClient> {
-  // infer transport type: use wasm if peer_addr is present, otherwise http
+export async function getTransportForRemote(remote: RemoteLike): Promise<Transport> {
   const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
   
-  if (transportType === 'wasm') {
-    if (!remote.peer_addr) {
-      throw new Error('peer_addr required for wasm transport');
-    }
-    const node = await getMiddenNode();
-    return new FreqholeClient(new WasmTransport(node, remote.peer_addr));
+  switch (transportType) {
+    case 'app':
+      if (!remote.peer_addr) {
+        throw new Error('peer_addr required for app transport');
+      }
+      return createTauriTransport(remote.peer_addr);
+      
+    case 'wasm':
+      if (!remote.peer_addr) {
+        throw new Error('peer_addr required for wasm transport');
+      }
+      const node = await getMiddenNode();
+      return new WasmTransport(node, remote.peer_addr);
+      
+    case 'http':
+    default:
+      if (!remote.base_url) {
+        throw new Error('base_url required for http transport');
+      }
+      return new HttpTransport(remote.base_url, remote.api_key);
   }
-  
-  // for non-wasm transports, just use sync version
-  return getClientForRemote(remote);
+}
+
+/**
+ * check if a remote uses P2P transport (wasm or app).
+ */
+export function isP2PTransportType(remote: RemoteLike): boolean {
+  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
+  return transportType === 'wasm' || transportType === 'app';
 }

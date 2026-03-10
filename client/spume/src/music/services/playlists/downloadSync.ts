@@ -200,7 +200,8 @@ export async function downloadPlaylist(
     }
 
     // fetch playlist metadata
-    const playlistResult = await getClientForRemote(remote).music.getPlaylistById({
+    const client = await getClientForRemote(remote);
+    const playlistResult = await client.music.getPlaylistById({
       id: remotePlaylistId,
     });
     if (!playlistResult.success) {
@@ -214,7 +215,7 @@ export async function downloadPlaylist(
     const limit = 100;
 
     while (true) {
-      const songsResult = await getClientForRemote(remote).music.queryPlaylistSongs({
+      const songsResult = await client.music.queryPlaylistSongs({
         playlist_id: remotePlaylistId,
         q: null,
         sort_by: null,
@@ -281,7 +282,7 @@ export async function downloadPlaylist(
         }
 
         // fetch blob metadata to get SHA256
-        const metadataResult = await getClientForRemote(remote).music.blobMetadata({
+        const metadataResult = await client.music.blobMetadata({
           id: song.media_blob_id,
         });
 
@@ -546,7 +547,8 @@ export async function syncPlaylist(
     }
 
     // fetch updated playlist metadata
-    const playlistResult = await getClientForRemote(remote).music.getPlaylistById({
+    const updateClient = await getClientForRemote(remote);
+    const playlistResult = await updateClient.music.getPlaylistById({
       id: localPlaylist.source_remote_id,
     });
     if (!playlistResult.success) {
@@ -572,7 +574,7 @@ export async function syncPlaylist(
     const limit = 100;
 
     while (true) {
-      const songsResult = await getClientForRemote(remote).music.queryPlaylistSongs({
+      const songsResult = await updateClient.music.queryPlaylistSongs({
         playlist_id: localPlaylist.source_remote_id,
         q: null,
         sort_by: null,
@@ -618,7 +620,7 @@ export async function syncPlaylist(
 
       try {
         // fetch blob metadata to get SHA256
-        const metadataResult = await getClientForRemote(remote).music.blobMetadata({
+        const metadataResult = await updateClient.music.blobMetadata({
           id: song.media_blob_id,
         });
 

@@ -203,7 +203,7 @@ export function App() {
       if (config.invite_code) {
         debug("invite code found, authenticating via invite redemption...");
         debug(`using admin_username: ${config.admin_username}`);
-        const client = getClientForRemote(httpRemote(config.server_url));
+        const client = await getClientForRemote(httpRemote(config.server_url));
         const redeemResult = await client.auth.redeemInvite({
           invite_code: config.invite_code,
           username: config.admin_username ?? null,
@@ -254,7 +254,7 @@ export function App() {
           return;
         }
 
-        const client = getClientForRemote(currentRemote);
+        const client = await getClientForRemote(currentRemote);
         const redeemResult = await client.auth.redeemInvite({
           invite_code,
           username: null,

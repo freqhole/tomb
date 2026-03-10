@@ -106,7 +106,8 @@ export async function createServerSessions(
           0,
         );
 
-        const result = await getClientForRemote(remote).music.createListenSession({
+        const client = await getClientForRemote(remote);
+        const result = await client.music.createListenSession({
           session_type: source.type,
           entity_id: source.entity_id ?? null,
           label: source.label,
@@ -209,7 +210,8 @@ async function sendProgress(session: RemoteSession): Promise<void> {
     return;
   }
 
-  const result = await getClientForRemote(remote).music.updateListenSessionProgress(
+  const client = await getClientForRemote(remote);
+  const result = await client.music.updateListenSessionProgress(
     session.sessionId,
     { progress: session.progress },
   );
@@ -266,7 +268,8 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
           try {
             const remote = await resolveRemote(remoteId);
             if (remote) {
-              await getClientForRemote(remote).music.updateListenSessionStatus(
+              const client = await getClientForRemote(remote);
+              await client.music.updateListenSessionStatus(
                 session.sessionId,
                 "abandoned",
               );
@@ -297,7 +300,8 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
           try {
             const remote = await resolveRemote(remoteId);
             if (remote) {
-              await getClientForRemote(remote).music.updateListenSessionSongs(
+              const client = await getClientForRemote(remote);
+              await client.music.updateListenSessionSongs(
                 session.sessionId,
                 {
                   song_ids: group.songs.map((s) => s.id || s.sha256),
@@ -333,7 +337,8 @@ export async function stopAllServerSessions(
     try {
       const remote = await resolveRemote(session.remoteId);
       if (remote) {
-        await getClientForRemote(remote).music.updateListenSessionStatus(
+        const client = await getClientForRemote(remote);
+        await client.music.updateListenSessionStatus(
           session.sessionId,
           status,
         );
@@ -389,7 +394,8 @@ export async function resumeServerSession(
   updatePrimarySessionId();
 
   // update status to active on the remote
-  const statusResult = await getClientForRemote(remote).music.updateListenSessionStatus(
+  const client = await getClientForRemote(remote);
+  const statusResult = await client.music.updateListenSessionStatus(
     sessionId,
     "active",
   );

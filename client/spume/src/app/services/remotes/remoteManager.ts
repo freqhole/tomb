@@ -1,7 +1,7 @@
 // remote server management - CRUD operations for remote configurations
 // auth is handled via cookies, so no credentials stored here
 
-import { getClientForRemote, getClientForRemoteAsync, httpRemote } from "../../api/client";
+import { getClientForRemote, httpRemote, isTauriAvailable } from "../../api/client";
 import { initAppDB } from "../storage/db";
 import { STORE_REMOTES, type Remote } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
@@ -151,13 +151,14 @@ export async function createRemote(data: {
   let serverInfo = null;
   try {
     if (isP2P) {
-      const client = await getClientForRemoteAsync({ peer_addr: data.peer_addr, transport_type: "wasm" });
+      const client = await getClientForRemote({ peer_addr: data.peer_addr, transport_type: isTauriAvailable() ? "app" : "wasm" });
       const result = await client.app.serverInfo();
       if (result.success && result.data) {
         serverInfo = result.data;
       }
     } else {
-      const result = await getClientForRemote(httpRemote(baseUrl)).app.serverInfo();
+      const client = await getClientForRemote(httpRemote(baseUrl));
+      const result = await client.app.serverInfo();
       if (result.success && result.data) {
         serverInfo = result.data;
       }
@@ -190,7 +191,7 @@ export async function createRemote(data: {
     name: remoteName,
     base_url: baseUrl,
     peer_addr: data.peer_addr,
-    transport_type: isP2P ? "wasm" : "http",
+    transport_type: isP2P ? (isTauriAvailable() ? "app" : "wasm") : "http",
     is_active: false,
     last_connected_at: null,
     created_at: Date.now(),
@@ -330,7 +331,8 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
   }
 
   try {
-    const result = await getClientForRemote(remote).app.serverInfo();
+    const client = await getClientForRemote(remote);
+    const result = await client.app.serverInfo();
     if (result.success && result.data) {
       const serverInfo = result.data;
       await db.put(STORE_REMOTES, {
@@ -350,10 +352,10 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
   }
 }
 
-// check if a remote uses P2P transport
+// check if a remote uses P2P transport (wasm or app)
 export function isP2PTransport(remote: Remote): boolean {
   const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
-  return transportType === 'wasm';
+  return transportType === 'wasm' || transportType === 'app';
 }
 
 // check if a remote is online (quick health check via /api/hello)
@@ -365,7 +367,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
 
   try {
     // use async client getter for P2P remotes (starts midden node if needed)
-    const client = await getClientForRemoteAsync(remote);
+    const client = await getClientForRemote(remote);
     const result = await client.app.serverInfo();
     const isOnline = result.success && !!result.data;
 

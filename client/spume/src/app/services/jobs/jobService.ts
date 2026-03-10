@@ -110,7 +110,8 @@ export class JobPoller {
     debug("jobs", `polling ${jobIds.length} jobs`);
 
     try {
-      const result = await getClientForRemote(this.remote).music.getJobStatus({ job_ids: jobIds });
+      const client = await getClientForRemote(this.remote);
+      const result = await client.music.getJobStatus({ job_ids: jobIds });
 
       if (!isSuccess(result)) {
         errorLog("jobs", "batch poll failed:", result.error);

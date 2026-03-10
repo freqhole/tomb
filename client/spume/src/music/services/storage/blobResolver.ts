@@ -1,7 +1,7 @@
 // blob resolver - resolves blob IDs to URLs for any transport type
 //
 // for HTTP remotes: returns direct URLs (browser handles auth via cookies/api key)
-// for P2P remotes: fetches via WasmTransport, caches in Cache API, returns blob URL
+// for P2P remotes: fetches via transport, caches in Cache API, returns blob URL
 //
 // usage:
 //   const url = await resolveBlobUrl(blobId, remoteId, "audio");
@@ -11,10 +11,11 @@ import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import {
-  getMiddenNode,
+  getTransportForRemote,
+  isP2PTransportType,
   type Remote,
 } from "../../../app/api/client";
-import { WasmTransport, type BlobProgressCallback } from "freqhole-api-client";
+import { type BlobProgressCallback } from "freqhole-api-client";
 import { debug } from "../../../utils/logger";
 import { 
   getRemoteCacheName, 
@@ -85,10 +86,8 @@ export async function resolveBlobUrl(
     throw new Error(`remote not found: ${remoteId}`);
   }
 
-  // determine transport type
-  const transportType = remote.transport_type ?? (remote.peer_addr ? "wasm" : "http");
-
-  if (transportType === "wasm") {
+  // check if this is a P2P remote
+  if (isP2PTransportType(remote)) {
     // check if there's already a fetch in progress for this blob
     // if so, wait for it instead of starting a duplicate fetch
     const inProgress = inProgressP2PFetches.get(cacheKey);
@@ -153,14 +152,12 @@ async function resolveP2PBlob(
 
   debug("blobResolver", `fetching from peer: ${blobId.slice(0, 8)}...`);
 
-  // get midden node and create transport with per-remote cache
-  const node = await getMiddenNode();
-  const cacheName = getRemoteCacheName(remote.remote_id);
-  const transport = new WasmTransport(node, remote.peer_addr, cacheName);
-
-  // use progress-enabled fetch if callback provided
+  // get transport - handles wasm/app differences internally
+  const transport = await getTransportForRemote(remote);
+  
+  // use progress-enabled fetch if callback provided and transport supports it
   let url: string;
-  if (onProgress) {
+  if (onProgress && transport.getBlobUrlWithProgress) {
     url = await transport.getBlobUrlWithProgress(blobId, onProgress);
   } else {
     url = await transport.getBlobUrl(blobId);
@@ -252,13 +249,12 @@ export async function evictP2PBlob(blobId: string, remoteId: string): Promise<vo
 }
 
 /**
- * check if a remote uses P2P transport.
+ * check if a remote uses P2P transport (wasm or app).
  */
 export async function isP2PRemote(remoteId: string): Promise<boolean> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return false;
-  const transportType = remote.transport_type ?? (remote.peer_addr ? "wasm" : "http");
-  return transportType === "wasm";
+  return isP2PTransportType(remote);
 }
 
 /**

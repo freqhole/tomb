@@ -182,7 +182,8 @@ async function syncSingleEvent(
           await db.put(STORE_ANALYTICS_EVENTS, { ...sending, status: "sent" });
           return;
         }
-        const result = await getClientForRemote(remote).music.recordPlay({
+        const client = await getClientForRemote(remote);
+        const result = await client.music.recordPlay({
           media_blob_id: event.payload.media_blob_id,
           song_id: event.payload.song_id,
           session_id: event.payload.session_id ?? null,

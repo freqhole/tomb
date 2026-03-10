@@ -50,13 +50,21 @@ export class RemoteOfflineError extends Error {
 // uses session cookies for authentication (no api key needed)
 export class RemoteMusicDataSource implements MusicDataSource {
   private remote: RemoteRef;
-  private client: ApiClient;
+  private _client: ApiClient | null = null;
   // track if we've already shown the offline toast this session
   private hasShownOfflineToast = false;
 
   constructor(remote: RemoteRef) {
     this.remote = remote;
-    this.client = getClientForRemote(remote);
+    // client is lazily initialized on first getClient() call
+  }
+  
+  // lazily initialize the client (needed for app transport which requires async init)
+  private async getClient(): Promise<ApiClient> {
+    if (!this._client) {
+      this._client = await getClientForRemote(this.remote);
+    }
+    return this._client;
   }
 
   // convenience accessors for common remote properties
@@ -131,7 +139,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // songs
   async getSongs(params?: QueryParams): Promise<PaginatedResponse<RemoteSong>> {
     const apiParams = this.buildApiParams(params);
-    const result = await this.client.music.querySongs(apiParams);
+    const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
       await this.checkNetworkError(result);
@@ -155,7 +163,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // note: there's no getSong endpoint in the API yet
     // we'll need to query with filter
     const filters: Record<string, any> = { song_ids: [id] };
-    const result = await this.client.music.querySongs({
+    const result = await (await this.getClient()).music.querySongs({
       q: null,
       search_fields: null,
       filters,
@@ -181,7 +189,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
     // batch fetch all songs in a single request using song_ids filter
     const filters: Record<string, any> = { song_ids: ids };
-    const result = await this.client.music.querySongs({
+    const result = await (await this.getClient()).music.querySongs({
       q: null,
       search_fields: null,
       filters,
@@ -215,7 +223,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await this.client.music.queryAlbums(apiParams);
+    const result = await (await this.getClient()).music.queryAlbums(apiParams);
 
     if (!result.success) {
       await this.checkNetworkError(result);
@@ -267,7 +275,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       album_id: albumId,
     });
 
-    const result = await this.client.music.querySongs(apiParams);
+    const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -290,7 +298,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<ArtistSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await this.client.music.queryArtists(apiParams);
+    const result = await (await this.getClient()).music.queryArtists(apiParams);
 
     if (!result.success) {
       await this.checkNetworkError(result);
@@ -332,7 +340,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       artist_id: artistId,
     });
 
-    const result = await this.client.music.querySongs(apiParams);
+    const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -357,7 +365,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<GenreSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await this.client.music.queryGenres(apiParams);
+    const result = await (await this.getClient()).music.queryGenres(apiParams);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -388,7 +396,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       genre_id: genreId,
     });
 
-    const result = await this.client.music.querySongs(apiParams);
+    const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -411,7 +419,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<PlaylistSummary>> {
     const apiParams = this.buildApiParams(params);
-    const result = await this.client.music.listPlaylists(apiParams);
+    const result = await (await this.getClient()).music.listPlaylists(apiParams);
 
     if (!result.success) {
       await this.checkNetworkError(result);
@@ -447,7 +455,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     playlistId: string,
     params?: QueryParams,
   ): Promise<PaginatedResponse<RemoteSong>> {
-    const result = await this.client.music.queryPlaylistSongs({
+    const result = await (await this.getClient()).music.queryPlaylistSongs({
       playlist_id: playlistId,
       q: params?.search || null,
       sort_by: params?.sort_by || null,
@@ -479,7 +487,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     description?: string | null;
     is_public?: boolean;
   }): Promise<PlaylistSummary> {
-    const result = await this.client.music.createPlaylist({
+    const result = await (await this.getClient()).music.createPlaylist({
       title: params.title,
       description: params.description || null,
       is_public: params.is_public ?? false,
@@ -512,7 +520,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     },
   ): Promise<PlaylistSummary> {
-    const result = await this.client.music.updatePlaylist({
+    const result = await (await this.getClient()).music.updatePlaylist({
       playlist_id: playlistId,
       title: params.title || null,
       description: params.description || null,
@@ -538,7 +546,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deletePlaylist(playlistId: string): Promise<void> {
-    const result = await this.client.music.deletePlaylist({
+    const result = await (await this.getClient()).music.deletePlaylist({
       playlist_id: playlistId,
     });
 
@@ -549,7 +557,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteSong(songId: string): Promise<void> {
-    const result = await this.client.music.deleteSong({
+    const result = await (await this.getClient()).music.deleteSong({
       id: songId,
       user_id: null,
     });
@@ -561,7 +569,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteAlbum(albumId: string): Promise<void> {
-    const result = await this.client.music.deleteAlbum({
+    const result = await (await this.getClient()).music.deleteAlbum({
       id: albumId,
       user_id: null,
     });
@@ -573,7 +581,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteArtist(artistId: string): Promise<void> {
-    const result = await this.client.music.deleteArtist({
+    const result = await (await this.getClient()).music.deleteArtist({
       id: artistId,
       user_id: null,
     });
@@ -588,7 +596,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     playlistId: string,
     songIds: string[],
   ): Promise<void> {
-    const result = await this.client.music.addSongsToPlaylist({
+    const result = await (await this.getClient()).music.addSongsToPlaylist({
       playlist_id: playlistId,
       song_ids: songIds,
     });
@@ -606,7 +614,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     playlistId: string,
     songIds: string[],
   ): Promise<void> {
-    const result = await this.client.music.removeSongsFromPlaylist({
+    const result = await (await this.getClient()).music.removeSongsFromPlaylist({
       playlist_id: playlistId,
       song_ids: songIds,
     });
@@ -622,7 +630,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     songIds: string[],
     newPosition: number,
   ): Promise<void> {
-    const result = await this.client.music.reorderPlaylistSongs({
+    const result = await (await this.getClient()).music.reorderPlaylistSongs({
       playlist_id: playlistId,
       song_ids: songIds,
       new_position: newPosition,
@@ -641,7 +649,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     page?: number;
     page_size?: number;
   }): Promise<SuggestionsResponse> {
-    const result = await this.client.music.suggestions({
+    const result = await (await this.getClient()).music.suggestions({
       field: params.field,
       partial: params.partial,
       page: params.page || 1,
@@ -664,7 +672,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     page?: number;
     page_size?: number;
   }): Promise<SearchResponse> {
-    const result = await this.client.music.search({
+    const result = await (await this.getClient()).music.search({
       query: params.query,
       field: params.field || null,
       page: params.page || null,
@@ -684,7 +692,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async listFavorites(
     params?: ListFavoritesParams,
   ): Promise<PaginatedResponse<FavoriteItem>> {
-    const result = await this.client.music.listFavorites({
+    const result = await (await this.getClient()).music.listFavorites({
       user_id: null, // server uses authenticated user from session
       target_type: params?.target_type || null,
       offset: params?.offset ?? null,
@@ -806,7 +814,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     targetId: string;
     isFavorite: boolean;
   }): Promise<void> {
-    const result = await this.client.music.setFavorite({
+    const result = await (await this.getClient()).music.setFavorite({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -834,7 +842,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("rating must be between 0 and 5");
     }
 
-    const result = await this.client.music.setRating({
+    const result = await (await this.getClient()).music.setRating({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -858,7 +866,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     bio?: string;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
   }): Promise<void> {
-    const result = await this.client.music.updateArtist({
+    const result = await (await this.getClient()).music.updateArtist({
       artist_id: params.artist_id,
       name: params.name ?? null,
       bio: params.bio ?? null,
@@ -886,7 +894,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     merge_into_album_id?: string;
   }): Promise<void> {
-    const result = await this.client.music.updateAlbum({
+    const result = await (await this.getClient()).music.updateAlbum({
       album_id: params.album_id,
       title: params.title ?? null,
       artist_id: params.artist_id ?? null,
@@ -949,7 +957,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       updated_by: params.updated_by,
     };
     
-    const result = await this.client.music.updateSongs(apiParams);
+    const result = await (await this.getClient()).music.updateSongs(apiParams);
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -961,7 +969,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async getTags(): Promise<{ tag_id: string; name: string; created_at: number }[]> {
-    const result = await this.client.music.listTags();
+    const result = await (await this.getClient()).music.listTags();
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -992,7 +1000,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     song_count: number;
   }> {
     // use whoami to get server info
-    const result = await this.client.auth.whoami();
+    const result = await (await this.getClient()).auth.whoami();
 
     if (!result.success) {
       this.checkAuthError(result);
@@ -1008,7 +1016,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   // album tags
   async getAlbumTags(albumId: string): Promise<string[]> {
-    const result = await this.client.music.getAlbumsTags({ album_ids: [albumId] });
+    const result = await (await this.getClient()).music.getAlbumsTags({ album_ids: [albumId] });
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to get album tags");
@@ -1017,7 +1025,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
-    const result = await this.client.music.addAlbumsTags({ album_ids: [albumId], tag_ids: [], tag_names: tagNames });
+    const result = await (await this.getClient()).music.addAlbumsTags({ album_ids: [albumId], tag_ids: [], tag_names: tagNames });
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to add tags to album");
@@ -1025,7 +1033,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
-    const result = await this.client.music.removeAlbumsTags({ album_ids: [albumId], tag_ids: tagIds });
+    const result = await (await this.getClient()).music.removeAlbumsTags({ album_ids: [albumId], tag_ids: tagIds });
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to remove tags from album");
@@ -1039,7 +1047,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }> {
-    const result = await this.client.upload.image(params.file, {
+    const result = await (await this.getClient()).upload.image(params.file, {
       associate: {
         entity_type: params.entityType,
         entity_id: params.entityId,
@@ -1062,7 +1070,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     // map entity type to API function
     switch (params.entityType) {
       case 'artist': {
-        const result = await this.client.music.getArtistImages({ id: params.entityId });
+        const result = await (await this.getClient()).music.getArtistImages({ id: params.entityId });
         if (!result.success) {
           this.checkAuthError(result);
           throw new Error("failed to get artist images");
@@ -1086,7 +1094,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }): Promise<void> {
     debug("remoteSource", 'removeImage called with:', params);
     
-    const result = await this.client.music.deleteImage({
+    const result = await (await this.getClient()).music.deleteImage({
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
@@ -1106,7 +1114,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     entityId: string;
     blobId: string;
   }): Promise<void> {
-    const result = await this.client.music.setPrimaryImage({
+    const result = await (await this.getClient()).music.setPrimaryImage({
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
@@ -1151,7 +1159,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   // listen session operations
   async getListenSession(sessionId: string): Promise<import("../types").ListenSession | null> {
-    const result = await this.client.music.getListenSession(sessionId);
+    const result = await (await this.getClient()).music.getListenSession(sessionId);
     if (!result.success) {
       this.checkAuthError(result);
       return null;
@@ -1178,7 +1186,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async deleteListenSession(sessionId: string): Promise<void> {
-    const result = await this.client.music.deleteListenSession(sessionId);
+    const result = await (await this.getClient()).music.deleteListenSession(sessionId);
     if (!result.success) {
       this.checkAuthError(result);
       throw new Error("failed to delete listen session");
@@ -1192,7 +1200,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     limit: number | null;
     offset: number | null;
   }): Promise<import("../types").MbSearchReleasesResponse | null> {
-    const result = await this.client.music.searchMusicbrainzReleases(params);
+    const result = await (await this.getClient()).music.searchMusicbrainzReleases(params);
     if (!result.success) {
       this.checkAuthError(result);
       return null;
@@ -1201,7 +1209,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async getMusicbrainzRelease(mbid: string): Promise<import("../types").MbReleaseDetail | null> {
-    const result = await this.client.music.getMusicbrainzRelease({ mbid });
+    const result = await (await this.getClient()).music.getMusicbrainzRelease({ mbid });
     if (!result.success) {
       this.checkAuthError(result);
       return null;

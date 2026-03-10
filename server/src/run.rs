@@ -177,6 +177,8 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
                     "federation endpoint started, node_id: {}",
                     endpoint.node_id()
                 );
+                // initialize P2P client for outbound connections
+                grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
                 Some(endpoint)
             }
             Err(e) => {
