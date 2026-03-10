@@ -40,10 +40,6 @@ export function GenresView(props: GenresViewProps) {
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
-  // compute left column width based on queue state
-  const queueOpen = () => appState()?.queue_open ?? false;
-  const leftColumnWidth = () => (queueOpen() ? 200 : undefined);
-
   // use genre from URL params, fallback to history state
   const initialGenreId =
     params.genreId ||
@@ -522,7 +518,6 @@ export function GenresView(props: GenresViewProps) {
           <TwoColumnLayout
             leftColumn={leftColumn}
             rightColumn={rightColumn}
-            leftColumnWidth={leftColumnWidth()}
             showDetail={showingDetailOnNarrow()}
             onBack={handleBack}
           />

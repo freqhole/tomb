@@ -47,11 +47,6 @@ export function ArtistsView(props: ArtistsViewProps) {
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
-  // compute left column width based on queue state
-  // narrower when queue is open between wide and xl to save horizontal space
-  const queueOpen = () => appState()?.queue_open ?? false;
-  const leftColumnWidth = () => (queueOpen() ? 200 : undefined);
-
   // restore selected artist from URL params or history state on mount
   const initialArtistId =
     params.id ||
@@ -646,7 +641,6 @@ export function ArtistsView(props: ArtistsViewProps) {
                   items={artistListItems()}
                   selectedId={selectedArtistId()}
                   scrollPaddingTop={100}
-                  compactMode={queueOpen()}
                   onItemClick={(item) => {
                     setIsLocalClick(true);
                     // show detail on narrow viewport
@@ -760,7 +754,6 @@ export function ArtistsView(props: ArtistsViewProps) {
             leftColumn={leftColumn}
             rightColumn={rightColumn}
             alphabetNav={alphabetNav()}
-            leftColumnWidth={leftColumnWidth()}
             showDetail={showingDetailOnNarrow()}
             onBack={handleBack}
           />
