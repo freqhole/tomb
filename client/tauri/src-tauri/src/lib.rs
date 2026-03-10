@@ -214,6 +214,10 @@ pub fn run() {
                 shutdown_token.cancel();
                 eprintln!("[shutdown] shutdown token cancelled");
 
+                // close all P2P client connections
+                p2p_commands::p2p_close_all_connections();
+                eprintln!("[shutdown] P2P connections closed");
+
                 // brief pause to let poll tasks exit
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 eprintln!("[shutdown] poll tasks should be stopped");
