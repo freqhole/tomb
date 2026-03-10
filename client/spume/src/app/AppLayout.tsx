@@ -34,6 +34,7 @@ import {
   duration,
   isLoading,
   isPlaying,
+  pendingUpNextSha256,
   playNext,
   playPrevious,
   playSong,
@@ -683,6 +684,12 @@ export function AppLayout(props: AppLayoutProps) {
               ? appState()!.queue.findIndex((s) => s.sha256 === appState()!.current_sha256)
               : -1
           }
+          upNextIndex={
+            pendingUpNextSha256()
+              ? (appState()?.queue.findIndex((s) => s.sha256 === pendingUpNextSha256()) ??
+                undefined)
+              : undefined
+          }
           currentTime={currentTime()}
           duration={duration()}
           progressMap={progressMap()}
@@ -704,13 +711,13 @@ export function AppLayout(props: AppLayoutProps) {
           onSongClick={(index) => {
             const state = appState();
             if (state?.queue[index]) {
-              void playSong(state.queue[index]);
+              void playSong(state.queue[index], { userInitiated: true });
             }
           }}
           onSongDoubleClick={(index) => {
             const state = appState();
             if (state?.queue[index]) {
-              void playSong(state.queue[index]);
+              void playSong(state.queue[index], { userInitiated: true });
             }
           }}
           onRemoveSong={(index) => {
@@ -792,6 +799,7 @@ export function AppLayout(props: AppLayoutProps) {
           }
           isPlaying={isPlaying()}
           isLoading={isLoading()}
+          hasUpNext={!!pendingUpNextSha256()}
           currentTime={currentTime()}
           duration={duration()}
           volume={volume()}

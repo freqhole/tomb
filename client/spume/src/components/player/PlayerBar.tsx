@@ -39,6 +39,8 @@ export interface PlayerBarProps {
   isPlaying: boolean;
   /** whether audio is loading */
   isLoading?: boolean;
+  /** whether there's a pending "up next" song loading (shows spinner but keeps current song info) */
+  hasUpNext?: boolean;
   /** current time in seconds */
   currentTime: number;
   /** total duration in seconds */
@@ -277,16 +279,16 @@ export function PlayerBar(props: PlayerBarProps) {
             </button>
 
             <div class="relative">
-              {/* loading ring - gradient arc */}
-              <Show when={props.isLoading}>
+              {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
+              <Show when={props.isLoading || props.hasUpNext}>
                 <div
-                  class="absolute inset-[-3px] rounded-full"
+                  class="absolute inset-[-4px] rounded-full pointer-events-none"
                   style={{
                     background:
-                      "conic-gradient(from 0deg, transparent 0%, #8b5cf680 10%, #a855f7 30%, #d946ef 55%, #ec4899 70%, transparent 75%)",
-                    mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                      "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                    mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                     "-webkit-mask":
-                      "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                      "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                     animation: "spin 1.5s linear infinite",
                   }}
                 />
@@ -494,16 +496,16 @@ export function PlayerBar(props: PlayerBarProps) {
           </button>
 
           <div class="relative">
-            {/* loading ring - gradient arc */}
-            <Show when={props.isLoading}>
+            {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
+            <Show when={props.isLoading || props.hasUpNext}>
               <div
-                class="absolute inset-[-3px] rounded-full"
+                class="absolute inset-[-4px] rounded-full pointer-events-none"
                 style={{
                   background:
-                    "conic-gradient(from 0deg, transparent 0%, #8b5cf680 10%, #a855f7 30%, #d946ef 55%, #ec4899 70%, transparent 75%)",
-                  mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                    "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                  mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                   "-webkit-mask":
-                    "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                    "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                   animation: "spin 1.5s linear infinite",
                 }}
               />

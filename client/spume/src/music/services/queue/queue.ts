@@ -10,7 +10,7 @@ import {
 import type { QueueHistoryEntry, QueueSourceContext } from "../../../app/services/storage/types";
 import { evictCachedBlob } from "../cache/blobCache";
 import { evictP2PBlob, preCacheNextP2PSongs } from "../storage/blobResolver";
-import { playSong, seek, stop } from "../audio/player";
+import { clearPendingUpNext, pendingUpNextSha256, playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
@@ -68,7 +68,7 @@ export async function playQueue(
 
   const startIndex = options?.startIndex ?? 0;
   await setQueue(songs);
-  await playSong(songs[startIndex]);
+  await playSong(songs[startIndex], { userInitiated: true });
 
   // pre-cache P2P songs (~30 min ahead)
   const startSong = songs[startIndex];
@@ -139,7 +139,7 @@ export async function addToQueue(
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();
   if (willAutoPlay) {
-    await playSong(songs[0]);
+    await playSong(songs[0], { userInitiated: true });
   }
 
   // pre-cache P2P songs (~30 min ahead from current position)
@@ -181,6 +181,7 @@ export async function addToQueue(
 
 // remove a song from the queue by index
 // stops playback if the removed song is currently playing
+// clears pending up-next if the removed song was pending
 // evicts cached audio if the song is no longer in the queue
 export async function removeFromQueue(index: number): Promise<void> {
   const state = appState();
@@ -199,6 +200,11 @@ export async function removeFromQueue(index: number): Promise<void> {
   if (removedSong?.sha256 === state.current_sha256) {
     stop();
     await setCurrentSong(null);
+  }
+
+  // if we removed the pending up-next song, clear the pending state
+  if (removedSong?.sha256 === pendingUpNextSha256()) {
+    clearPendingUpNext();
   }
 
   // evict from cache if remote song is no longer anywhere in the queue
@@ -252,12 +258,14 @@ export async function reorderQueue(
 
 // clear the entire queue and stop playback
 // evicts all cached remote songs from the queue
+// clears any pending up-next song
 export async function clearQueue(): Promise<void> {
   const state = appState();
 
   stop();
   stopTracking(true); // skipQueueSave - avoids race with setQueue([])
   clearAllQueueProgress();
+  clearPendingUpNext();
   void stopServerSession("abandoned");
   await setCurrentSong(null);
 
@@ -298,7 +306,7 @@ export async function resumeHistoryEntry(
 
   // play the song at the resume index
   const song = entry.songs[resumeIndex];
-  await playSong(song);
+  await playSong(song, { userInitiated: true });
 
   // seek to saved position after a brief delay (audio needs to load)
   if (entry.current_song_position > 0) {

@@ -94,6 +94,8 @@ export interface QueueSidebarProps {
   progressMap?: Map<string, number>;
   /** set of song sha256s currently being loaded/preloaded */
   loadingSongIds?: Set<string>;
+  /** index of the song that is pending "up next" (loading to play next) */
+  upNextIndex?: number;
 }
 
 // queue sidebar component
@@ -329,6 +331,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const itemIndex = virtualItem.index;
                   const song = () => props.songs[itemIndex];
                   const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
+                  const isUpNext = () => itemIndex === props.upNextIndex;
 
                   const isDragging = () => draggedIndex() === itemIndex;
                   const isDropTarget = () => dropTargetIndex() === itemIndex;
@@ -478,7 +481,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         images={song() ? getSongDisplayImages(song()!) : undefined}
                         index={itemIndex}
                         hideIndex={isRowHovered()}
+                        isUpNext={isUpNext()}
                         onPlayClick={() => handleSongDoubleClick(itemIndex)}
+                        showPlayIcon={!isCurrentlyPlaying()}
+                        enablePlayClick={!isCurrentlyPlaying()}
                         size={48}
                         class="mr-3 relative z-10"
                       />

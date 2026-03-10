@@ -26,6 +26,10 @@ export const Interactive: Story = {
     const [currentTime, setCurrentTime] = createSignal(45);
     const [isPlaying, setIsPlaying] = createSignal(true);
 
+    // "up next" song - the pending song that will play when ready
+    // undefined = no pending up next, number = index of pending song
+    const [upNextIndex, setUpNextIndex] = createSignal<number | undefined>(4); // default to next song
+
     // simulate which songs are "loading" (being preloaded)
     // in real app this would be songs within next ~30 min of queue
     const [loadingSongIds, setLoadingSongIds] = createSignal<Set<string>>(
@@ -179,8 +183,53 @@ export const Interactive: Story = {
               {currentSong()?.duration_seconds ?? 0}s
             </p>
             <p>
+              <strong>up next:</strong>{" "}
+              {upNextIndex() !== undefined
+                ? `track ${upNextIndex()! + 1} (${songs()[upNextIndex()!]?.title ?? "unknown"})`
+                : "none"}
+            </p>
+            <p>
               <strong>loading songs:</strong> {loadingSongIds().size} songs
             </p>
+          </div>
+
+          {/* up next controls */}
+          <div class="mt-6 p-4 bg-[var(--color-bg-secondary)] rounded-lg">
+            <h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-2">
+              pending up next demo
+            </h3>
+            <p class="text-xs text-[var(--color-text-muted)] mb-3">
+              select which song is "pending up next" (loading to play). shows spinner on thumbnail.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                onClick={() => setUpNextIndex(undefined)}
+                class={`px-2 py-1 text-xs rounded transition-colors ${
+                  upNextIndex() === undefined
+                    ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                    : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
+                }`}
+              >
+                none
+              </button>
+              {songs()
+                .slice(currentIndex(), currentIndex() + 6)
+                .map((_song, i) => {
+                  const actualIndex = currentIndex() + i;
+                  return (
+                    <button
+                      onClick={() => setUpNextIndex(actualIndex)}
+                      class={`px-2 py-1 text-xs rounded transition-colors ${
+                        upNextIndex() === actualIndex
+                          ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                          : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
+                      }`}
+                    >
+                      {i === 0 ? "playing" : `+${i}`}
+                    </button>
+                  );
+                })}
+            </div>
           </div>
 
           <div class="mt-6 p-4 bg-[var(--color-bg-secondary)] rounded-lg">
@@ -216,6 +265,7 @@ export const Interactive: Story = {
           historyEntries={[]}
           songs={songs()}
           currentIndex={currentIndex()}
+          upNextIndex={upNextIndex()}
           isOpen={isOpen()}
           variant="inline"
           onClose={() => setIsOpen(false)}

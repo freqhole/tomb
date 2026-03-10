@@ -200,6 +200,19 @@ export function generateBulkSongs(count: number): DomainSong[] {
 
     const now = Date.now();
 
+    // give ~70% of songs a placeholder image (using picsum for variety)
+    const hasImage = i % 10 !== 7 && i % 10 !== 3 && i % 10 !== 9;
+    const imageId = (albumIndex * 17 + 100) % 1000; // consistent per album
+    const images = hasImage
+      ? [
+          {
+            remote_url: `https://picsum.photos/seed/${imageId}/200/200`,
+            is_primary: true,
+            blob_type: "thumbnail" as const,
+          },
+        ]
+      : [];
+
     results.push({
       id: `song-${i}`,
       sha256: `sha256-${i}`,
@@ -214,7 +227,7 @@ export function generateBulkSongs(count: number): DomainSong[] {
       year: 1970 + Math.floor(Math.random() * 50),
       disc_number: discNumber,
       track_number: trackNumber,
-      images: [],
+      images: images,
       is_favorite: Math.random() > 0.7,
       user_rating: Math.random() > 0.5 ? Math.floor(Math.random() * 5) + 1 : undefined,
       album_rating: Math.random() > 0.6 ? Math.floor(Math.random() * 5) + 1 : undefined,
@@ -226,7 +239,7 @@ export function generateBulkSongs(count: number): DomainSong[] {
             ].filter((v, i, a) => a.indexOf(v) === i)
           : [],
       album_is_favorite: Math.random() > 0.8,
-      album_images: [],
+      album_images: images,
       album_sub_genres: [],
       // additional required Song fields
       bpm: null,

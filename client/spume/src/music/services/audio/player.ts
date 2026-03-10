@@ -34,6 +34,17 @@ const [duration, setDuration] = createSignal(0);
 const [volume, setVolume] = createSignal(1.0);
 const [isLoading, setIsLoading] = createSignal(false);
 
+// pending "up next" song - the song that's downloading and will play when ready
+// this is separate from isLoading because:
+// - isLoading = current song is loading (blocks play button)
+// - pendingUpNextSha256 = a DIFFERENT song is downloading (shows spinner, current song stays)
+const [pendingUpNextSha256, setPendingUpNextSha256] = createSignal<string | null>(null);
+
+// track if user explicitly paused the player
+// when true, pending "up next" songs will load but not auto-play
+// cleared when user explicitly initiates playback (play button, double-click song, new queue)
+let userExplicitlyPaused = false;
+
 // track if we've pre-cached the next song
 let hasPreCachedNext = false;
 
@@ -423,32 +434,22 @@ async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<vo
   debug("player", `swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`);
 }
 
-// track the intended song
-// when user switches songs quickly, we need to know if a pending download should still play
-let intendedSongSha256: string | null = null;
-
 // play a specific song
-export async function playSong(songOrId: string | Song): Promise<void> {
+// uses pending "up next" pattern: UI stays on current song during download,
+// only switches when download completes.
+// options.userInitiated: true when user explicitly starts playback (play button, double-click, new queue)
+//   - clears userExplicitlyPaused flag and auto-plays when ready
+//   - false/undefined: respects userExplicitlyPaused flag (won't auto-play if user paused)
+export async function playSong(
+  songOrId: string | Song,
+  options?: { userInitiated?: boolean }
+): Promise<void> {
   const audio = initAudio();
-  setIsLoading(true);
 
-  // reset time immediately so UI shows 0:00 while loading
-  setCurrentTime(0);
-  setDuration(0);
-  
-  // IMPORTANT: explicitly reset MediaSession position state to 0 for new track
-  // iOS lock screen caches the position from the previous track and won't update
-  // correctly unless we explicitly reset it here. Without this, skipping tracks
-  // shows the previous song's position on the lock screen progress bar.
-  if ('mediaSession' in navigator) {
-    try {
-      navigator.mediaSession.setPositionState();  // clear position state
-    } catch {
-      // ignore errors - some browsers don't support this
-    }
+  // if user explicitly initiated this playback, clear the pause flag
+  if (options?.userInitiated) {
+    userExplicitlyPaused = false;
   }
-  
-  // note: don't call updateMediaSession() here - wait until we have actual song info
 
   try {
     // get song - either use provided Song object or fetch by id
@@ -464,28 +465,16 @@ export async function playSong(songOrId: string | Song): Promise<void> {
       song = songOrId;
     }
 
-    // mark this song as the intended target (before any async work)
-    // this allows us to detect if user switched songs during download
-    intendedSongSha256 = song.sha256;
-
-    // update app state first (before loading audio)
-    // this ensures media session gets correct song when events fire
-    await setCurrentSong(song.sha256);
+    // mark this song as pending "up next"
+    // UI will show spinner but keep current song info
+    setPendingUpNextSha256(song.sha256);
+    debug("player", `pending up next: "${song.title}" (${song.sha256.slice(0, 8)}...)`);
 
     // NOTE: we intentionally don't pre-cache here when user clicks a song
     // pre-caching is handled by:
     // 1. queue setup (playQueue/addToQueue) - when songs first enter queue
     // 2. >50% playback trigger - rolling pre-cache as user listens
     // this prevents chaos when user skips around the queue rapidly
-
-    // cleanup previous audio url and any pending swap listener
-    if (currentSongId) {
-      cleanupAudioURL(currentSongId);
-    }
-    if (pendingSwapCleanup) {
-      pendingSwapCleanup();
-      pendingSwapCleanup = null;
-    }
 
     // get audio url using abstraction (this can be slow for P2P downloads)
     let audioURL: string;
@@ -496,49 +485,96 @@ export async function playSong(songOrId: string | Song): Promise<void> {
         `[playSong] getAudioURL failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
         urlError instanceof Error ? urlError.message : urlError
       );
-      setIsLoading(false);
+      // clear pending state on failure
+      if (pendingUpNextSha256() === song.sha256) {
+        setPendingUpNextSha256(null);
+      }
       throw urlError;
     }
-    
-    // verify this song is still the intended one
+
+    // verify this song is still the pending one
     // user may have selected a different song while we were downloading
-    if (intendedSongSha256 !== song.sha256) {
+    if (pendingUpNextSha256() !== song.sha256) {
       debug("player", `aborting playSong - user switched to different song during download`);
-      setIsLoading(false);
       return;
     }
-    
+
+    // download complete! now update the current song state
+    // clear pending state first (so UI doesn't show double-loading)
+    setPendingUpNextSha256(null);
+
+    // cleanup previous audio url and any pending swap listener
+    if (currentSongId) {
+      cleanupAudioURL(currentSongId);
+    }
+    if (pendingSwapCleanup) {
+      pendingSwapCleanup();
+      pendingSwapCleanup = null;
+    }
+
+    // set loading state while we load the audio element
+    setIsLoading(true);
+
+    // reset time for new song
+    setCurrentTime(0);
+    setDuration(0);
+
+    // IMPORTANT: explicitly reset MediaSession position state to 0 for new track
+    // iOS lock screen caches the position from the previous track and won't update
+    // correctly unless we explicitly reset it here.
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setPositionState();
+      } catch {
+        // ignore errors - some browsers don't support this
+      }
+    }
+
+    // update app state - now PlayerBar will show the new song
+    await setCurrentSong(song.sha256);
+
     currentSongId = song.sha256;
 
-    // reset progress tracking for new song (before loading audio)
+    // reset progress tracking for new song
     lastTimeUpdateValue = 0;
     songCompletionRecorded = false;
     hasPreCachedNext = false;
 
     // set crossOrigin for direct remote URLs (needed for cookie auth on cross-origin)
-    // blob: and opfs-backed URLs are same-origin and don't need this
     if (audioURL.startsWith("http")) {
       audio.crossOrigin = "use-credentials";
     } else {
       audio.crossOrigin = "";
     }
 
-    // load and play
+    // load audio
     audio.src = audioURL;
-    try {
-      await audio.play();
-    } catch (playError) {
-      console.error(
-        `[playSong] audio.play() failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
-        playError instanceof Error ? playError.message : playError,
-        `URL type: ${audioURL.startsWith("blob:") ? "blob" : audioURL.startsWith("http") ? "http" : "other"}`
-      );
-      setIsLoading(false);
-      throw playError;
-    }
 
-    // reset playback ended flag since we're playing now
-    resetPlaybackEnded();
+    // decide whether to auto-play:
+    // - if user explicitly paused, don't auto-play (just load)
+    // - otherwise, auto-play
+    const shouldPlay = !userExplicitlyPaused;
+
+    if (shouldPlay) {
+      try {
+        await audio.play();
+        // reset playback ended flag since we're playing now
+        resetPlaybackEnded();
+      } catch (playError) {
+        console.error(
+          `[playSong] audio.play() failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
+          playError instanceof Error ? playError.message : playError,
+          `URL type: ${audioURL.startsWith("blob:") ? "blob" : audioURL.startsWith("http") ? "http" : "other"}`
+        );
+        setIsLoading(false);
+        throw playError;
+      }
+    } else {
+      // user explicitly paused - load audio but don't play
+      // preload so it's ready when user hits play
+      audio.load();
+      debug("player", `song ready but user paused - not auto-playing "${song.title}"`);
+    }
 
     setIsLoading(false);
   } catch (error) {
@@ -560,15 +596,19 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
   const audio = initAudio();
 
   if (isPlaying()) {
+    // user explicitly paused - set flag so pending songs don't auto-play
+    userExplicitlyPaused = true;
     audio.pause();
   } else {
+    // user explicitly wants to play - clear pause flag
+    userExplicitlyPaused = false;
     try {
       // if no song loaded, start first in queue
       const state = appState();
       if (!state) return;
       const {queue, current_sha256} = state;
       if (!current_sha256 && queue.length) {
-        await playSong(queue[0]);
+        await playSong(queue[0], { userInitiated: true });
         return;
       }
       
@@ -578,9 +618,9 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
         const savedDuration = duration(); // save duration too
         const songInQueue = queue.find((s) => s.sha256 === current_sha256);
         if (songInQueue) {
-          await playSong(songInQueue);
+          await playSong(songInQueue, { userInitiated: true });
         } else {
-          await playSong(current_sha256);
+          await playSong(current_sha256, { userInitiated: true });
         }
         // seek to the restored position - audio is ready after playSong returns
         if (savedPosition > 0) {
@@ -639,9 +679,9 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
           isIntentionalReload = true;
           try {
             if (songInQueue) {
-              await playSong(songInQueue);
+              await playSong(songInQueue, { userInitiated: true });
             } else {
-              await playSong(current_sha256);
+              await playSong(current_sha256, { userInitiated: true });
             }
             if (savedPosition > 0 && audioElement) {
               audioElement.currentTime = savedPosition;
@@ -664,6 +704,8 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
 // pause playback
 export function pause(): void {
   const audio = initAudio();
+  // user explicitly paused - set flag so pending songs don't auto-play
+  userExplicitlyPaused = true;
   audio.pause();
 }
 
@@ -674,11 +716,14 @@ export function stop(): void {
   audio.currentTime = 0;
   setIsPlaying(false);
   setCurrentTime(0);
+  // don't set userExplicitlyPaused here - stop is for cleanup, not user intent
 }
 
 // play
 export async function play(): Promise<void> {
   const audio = initAudio();
+  // user explicitly wants to play - clear pause flag
+  userExplicitlyPaused = false;
   await audio.play();
 }
 
@@ -788,6 +833,14 @@ export function cleanup(): void {
     cleanupAudioURL(currentSongId);
     currentSongId = null;
   }
+
+  // clear pending state
+  setPendingUpNextSha256(null);
+}
+
+// clear pending up next state (e.g., when queue changes, song removed, etc.)
+export function clearPendingUpNext(): void {
+  setPendingUpNextSha256(null);
 }
 
 // set visual position without affecting audio (for restoring position on page load)
@@ -804,5 +857,6 @@ export {
   duration,
   isLoading,
   isPlaying,
+  pendingUpNextSha256,
   volume,
 };

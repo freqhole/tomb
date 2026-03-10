@@ -48,18 +48,33 @@ const mockSong: PlayerBarSong = {
   ],
 };
 
+// second mock song for up next demo
+const nextMockSong: PlayerBarSong = {
+  id: mockSongs[2].id,
+  title: mockSongs[2].title,
+  artist: mockSongs[2].artist,
+  album: mockSongs[2].album,
+  thumbnailUrl: mockSongs[2].thumbnailUrl,
+  isFavorite: mockSongs[2].isFavorite,
+  images: [
+    { remote_url: mockSongs[2].thumbnailUrl, is_primary: true, blob_type: "thumbnail" },
+    { remote_url: waveformImage, is_primary: false, blob_type: "waveform" },
+  ],
+};
+
 // interactive example
 export const Interactive: Story = {
   render: () => {
     const [isPlaying, setIsPlaying] = createSignal(false);
     const [isLoading, setIsLoading] = createSignal(false);
+    const [hasUpNext, setHasUpNext] = createSignal(false);
     const [currentTime, setCurrentTime] = createSignal(45);
     const [duration] = createSignal(383);
     const [volume, setVolume] = createSignal(0.7);
     const [queueOpen, setQueueOpen] = createSignal(false);
-    const [song, setSong] = createSignal(mockSong);
+    const [songIndex, setSongIndex] = createSignal(0);
+    const song = () => (songIndex() === 0 ? mockSong : nextMockSong);
     const [isFavorite, setIsFavorite] = createSignal(false);
-    void setSong; // may be used for dynamic song switching later
 
     const handlePlayPause = () => {
       if (isLoading()) return;
@@ -98,13 +113,30 @@ export const Interactive: Story = {
       console.log("favorite toggled for:", songId);
     };
 
-    // simulate loading delay
-    const simulateLoading = () => {
-      setIsLoading(true);
-      setIsPlaying(false);
+    // simulate "up next" loading - shows spinner, waits 3s, then switches song
+    // respects play state: if paused, stays paused; if playing, continues playing
+    const simulateUpNext = () => {
+      if (hasUpNext()) return; // already loading
+
+      const wasPlaying = isPlaying();
+      setHasUpNext(true);
+      console.log("up next loading started... (3s)");
+
       setTimeout(() => {
-        setIsLoading(false);
-        setIsPlaying(true);
+        // switch to next song
+        setSongIndex((i) => (i === 0 ? 1 : 0));
+        setCurrentTime(0);
+        setHasUpNext(false);
+
+        // respect play state - don't auto-play if paused
+        if (wasPlaying && !isPlaying()) {
+          // user paused during load - stay paused
+          console.log("up next ready, but player is paused - not auto-playing");
+        } else if (wasPlaying) {
+          console.log("up next ready, continuing playback");
+        } else {
+          console.log("up next ready, player was already paused");
+        }
       }, 3000);
     };
 
@@ -125,7 +157,7 @@ export const Interactive: Story = {
     return (
       <div class="relative min-h-[200px]">
         {/* control buttons for story */}
-        <div class="mb-4 p-4 bg-[var(--color-bg-secondary)] rounded-lg flex gap-4 items-center">
+        <div class="mb-4 p-4 bg-[var(--color-bg-secondary)] rounded-lg flex gap-4 items-center flex-wrap">
           <button
             onClick={() => setIsLoading(!isLoading())}
             class={`px-3 py-1.5 rounded text-sm transition-colors ${
@@ -134,16 +166,33 @@ export const Interactive: Story = {
                 : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
             }`}
           >
-            loading: {isLoading() ? "on" : "off"}
+            isLoading: {isLoading() ? "on" : "off"}
           </button>
           <button
-            onClick={simulateLoading}
-            class="px-3 py-1.5 bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] rounded text-sm transition-colors"
+            onClick={() => setHasUpNext(!hasUpNext())}
+            class={`px-3 py-1.5 rounded text-sm transition-colors ${
+              hasUpNext()
+                ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
+            }`}
           >
-            simulate 3s load
+            hasUpNext: {hasUpNext() ? "on" : "off"}
+          </button>
+          <button
+            onClick={simulateUpNext}
+            class="px-3 py-1.5 bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] rounded text-sm transition-colors disabled:opacity-50"
+            disabled={hasUpNext()}
+          >
+            simulate up next (3s)
           </button>
           <span class="text-xs text-[var(--color-text-muted)]">
-            {isLoading() ? "loading song..." : isPlaying() ? "playing" : "paused"}
+            {isLoading()
+              ? "loading current song..."
+              : hasUpNext()
+                ? "loading up next..."
+                : isPlaying()
+                  ? `playing: ${song().title}`
+                  : `paused: ${song().title}`}
           </span>
         </div>
 
@@ -151,6 +200,7 @@ export const Interactive: Story = {
           song={{ ...song(), isFavorite: isFavorite() }}
           isPlaying={isPlaying()}
           isLoading={isLoading()}
+          hasUpNext={hasUpNext()}
           currentTime={currentTime()}
           duration={duration()}
           volume={volume()}

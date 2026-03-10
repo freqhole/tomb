@@ -56,6 +56,8 @@ export interface MediaThumbnailProps {
   indexText?: string;
   /** whether to hide the index overlay */
   hideIndex?: boolean;
+  /** whether this song is the pending "up next" song (shows loading spinner instead of index) */
+  isUpNext?: boolean;
   /** callback when thumbnail/play icon is clicked */
   onPlayClick?: () => void;
   /** whether to enable click handling */
@@ -151,17 +153,38 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
         </Show>
       </div>
 
-      {/* index number overlay - hidden when hideIndex is true or on thumbnail hover */}
+      {/* index number overlay OR up next spinner - hidden when hideIndex is true or on thumbnail hover (but up next spinner stays visible) */}
       <div
         class="absolute inset-0 flex items-center justify-center transition-opacity duration-200 pointer-events-none"
         classList={{
-          "group-hover/thumbnail:opacity-0": showPlayIcon(),
+          "group-hover/thumbnail:opacity-0": showPlayIcon() && !props.isUpNext,
         }}
-        style={{ opacity: props.hideIndex ? 0 : 1 }}
+        style={{ opacity: props.hideIndex && !props.isUpNext ? 0 : 1 }}
       >
-        <span class="bg-black/70 text-white text-xs font-medium leading-none px-1">
-          {displayText()}
-        </span>
+        <Show
+          when={props.isUpNext}
+          fallback={
+            <span class="bg-black/70 text-white text-xs font-medium leading-none px-1">
+              {displayText()}
+            </span>
+          }
+        >
+          {/* up next loading spinner */}
+          <div class="relative w-7 h-7 bg-black/50 rounded-full flex items-center justify-center">
+            <div
+              class="absolute inset-0 rounded-full"
+              style={{
+                background:
+                  "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
+                "-webkit-mask":
+                  "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
+                animation: "spin 1.5s linear infinite",
+              }}
+            />
+            <Icon name="next" size={12} color="var(--color-accent-500)" />
+          </div>
+        </Show>
       </div>
 
       {/* play icon - shown on thumbnail hover */}
