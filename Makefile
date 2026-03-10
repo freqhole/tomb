@@ -1,15 +1,13 @@
-# Makefile for building freqhole server, CLI binaries, and tauri app
-# supports cross-compilation for Raspberry Pi targets
+# makefile for building freqhole release binaries and tauri apps
+# all builds output to build/ directory
 #
-# run `make info` to get started and see available commands
+# run `make info` to see available commands
 # run `make build-all` to build everything!
 #
-# (optional-ish) add Rust targets:
-#   rustup target add aarch64-apple-darwin x86_64-apple-darwin  # for Tauri macOS builds
-# you can also add these if you want to build locally, but really, just use docker.
-#   rustup target add armv7-unknown-linux-gnueabihf    # 32-bit Pi (Pi 2+)
-#   rustup target add aarch64-unknown-linux-gnu        # 64-bit Pi
-#   rustup target add x86_64-unknown-linux-gnu		# for Linux builds (or just use docker)
+# prerequisites:
+#   rustup target add aarch64-apple-darwin x86_64-apple-darwin
+#   (...add other targets as needed)
+#   docker (for linux/pi builds)
 
 # include .env file if it exists
 ifneq (,$(wildcard .env))
@@ -19,159 +17,145 @@ endif
 
 VERSION := $(shell grep '^version = ' Cargo.toml | head -1 | cut -d '"' -f 2)
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DIR := target/freqhole/$(VERSION)
-CURRENT_TARGET := $(shell rustc -vV | sed -n 's|host: ||p')
+BUILD_DIR := build
 
-PI_32_TARGET := armv7-unknown-linux-gnueabihf
-PI_64_TARGET := aarch64-unknown-linux-gnu
-X86_64_TARGET := x86_64-unknown-linux-gnu
-
-RELEASE_MODE := --release
-DEBUG_MODE :=
+# target triples
+MAC_ARM_TARGET := aarch64-apple-darwin
+MAC_INTEL_TARGET := x86_64-apple-darwin
+LINUX_TARGET := x86_64-unknown-linux-gnu
+PI_TARGET := aarch64-unknown-linux-gnu
+PI32_TARGET := armv7-unknown-linux-gnueabihf
 
 # default target
 .PHONY: all
-all: build
+all: info
 
-# build for current platform
-.PHONY: build
-build:
-	@echo "building for current platform: $(CURRENT_TARGET)"
-	@mkdir -p $(BUILD_DIR)/$(CURRENT_TARGET)
-	cargo build --package server --target $(CURRENT_TARGET) $(RELEASE_MODE)
-	cargo build --package cli --target $(CURRENT_TARGET) $(RELEASE_MODE)
-	cp target/$(CURRENT_TARGET)/release/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
-	cp target/$(CURRENT_TARGET)/release/freqhole $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole
-	@echo "binz: $(BUILD_DIR)/$(CURRENT_TARGET)/"
+# macOS arm64 CLI binary
+.PHONY: build-mac-arm
+build-mac-arm:
+	@echo "building freqhole CLI for macOS arm64..."
+	cargo build --package cli --release --target $(MAC_ARM_TARGET)
+	@mkdir -p $(BUILD_DIR)
+	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_ARM_TARGET)
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_ARM_TARGET)"
 
-# debug build
-.PHONY: build-debug
-build-debug: RELEASE_MODE :=
-build-debug:
-	@echo "building debug for current platform: $(CURRENT_TARGET)"
-	@mkdir -p $(BUILD_DIR)/$(CURRENT_TARGET)
-	cargo build --package server --target $(CURRENT_TARGET)
-	cargo build --package cli --target $(CURRENT_TARGET)
-	cp target/$(CURRENT_TARGET)/debug/server $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole-server
-	cp target/$(CURRENT_TARGET)/debug/freqhole $(BUILD_DIR)/$(CURRENT_TARGET)/freqhole
-	@echo "debug binz: $(BUILD_DIR)/$(CURRENT_TARGET)/"
+# macOS x86_64 CLI binary (uses vendored OpenSSL for cross-compile from arm)
+.PHONY: build-mac-intel
+build-mac-intel:
+	@echo "building freqhole CLI for macOS x86_64 (vendored OpenSSL)..."
+	OPENSSL_STATIC=1 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --features grimoire/vendored-openssl
+	@mkdir -p $(BUILD_DIR)
+	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_INTEL_TARGET)
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_INTEL_TARGET)"
 
-# docker-based raspi build
-.PHONY: build-pi
-build-pi:
-	@echo "building for Raspberry Pi using Docker"
-	@mkdir -p $(BUILD_DIR)/$(PI_64_TARGET)
-	$(MAKE) db-prepare
-	docker build -f Dockerfile.build -t freqhole-pi-builder .
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_64_TARGET):/output freqhole-pi-builder \
-		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/aarch64-unknown-linux-gnu/release/freqhole /output/freqhole"
-	@echo "pi binaries built: $(BUILD_DIR)/$(PI_64_TARGET)/"
-
-.PHONY: build-pi32
-build-pi32:
-	@echo "building for Raspberry Pi 32-bit using Docker (webauthn disabled)"
-	@mkdir -p $(BUILD_DIR)/$(PI_32_TARGET)
-	$(MAKE) db-prepare
-	docker build -f Dockerfile.build -t freqhole-pi32-builder . \
-		--build-arg BASE_IMAGE=debian:bullseye \
-		--build-arg TARGET_ARCH=armv7-unknown-linux-gnueabihf \
-		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(PI_32_TARGET):/output freqhole-pi32-builder \
-		sh -c "cp /app/target/armv7-unknown-linux-gnueabihf/release/server /output/freqhole-server && cp /app/target/armv7-unknown-linux-gnueabihf/release/freqhole /output/freqhole"
-	@echo "pi 32-bit binz built: $(BUILD_DIR)/$(PI_32_TARGET)/"
-
-
-# docker-based x86_64 linux build
+# Linux x86_64 CLI binary (via Docker)
 .PHONY: build-linux
 build-linux:
-	@echo "building for x86_64 Linux using Docker"
-	@mkdir -p $(BUILD_DIR)/$(X86_64_TARGET)
+	@echo "building freqhole CLI for Linux x86_64 using Docker..."
 	$(MAKE) db-prepare
 	docker build -f Dockerfile.build -t freqhole-linux-builder . \
 		--platform linux/amd64 \
-		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(X86_64_TARGET):/output freqhole-linux-builder \
-		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/server /output/freqhole-server && cp /app/target/x86_64-unknown-linux-gnu/release/freqhole /output/freqhole"
-	@echo "linux x86_64 binz built: $(BUILD_DIR)/$(X86_64_TARGET)/"
+		--build-arg TARGET_ARCH=$(LINUX_TARGET)
+	@mkdir -p $(BUILD_DIR)
+	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-linux-builder \
+		sh -c "cp /app/target/$(LINUX_TARGET)/release/freqhole /output/freqhole-$(VERSION)-$(LINUX_TARGET)"
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(LINUX_TARGET)"
 
-# all targetz including current platform if different
+# Raspberry Pi aarch64 CLI binary (via Docker)
+.PHONY: build-pi
+build-pi:
+	@echo "building freqhole CLI for Raspberry Pi (aarch64) using Docker..."
+	$(MAKE) db-prepare
+	docker build -f Dockerfile.build -t freqhole-pi-builder .
+	@mkdir -p $(BUILD_DIR)
+	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-pi-builder \
+		sh -c "cp /app/target/$(PI_TARGET)/release/freqhole /output/freqhole-$(VERSION)-$(PI_TARGET)"
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(PI_TARGET)"
+
+# Raspberry Pi 32-bit CLI binary (via Docker, webauthn disabled)
+.PHONY: build-pi32
+build-pi32:
+	@echo "building freqhole CLI for Raspberry Pi 32-bit using Docker (webauthn disabled)..."
+	$(MAKE) db-prepare
+	docker build -f Dockerfile.build -t freqhole-pi32-builder . \
+		--build-arg BASE_IMAGE=debian:bullseye \
+		--build-arg TARGET_ARCH=$(PI32_TARGET) \
+		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
+	@mkdir -p $(BUILD_DIR)
+	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-pi32-builder \
+		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/freqhole-$(VERSION)-$(PI32_TARGET)"
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(PI32_TARGET)"
+
+# build all targets
 .PHONY: build-all
 build-all:
-	@if [ "$(CURRENT_TARGET)" != "$(PI_64_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(PI_32_TARGET)" ] && [ "$(CURRENT_TARGET)" != "$(X86_64_TARGET)" ]; then \
-		echo "building for current platform: $(CURRENT_TARGET)"; \
-		$(MAKE) build; \
-	fi
+	@echo "building all freqhole release artifacts..."
+	@echo ""
+	$(MAKE) build-mac-arm
+	$(MAKE) build-mac-intel
 	$(MAKE) build-linux
 	$(MAKE) build-pi
 	$(MAKE) build-pi32
 	@echo ""
 	@echo "building tauri apps..."
-	$(MAKE) tauri-build-mac-arm
-	$(MAKE) tauri-build-mac-intel
-	$(MAKE) tauri-build-linux-intel
-	$(MAKE) tauri-build-linux-arm64
-	$(MAKE) collect
+	$(MAKE) build-tauri-mac-arm
+	$(MAKE) build-tauri-mac-intel
+	$(MAKE) build-tauri-linux-intel
+	$(MAKE) build-tauri-linux-arm64
 	@echo ""
-	@echo "all targets built!"
+	@echo "all targets built! artifacts in $(BUILD_DIR)/:"
+	@find $(BUILD_DIR) -type f | sort | sed 's|^|  |'
 
 .PHONY: clean
 clean:
-	rm -rf target/freqhole build/
+	rm -rf build/
 	rm -rf $(TAURI_DIR)/src-tauri/target/release/bundle
 
 .PHONY: info
 info:
-	@echo "FREQHOLE build information"
-	@echo "========================="
+	@echo "FREQHOLE release build"
+	@echo "======================"
 	@echo "version: $(VERSION)"
-	@echo "build directory: $(BUILD_DIR)"
-	@echo "current target: $(CURRENT_TARGET)"
-	@echo "linux targets: $(X86_64_TARGET)"
-	@echo "pi targets: $(PI_32_TARGET), $(PI_64_TARGET)"
+	@echo "output:  $(BUILD_DIR)/"
 	@echo ""
-	@echo "build commands:"
-	@echo "  make build         - build for current platform (release)"
-	@echo "  make build-debug   - build for current platform (debug)"
-	@echo "  make build-pi      - build for RaspberryPi using Docker"
-	@echo "  make build-linux   - build for x86_64 Linux using Docker"
-	@echo "  make build-all     - build for all targets (current + cross-compilation)"
-	@echo "  make clean         - clean build artifacts"
+	@echo "CLI binaries:"
+	@echo "  make build-mac-arm   - macOS arm64"
+	@echo "  make build-mac-intel - macOS x86_64"
+	@echo "  make build-linux     - Linux x86_64 (Docker)"
+	@echo "  make build-pi        - Linux aarch64 (Docker)"
+	@echo "  make build-pi32      - Linux armv7 (Docker)"
 	@echo ""
-	@echo "database commands:"
-	@echo "  make db-reset      - remove database and run migrations"
-	@echo "  make db-migrate    - run database migrations"
-	@echo "  make db-prepare    - prepare sqlx query cache"
+	@echo "Tauri desktop apps:"
+	@echo "  make build-tauri-mac-arm     - macOS arm64 .dmg"
+	@echo "  make build-tauri-mac-intel   - macOS x86_64 .dmg"
+	@echo "  make build-tauri-linux-intel - Linux x86_64 .deb/.rpm (Docker)"
+	@echo "  make build-tauri-linux-arm64 - Linux aarch64 .deb/.rpm (Docker)"
 	@echo ""
-	@echo "CLI testing commands:"
-	@echo "  make test-cli              - run all CLI integration testz"
-	@echo "  make test-cli TEST=pattern - run specific test or pattern"
-	@echo "  make test-cli-list         - list all CLI testz"
-	@echo "  make test-cli-coverage     - generate coverage report"
+	@echo "Build all:"
+	@echo "  make build-all  - build everything"
+	@echo "  make clean      - remove build artifacts"
 	@echo ""
-	@echo "Tauri app commands:"
-	@echo "  make tauri-build-mac-arm     - build macOS app (arm64)"
-	@echo "  make tauri-build-mac-intel   - build macOS app (x86_64)"
-	@echo "  make tauri-build-linux-intel - build Linux deb/rpm x86_64 (via Docker)"
-	@echo "  make tauri-build-linux-arm64 - build Linux deb/rpm aarch64 (via Docker)"
+	@echo "Database:"
+	@echo "  make db-reset   - reset database and run migrations"
+	@echo "  make db-migrate - run migrations"
+	@echo "  make db-prepare - prepare sqlx query cache"
 	@echo ""
-	@echo "release commands:"
-	@echo "  make collect               - gather all built artifacts to build/VERSION/"
+	@echo "Testing:"
+	@echo "  make test-cli              - run CLI integration tests"
+	@echo "  make test-cli TEST=pattern - run specific test"
 	@echo ""
-	@echo "version management:"
-	@echo "  make bump-version NEW_VERSION=x.y.z - update version everywhere"
-	@echo ""
-	@echo "info:"
-	@echo "  make help/info     - show this information"
+	@echo "Version:"
+	@echo "  make bump-version NEW_VERSION=x.y.z"
 	@echo ""
 
 .PHONY: help
 help: info
 
 # Tauri app build commands
-.PHONY: tauri-build-mac-arm tauri-build-mac-intel tauri-build-linux-intel tauri-build-linux-arm64
+.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64
 TAURI_DIR := client/tauri
 
-tauri-build-mac-arm:
+build-tauri-mac-arm:
 	@echo "building freqhole CLI for bundling..."
 	cargo build --package cli --release --target aarch64-apple-darwin
 	@mkdir -p $(TAURI_DIR)/src-tauri/bin
@@ -180,8 +164,11 @@ tauri-build-mac-arm:
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS arm64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
+	@mkdir -p $(BUILD_DIR)
+	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/
+	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_aarch64.dmg"
 
-tauri-build-mac-intel:
+build-tauri-mac-intel:
 	@echo "building freqhole CLI for bundling (x86_64, vendored OpenSSL)..."
 	OPENSSL_STATIC=1 cargo build --package cli --release --target x86_64-apple-darwin --features grimoire/vendored-openssl
 	@mkdir -p $(TAURI_DIR)/src-tauri/bin
@@ -190,72 +177,33 @@ tauri-build-mac-intel:
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS x86_64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
+	@mkdir -p $(BUILD_DIR)
+	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/
+	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_x64.dmg"
 
-tauri-build-linux-intel:
+build-tauri-linux-intel:
 	@echo "building Tauri app for Linux x86_64 using Docker..."
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-amd64 --platform linux/amd64 \
 		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu \
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
-	@mkdir -p $(BUILD_DIR)/tauri-linux
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/tauri-linux:/output freqhole-tauri-builder-amd64 \
+	@mkdir -p $(BUILD_DIR)
+	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-tauri-builder-amd64 \
 		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
-		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/ && \
-		       ls -la /output/"
-	@echo "linux x86_64 tauri packages built: $(BUILD_DIR)/tauri-linux/"
+		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
+	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_amd64.deb"
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-1.x86_64.rpm"
 
-tauri-build-linux-arm64:
+build-tauri-linux-arm64:
 	@echo "building Tauri app for Linux aarch64 using Docker..."
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-arm64 --platform linux/arm64 \
 		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu \
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
-	@mkdir -p $(BUILD_DIR)/tauri-linux
-	docker run --rm -v $(PWD)/$(BUILD_DIR)/tauri-linux:/output freqhole-tauri-builder-arm64 \
+	@mkdir -p $(BUILD_DIR)
+	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-tauri-builder-arm64 \
 		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
-		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/ && \
-		       ls -la /output/"
-	@echo "linux arm64 tauri packages built: $(BUILD_DIR)/tauri-linux/"
-
-# Collect all built artifacts into build/$VERSION/
-# Only collects artifacts matching the current VERSION
-COLLECT_DIR := build/$(VERSION)
-.PHONY: collect
-collect:
-	@echo "collecting artifacts for version $(VERSION) into $(COLLECT_DIR)/..."
-	@mkdir -p $(COLLECT_DIR)
-	@# CLI binaries in arch folders, then zip each
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		for dir in $(BUILD_DIR)/*/; do \
-			name=$$(basename "$$dir"); \
-			if [ "$$name" != "tauri-linux" ] && [ -f "$$dir/freqhole" ]; then \
-				mkdir -p "$(COLLECT_DIR)/$$name"; \
-				cp "$$dir/freqhole" "$(COLLECT_DIR)/$$name/freqhole"; \
-				(cd $(COLLECT_DIR) && zip -r "freqhole-$(VERSION)-$$name.zip" "$$name" && rm -rf "$$name"); \
-			fi \
-		done \
-	fi
-	@# Tauri macOS dmg files (only matching current version)
-	@for dmg in target/*/release/bundle/dmg/*.dmg; do \
-		if [ -f "$$dmg" ] && echo "$$dmg" | grep -q "$(VERSION)"; then \
-			cp "$$dmg" $(COLLECT_DIR)/ 2>/dev/null || true; \
-		fi \
-	done
-	@# Tauri macOS app bundles (zip them with version in filename)
-	@for app in target/*/release/bundle/macos/*.app; do \
-		if [ -d "$$app" ]; then \
-			name=$$(basename "$$app" .app); \
-			arch=$$(echo "$$app" | grep -o 'aarch64\|x86_64' || echo "unknown"); \
-			(cd $$(dirname "$$app") && zip -r "$(PWD)/$(COLLECT_DIR)/$$name-$(VERSION)-$$arch.app.zip" $$(basename "$$app")); \
-		fi \
-	done
-	@# Tauri Linux deb/rpm (only matching current version)
-	@for pkg in $(BUILD_DIR)/tauri-linux/*.deb $(BUILD_DIR)/tauri-linux/*.rpm target/*/release/bundle/deb/*.deb target/*/release/bundle/rpm/*.rpm; do \
-		if [ -f "$$pkg" ] && echo "$$pkg" | grep -q "$(VERSION)"; then \
-			cp "$$pkg" $(COLLECT_DIR)/ 2>/dev/null || true; \
-		fi \
-	done
-	@echo ""
-	@echo "artifacts collected to $(COLLECT_DIR)/:"
-	@find $(COLLECT_DIR) -type f | sed 's|^|  |'
+		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
+	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_arm64.deb"
+	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-1.aarch64.rpm"
 
 # version management
 .PHONY: bump-version
@@ -282,7 +230,7 @@ bump-version:
 	@echo ""
 	@echo "verify changes with: git diff"
 
-# Database commands (from grimoire)
+# database commands (from grimoire)
 .PHONY: db-reset db-migrate db-prepare
 db-reset:
 	@echo "resetting database..."
@@ -312,7 +260,7 @@ db-prepare: db-migrate
 	@echo "preparing sqlx query cache..."
 	cd grimoire && DATABASE_URL=$(DATABASE_URL) cargo sqlx prepare
 
-# CLI Testing commands (from grimoire)
+# CLI testing commands (from grimoire)
 .PHONY: test-cli test-cli-list test-cli-coverage
 test-cli: db-prepare
 	@if [ -z "$(TEST)" ]; then \
