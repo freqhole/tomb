@@ -1853,7 +1853,8 @@ export type RecordPlayRequest = z.infer<typeof RecordPlayRequestSchema>;
 
 export const RedeemInviteRequestSchema = z.object({
   invite_code: z.string(),
-  username: z.string().nullable()
+  username: z.string().nullable(),
+  node_id: z.string().nullable()
 });
 export type RedeemInviteRequest = z.infer<typeof RedeemInviteRequestSchema>;
 

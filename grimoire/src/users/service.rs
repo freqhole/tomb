@@ -982,6 +982,23 @@ impl UserService {
             ),
         }
     }
+
+    /// Add or update a peer node_id for a user (for P2P authentication)
+    pub async fn add_peer_node(
+        &self,
+        user_id: &str,
+        node_id: &str,
+        instance_name: Option<&str>,
+    ) -> GrimoireResponse<UserPeerNode> {
+        match self
+            .repository
+            .upsert_peer_node(user_id, node_id, instance_name)
+            .await
+        {
+            Ok(peer_node) => GrimoireResponse::success("peer node linked", peer_node),
+            Err(err) => GrimoireResponse::failure("failed to link peer node", vec![err.into()]),
+        }
+    }
 }
 
 impl Default for UserService {

@@ -594,9 +594,12 @@ pub struct ApiKeyRegenerateResponse {
 ///
 /// for regular invite codes: username is required to create a new user
 /// for account-link codes: username is ignored (existing user is used)
+/// for P2P connections: node_id links the peer to the user for future auth
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RedeemInviteRequest {
     pub invite_code: String,
     /// required for regular invite codes, ignored for account-link codes
     pub username: Option<String>,
+    /// P2P peer node_id - if provided, links this peer to the user
+    pub node_id: Option<String>,
 }

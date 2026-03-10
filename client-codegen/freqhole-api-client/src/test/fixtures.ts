@@ -331,6 +331,7 @@ export const startLoginRequest: s.StartLoginRequest = {
 export const redeemInviteRequest: s.RedeemInviteRequest = {
   invite_code: "test-invite-code",
   username: "testuser",
+  node_id: null,
 };
 
 // ============================================================================

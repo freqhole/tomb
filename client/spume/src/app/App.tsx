@@ -207,6 +207,7 @@ export function App() {
         const redeemResult = await client.auth.redeemInvite({
           invite_code: config.invite_code,
           username: config.admin_username ?? null,
+          node_id: null,
         });
         if (redeemResult.success) {
           debug("invite code authentication successful");
@@ -257,6 +258,7 @@ export function App() {
         const redeemResult = await client.auth.redeemInvite({
           invite_code,
           username: null,
+          node_id: null,
         });
 
         if (redeemResult.success) {

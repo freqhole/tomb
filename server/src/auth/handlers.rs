@@ -162,13 +162,22 @@ pub async fn regenerate_api_key(
 ///
 /// for regular invite codes: creates a new user and session (requires username)
 /// for account-link codes: creates a session for the existing linked user (no username needed)
+/// for P2P connections: X-Peer-Node-Id header links the peer to the user
 ///
 /// does not require authentication
 pub async fn redeem_invite(
+    headers: axum::http::HeaderMap,
     session: Session,
     Json(request): Json<RedeemInviteRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let service = grimoire::users::UserService::new();
+
+    // get peer node_id from header (added by federation proxy) or request body
+    let peer_node_id = headers
+        .get("X-Peer-Node-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .or_else(|| request.node_id.clone());
 
     // first, check what type of invite code this is
     let code_response = service.check_invite_code(&request.invite_code).await;
@@ -200,6 +209,11 @@ pub async fn redeem_invite(
         let _ = service
             .mark_invite_used(&request.invite_code, &user.id)
             .await;
+
+        // link peer node_id if provided (for P2P auth)
+        if let Some(ref node_id) = peer_node_id {
+            let _ = service.add_peer_node(&user.id, node_id, None).await;
+        }
 
         // create session for existing user
         session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
@@ -240,6 +254,11 @@ pub async fn redeem_invite(
     let user = user_response.data.ok_or_else(|| {
         ApiError::Internal("failed to get user data after registration".to_string())
     })?;
+
+    // link peer node_id if provided (for P2P auth)
+    if let Some(ref node_id) = peer_node_id {
+        let _ = service.add_peer_node(&user.id, node_id, None).await;
+    }
 
     // create session
     session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;

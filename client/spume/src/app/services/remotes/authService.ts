@@ -124,6 +124,7 @@ async function fallbackToInviteRedemption(
     const redeemResult = await client.auth.redeemInvite({
       invite_code: inviteCode,
       username,
+      node_id: null,
     });
 
     if (redeemResult.success) {

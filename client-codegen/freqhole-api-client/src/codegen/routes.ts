@@ -20,17 +20,6 @@ export type RouteAuth =
   | { type: 'owner_or'; role: UserRoleName };
 
 export const routes = {
-  auth: {
-    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
-    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
-    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
-    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
-    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema, auth: { type: 'authenticated' } as const },
-    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
-    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any(), auth: { type: 'authenticated' } as const },
-    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema, auth: { type: 'authenticated' } as const },
-    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema, auth: { type: 'authenticated' } as const },
-  },
   music: {
     get_job_status: { method: 'POST', path: '/api/jobs/status', req: s.GetJobsStatusRequestSchema, resp: s.GetJobsStatusResponseSchema, auth: { type: 'authenticated' } as const },
     list_jobs: { method: 'POST', path: '/api/jobs/list', req: s.ListJobsRequestSchema, resp: s.JobResponseSchema.array(), auth: { type: 'authenticated' } as const },
@@ -105,5 +94,16 @@ export const routes = {
   app: {
     server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
     health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema, auth: { type: 'public' } as const },
+  },
+  auth: {
+    login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
+    register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
+    api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema, auth: { type: 'authenticated' } as const },
+    redeem_invite: { method: 'POST', path: '/api/auth/invite', req: s.RedeemInviteRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any(), auth: { type: 'authenticated' } as const },
+    regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema, auth: { type: 'authenticated' } as const },
+    whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema, auth: { type: 'authenticated' } as const },
   },
 } as const;

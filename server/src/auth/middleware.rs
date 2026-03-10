@@ -84,12 +84,21 @@ async fn validate_api_key(api_key: &str) -> Option<AuthenticatedUser> {
 ///
 /// this allows supporting multiple origins (prod, staging, localhost) at runtime
 /// also supports "any" in allowed_origins to accept any origin
+///
+/// skips validation for P2P requests (those with X-Peer-Node-Id header) since
+/// they don't have a browser Origin and don't use webauthn
 pub async fn validate_origin(
     Extension(state): Extension<AppState>,
     headers: HeaderMap,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    // skip origin validation for P2P requests (federation transport)
+    // P2P requests have X-Peer-Node-Id header set by the federation handler
+    if headers.get("X-Peer-Node-Id").is_some() {
+        return Ok(next.run(request).await);
+    }
+
     // Extract Origin header
     let origin = headers
         .get("origin")

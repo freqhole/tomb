@@ -1,12 +1,53 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
 import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
+import { getClientForRemoteAsync } from "../../app/api/client";
 import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
 import { debug } from "../../utils/logger";
+
+// format error messages from API responses
+// handles Zod validation errors (JSON arrays) and plain strings
+function formatErrorMessage(error: unknown): string {
+  if (!error) return "unknown error";
+
+  const errorStr = String(error);
+
+  // try to parse as JSON array (Zod validation errors)
+  try {
+    const parsed = JSON.parse(errorStr);
+    if (Array.isArray(parsed)) {
+      // extract messages from Zod-style error objects
+      const messages = parsed
+        .map((e) => {
+          if (typeof e === "object" && e !== null) {
+            // prefer 'message' field
+            if (e.message) return String(e.message);
+            // fallback to stringifying
+            return JSON.stringify(e);
+          }
+          return String(e);
+        })
+        .filter((msg) => msg && msg.length > 0);
+
+      if (messages.length > 0) {
+        return messages.join("; ");
+      }
+    } else if (typeof parsed === "object" && parsed !== null) {
+      // single error object
+      if (parsed.message) return String(parsed.message);
+      if (parsed.detail) return String(parsed.detail);
+      if (parsed.error) return String(parsed.error);
+    }
+  } catch {
+    // not JSON, use as-is
+  }
+
+  return errorStr;
+}
 
 // detect if input is a P2P peer address (node_id or JSON endpoint)
 function parsePeerAddress(
@@ -49,6 +90,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   const [peerAddr, setPeerAddr] = createSignal<string | null>(null); // set when input is P2P
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
+  const [abortController, setAbortController] = createSignal<AbortController | null>(null);
   const [serverInfo, setServerInfo] = createSignal<{
     server_id: string;
     name: string;
@@ -114,20 +156,75 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       setIsLoading(true);
       setStep("testing");
 
+      // create abort controller for cancellation
+      const controller = new AbortController();
+      setAbortController(controller);
+
       try {
-        // for P2P, we'll create the remote directly (no browser-based auth yet)
-        // the createRemote function will test the connection via midden
-        await completeSetup();
+        // first, try to get server info via P2P to verify connection
+        const client = await getClientForRemoteAsync({
+          peer_addr: parsed.peer_addr,
+          transport_type: "wasm",
+        });
+
+        // check if cancelled while initializing
+        if (controller.signal.aborted) return;
+
+        const infoResult = await client.app.serverInfo();
+
+        // check if cancelled while fetching
+        if (controller.signal.aborted) return;
+
+        if (!infoResult.success || !infoResult.data) {
+          // server is reachable but didn't return valid info
+          // this might be a permission issue - offer registration
+          const errorMsg =
+            infoResult.success === false && "error" in infoResult
+              ? formatErrorMessage(infoResult.error)
+              : "server did not return valid info";
+
+          setError(
+            `connection succeeded but: ${errorMsg}. you may need to register with an invite code.`
+          );
+          // still move to auth step to offer registration
+          setServerInfo(null);
+          setStep("auth");
+          return;
+        }
+
+        const info = infoResult.data;
+
+        // save server info and show auth step for registration
+        setServerInfo({
+          server_id: info.server_id,
+          name: info.name,
+          description: info.description,
+          version: info.version,
+          image_url: info.image_url,
+          requiresAuth: false, // P2P registration uses invite code only - no passkey needed
+        });
+
+        // move to auth step - P2P requires registration
+        setStep("auth");
       } catch (err) {
+        // ignore if cancelled
+        if (controller.signal.aborted) return;
+
         console.error("failed to connect via P2P:", err);
-        setError(
-          err instanceof Error
-            ? `P2P connection failed: ${err.message}`
-            : "failed to connect via P2P"
-        );
+
+        // provide more helpful error message
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes("timeout") || errMsg.includes("Timeout")) {
+          setError("P2P connection timed out - peer may be offline or unreachable");
+        } else if (errMsg.includes("not found") || errMsg.includes("NotFound")) {
+          setError("P2P peer not found - check the peer ID and try again");
+        } else {
+          setError(`P2P connection failed: ${errMsg}`);
+        }
         setStep("url");
       } finally {
         setIsLoading(false);
+        setAbortController(null);
       }
       return;
     }
@@ -167,9 +264,16 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setIsLoading(true);
     setStep("testing");
 
+    // create abort controller for cancellation
+    const controller = new AbortController();
+    setAbortController(controller);
+
     try {
       // fetch server info from /api/hello (public endpoint)
       const helloResult = await getServerInfo(remoteUrl);
+
+      // check if cancelled while waiting
+      if (controller.signal.aborted) return;
 
       if (!helloResult.success || !helloResult.data) {
         throw new Error("failed to fetch server info");
@@ -179,6 +283,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       // test connection using whoami endpoint to check auth status
       const whoamiResult = await whoami(remoteUrl);
+
+      // check if cancelled while waiting
+      if (controller.signal.aborted) return;
 
       if (whoamiResult.success) {
         // already authenticated, complete setup immediately
@@ -207,6 +314,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       // move to auth step
       setStep("auth");
     } catch (err) {
+      // ignore if cancelled
+      if (controller.signal.aborted) return;
+
       console.error("failed to connect to remote:", err);
       setError(
         err instanceof Error
@@ -216,6 +326,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       setStep("url");
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   };
 
@@ -230,15 +341,55 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
     try {
       const baseUrl = url().trim();
-      debug("webauthn", `starting ${data.mode} for username:`, data.username);
+      const currentPeerAddr = peerAddr();
 
-      const result = await authenticate(baseUrl, data);
+      debug("auth", `starting ${data.mode} for username:`, data.username);
 
-      if (!result.success) {
-        throw new Error(result.error ?? "authentication failed");
+      // P2P auth uses invite code redemption directly
+      if (currentPeerAddr) {
+        if (data.mode === "login") {
+          // P2P login not yet supported - need session management
+          throw new Error(
+            "login not yet supported for P2P remotes - please register with an invite code"
+          );
+        }
+
+        if (!data.inviteCode) {
+          throw new Error("invite code required for P2P registration");
+        }
+
+        // get P2P client and redeem invite
+        const client = await getClientForRemoteAsync({
+          peer_addr: currentPeerAddr,
+          transport_type: "wasm",
+        });
+
+        debug("auth", "redeeming invite code via P2P...");
+        const redeemResult = await client.auth.redeemInvite({
+          invite_code: data.inviteCode,
+          username: data.username,
+          node_id: null, // server extracts peer node_id from connection
+        });
+
+        if (!redeemResult.success) {
+          const errMsg =
+            "error" in redeemResult
+              ? formatErrorMessage(redeemResult.error)
+              : "invite code redemption failed";
+          throw new Error(errMsg);
+        }
+
+        debug("auth", "P2P invite code redemption successful");
+      } else {
+        // HTTP auth uses WebAuthn
+        const result = await authenticate(baseUrl, data);
+
+        if (!result.success) {
+          throw new Error(result.error ?? "authentication failed");
+        }
       }
 
-      debug("webauthn", `${data.mode} complete!`);
+      debug("auth", `${data.mode} complete!`);
 
       // authentication successful, complete setup
       await completeSetup();
@@ -277,23 +428,43 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   const handleClose = () => {
-    if (isLoading()) return;
+    // allow close during testing step (abort the connection), but not during auth
+    if (isLoading() && step() !== "testing") return;
+
+    // abort any in-progress connection test
+    const controller = abortController();
+    if (controller) {
+      controller.abort();
+      setAbortController(null);
+    }
+
     setStep("url");
     setUrl("");
     setPeerAddr(null);
     setError(null);
     setServerInfo(null);
     setOriginHint(null);
+    setIsLoading(false);
     props.onClose();
   };
 
   const canGoBack = () => {
-    return !isLoading() && step() === "auth";
+    return step() === "auth" || (step() === "testing" && isLoading());
   };
 
   const handleBack = () => {
     if (step() === "auth") {
       setStep("url");
+      setError(null);
+    } else if (step() === "testing") {
+      // cancel in-progress connection test
+      const controller = abortController();
+      if (controller) {
+        controller.abort();
+        setAbortController(null);
+      }
+      setStep("url");
+      setIsLoading(false);
       setError(null);
     }
   };
@@ -425,38 +596,55 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               {/* step 3: authenticate */}
               <Match when={step() === "auth"}>
                 <div class="space-y-4">
-                  {/* server info display */}
-                  <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
-                    <div class="flex items-start gap-3">
-                      <MediaImage
-                        imageUrl={
-                          serverInfo()?.image_url ? `${url()}${serverInfo()?.image_url}` : null
-                        }
-                        alt={serverInfo()?.name ?? "Server"}
-                        class="w-12 h-12 rounded object-cover"
-                      />
-                      <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-[var(--color-text-primary)]">
-                          {serverInfo()?.name}
-                        </p>
-                        <Show when={serverInfo()?.description}>
-                          <p class="text-xs text-[var(--color-text-secondary)] mt-0.5">
-                            {serverInfo()?.description}
+                  {/* server info display - show if available */}
+                  <Show when={serverInfo()}>
+                    <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
+                      <div class="flex items-start gap-3">
+                        <MediaImage
+                          imageUrl={
+                            serverInfo()?.image_url && !peerAddr()
+                              ? `${url()}${serverInfo()?.image_url}`
+                              : null
+                          }
+                          alt={serverInfo()?.name ?? "Server"}
+                          class="w-12 h-12 rounded object-cover"
+                        />
+                        <div class="flex-1 min-w-0">
+                          <p class="text-sm font-medium text-[var(--color-text-primary)]">
+                            {serverInfo()?.name}
                           </p>
-                        </Show>
-                        <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                          version {serverInfo()?.version} • {serverInfo()?.server_id}
-                        </p>
+                          <Show when={serverInfo()?.description}>
+                            <p class="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                              {serverInfo()?.description}
+                            </p>
+                          </Show>
+                          <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                            {peerAddr() && <span>P2P • </span>}
+                            version {serverInfo()?.version} • {serverInfo()?.server_id}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </Show>
+
+                  {/* P2P-specific info when no server info */}
+                  <Show when={peerAddr() && !serverInfo()}>
+                    <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
+                      <p class="text-sm text-[var(--color-text-secondary)]">
+                        P2P peer: <code class="text-xs">{peerAddr()!.slice(0, 16)}...</code>
+                      </p>
+                      <p class="text-xs text-[var(--color-text-tertiary)] mt-2">
+                        register with an invite code to connect
+                      </p>
+                    </div>
+                  </Show>
 
                   <AuthForm
-                    initialMode="login"
+                    initialMode={peerAddr() ? "register" : "login"}
                     onSubmit={handleAuth}
                     loading={isLoading()}
                     error={error() || undefined}
-                    showModeToggle={true}
+                    showModeToggle={!peerAddr()} // hide mode toggle for P2P (login not supported)
                   />
                 </div>
               </Match>
