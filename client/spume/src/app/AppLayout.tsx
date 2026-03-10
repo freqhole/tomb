@@ -60,7 +60,12 @@ import {
   onRemoteStatusChange,
 } from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
-import { type Remote, type QueueHistoryEntry, isHttpRemote, isP2PRemote } from "./services/storage/types";
+import {
+  type Remote,
+  type QueueHistoryEntry,
+  isHttpRemote,
+  isP2PRemote,
+} from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";
 import { IconNames, type IconName } from "../components/icons/registry";
 import { routes } from "../music/utils/routing";
