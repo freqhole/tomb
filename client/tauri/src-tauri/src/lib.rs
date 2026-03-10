@@ -103,7 +103,7 @@ pub fn run() {
                 // show main window (spume will call getConfig on startup)
                 eprintln!("[tauri] creating main window...");
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                    .title("")
+                    .title("freqhole")
                     .inner_size(800.0, 600.0)
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));
