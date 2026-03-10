@@ -16,7 +16,7 @@ import {
   checkForUpdates,
   forceRefresh,
 } from "../../app/services/serviceWorker";
-import { isTauriMode } from "../../utils/tauri";
+import { isTauriMode } from "../../app/services/tauri";
 import {
   getAllRemoteCacheStats,
   clearBlobCache,

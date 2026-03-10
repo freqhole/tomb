@@ -29,9 +29,8 @@ import {
   RemotesSettingsView,
   FederationSettingsView,
 } from "../../settings";
-import { getSavedRoute } from "../../utils/tauri/routePersistence";
+import { getSavedRoute, isTauriMode } from "../services/tauri";
 import { debug } from "../../utils/logger";
-import { isTauriMode } from "../../utils/tauri";
 
 interface RoutesProps {
   onAddMusic: () => void;

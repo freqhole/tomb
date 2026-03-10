@@ -73,15 +73,14 @@ import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
 import { initAppDB } from "./services/storage/db";
 import { debug } from "../utils/logger";
-import { isTauriMode } from "../utils/tauri";
 import {
-  requestFreqholeConfig,
-  onConfigUpdated,
-  onMessage,
-  onAuthRefresh,
-  type SpumeMessage,
-} from "../utils/tauri/freqhole-bridge";
-import { clearRemoteNeedsAuth } from "../music/data/remote/authState";
+  isTauriMode,
+  getConfig,
+  onConfigChanged,
+  onEvent,
+  type TauriEvent,
+} from "./services/tauri";
+import { clearRemoteNeedsAuth, setAuthRefreshHandler } from "../music/data/remote/authState";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -123,17 +122,17 @@ export function App() {
     onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
-  // handle messages from tauri (config changes, scan completion)
-  function handleTauriMessage(msg: SpumeMessage) {
-    debug(`tauri message: ${msg.type}`, msg.data);
+  // handle events from tauri (config changes, scan completion)
+  function handleTauriEvent(event: TauriEvent) {
+    debug(`tauri event: ${event.type}`, event.data);
 
-    switch (msg.type) {
+    switch (event.type) {
       case "config-changed":
         // show persistent toast with reload button
         toaster.show((props) => (
           <ConfigChangedToast
             toastId={props.toastId}
-            message={msg.data.message}
+            message={event.data.message}
             onReload={() => window.location.reload()}
           />
         ));
@@ -155,7 +154,7 @@ export function App() {
         });
         break;
 
-      case "scan-jobs-complete":
+      case "scan-complete":
         // final invalidation when scan is complete
         queryClient.invalidateQueries({
           predicate: (query) => {
@@ -171,12 +170,8 @@ export function App() {
         });
         // show toast notification
         toast.success(
-          `scan complete: ${msg.data.songs_added} songs, ${msg.data.albums_added} albums, ${msg.data.artists_added} artists added`
+          `scan complete: ${event.data.songs_added} songs, ${event.data.albums_added} albums, ${event.data.artists_added} artists added`
         );
-        break;
-
-      case "config-updated":
-        // handled by onConfigUpdated callback (auto-applies)
         break;
     }
   }
@@ -188,15 +183,15 @@ export function App() {
       return;
     }
 
-    debug("tauri mode detected, requesting config from bridge...");
-    const config = requestFreqholeConfig();
+    debug("tauri mode detected, requesting config via command...");
+    const config = await getConfig();
 
     if (!config) {
-      debug("no config from tauri bridge, server may not be ready yet");
+      debug("no config from tauri, server may not be ready yet");
       return;
     }
 
-    debug(`got config from tauri bridge: ${config.server_name} @ ${config.server_url}`);
+    debug(`got config from tauri: ${config.server_name} @ ${config.server_url}`);
 
     try {
       // if we have an invite code, use it to authenticate first
@@ -229,25 +224,28 @@ export function App() {
       await useRemoteSource(remote);
       debug(`activated tauri remote: ${remote.name} (${remote.base_url})`);
 
-      // subscribe to config updates (server restarts)
-      onConfigUpdated(async (newConfig) => {
-        debug("tauri: config updated event received, refreshing remote...");
-        const updatedRemote = await upsertTauriRemote({
-          server_id: newConfig.server_id,
-          name: newConfig.server_name,
-          base_url: newConfig.server_url,
-        });
-        await useRemoteSource(updatedRemote);
-        queryClient.invalidateQueries();
-        debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
+      // subscribe to config changes (server restarts) - refetch config when notified
+      await onConfigChanged(async () => {
+        debug("tauri: config changed event received, refetching...");
+        const newConfig = await getConfig();
+        if (newConfig) {
+          const updatedRemote = await upsertTauriRemote({
+            server_id: newConfig.server_id,
+            name: newConfig.server_name,
+            base_url: newConfig.server_url,
+          });
+          await useRemoteSource(updatedRemote);
+          queryClient.invalidateQueries();
+          debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
+        }
       });
 
-      // subscribe to all tauri messages (config changes, scan progress, etc.)
-      onMessage((msg: SpumeMessage) => handleTauriMessage(msg));
+      // subscribe to all tauri events (scan progress, etc.)
+      await onEvent((event: TauriEvent) => handleTauriEvent(event));
 
-      // subscribe to auth refresh events (auto re-auth on 401)
-      onAuthRefresh(async ({ invite_code, remote_id }) => {
-        debug(`tauri: auth refresh received for ${remote_id}, redeeming invite...`);
+      // set up auth refresh handler (called when session expires)
+      setAuthRefreshHandler(async (inviteCode, remoteId) => {
+        debug(`tauri: auth refresh for ${remoteId}, redeeming invite...`);
         const currentRemote = getCurrentRemote();
         if (!currentRemote) {
           console.warn("no current remote to refresh auth for");
@@ -256,15 +254,14 @@ export function App() {
 
         const client = await getClientForRemote(currentRemote);
         const redeemResult = await client.auth.redeemInvite({
-          invite_code,
+          invite_code: inviteCode,
           username: null,
           node_id: null,
         });
 
         if (redeemResult.success) {
           debug("tauri: auth refresh successful");
-          clearRemoteNeedsAuth(remote_id);
-          // re-fetch data now that we're authenticated
+          clearRemoteNeedsAuth(remoteId);
           queryClient.invalidateQueries();
         } else {
           console.warn("tauri: auth refresh failed:", redeemResult);

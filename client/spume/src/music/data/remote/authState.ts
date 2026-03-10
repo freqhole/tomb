@@ -2,11 +2,13 @@
 // tracks which remotes have expired sessions so the UI can prompt re-auth
 
 import { createSignal, type Accessor } from "solid-js";
-import { isTauriMode } from "../../../utils/tauri";
-import { requestAuthRefresh } from "../../../utils/tauri/freqhole-bridge";
+import { isTauriMode, generateAuthInvite } from "../../../app/services/tauri";
 
 // map of remote_id -> [needsAuth getter, needsAuth setter]
 const authStates = new Map<string, [Accessor<boolean>, (v: boolean) => void]>();
+
+// callback for when auth is refreshed (set by App.tsx)
+let onAuthRefreshCallback: ((inviteCode: string, remoteId: string) => Promise<void>) | null = null;
 
 // get or create a signal for a given remote
 function getOrCreateSignal(remoteId: string): [Accessor<boolean>, (v: boolean) => void] {
@@ -19,15 +21,31 @@ function getOrCreateSignal(remoteId: string): [Accessor<boolean>, (v: boolean) =
   return entry;
 }
 
+// set the callback for handling auth refresh
+export function setAuthRefreshHandler(
+  handler: (inviteCode: string, remoteId: string) => Promise<void>
+): void {
+  onAuthRefreshCallback = handler;
+}
+
 // mark a remote as needing re-authentication
-// in tauri mode, this also dispatches an event for auto-refresh
+// in tauri mode, this also triggers automatic auth refresh via command
 export function setRemoteNeedsAuth(remoteId: string): void {
   const [, set] = getOrCreateSignal(remoteId);
   set(true);
 
-  // in tauri mode, request automatic auth refresh via the bridge
+  // in tauri mode, automatically refresh auth via command
   if (isTauriMode()) {
-    requestAuthRefresh(remoteId);
+    void (async () => {
+      try {
+        const inviteCode = await generateAuthInvite();
+        if (inviteCode && onAuthRefreshCallback) {
+          await onAuthRefreshCallback(inviteCode, remoteId);
+        }
+      } catch (error) {
+        console.error("[authState] failed to generate auth invite:", error);
+      }
+    })();
   }
 }
 

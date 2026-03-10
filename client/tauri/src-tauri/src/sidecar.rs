@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::app_config::{save_freqhole_bin_path, FreqholeAppConfig};
-use crate::spume_bridge::push_config_to_spume;
+use crate::spume_bridge::notify_config_changed;
 
 /// strip ANSI escape codes from a string
 fn strip_ansi_codes(s: &str) -> String {
@@ -592,8 +592,8 @@ pub async fn server_start(
     let path = PathBuf::from(config_path);
     let result = start_server(&state, path, Some(&app_handle)).await;
     if result.success {
-        // push updated config to spume window
-        let _ = push_config_to_spume(&app_handle);
+        // notify spume that config changed (server started)
+        let _ = notify_config_changed(&app_handle, "server started");
     }
     Ok(result)
 }
@@ -612,8 +612,8 @@ pub async fn server_restart(
 ) -> Result<ServerResult, String> {
     let result = restart_server(&state, Some(&app_handle)).await;
     if result.success {
-        // push updated config to spume window
-        let _ = push_config_to_spume(&app_handle);
+        // notify spume that config changed (server restarted)
+        let _ = notify_config_changed(&app_handle, "server restarted");
     }
     Ok(result)
 }

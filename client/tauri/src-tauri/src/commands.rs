@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
-use crate::spume_bridge::{notify_config_changed, notify_scan_jobs_complete, notify_scan_progress};
+use crate::spume_bridge::{notify_config_changed, notify_scan_complete, notify_scan_progress};
 use crate::ShutdownToken;
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
@@ -445,6 +445,7 @@ fn read_invite_code(app_handle: &tauri::AppHandle) -> Option<String> {
 ///
 /// returns server_id, server_name, server_url from the loaded config
 /// returns None if config is not initialized
+#[tauri::command]
 pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfig> {
     eprintln!("[get_freqhole_config] called");
     let config_path = get_server_config_path_resolved(&app_handle)?;
@@ -1197,12 +1198,9 @@ async fn poll_rescan_job_until_complete(
 
                 if pending == 0 && !jobs.is_empty() {
                     // all jobs complete - send final notification
-                    if let Err(e) = notify_scan_jobs_complete(
-                        &app_handle,
-                        songs_added,
-                        albums_added,
-                        artists_added,
-                    ) {
+                    if let Err(e) =
+                        notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)
+                    {
                         eprintln!("[rescan-poll] failed to notify spume: {}", e);
                     }
 
@@ -1306,12 +1304,9 @@ async fn poll_scan_jobs_until_complete(
 
                 if pending == 0 && !jobs.is_empty() {
                     // all jobs complete - send final notification
-                    if let Err(e) = notify_scan_jobs_complete(
-                        &app_handle,
-                        songs_added,
-                        albums_added,
-                        artists_added,
-                    ) {
+                    if let Err(e) =
+                        notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)
+                    {
                         eprintln!("[scan-poll] failed to notify spume: {}", e);
                     }
 
@@ -1424,12 +1419,8 @@ pub async fn resume_pending_jobs_polling(
                 }
 
                 if pending == 0 {
-                    let _ = notify_scan_jobs_complete(
-                        &app_handle,
-                        songs_added,
-                        albums_added,
-                        artists_added,
-                    );
+                    let _ =
+                        notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
                     eprintln!(
                         "[scan-poll] resume complete: {} songs, {} albums, {} artists",
                         songs_added, albums_added, artists_added

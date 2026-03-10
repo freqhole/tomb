@@ -20,7 +20,7 @@ import {
   type MiddenNodeLike,
   type Transport,
 } from "freqhole-api-client";
-import { isTauriMode } from "../../utils/tauri";
+import { isTauriMode } from "../services/tauri";
 
 // re-export for call sites that still need direct access
 // note: isTauriAvailable uses local isTauriMode which checks both env var and window.__TAURI__

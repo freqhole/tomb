@@ -21,7 +21,7 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { isTauriMode } from "../../utils/tauri";
+import { isTauriMode } from "../../app/services/tauri";
 import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 

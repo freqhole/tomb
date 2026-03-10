@@ -2,7 +2,7 @@
 // saves and restores the last route when running in Tauri mode
 // uses localStorage since it's simple and doesn't require extra Tauri plugins
 
-import { isTauriMode } from "../tauri";
+import { isTauriMode } from "./mode";
 
 const STORAGE_KEY = "tauri:lastRoute";
 

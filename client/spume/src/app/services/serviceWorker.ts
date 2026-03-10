@@ -2,7 +2,7 @@
 // only active in production builds, not in dev or tauri mode
 
 import { createSignal } from "solid-js";
-import { isTauriMode } from "../../utils/tauri";
+import { isTauriMode } from "./tauri";
 import { debug } from "../../utils/logger";
 
 // reactive state for SW updates

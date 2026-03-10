@@ -9,7 +9,6 @@ use tauri::{AppHandle, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowB
 use crate::app_config::save_server_config_path;
 use crate::commands::save_invite_code;
 use crate::sidecar::{start_server, ServerManager};
-use crate::spume_bridge::get_init_script;
 
 /// tauri command to open setup wizard at default route
 #[tauri::command]
@@ -101,8 +100,7 @@ pub async fn close_setup_wizard(
 
     // create main window if it doesn't exist
     if app.get_webview_window("main").is_none() {
-        // inject config via initialization script (works in dev + release)
-        let init_script = get_init_script(&app);
+        // spume will call getConfig on startup to get server config
 
         #[cfg(debug_assertions)]
         let webview_url = WebviewUrl::External("http://localhost:1420".parse().unwrap());
@@ -112,8 +110,7 @@ pub async fn close_setup_wizard(
         let win_builder = WebviewWindowBuilder::new(&app, "main", webview_url)
             .title("")
             .inner_size(800.0, 600.0)
-            .theme(Some(Theme::Dark))
-            .initialization_script(&init_script);
+            .theme(Some(Theme::Dark));
 
         #[cfg(target_os = "macos")]
         let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);

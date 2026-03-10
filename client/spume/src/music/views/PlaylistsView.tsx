@@ -56,7 +56,7 @@ import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
 import { debug, error as errorLog } from "../../utils/logger";
-import { isTauriMode } from "../../utils/tauri";
+import { isTauriMode } from "../../app/services/tauri";
 import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface PlaylistsViewProps {

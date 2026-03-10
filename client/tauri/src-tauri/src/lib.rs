@@ -78,7 +78,6 @@ pub fn run() {
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 let app_handle = app.handle().clone();
                 let app_handle_for_server = app_handle.clone();
-                let app_handle_for_auth = app_handle.clone();
                 let config_path_for_p2p = config_path.clone();
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
@@ -98,26 +97,16 @@ pub fn run() {
 
                         // server started - check for pending jobs and resume polling
                         commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
-                        // push fresh auth to spume (after brief delay for server to be ready)
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        if let Err(e) =
-                            spume_bridge::push_auth_refresh_to_spume(&app_handle_for_auth).await
-                        {
-                            eprintln!("[tauri] failed to push auth refresh: {}", e);
-                        }
                     }
                 });
 
-                // show main window with config injected
+                // show main window (spume will call getConfig on startup)
                 eprintln!("[tauri] creating main window...");
-                let init_script = spume_bridge::get_init_script(app.handle());
-                eprintln!("[tauri] init_script length={}", init_script.len());
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("")
                     .inner_size(800.0, 600.0)
                     .theme(Some(Theme::Dark))
-                    .background_color(Color(0, 0, 0, 255))
-                    .initialization_script(&init_script);
+                    .background_color(Color(0, 0, 0, 255));
 
                 #[cfg(target_os = "macos")]
                 let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
@@ -165,6 +154,7 @@ pub fn run() {
             commands::get_os_username,
             commands::get_config_path,
             commands::get_data_dir,
+            commands::get_freqhole_config,
             commands::open_config_dir,
             commands::read_config_file,
             commands::save_config_file,
