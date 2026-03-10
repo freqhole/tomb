@@ -54,7 +54,6 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
 
     // get server identification fields
-    let server_id = server_config.id.clone();
     let name = server_config.name.clone();
     let description = server_config.description.clone();
     let version = server_config.version.clone();
@@ -69,7 +68,6 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
     let image_blob_id = server_config.image_blob_id.clone();
 
     Ok(Json(ServerInfoResponse {
-        server_id,
         name,
         description,
         version,

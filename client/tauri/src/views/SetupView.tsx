@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, createMemo, For } from "solid-js";
+import { createSignal, Show, onMount, For } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
@@ -54,16 +54,6 @@ interface SetupStatus {
   data_dir: string | null;
 }
 
-// transform server name to valid server ID (lowercase, a-z and hyphens only)
-function nameToId(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "") // remove special chars
-    .replace(/\s+/g, "-") // spaces to hyphens
-    .replace(/-+/g, "-") // collapse multiple hyphens
-    .replace(/^-|-$/g, ""); // trim leading/trailing hyphens
-}
-
 export default function SetupView() {
   const navigate = useNavigate();
   const [step, setStep] = createSignal<SetupStep>("welcome");
@@ -91,9 +81,6 @@ export default function SetupView() {
     null,
   );
   const [depCheckLoading, setDepCheckLoading] = createSignal(true);
-
-  // auto-generate server ID from name
-  const serverId = createMemo(() => nameToId(serverName()) || "freqhole");
 
   onMount(async () => {
     try {
@@ -567,18 +554,6 @@ export default function SetupView() {
 
           <Show when={showAdvanced()}>
             <div class="advanced-options">
-              <div class="form-group">
-                <label for="server-id">server ID</label>
-                <input
-                  type="text"
-                  id="server-id"
-                  value={serverId()}
-                  readOnly
-                  class="readonly"
-                />
-                <p class="hint">auto-generated from server name.</p>
-              </div>
-
               <div class="form-group">
                 <label for="server-port">server port</label>
                 <input

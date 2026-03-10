@@ -216,7 +216,6 @@ export function App() {
 
       // upsert creates or updates the tauri-managed remote (no api_key needed now)
       const remote = await upsertTauriRemote({
-        server_id: config.server_id,
         name: config.server_name,
         base_url: config.server_url,
       });
@@ -230,7 +229,6 @@ export function App() {
         const newConfig = await getConfig();
         if (newConfig) {
           const updatedRemote = await upsertTauriRemote({
-            server_id: newConfig.server_id,
             name: newConfig.server_name,
             base_url: newConfig.server_url,
           });

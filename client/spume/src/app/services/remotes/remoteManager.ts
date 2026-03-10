@@ -57,7 +57,6 @@ export async function getTauriManagedRemote(): Promise<Remote | null> {
 
 // create or update the tauri-managed remote
 export async function upsertTauriRemote(config: {
-  server_id: string;
   name: string;
   base_url: string;
 }): Promise<Remote> {
@@ -69,7 +68,6 @@ export async function upsertTauriRemote(config: {
     const updated: Remote = {
       ...existing,
       name: config.name,
-      server_id: config.server_id,
       // always set image_url for tauri remotes (server serves at /api/hello/image)
       image_url: "/api/hello/image",
       updated_at: Date.now(),
@@ -82,7 +80,7 @@ export async function upsertTauriRemote(config: {
   }
 
   // create new tauri-managed remote (always HTTP for tauri)
-  const remoteId = sanitizeServerId(config.server_id);
+  const remoteId = await generateUniqueRemoteId(config.name);
   const remote: HttpRemote = {
     transport: "http",
     remote_id: remoteId,
@@ -92,7 +90,6 @@ export async function upsertTauriRemote(config: {
     last_connected_at: null,
     created_at: Date.now(),
     updated_at: Date.now(),
-    server_id: config.server_id,
     description: null,
     // server image is served at /api/hello/image
     image_url: "/api/hello/image",
@@ -129,13 +126,48 @@ export async function getActiveRemote(): Promise<Remote | null> {
   return remotes[0] || null;
 }
 
-// sanitize server id for url safety (alphanumeric, dash, underscore only)
-function sanitizeServerId(serverId: string): string {
-  return serverId
-    .replace(/[^a-zA-Z0-9_-]/g, "-") // replace invalid chars with hyphens
+/**
+ * generate a URL-safe slug from a name.
+ * e.g., "My Music Server" -> "my-music-server"
+ */
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-") // replace non-alphanumeric with hyphens
     .replace(/-+/g, "-") // collapse multiple hyphens
     .replace(/^-|-$/g, "") // trim leading/trailing hyphens
-    .toLowerCase();
+    || "remote"; // fallback if name is empty after sanitization
+}
+
+/**
+ * generate a unique remote_id by checking existing IDs and appending suffix if needed.
+ * e.g., "my-server" -> "my-server" (if unique)
+ *       "my-server" -> "my-server-2" (if "my-server" exists)
+ */
+async function generateUniqueRemoteId(baseName: string): Promise<string> {
+  const baseSlug = generateSlug(baseName);
+  const remotes = await getAllRemotes();
+  const existingIds = new Set(remotes.map((r) => r.remote_id));
+
+  // try base slug first
+  if (!existingIds.has(baseSlug)) {
+    return baseSlug;
+  }
+
+  // find next available number
+  let counter = 2;
+  while (existingIds.has(`${baseSlug}-${counter}`)) {
+    counter++;
+  }
+  return `${baseSlug}-${counter}`;
+}
+
+/**
+ * get remote by peer address (for P2P duplicate detection).
+ */
+export async function getRemoteByPeerAddr(peerAddr: string): Promise<Remote | undefined> {
+  const remotes = await getAllRemotes();
+  return remotes.find((r) => isP2PRemote(r) && r.peer_addr === peerAddr);
 }
 
 // create a new remote
@@ -159,6 +191,14 @@ export async function createRemote(data: {
     const existingByUrl = await getRemoteByUrl(baseUrl);
     if (existingByUrl) {
       throw new Error(`remote already exists for this url: ${existingByUrl.name}`);
+    }
+  }
+
+  // check if P2P remote with this peer_addr already exists
+  if (isP2P && data.peer_addr) {
+    const existingByPeer = await getRemoteByPeerAddr(data.peer_addr);
+    if (existingByPeer) {
+      throw new Error(`remote already exists for this peer: ${existingByPeer.name}`);
     }
   }
 
@@ -189,17 +229,11 @@ export async function createRemote(data: {
     throw new Error("server did not return valid info");
   }
 
-  // use server_id as the remote_id (sanitized for URL safety)
-  const remoteId = sanitizeServerId(serverInfo.server_id);
-
-  // check if remote with this id already exists
-  const existingById = await getRemoteById(remoteId);
-  if (existingById) {
-    throw new Error(`remote already exists with id "${remoteId}" (${existingById.name})`);
-  }
-
   // use server name from /api/hello if no name provided
-  const remoteName = data.name || serverInfo.name || baseUrl || `p2p-${remoteId.slice(0, 8)}`;
+  const remoteName = data.name || serverInfo.name || baseUrl || `p2p-${(data.peer_addr ?? "").slice(0, 8)}`;
+
+  // generate unique remote_id from server name (URL slug with collision handling)
+  const remoteId = await generateUniqueRemoteId(remoteName);
 
   // create remote with discriminated transport type
   const commonFields = {
@@ -210,7 +244,6 @@ export async function createRemote(data: {
     created_at: Date.now(),
     updated_at: Date.now(),
     // server info fields
-    server_id: serverInfo.server_id,
     description: serverInfo.description ?? null,
     image_url: serverInfo.image_url ?? null,
     image_blob_id: serverInfo.image_blob_id ?? null,
@@ -363,7 +396,6 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
       const serverInfo = result.data;
       await db.put(STORE_REMOTES, {
         ...remote,
-        server_id: serverInfo.server_id,
         description: serverInfo.description,
         image_url: serverInfo.image_url,
         version: serverInfo.version,
@@ -418,7 +450,6 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
       
       // also update server info if we got it (self-heals missing image_url, etc.)
       if (result.data) {
-        updated.server_id = result.data.server_id;
         updated.description = result.data.description ?? updated.description;
         updated.image_url = result.data.image_url ?? updated.image_url;
         updated.version = result.data.version ?? updated.version;

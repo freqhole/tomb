@@ -2018,7 +2018,6 @@ export const SearchResponseSchema = z.object({
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
 export const ServerInfoResponseSchema = z.object({
-  server_id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
   version: z.string(),

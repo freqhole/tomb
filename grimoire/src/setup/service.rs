@@ -31,8 +31,6 @@ pub struct SetupConfig {
     pub data_dir: PathBuf,
     /// server display name
     pub server_name: String,
-    /// server id (derived from name if not provided)
-    pub server_id: Option<String>,
     /// server port
     pub server_port: u16,
     /// optional server icon image path
@@ -58,22 +56,6 @@ pub struct SetupConfig {
 pub struct ScanDir {
     pub path: String,
     pub tags: Vec<String>,
-}
-
-impl SetupConfig {
-    /// derive server_id from server_name if not explicitly set
-    pub fn server_id(&self) -> String {
-        self.server_id.clone().unwrap_or_else(|| {
-            self.server_name
-                .to_lowercase()
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
-                .collect::<String>()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join("-")
-        })
-    }
 }
 
 /// result of running setup
@@ -274,7 +256,6 @@ impl SetupService {
             Some(config.data_dir.clone()),
             false, // don't auto-run migrations, we do it explicitly
             Some(config.server_name.clone()),
-            Some(config.server_id()),
             Some(config.server_port),
             image_path,
             config.ytdlp_available,

@@ -24,7 +24,6 @@ const RemoteCommonSchema = z.object({
   created_at: z.number(),
   updated_at: z.number(),
   // server info (from /api/hello)
-  server_id: z.string().nullable(),
   description: z.string().nullable(),
   image_url: z.string().nullable(),
   image_blob_id: z.string().nullable(),

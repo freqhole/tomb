@@ -97,7 +97,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   const [isLoading, setIsLoading] = createSignal(false);
   const [abortController, setAbortController] = createSignal<AbortController | null>(null);
   const [serverInfo, setServerInfo] = createSignal<{
-    server_id: string;
     name: string;
     description?: string | null;
     version: string;
@@ -126,7 +125,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
           // try to hit the hello endpoint
           const helloResult = await getServerInfo(origin);
-          if (helloResult.success && helloResult.data?.server_id) {
+          if (helloResult.success && helloResult.data?.name) {
             setOriginHint(origin);
           } else {
             setOriginHint(null);
@@ -201,7 +200,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
         // save server info and show auth step for registration
         setServerInfo({
-          server_id: info.server_id,
           name: info.name,
           description: info.description,
           version: info.version,
@@ -295,7 +293,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       if (whoamiResult.success) {
         // already authenticated, complete setup immediately
         setServerInfo({
-          server_id: info.server_id,
           name: info.name,
           description: info.description,
           version: info.version,
@@ -308,7 +305,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       // not authenticated yet - show server info and move to auth step
       setServerInfo({
-        server_id: info.server_id,
         name: info.name,
         description: info.description,
         version: info.version,
@@ -625,7 +621,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           </Show>
                           <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
                             {peerAddr() && <span>P2P • </span>}
-                            version {serverInfo()?.version} • {serverInfo()?.server_id}
+                            version {serverInfo()?.version}
                           </p>
                         </div>
                       </div>

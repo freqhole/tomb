@@ -25,8 +25,6 @@ impl EmptyResponse {
 /// server info response for remote identification
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ServerInfoResponse {
-    /// stable unique identifier for this server instance
-    pub server_id: String,
     /// server display name
     pub name: String,
     /// optional server description

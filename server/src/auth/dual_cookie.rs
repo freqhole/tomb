@@ -1,11 +1,8 @@
 //! dual cookie middleware for "auto" session_cookie_mode
 //!
 //! sets two session cookies with different SameSite policies:
-//! - `freqhole_session_{server_id}` with SameSite=Lax (for HTTP same-site)
-//! - `__Secure-freqhole_session_{server_id}` with SameSite=None + Secure (for HTTPS cross-site)
-//!
-//! the server_id in the cookie name prevents session conflicts when running
-//! multiple freqhole servers on the same domain (e.g., localhost with different ports).
+//! - `freqhole_session` with SameSite=Lax (for HTTP same-site)
+//! - `__Secure-freqhole_session` with SameSite=None + Secure (for HTTPS cross-site)
 //!
 //! this allows browser authentication to work in both HTTP dev environments
 //! and HTTPS cross-site production deployments.
@@ -15,38 +12,33 @@ use axum::{
     http::{header, Request, Response},
 };
 use futures_util::future::BoxFuture;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
 
-/// base cookie name prefix
-const COOKIE_PREFIX: &str = "freqhole";
-/// secure cookie name prefix
-const SECURE_COOKIE_PREFIX: &str = "__Secure-freqhole";
+/// main session cookie name
+const MAIN_COOKIE_NAME: &str = "freqhole_session";
+/// secure session cookie name (for cross-site HTTPS)
+const SECURE_COOKIE_NAME: &str = "__Secure-freqhole_session";
 
-/// generate main cookie name for a server
-pub fn main_cookie_name(server_id: &str) -> String {
-    format!("{}_{}", COOKIE_PREFIX, server_id)
+/// get main cookie name
+pub fn main_cookie_name() -> String {
+    MAIN_COOKIE_NAME.to_string()
 }
 
-/// generate secure cookie name for a server
-pub fn secure_cookie_name(server_id: &str) -> String {
-    format!("{}_{}", SECURE_COOKIE_PREFIX, server_id)
+/// get secure cookie name
+pub fn secure_cookie_name() -> String {
+    SECURE_COOKIE_NAME.to_string()
 }
 
 /// layer that adds dual cookie support
 #[derive(Clone)]
 pub struct DualCookieLayer {
-    server_id: Arc<String>,
     enabled: bool,
 }
 
 impl DualCookieLayer {
-    pub fn new(server_id: impl Into<String>, enabled: bool) -> Self {
-        Self {
-            server_id: Arc::new(server_id.into()),
-            enabled,
-        }
+    pub fn new(enabled: bool) -> Self {
+        Self { enabled }
     }
 }
 
@@ -56,7 +48,6 @@ impl<S> Layer<S> for DualCookieLayer {
     fn layer(&self, inner: S) -> Self::Service {
         DualCookieMiddleware {
             inner,
-            server_id: self.server_id.clone(),
             enabled: self.enabled,
         }
     }
@@ -66,7 +57,6 @@ impl<S> Layer<S> for DualCookieLayer {
 #[derive(Clone)]
 pub struct DualCookieMiddleware<S> {
     inner: S,
-    server_id: Arc<String>,
     enabled: bool,
 }
 
@@ -85,7 +75,6 @@ where
 
     fn call(&mut self, mut request: Request<Body>) -> Self::Future {
         let mut inner = self.inner.clone();
-        let server_id = self.server_id.clone();
         let enabled = self.enabled;
 
         Box::pin(async move {
@@ -94,23 +83,25 @@ where
                 return inner.call(request).await;
             }
 
-            let main_name = main_cookie_name(&server_id);
-            let secure_name = secure_cookie_name(&server_id);
-
             // before request: if secure cookie exists but main cookie doesn't,
             // inject the secure cookie's value as the main cookie so tower-sessions can read it
-            let injected = maybe_inject_cookie(&mut request, &main_name, &secure_name);
+            let injected = maybe_inject_cookie(&mut request, MAIN_COOKIE_NAME, SECURE_COOKIE_NAME);
             if injected {
-                tracing::debug!("[dual_cookie] injected {} from {}", main_name, secure_name);
+                tracing::debug!(
+                    "[dual_cookie] injected {} from {}",
+                    MAIN_COOKIE_NAME,
+                    SECURE_COOKIE_NAME
+                );
             }
 
             // process the request through the session layer
             let response = inner.call(request).await?;
 
             // after response: if main cookie was set, duplicate it as secure cookie
-            let (response, added) = maybe_add_secure_cookie(response, &main_name, &secure_name);
+            let (response, added) =
+                maybe_add_secure_cookie(response, MAIN_COOKIE_NAME, SECURE_COOKIE_NAME);
             if added {
-                tracing::debug!("[dual_cookie] added secure cookie: {}", secure_name);
+                tracing::debug!("[dual_cookie] added secure cookie: {}", SECURE_COOKIE_NAME);
             }
 
             Ok(response)

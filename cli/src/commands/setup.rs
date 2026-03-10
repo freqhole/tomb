@@ -323,7 +323,6 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         config_path: config_path.clone(),
         data_dir: data_dir.clone(),
         server_name: server_name.clone(),
-        server_id: None, // will be derived from server_name
         server_port,
         image_path,
         admin_username: Some(username.clone()), // user-provided username becomes admin

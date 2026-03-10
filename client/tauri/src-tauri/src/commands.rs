@@ -154,7 +154,6 @@ pub async fn run_setup_core(
         config_path: PathBuf::from(&config_path),
         data_dir: PathBuf::from(&data_dir),
         server_name,
-        server_id: None, // derived from server_name
         server_port,
         image_path: final_image_path,
         admin_username: None,        // no admin user in core setup
@@ -395,8 +394,6 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
 /// freqhole config info for the bridge (exposed to frontend via CustomEvent)
 #[derive(Debug, Clone, Serialize)]
 pub struct FreqholeConfig {
-    /// server unique identifier
-    pub server_id: String,
     /// server display name
     pub server_name: String,
     /// server URL (e.g. http://localhost:8686)
@@ -443,7 +440,7 @@ fn read_invite_code(app_handle: &tauri::AppHandle) -> Option<String> {
 
 /// get freqhole server config (for bridge communication with spume)
 ///
-/// returns server_id, server_name, server_url from the loaded config
+/// returns server_name, server_url from the loaded config
 /// returns None if config is not initialized
 #[tauri::command]
 pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfig> {
@@ -479,14 +476,13 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
     let disable_backdrop_blur = app_config.map(|c| c.disable_backdrop_blur).unwrap_or(false);
 
     eprintln!(
-        "[get_freqhole_config] returning: server_id={}, has_invite_code={}, has_admin_username={}",
-        server.id,
+        "[get_freqhole_config] returning: server_name={}, has_invite_code={}, has_admin_username={}",
+        server.name,
         invite_code.is_some(),
         admin_username.is_some()
     );
 
     Some(FreqholeConfig {
-        server_id: server.id.clone(),
         server_name: server.name.clone(),
         // always use localhost for the client URL (not the bind address like 0.0.0.0)
         server_url: format!("http://localhost:{}", server.port),

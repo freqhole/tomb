@@ -140,8 +140,6 @@ level = "info"
 # these fields are exposed via the public /api/hello endpoint (no auth required)
 # remote clients fetch this info when adding yr server to their remote list
 
-# REQUIRED: unique identifier for this server instance (stable across restarts)
-id = "freqhole-main"
 # REQUIRED: server display name
 name = "freqhole"
 # REQUIRED: server version (semantic versioning recommended)

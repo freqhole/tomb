@@ -207,8 +207,6 @@ pub struct LoggingConfig {
 /// Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// Unique identifier for this server instance (stable across restarts)
-    pub id: String,
     /// Server display name
     pub name: String,
     /// Server version (semantic versioning recommended)
@@ -575,7 +573,7 @@ pub fn create_config(
     data_dir: Option<PathBuf>,
     force: bool,
 ) -> Result<PathBuf, ConfigError> {
-    create_config_with_server_info(output_path, data_dir, force, None, None, None)
+    create_config_with_server_info(output_path, data_dir, force, None, None)
 }
 
 /// Create a config file with custom server info
@@ -585,14 +583,12 @@ pub fn create_config(
 /// * `data_dir` - Data directory path
 /// * `force` - Overwrite existing file
 /// * `server_name` - Human-readable server name
-/// * `server_id` - Server identifier (lowercase, alphanumeric + hyphens)
 /// * `server_port` - Server listen port
 pub fn create_config_with_server_info(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     force: bool,
     server_name: Option<String>,
-    server_id: Option<String>,
     server_port: Option<u16>,
 ) -> Result<PathBuf, ConfigError> {
     create_config_full(
@@ -600,7 +596,6 @@ pub fn create_config_with_server_info(
         data_dir,
         force,
         server_name,
-        server_id,
         server_port,
         None,  // image_path
         false, // ytdlp_available
@@ -616,7 +611,6 @@ pub fn create_config_with_server_info(
 /// * `data_dir` - Data directory path
 /// * `force` - Overwrite existing file
 /// * `server_name` - Human-readable server name
-/// * `server_id` - Server identifier (lowercase, alphanumeric + hyphens)
 /// * `server_port` - Server listen port
 /// * `image_path` - Optional path to server icon image
 /// * `ytdlp_available` - Whether yt-dlp is available for downloads
@@ -627,7 +621,6 @@ pub fn create_config_full(
     data_dir: Option<PathBuf>,
     force: bool,
     server_name: Option<String>,
-    server_id: Option<String>,
     server_port: Option<u16>,
     image_path: Option<String>,
     ytdlp_available: bool,
@@ -662,7 +655,6 @@ pub fn create_config_full(
     let config_content = generate_config_template(
         &data,
         server_name.as_deref().unwrap_or("freqhole"),
-        server_id.as_deref().unwrap_or("freqhole-local"),
         port,
         image_path.as_deref(),
         ytdlp_available,
@@ -686,7 +678,6 @@ const CONFIG_TEMPLATE: &str = include_str!("../../assets/config/freqhole-config.
 fn generate_config_template(
     data_dir: &Path,
     server_name: &str,
-    server_id: &str,
     server_port: u16,
     image_path: Option<&str>,
     ytdlp_available: bool,
@@ -704,7 +695,6 @@ fn generate_config_template(
     doc["database"]["auto_run_migrations"] = value(false);
 
     // update server section
-    doc["server"]["id"] = value(server_id);
     doc["server"]["name"] = value(server_name);
     doc["server"]["version"] = value(env!("CARGO_PKG_VERSION"));
     doc["server"]["port"] = value(server_port as i64);

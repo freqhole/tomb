@@ -133,15 +133,9 @@ pub async fn start_server(
         Expiry::OnInactivity(tower_sessions::cookie::time::Duration::hours(24))
     };
 
-    // get server_id for cookie name scoping (prevents conflicts between instances)
-    let server_id = state
-        .config
-        .server
-        .as_ref()
-        .map(|s| s.id.clone())
-        .unwrap_or_else(|| "default".to_string());
-
-    let cookie_name = main_cookie_name(&server_id);
+    // use static cookie name - "freqhole" is sufficient since each server
+    // instance typically runs on its own port/host
+    let cookie_name = main_cookie_name();
 
     // determine cookie mode from config
     let cookie_mode = if let Some(server_config) = &state.config.server {
@@ -196,7 +190,7 @@ pub async fn start_server(
     let app = routes::build_router(max_upload_bytes)
         .layer(Extension(state.clone()))
         .layer(session_layer)
-        .layer(DualCookieLayer::new(&server_id, dual_cookie_enabled))
+        .layer(DualCookieLayer::new(dual_cookie_enabled))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

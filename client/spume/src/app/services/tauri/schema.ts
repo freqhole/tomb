@@ -14,8 +14,6 @@ import { z } from "zod";
  * freqhole server config returned by get_freqhole_config command
  */
 export const FreqholeConfigSchema = z.object({
-  /** server unique identifier */
-  server_id: z.string(),
   /** server display name */
   server_name: z.string(),
   /** server URL (e.g. http://localhost:8686) */
