@@ -10,6 +10,7 @@ import {
   checkRemoteHealth,
   isP2PTransport,
 } from "../../app/services/remotes/remoteManager";
+import { isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
 import { ReauthModal } from "../../components/auth/ReauthModal";
@@ -236,7 +237,8 @@ function RemoteContextHandler(props: { children?: any }) {
   const [remoteInfo, setRemoteInfo] = createSignal<{
     remote_id: string;
     name: string;
-    base_url: string;
+    base_url?: string; // undefined for P2P remotes
+    peer_addr?: string; // for P2P remotes
     is_tauri_managed?: boolean;
   } | null>(null);
 
@@ -296,7 +298,8 @@ function RemoteContextHandler(props: { children?: any }) {
     setRemoteInfo({
       remote_id: remote.remote_id,
       name: remote.name,
-      base_url: remote.base_url,
+      base_url: isHttpRemote(remote) ? remote.base_url : undefined,
+      peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
       is_tauri_managed: remote.is_tauri_managed,
     });
     await useRemoteSource(remote);
@@ -317,8 +320,14 @@ function RemoteContextHandler(props: { children?: any }) {
       return;
     }
 
+    // P2P remotes don't use HTTP auth - don't show auth toast
+    if (info.peer_addr && !info.base_url) {
+      return;
+    }
+
     // confirm it's actually an auth issue (not just server being down)
     try {
+      if (!info.base_url) return; // no base_url means P2P remote
       const whoamiResult = await whoami(info.base_url);
       if (whoamiResult.success) {
         // session is actually valid — clear the flag (false alarm)
@@ -368,7 +377,7 @@ function RemoteContextHandler(props: { children?: any }) {
             isOpen={showReauthModal()}
             onClose={() => setShowReauthModal(false)}
             onSuccess={handleReauthSuccess}
-            baseUrl={info().base_url}
+            baseUrl={info().base_url ?? ""}
             remoteName={info().name}
           />
         )}

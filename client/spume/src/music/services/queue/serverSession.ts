@@ -379,20 +379,25 @@ export async function resumeServerSession(
   },
   historyEntryId?: string,
 ): Promise<void> {
+  const remoteId = remote.remote_id;
+  if (!remoteId) {
+    throw new Error("remote_id required to resume server session");
+  }
+
   // stop any active sessions first
   await stopAllServerSessions("paused");
 
   // create a session entry for this remote
   const session: RemoteSession = {
     sessionId,
-    remoteId: remote.remote_id,
+    remoteId,
     label: sessionContext?.label ?? "",
     entityId: sessionContext?.entityId,
     songIndices: [], // will be populated if updateServerSessionSongs is called
     progress: resumeState.progress,
   };
 
-  remoteSessions.set(remote.remote_id, session);
+  remoteSessions.set(remoteId, session);
   updatePrimarySessionId();
 
   // update status to active on the remote
@@ -415,7 +420,7 @@ export async function resumeServerSession(
       console.warn(
         `server session ${sessionId} not found during resume, cleaning up`,
       );
-      remoteSessions.delete(remote.remote_id);
+      remoteSessions.delete(remoteId);
       updatePrimarySessionId();
       // also clear the stale server session info from the history entry
       if (historyEntryId) {

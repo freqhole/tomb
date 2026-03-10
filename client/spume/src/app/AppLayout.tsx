@@ -60,7 +60,7 @@ import {
   onRemoteStatusChange,
 } from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
-import type { Remote, QueueHistoryEntry } from "./services/storage/types";
+import { type Remote, type QueueHistoryEntry, isHttpRemote, isP2PRemote } from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";
 import { IconNames, type IconName } from "../components/icons/registry";
 import { routes } from "../music/utils/routing";
@@ -565,16 +565,16 @@ export function AppLayout(props: AppLayoutProps) {
         currentSourceName={currentSourceName()}
         currentSourceId={getCurrentRemote()?.remote_id ?? null}
         remotes={remotes().map((r) => {
-          const url = r.base_url.toLowerCase();
+          const url = isHttpRemote(r) ? r.base_url.toLowerCase() : "";
           const isLocal =
             url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]");
           return {
             id: r.remote_id,
             name: r.name,
-            url: r.base_url,
+            url: isHttpRemote(r) ? r.base_url : r.peer_addr,
             imageUrl: r.image_url ?? undefined,
             imageBlobId: r.image_blob_id ?? undefined,
-            peerAddr: r.peer_addr,
+            peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
             isOffline: r.is_offline,
             lastChecked: r.last_checked,
             isTauriManaged: r.is_tauri_managed,

@@ -11,6 +11,8 @@ import {
   STORE_QUEUE_HISTORY,
   type QueueHistoryEntry,
   type Remote,
+  isHttpRemote,
+  isP2PRemote,
 } from "../../app/services/storage/types";
 import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
@@ -63,7 +65,7 @@ function ConfirmDialog(props: {
 // remote image component that handles P2P blob resolution
 function RemoteImage(props: { remote: Remote }) {
   // for P2P remotes with image_blob_id, resolve via blob resolver
-  const isP2P = () => props.remote.transport_type === "wasm" || !!props.remote.peer_addr;
+  const isP2P = () => isP2PRemote(props.remote);
 
   const [resolvedUrl] = createResource(
     () =>
@@ -83,7 +85,9 @@ function RemoteImage(props: { remote: Remote }) {
 
   // for HTTP remotes, use direct URL
   const httpImageUrl = () =>
-    !isP2P() && props.remote.image_url ? `${props.remote.base_url}${props.remote.image_url}` : null;
+    isHttpRemote(props.remote) && props.remote.image_url
+      ? `${props.remote.base_url}${props.remote.image_url}`
+      : null;
 
   const imageUrl = () => (isP2P() ? resolvedUrl() : httpImageUrl());
 
@@ -206,9 +210,18 @@ export function RemotesSettingsView() {
     }
     setAuthStatus(initial);
 
-    // check each remote in parallel
+    // check each remote in parallel (HTTP only - P2P remotes don't use auth)
     await Promise.all(
       remoteList.map(async (remote) => {
+        // skip P2P remotes - they don't use HTTP auth
+        if (!isHttpRemote(remote)) {
+          setAuthStatus((prev) => {
+            const next = new Map(prev);
+            next.set(remote.remote_id, { loggedIn: false });
+            return next;
+          });
+          return;
+        }
         try {
           const result = await whoami(remote.base_url);
           setAuthStatus((prev) => {
@@ -233,6 +246,15 @@ export function RemotesSettingsView() {
   };
 
   const checkSingleAuthStatus = async (remote: Remote) => {
+    // skip P2P remotes - they don't use HTTP auth
+    if (!isHttpRemote(remote)) {
+      setAuthStatus((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, { loggedIn: false });
+        return next;
+      });
+      return;
+    }
     try {
       const result = await whoami(remote.base_url);
       setAuthStatus((prev) => {
@@ -317,6 +339,11 @@ export function RemotesSettingsView() {
   };
 
   const handleLogout = async (remote: Remote) => {
+    // P2P remotes don't use HTTP auth
+    if (!isHttpRemote(remote)) {
+      toast.info("P2P remotes don't use HTTP auth");
+      return;
+    }
     setLoggingOut(remote.remote_id);
     try {
       // call the logout endpoint to clear session cookie
@@ -345,6 +372,8 @@ export function RemotesSettingsView() {
   };
 
   const handleLogin = (remote: Remote) => {
+    // P2P remotes don't use HTTP auth
+    if (!isHttpRemote(remote)) return;
     setReauthRemote(remote);
   };
 
@@ -413,12 +442,13 @@ export function RemotesSettingsView() {
             <For each={remotes()}>
               {(remote) => {
                 const isLocal = () => {
+                  if (!isHttpRemote(remote)) return false;
                   const url = remote.base_url.toLowerCase();
                   return (
                     url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]")
                   );
                 };
-                const isP2P = () => remote.transport_type === "wasm" || !!remote.peer_addr;
+                const isP2P = () => isP2PRemote(remote);
                 return (
                   <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
                     <div class="flex items-start gap-4">
@@ -526,45 +556,47 @@ export function RemotesSettingsView() {
 
                       {/* action buttons */}
                       <div class="flex flex-col gap-2 shrink-0">
-                        {/* auth status indicator + login/logout button */}
-                        {(() => {
-                          const info = authStatus().get(remote.remote_id);
-                          const isChecking = info === null;
-                          const isLoggedIn = info?.loggedIn === true;
+                        {/* auth status indicator + login/logout button (HTTP remotes only) */}
+                        <Show when={!isP2P()}>
+                          {(() => {
+                            const info = authStatus().get(remote.remote_id);
+                            const isChecking = info === null;
+                            const isLoggedIn = info?.loggedIn === true;
 
-                          if (isChecking) {
+                            if (isChecking) {
+                              return (
+                                <button
+                                  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
+                                  disabled
+                                >
+                                  checking...
+                                </button>
+                              );
+                            }
+
+                            if (isLoggedIn) {
+                              return (
+                                <button
+                                  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  onClick={() => handleLogout(remote)}
+                                  disabled={loggingOut() === remote.remote_id}
+                                >
+                                  {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
+                                </button>
+                              );
+                            }
+
+                            // not logged in
                             return (
                               <button
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
-                                disabled
+                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                                onClick={() => handleLogin(remote)}
                               >
-                                checking...
+                                sign in
                               </button>
                             );
-                          }
-
-                          if (isLoggedIn) {
-                            return (
-                              <button
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                onClick={() => handleLogout(remote)}
-                                disabled={loggingOut() === remote.remote_id}
-                              >
-                                {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
-                              </button>
-                            );
-                          }
-
-                          // not logged in
-                          return (
-                            <button
-                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
-                              onClick={() => handleLogin(remote)}
-                            >
-                              sign in
-                            </button>
-                          );
-                        })()}
+                          })()}
+                        </Show>
                         <button
                           class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => handleRecheckStatus(remote)}
@@ -599,15 +631,18 @@ export function RemotesSettingsView() {
       />
 
       <Show when={reauthRemote()}>
-        {(remote) => (
-          <ReauthModal
-            isOpen={true}
-            onClose={() => setReauthRemote(null)}
-            onSuccess={handleReauthSuccess}
-            baseUrl={remote().base_url}
-            remoteName={remote().name}
-          />
-        )}
+        {(remote) => {
+          const r = remote();
+          return (
+            <ReauthModal
+              isOpen={true}
+              onClose={() => setReauthRemote(null)}
+              onSuccess={handleReauthSuccess}
+              baseUrl={isHttpRemote(r) ? r.base_url : ""}
+              remoteName={r.name}
+            />
+          );
+        }}
       </Show>
     </div>
   );

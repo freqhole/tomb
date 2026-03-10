@@ -3,7 +3,16 @@
 
 import { getClientForRemote, httpRemote, isTauriAvailable } from "../../api/client";
 import { initAppDB } from "../storage/db";
-import { STORE_REMOTES, type Remote } from "../storage/types";
+import {
+  STORE_REMOTES,
+  type Remote,
+  type HttpRemote,
+  type P2PRemote,
+  parseRemotes,
+  safeParseRemote,
+  isHttpRemote,
+  isP2PRemote,
+} from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
 
 // callback type for remote status changes
@@ -33,14 +42,16 @@ function notifyStatusChange(remoteId: string, isOffline: boolean): void {
 // get all remotes
 export async function getAllRemotes(): Promise<Remote[]> {
   const db = await initAppDB();
-  const remotes = await db.getAll(STORE_REMOTES);
+  const rawRemotes = await db.getAll(STORE_REMOTES);
+  const remotes = parseRemotes(rawRemotes);
   return remotes.sort((a, b) => b.created_at - a.created_at);
 }
 
 // get the tauri-managed remote (if exists)
 export async function getTauriManagedRemote(): Promise<Remote | null> {
   const db = await initAppDB();
-  const remotes = await db.getAll(STORE_REMOTES);
+  const rawRemotes = await db.getAll(STORE_REMOTES);
+  const remotes = parseRemotes(rawRemotes);
   return remotes.find((r) => r.is_tauri_managed) ?? null;
 }
 
@@ -54,24 +65,26 @@ export async function upsertTauriRemote(config: {
   const existing = await getTauriManagedRemote();
 
   if (existing) {
-    // update existing remote with new config
+    // update existing remote with new config (keep transport type)
     const updated: Remote = {
       ...existing,
       name: config.name,
-      base_url: config.base_url.replace(/\/$/, ""),
       server_id: config.server_id,
       // always set image_url for tauri remotes (server serves at /api/hello/image)
       image_url: "/api/hello/image",
       updated_at: Date.now(),
+      // update base_url only for HTTP remotes
+      ...(isHttpRemote(existing) ? { base_url: config.base_url.replace(/\/$/, "") } : {}),
     };
     await db.put(STORE_REMOTES, updated);
-    debug(`updated tauri remote: ${updated.name} (${updated.base_url})`);
+    debug(`updated tauri remote: ${updated.name}`);
     return updated;
   }
 
-  // create new tauri-managed remote
+  // create new tauri-managed remote (always HTTP for tauri)
   const remoteId = sanitizeServerId(config.server_id);
-  const remote: Remote = {
+  const remote: HttpRemote = {
+    transport: "http",
     remote_id: remoteId,
     name: config.name,
     base_url: config.base_url.replace(/\/$/, ""),
@@ -98,19 +111,21 @@ export async function getRemoteById(
   remoteId: string,
 ): Promise<Remote | undefined> {
   const db = await initAppDB();
-  return db.get(STORE_REMOTES, remoteId);
+  const raw = await db.get(STORE_REMOTES, remoteId);
+  return safeParseRemote(raw);
 }
 
 // get remote by url
 export async function getRemoteByUrl(url: string): Promise<Remote | undefined> {
   const remotes = await getAllRemotes();
-  return remotes.find((r) => r.base_url === url);
+  return remotes.find((r) => isHttpRemote(r) && r.base_url === url);
 }
 
 // get currently active remote (if any)
 export async function getActiveRemote(): Promise<Remote | null> {
   const db = await initAppDB();
-  const remotes = await db.getAllFromIndex(STORE_REMOTES, "by_is_active", 1);
+  const rawRemotes = await db.getAllFromIndex(STORE_REMOTES, "by_is_active", 1);
+  const remotes = parseRemotes(rawRemotes);
   return remotes[0] || null;
 }
 
@@ -151,7 +166,7 @@ export async function createRemote(data: {
   let serverInfo = null;
   try {
     if (isP2P) {
-      const client = await getClientForRemote({ peer_addr: data.peer_addr, transport_type: isTauriAvailable() ? "app" : "wasm" });
+      const client = await getClientForRemote({ peer_addr: data.peer_addr, transport: isTauriAvailable() ? "app" : "wasm" });
       const result = await client.app.serverInfo();
       if (result.success && result.data) {
         serverInfo = result.data;
@@ -186,12 +201,10 @@ export async function createRemote(data: {
   // use server name from /api/hello if no name provided
   const remoteName = data.name || serverInfo.name || baseUrl || `p2p-${remoteId.slice(0, 8)}`;
 
-  const remote: Remote = {
+  // create remote with discriminated transport type
+  const commonFields = {
     remote_id: remoteId,
     name: remoteName,
-    base_url: baseUrl,
-    peer_addr: data.peer_addr,
-    transport_type: isP2P ? (isTauriAvailable() ? "app" : "wasm") : "http",
     is_active: false,
     last_connected_at: null,
     created_at: Date.now(),
@@ -207,8 +220,21 @@ export async function createRemote(data: {
     api_key: data.api_key,
   };
 
+  const remote: Remote = isP2P
+    ? {
+        ...commonFields,
+        transport: isTauriAvailable() ? "app" : "wasm",
+        peer_addr: data.peer_addr!,
+        base_url: baseUrl || undefined,
+      } as P2PRemote
+    : {
+        ...commonFields,
+        transport: "http",
+        base_url: baseUrl,
+      } as HttpRemote;
+
   await db.put(STORE_REMOTES, remote);
-  debug(`created remote: ${remote.name} (${remote.base_url})`);
+  debug(`created remote: ${remote.name} (${isHttpRemote(remote) ? remote.base_url : remote.peer_addr})`);
 
   return remote;
 }
@@ -354,8 +380,7 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
 
 // check if a remote uses P2P transport (wasm or app)
 export function isP2PTransport(remote: Remote): boolean {
-  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
-  return transportType === 'wasm' || transportType === 'app';
+  return isP2PRemote(remote);
 }
 
 // check if a remote is online (quick health check via /api/hello)

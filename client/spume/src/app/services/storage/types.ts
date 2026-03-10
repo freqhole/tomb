@@ -81,38 +81,20 @@ export interface QueueSourceContext {
   image?: ImageMetadata;
 }
 
-// remote server configurations
-export type TransportType = 'http' | 'wasm' | 'app';
-
-export interface Remote {
-  remote_id: string; // uuid
-  name: string; // user-friendly name (e.g. "home server", "work laptop")
-  base_url: string; // server url for http transport (e.g. "https://music.example.com")
-  is_active: boolean; // currently selected remote
-  last_connected_at: number | null; // timestamp of last successful connection
-  created_at: number;
-  updated_at: number;
-  // transport type: http (default), wasm (P2P), app (embedded tauri server)
-  transport_type?: TransportType;
-  // P2P peer address: node_id or full endpoint JSON with relay/IP hints
-  // only used when transport_type is 'wasm'
-  peer_addr?: string;
-  // server info (fetched from /api/hello)
-  server_id: string | null; // stable unique identifier from server
-  description: string | null; // server description
-  image_url: string | null; // server image/logo url (for HTTP transport)
-  image_blob_id: string | null; // server image blob id (for P2P transport)
-  version: string | null; // server version
-  last_info_check: number | null; // timestamp of last server info fetch
-  // api key auth (optional - when set, uses Bearer token instead of cookies)
-  api_key?: string;
-  // tauri-managed remote (automatically created/updated by tauri app)
-  is_tauri_managed?: boolean;
-  // offline status tracking
-  is_offline?: boolean; // true if last health check failed
-  offline_since?: number | null; // timestamp when remote went offline
-  last_checked?: number | null; // timestamp of last health check
-}
+// remote types - re-export from centralized zod schemas
+export {
+  type TransportType,
+  type Remote,
+  type HttpRemote,
+  type P2PRemote,
+  type RemoteRef,
+  isHttpRemote,
+  isP2PRemote,
+  parseRemote,
+  safeParseRemote,
+  parseRemotes,
+  toRemoteRef,
+} from "./schemas";
 
 // P2P identity stored in app_state store with id: "p2p_identity"
 export interface P2PIdentity {

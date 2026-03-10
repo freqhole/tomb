@@ -4,6 +4,7 @@ import {
   getClientForRemote,
   isAuthError,
   isNetworkError,
+  isP2PTransportType,
   permissions,
   type ApiClient,
   type ApiQueryParams,
@@ -50,12 +51,17 @@ export class RemoteOfflineError extends Error {
 // uses session cookies for authentication (no api key needed)
 export class RemoteMusicDataSource implements MusicDataSource {
   private remote: RemoteRef;
+  private _remoteId: string; // cached non-optional remote_id
   private _client: ApiClient | null = null;
   // track if we've already shown the offline toast this session
   private hasShownOfflineToast = false;
 
   constructor(remote: RemoteRef) {
+    if (!remote.remote_id) {
+      throw new Error("remote_id required for RemoteMusicDataSource");
+    }
     this.remote = remote;
+    this._remoteId = remote.remote_id;
     // client is lazily initialized on first getClient() call
   }
   
@@ -73,12 +79,18 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   private get remoteId(): string {
-    return this.remote.remote_id;
+    return this._remoteId;
   }
 
   // check a failed result for 401 auth errors and flag the remote if needed.
   // call this before throwing on any API failure.
+  // NOTE: P2P remotes don't use HTTP auth, so we skip flagging them - 401-like
+  // errors on P2P are likely permission/capability issues, not session expiry.
   private checkAuthError(result: SafeParseResult<unknown>): void {
+    // skip for P2P remotes - they don't use HTTP session auth
+    if (isP2PTransportType(this.remote)) {
+      return;
+    }
     if (isAuthError(result)) {
       setRemoteNeedsAuth(this.remoteId);
     }

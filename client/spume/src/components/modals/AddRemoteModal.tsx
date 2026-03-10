@@ -79,7 +79,7 @@ function parsePeerAddress(
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: (remote: { remote_id: string; name: string; base_url: string }) => void;
+  onSuccess?: (remote: { remote_id: string; name: string; base_url?: string; peer_addr?: string }) => void;
 }
 
 type Step = "url" | "testing" | "auth" | "complete";

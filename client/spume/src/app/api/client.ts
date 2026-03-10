@@ -60,41 +60,27 @@ import type { createHttpClient as CreateHttpClientFn } from "freqhole-api-client
 export type ApiClient = ReturnType<typeof CreateHttpClientFn>;
 
 // re-export TransportType and Remote for consumers
-import type { TransportType, Remote } from "../services/storage/types";
-export type { TransportType, Remote };
+import type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote } from "../services/storage/types";
+import { isHttpRemote, isP2PRemote, toRemoteRef } from "../services/storage/types";
+export type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote };
+export { isHttpRemote, isP2PRemote, toRemoteRef };
 
 // ============================================================================
 // transport factory - THE place where transport selection happens
 // ============================================================================
 
-/** minimal remote-like shape needed to create a client */
-export type RemoteLike = {
-  base_url?: string;
-  api_key?: string;
-  transport_type?: TransportType;
-  peer_addr?: string; // for wasm transport: node_id or full endpoint JSON
-};
-
 /**
- * remote reference with required fields for making API calls.
- * use this for functions that need to track which remote they're talking to.
- * for HTTP remotes, base_url is required. for P2P remotes, peer_addr is required.
+ * minimal remote-like shape needed to create a client.
+ * RemoteRef is permissive and accepts both new discriminated format and legacy format.
  */
-export type RemoteRef = {
-  remote_id: string;
-  base_url?: string; // required for HTTP, empty for P2P
-  name?: string;
-  api_key?: string;
-  transport_type?: TransportType;
-  peer_addr?: string; // for wasm/app transport: node_id or full endpoint JSON
-};
+export type RemoteLike = RemoteRef;
 
 /**
  * create a transient http remote for one-off connections.
  * use this when you don't have a saved Remote yet (auth flows, connectivity tests).
  */
 export function httpRemote(baseUrl: string, apiKey?: string): RemoteLike {
-  return { base_url: baseUrl, api_key: apiKey, transport_type: 'http' };
+  return { transport: "http", base_url: baseUrl, api_key: apiKey };
 }
 
 // ============================================================================
@@ -189,35 +175,69 @@ export function isMiddenInitialized(): boolean {
 // client factory
 // ============================================================================
 
+/** resolve transport type from RemoteLike (handles both new and legacy formats) */
+function resolveTransport(remote: RemoteLike): "http" | "wasm" | "app" {
+  // new discriminated format
+  if ("transport" in remote && remote.transport) {
+    return remote.transport;
+  }
+  // legacy format - infer from fields
+  if ("transport_type" in remote && remote.transport_type) {
+    return remote.transport_type;
+  }
+  // fallback: infer from presence of peer_addr vs base_url
+  if ("peer_addr" in remote && remote.peer_addr) {
+    return isTauriMode() ? "app" : "wasm";
+  }
+  return "http";
+}
+
+/** resolve peer_addr from RemoteLike */
+function resolvePeerAddr(remote: RemoteLike): string | undefined {
+  if ("peer_addr" in remote) {
+    return remote.peer_addr;
+  }
+  return undefined;
+}
+
+/** resolve base_url from RemoteLike */
+function resolveBaseUrl(remote: RemoteLike): string | undefined {
+  if ("base_url" in remote) {
+    return remote.base_url || undefined;
+  }
+  return undefined;
+}
+
 /**
  * create a client for a remote.
  * transport selection happens HERE - call sites don't need to know which
  * transport is used.
  */
 export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient> {
-  // infer transport type: use wasm if peer_addr is present, otherwise http
-  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
+  const transportType = resolveTransport(remote);
+  const peerAddr = resolvePeerAddr(remote);
+  const baseUrl = resolveBaseUrl(remote);
   
   switch (transportType) {
     case 'app':
-      if (!remote.peer_addr) {
+      if (!peerAddr) {
         throw new Error('peer_addr required for app transport');
       }
-      return new FreqholeClient(await createTauriTransport(remote.peer_addr));
+      return new FreqholeClient(await createTauriTransport(peerAddr));
       
     case 'wasm':
-      if (!remote.peer_addr) {
+      if (!peerAddr) {
         throw new Error('peer_addr required for wasm transport');
       }
       const node = await getMiddenNode();
-      return new FreqholeClient(new WasmTransport(node, remote.peer_addr));
+      return new FreqholeClient(new WasmTransport(node, peerAddr));
       
     case 'http':
     default:
-      if (!remote.base_url) {
+      if (!baseUrl) {
         throw new Error('base_url required for http transport');
       }
-      return new FreqholeClient(new HttpTransport(remote.base_url, remote.api_key));
+      return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
   }
 }
 
@@ -231,28 +251,30 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
  * the Transport interface abstracts away wasm/app/http differences.
  */
 export async function getTransportForRemote(remote: RemoteLike): Promise<Transport> {
-  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
+  const transportType = resolveTransport(remote);
+  const peerAddr = resolvePeerAddr(remote);
+  const baseUrl = resolveBaseUrl(remote);
   
   switch (transportType) {
     case 'app':
-      if (!remote.peer_addr) {
+      if (!peerAddr) {
         throw new Error('peer_addr required for app transport');
       }
-      return createTauriTransport(remote.peer_addr);
+      return createTauriTransport(peerAddr);
       
     case 'wasm':
-      if (!remote.peer_addr) {
+      if (!peerAddr) {
         throw new Error('peer_addr required for wasm transport');
       }
       const node = await getMiddenNode();
-      return new WasmTransport(node, remote.peer_addr);
+      return new WasmTransport(node, peerAddr);
       
     case 'http':
     default:
-      if (!remote.base_url) {
+      if (!baseUrl) {
         throw new Error('base_url required for http transport');
       }
-      return new HttpTransport(remote.base_url, remote.api_key);
+      return new HttpTransport(baseUrl, remote.api_key);
   }
 }
 
@@ -260,6 +282,6 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
  * check if a remote uses P2P transport (wasm or app).
  */
 export function isP2PTransportType(remote: RemoteLike): boolean {
-  const transportType = remote.transport_type ?? (remote.peer_addr ? 'wasm' : 'http');
+  const transportType = resolveTransport(remote);
   return transportType === 'wasm' || transportType === 'app';
 }

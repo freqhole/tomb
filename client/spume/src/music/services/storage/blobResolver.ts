@@ -265,7 +265,7 @@ export async function getRemoteTransportType(
 ): Promise<"http" | "wasm" | "app" | null> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return null;
-  return remote.transport_type ?? (remote.peer_addr ? "wasm" : "http");
+  return remote.transport;
 }
 
 /**

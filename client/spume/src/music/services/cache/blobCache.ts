@@ -45,9 +45,13 @@ export async function shouldSkipCaching(remoteId: string): Promise<boolean> {
   
   // skip for tauri-managed remotes
   if (remote.is_tauri_managed) return true;
+
+  // P2P remotes should not skip caching
+  const isPeerRemote = await isP2PRemote(remoteId);
+  if (isPeerRemote) return false;
   
-  // skip for localhost URLs
-  const url = remote.base_url.toLowerCase();
+  // skip for localhost URLs (HTTP remotes only)
+  const url = remote.base_url?.toLowerCase() ?? "";
   if (url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]")) {
     return true;
   }
