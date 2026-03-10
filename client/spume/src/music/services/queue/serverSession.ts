@@ -62,10 +62,12 @@ function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices
 }
 
 // resolve a remote_server_id to its Remote object via IDB
+// accepts both HTTP remotes (with base_url) and P2P remotes (with peer_addr)
 async function resolveRemote(remoteId: string): Promise<Remote | null> {
   try {
     const remote = await getRemoteById(remoteId);
-    if (!remote?.base_url) return null;
+    // valid if has either base_url (HTTP) or peer_addr (P2P)
+    if (!remote || (!remote.base_url && !remote.peer_addr)) return null;
     return remote;
   } catch {
     return null;

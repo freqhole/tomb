@@ -69,7 +69,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   // convenience accessors for common remote properties
   private get baseUrl(): string {
-    return this.remote.base_url;
+    return this.remote.base_url ?? "";
   }
 
   private get remoteId(): string {

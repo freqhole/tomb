@@ -196,8 +196,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const viewingRemote = isViewingRemote();
 
     if (playlist && remote && viewingRemote) {
-      // viewing remote playlist - check if there's a local copy
-      checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id).then(setSyncStatus);
+      // viewing remote playlist - check if there's a local copy (P2P remotes can't sync playlists)
+      if (remote.base_url) {
+        checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id).then(setSyncStatus);
+      } else {
+        setSyncStatus(null);
+      }
       setSyncSourceRemoteName(null); // remote context doesn't need remote name
     } else if (!viewingRemote && playlist?.source_remote_url && playlist?.source_remote_id) {
       // viewing local synced playlist - check if needs sync with its remote source
@@ -619,8 +623,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       });
 
       debug("playlist downloaded successfully");
-      // refresh sync status
-      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id);
+      // refresh sync status (base_url must exist if download succeeded)
+      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url!, playlist.playlist_id);
       setSyncStatus(newSyncStatus);
       setDownloadProgress(null);
 
@@ -677,8 +681,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       });
 
       debug("playlist synced successfully");
-      // refresh sync status
-      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id);
+      // refresh sync status (base_url must exist if sync succeeded)
+      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url!, playlist.playlist_id);
       setSyncStatus(newSyncStatus);
       setDownloadProgress(null);
 

@@ -8,13 +8,13 @@ import { queryKeys } from "./queryKeys";
 // adapt raw API images to app-level ImageMetadata
 function adaptFeedImages(
   images: Array<{ blob_id: string; is_primary: number; blob_type: string }> | null | undefined,
-  baseUrl: string,
+  baseUrl: string | undefined,
   remoteId?: string,
 ): ImageMetadata[] | null {
   if (!images || images.length === 0) return null;
   return images.map((img) => ({
     remote_blob_id: img.blob_id,
-    remote_url: getRemoteMediaUrl(baseUrl, img.blob_id),
+    remote_url: baseUrl ? getRemoteMediaUrl(baseUrl, img.blob_id) : undefined,
     remote_server_id: remoteId,
     is_primary: img.is_primary === 1,
     blob_type: (img.blob_type as ImageMetadata["blob_type"]) ?? "thumbnail",
@@ -22,7 +22,7 @@ function adaptFeedImages(
 }
 
 // adapt a raw API feed response to app-level types
-function adaptFeedResponse(data: any, baseUrl: string, remoteId?: string): FeedResponse {
+function adaptFeedResponse(data: any, baseUrl: string | undefined, remoteId?: string): FeedResponse {
   return {
     items: (data.items ?? []).map((item: any): FeedItem => ({
       id: item.id,

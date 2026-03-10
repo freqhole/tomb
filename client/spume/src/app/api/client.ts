@@ -78,14 +78,15 @@ export type RemoteLike = {
 /**
  * remote reference with required fields for making API calls.
  * use this for functions that need to track which remote they're talking to.
+ * for HTTP remotes, base_url is required. for P2P remotes, peer_addr is required.
  */
 export type RemoteRef = {
   remote_id: string;
-  base_url: string;
+  base_url?: string; // required for HTTP, empty for P2P
   name?: string;
   api_key?: string;
   transport_type?: TransportType;
-  peer_addr?: string; // for wasm transport: node_id or full endpoint JSON
+  peer_addr?: string; // for wasm/app transport: node_id or full endpoint JSON
 };
 
 /**

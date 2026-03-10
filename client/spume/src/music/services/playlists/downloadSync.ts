@@ -147,6 +147,7 @@ function buildEntityUrls(
 /**
  * download a remote playlist and save it locally
  * fetches playlist metadata, songs, and audio files
+ * NOTE: only works with HTTP remotes - P2P playlist sync not yet supported
  */
 export async function downloadPlaylist(
   remote: RemoteRef,
@@ -155,6 +156,11 @@ export async function downloadPlaylist(
 ): Promise<void> {
   const db = await initMusicDB();
   const remoteUrl = remote.base_url;
+
+  // playlist download requires HTTP transport (direct blob URLs)
+  if (!remoteUrl) {
+    throw new Error("playlist download requires HTTP remote (P2P sync not yet supported)");
+  }
 
   try {
     // check if already downloaded - allow retry if playlist has no songs yet
@@ -518,6 +524,7 @@ export async function checkPlaylistUpdates(
 /**
  * sync a local playlist with remote updates
  * fetches updated metadata and songs
+ * NOTE: only works with HTTP remotes - P2P playlist sync not yet supported
  */
 export async function syncPlaylist(
   remote: RemoteRef,
@@ -526,6 +533,11 @@ export async function syncPlaylist(
 ): Promise<void> {
   const db = await initMusicDB();
   const remoteUrl = remote.base_url;
+
+  // playlist sync requires HTTP transport (direct blob URLs)
+  if (!remoteUrl) {
+    throw new Error("playlist sync requires HTTP remote (P2P sync not yet supported)");
+  }
 
   if (!localPlaylist.source_remote_id) {
     throw new Error("not a synced playlist");

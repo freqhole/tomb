@@ -23,9 +23,10 @@ const [activeSource, setActiveSource] =
 const [currentRemote, setCurrentRemote] = createSignal<{
   remote_id: string;
   name: string;
-  base_url: string;
+  base_url?: string; // empty for P2P remotes
   api_key?: string;
   transport_type?: TransportType;
+  peer_addr?: string; // for P2P remotes
 } | null>(null);
 
 // current authenticated user info (per remote)
@@ -76,8 +77,8 @@ export async function useLocalSource(): Promise<void> {
 
 // switch to remote data source
 export async function useRemoteSource(remote: RemoteRef): Promise<void> {
-  const remoteName = remote.name ?? remote.base_url;
-  debug(`switching to remote data source: ${remoteName} (${remote.base_url})`);
+  const remoteName = remote.name ?? remote.base_url ?? `p2p-${remote.remote_id.slice(0, 8)}`;
+  debug(`switching to remote data source: ${remoteName} (${remote.base_url || remote.peer_addr})`);
   const remoteSource = new RemoteMusicDataSource(remote);
   setActiveSource(remoteSource);
   setCurrentRemote({
@@ -86,6 +87,7 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
     base_url: remote.base_url,
     api_key: remote.api_key,
     transport_type: remote.transport_type,
+    peer_addr: remote.peer_addr,
   });
 
   // fetch current user info from whoami (uses session cookies)
