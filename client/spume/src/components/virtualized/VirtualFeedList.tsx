@@ -82,7 +82,6 @@ export interface VirtualFeedListProps {
   onAddToQueue?: (item: FeedItem) => void;
   getContextMenuActions?: (item: FeedItem) => MenuAction[];
   onNearEnd?: () => void;
-  isFetchingMore?: boolean;
   scrollKey?: string;
   onScroll?: (scrollTop: number) => void;
 }
@@ -195,14 +194,6 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
             );
           })}
         </div>
-
-        {/* loading indicator at bottom */}
-        <Show when={props.isFetchingMore}>
-          <div class="flex items-center justify-center py-4">
-            <Icon name="loader" size={20} color="var(--color-text-muted)" />
-            <span class="text-[var(--color-text-muted)] ml-2 text-xs">loading more...</span>
-          </div>
-        </Show>
       </div>
     </div>
   );

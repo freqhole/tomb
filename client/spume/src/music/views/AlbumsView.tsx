@@ -5,6 +5,7 @@ import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
+import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid";
@@ -260,9 +261,9 @@ export function AlbumsView(props: AlbumsViewProps) {
     <div class="flex flex-col h-full">
       {/* album grid */}
       <div class="flex-1 overflow-hidden">
-        {isResetting() ? (
+        {albumsQuery.isLoading || isResetting() ? (
           <div class="flex items-center justify-center h-full">
-            <div class="text-[var(--color-text-secondary)]">loading...</div>
+            <LoadingState text="loading albums..." />
           </div>
         ) : albumsQuery.isError ? (
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
@@ -281,23 +282,20 @@ export function AlbumsView(props: AlbumsViewProps) {
               )}
             </div>
           </div>
+        ) : albums().length === 0 ? (
+          <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+            <div class="text-center max-w-md">
+              <p class="text-lg text-[var(--color-text-secondary)] mb-2">no albums found!</p>
+              <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                add music to import local audio files or download from urls
+              </p>
+              <Button variant="primary" onClick={props.onAddMusic}>
+                add music
+              </Button>
+            </div>
+          </div>
         ) : (
-          <Show
-            when={albums().length > 0 || albumsQuery.isLoading}
-            fallback={
-              <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-                <div class="text-center max-w-md">
-                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">no albums found!</p>
-                  <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                    add music to import local audio files or download from urls
-                  </p>
-                  <Button variant="primary" onClick={props.onAddMusic}>
-                    add music
-                  </Button>
-                </div>
-              </div>
-            }
-          >
+          <>
             <VirtualAlbumGrid
               albums={albums()}
               onAlbumClick={handleAlbumClick}
@@ -314,12 +312,8 @@ export function AlbumsView(props: AlbumsViewProps) {
                 .map((f) => f.tag)
                 .join(",")}`}
             />
-            {albumsQuery.isFetchingNextPage && (
-              <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">
-                loading more albums...
-              </div>
-            )}
-          </Show>
+            <LoadingMoreIndicator isLoading={albumsQuery.isFetchingNextPage} />
+          </>
         )}
       </div>
     </div>

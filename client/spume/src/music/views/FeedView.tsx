@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "sol
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { Button } from "../../components/buttons/Button";
+import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { appState } from "../../app/services/storage/db";
@@ -719,8 +720,7 @@ export function FeedView() {
             when={!feedQuery.isLoading}
             fallback={
               <div class="flex items-center justify-center py-12">
-                <Icon name="loader" size={24} color="var(--color-text-muted)" />
-                <span class="text-[var(--color-text-muted)] ml-2 text-sm">loading feed...</span>
+                <LoadingState text="loading feed..." />
               </div>
             }
           >
@@ -758,10 +758,10 @@ export function FeedView() {
                 onAddToQueue={handleAddToQueue}
                 getContextMenuActions={getContextMenuActions}
                 onNearEnd={loadMore}
-                isFetchingMore={feedQuery.isFetchingNextPage}
                 scrollKey="feed-view"
                 onScroll={handleScroll}
               />
+              <LoadingMoreIndicator isLoading={feedQuery.isFetchingNextPage} />
             </Show>
           </Show>
         </Show>

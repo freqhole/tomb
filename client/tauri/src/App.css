@@ -527,14 +527,15 @@ button.secondary:hover {
 .log-line {
   white-space: pre-wrap;
   word-break: break-all;
+  color: #e4e4e7; /* default: off-white */
 }
 
 .log-line.stderr {
-  color: #f87171;
+  color: #f87171; /* red for errors */
 }
 
 .log-line.stdout {
-  color: #a3e635;
+  color: #e4e4e7; /* off-white */
 }
 
 .log-line.sidecar {

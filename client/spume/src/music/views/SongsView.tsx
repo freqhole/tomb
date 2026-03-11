@@ -7,6 +7,7 @@ import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
+import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import {
   VirtualSongList,
@@ -285,7 +286,11 @@ export function SongsView(props: SongsViewProps) {
               )}
             </div>
           </div>
-        ) : allSongs().length === 0 && !songsQuery.isLoading ? (
+        ) : songsQuery.isLoading || isResetting() ? (
+          <div class="flex items-center justify-center h-full">
+            <LoadingState text="loading songs..." />
+          </div>
+        ) : allSongs().length === 0 ? (
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
             <div class="text-center max-w-md">
               <p class="text-lg text-[var(--color-text-secondary)] mb-2">no songs found!</p>
@@ -293,10 +298,6 @@ export function SongsView(props: SongsViewProps) {
                 add music
               </Button>
             </div>
-          </div>
-        ) : isResetting() ? (
-          <div class="flex items-center justify-center h-full">
-            <div class="text-[var(--color-text-secondary)]">loading...</div>
           </div>
         ) : (
           <>
@@ -317,11 +318,7 @@ export function SongsView(props: SongsViewProps) {
               onFavoriteToggle={handleFavoriteToggle}
               onRatingChange={handleRatingChange}
             />
-            {songsQuery.isFetchingNextPage && (
-              <div class="p-4 text-center text-[var(--color-text-secondary)] text-sm">
-                loading more songs...
-              </div>
-            )}
+            <LoadingMoreIndicator isLoading={songsQuery.isFetchingNextPage} />
           </>
         )}
       </div>
