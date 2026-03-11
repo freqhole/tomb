@@ -12,6 +12,7 @@ use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
 use crate::spume_bridge::{notify_config_changed, notify_scan_complete, notify_scan_progress};
+use crate::PendingInviteCode;
 use crate::ShutdownToken;
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
@@ -417,35 +418,11 @@ pub struct FreqholeConfig {
     pub disable_backdrop_blur: bool,
 }
 
-/// save invite code to file for persistent storage
-pub fn save_invite_code(app_handle: &tauri::AppHandle, invite_code: &str) -> Result<(), String> {
-    let invite_code_path = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join(".invite_code");
-    eprintln!(
-        "[save_invite_code] saving invite code to: {}",
-        invite_code_path.display()
-    );
-    std::fs::write(&invite_code_path, invite_code)
-        .map_err(|e| format!("failed to save invite code: {}", e))?;
-    Ok(())
-}
-
-/// read invite code from file
-fn read_invite_code(app_handle: &tauri::AppHandle) -> Option<String> {
-    let invite_code_path = app_handle.path().app_data_dir().ok()?.join(".invite_code");
-    let result = std::fs::read_to_string(&invite_code_path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    eprintln!(
-        "[read_invite_code] path={}, found={}",
-        invite_code_path.display(),
-        result.is_some()
-    );
-    result
+/// store invite code in memory (used during setup to pass to main window)
+pub fn store_invite_code(app_handle: &tauri::AppHandle, invite_code: &str) {
+    let state = app_handle.state::<PendingInviteCode>();
+    state.set(invite_code.to_string());
+    eprintln!("[store_invite_code] stored invite code in memory");
 }
 
 /// get freqhole server config (for bridge communication with spume)
@@ -476,7 +453,18 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
 
     let config = grimoire::config::get_config();
     let server = config.server.as_ref()?;
-    let invite_code = read_invite_code(&app_handle);
+
+    // take the invite code from state (one-time use, clears after reading)
+    let state = app_handle.state::<PendingInviteCode>();
+    let invite_code = state.take();
+    eprintln!(
+        "[get_freqhole_config] invite code from state: {}",
+        if invite_code.is_some() {
+            "found"
+        } else {
+            "none"
+        }
+    );
 
     // get app config for username and display settings
     let app_config = FreqholeAppConfig::load(&app_handle);

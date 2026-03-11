@@ -13,10 +13,31 @@ mod wizard;
 use app_config::{get_server_config_path_resolved, is_setup_complete};
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::webview::Color;
 use tauri::{Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
+
+/// in-memory storage for invite code generated during setup
+/// this avoids writing temporary files to disk
+#[derive(Default)]
+pub struct PendingInviteCode(pub Mutex<Option<String>>);
+
+impl PendingInviteCode {
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// store an invite code (overwrites any existing)
+    pub fn set(&self, code: String) {
+        *self.0.lock().unwrap() = Some(code);
+    }
+
+    /// take the invite code (removes it from storage)
+    pub fn take(&self) -> Option<String> {
+        self.0.lock().unwrap().take()
+    }
+}
 
 /// shutdown token for cancelling background tasks on app exit
 #[derive(Clone)]
@@ -45,6 +66,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(sidecar::new_server_manager())
         .manage(ShutdownToken::new())
+        .manage(PendingInviteCode::new())
         .setup(|app| {
             // check if setup wizard should run
             let needs_setup = !is_setup_complete(app.handle());

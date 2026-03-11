@@ -7,7 +7,7 @@ use tauri::webview::Color;
 use tauri::{AppHandle, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
 
 use crate::app_config::save_server_config_path;
-use crate::commands::save_invite_code;
+use crate::commands::store_invite_code;
 use crate::sidecar::{start_server, ServerManager};
 
 /// tauri command to open setup wizard at default route
@@ -71,10 +71,10 @@ pub async fn close_setup_wizard(
         config_path
     );
 
-    // save invite code to file for persistent storage (used by get_freqhole_config)
+    // store invite code in memory (used by get_freqhole_config on main window startup)
     if let Some(code) = &invite_code {
-        eprintln!("[close_setup_wizard] saving invite code...");
-        save_invite_code(&app, code)?;
+        eprintln!("[close_setup_wizard] storing invite code in memory...");
+        store_invite_code(&app, code);
     }
 
     // save config path to app config for later use
