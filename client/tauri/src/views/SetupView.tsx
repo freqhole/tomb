@@ -402,33 +402,32 @@ export default function SetupView() {
                   </Show>
                 </div>
 
-                {/* warning if ffmpeg missing */}
-                <Show when={!depCheck()!.can_proceed}>
+                {/* info if ffmpeg missing */}
+                <Show when={!depCheck()!.ffmpeg_installed}>
                   <div
                     style={{
                       "margin-top": "1rem",
                       padding: "0.75rem",
-                      background: "#7f1d1d",
+                      background: "#422006",
                       "border-radius": "0.375rem",
-                      color: "#fecaca",
+                      color: "#fef3c7",
                     }}
                   >
-                    <strong>ffmpeg is required</strong>
+                    <strong>ffmpeg not found</strong>
                     <p
                       style={{
                         margin: "0.5rem 0 0 0",
                         "font-size": "0.8125rem",
                       }}
                     >
-                      install ffmpeg to continue. on macOS: brew install ffmpeg
+                      audio transcoding requires ffmpeg. on macOS:{" "}
+                      <code>brew install ffmpeg</code>
                     </p>
                   </div>
                 </Show>
 
                 {/* info if yt-dlp missing */}
-                <Show
-                  when={depCheck()!.can_proceed && !depCheck()!.ytdlp_installed}
-                >
+                <Show when={!depCheck()!.ytdlp_installed}>
                   <div
                     style={{
                       "margin-top": "1rem",
@@ -445,7 +444,7 @@ export default function SetupView() {
                         "font-size": "0.8125rem",
                       }}
                     >
-                      URL downloading requires yt-dlp.
+                      URL downloading requires yt-dlp.{" "}
                       <a
                         href="https://github.com/yt-dlp/yt-dlp/wiki/Installation"
                         target="_blank"
@@ -464,7 +463,7 @@ export default function SetupView() {
             <button
               class="primary"
               onClick={() => setStep("config")}
-              disabled={depCheckLoading() || !depCheck()?.can_proceed}
+              disabled={depCheckLoading()}
             >
               get started
             </button>

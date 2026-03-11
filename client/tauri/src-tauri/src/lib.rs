@@ -75,6 +75,16 @@ pub fn run() {
                     .ok_or_else(|| "failed to determine config path".to_string())?;
                 eprintln!("[tauri] config_path={}", config_path.display());
 
+                // initialize grimoire config and run migrations before starting server
+                grimoire::config::init_config(Some(config_path.clone()))
+                    .map_err(|e| format!("failed to load config: {}", e))?;
+                eprintln!("[tauri] running migrations...");
+                tauri::async_runtime::block_on(async {
+                    if let Err(e) = grimoire::database::run_migrations().await {
+                        eprintln!("[tauri] migration warning: {}", e);
+                    }
+                });
+
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 let app_handle = app.handle().clone();
                 let app_handle_for_server = app_handle.clone();

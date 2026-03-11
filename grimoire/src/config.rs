@@ -704,8 +704,8 @@ fn generate_config_template(
     // update data_dir
     doc["data_dir"] = value(data_dir.display().to_string());
 
-    // update database settings for generated configs (auto_run_migrations = false for setup wizard)
-    doc["database"]["auto_run_migrations"] = value(false);
+    // enable auto migrations - server will run migrations on startup
+    doc["database"]["auto_run_migrations"] = value(true);
 
     // update server section
     doc["server"]["name"] = value(server_name);

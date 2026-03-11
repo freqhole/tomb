@@ -15,6 +15,9 @@ ifneq (,$(wildcard .env))
     export
 endif
 
+# default DATABASE_URL if not set in .env
+DATABASE_URL ?= sqlite:data/grimoire.db
+
 VERSION := $(shell grep '^version = ' Cargo.toml | head -1 | cut -d '"' -f 2)
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DIR := build
@@ -30,7 +33,7 @@ PI32_TARGET := armv7-unknown-linux-gnueabihf
 .PHONY: all
 all: info
 
-# macOS arm64 CLI binary
+# macOS arm64 CLI binary (signs + notarizes if APPLE_* env vars set)
 .PHONY: build-mac-arm
 build-mac-arm:
 	@echo "building freqhole CLI for macOS arm64..."
@@ -38,8 +41,25 @@ build-mac-arm:
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
+		echo "signing..."; \
+		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET); \
+		codesign --verify --verbose $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET); \
+		echo "signed: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"; \
+		if [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
+			echo "notarizing (this may take a few minutes)..."; \
+			zip -j $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET).zip $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET); \
+			xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET).zip \
+				--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
+			echo "notarized: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"; \
+		else \
+			echo "skipping notarization (APPLE_ID/PASSWORD/TEAM_ID not all set)"; \
+		fi; \
+	else \
+		echo "skipping signing (APPLE_SIGNING_IDENTITY not set)"; \
+	fi
 
-# macOS x86_64 CLI binary (uses vendored OpenSSL for cross-compile from arm)
+# macOS x86_64 CLI binary (signs + notarizes if APPLE_* env vars set)
 .PHONY: build-mac-intel
 build-mac-intel:
 	@echo "building freqhole CLI for macOS x86_64 (vendored OpenSSL)..."
@@ -47,6 +67,23 @@ build-mac-intel:
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
+		echo "signing..."; \
+		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET); \
+		codesign --verify --verbose $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET); \
+		echo "signed: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"; \
+		if [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
+			echo "notarizing (this may take a few minutes)..."; \
+			zip -j $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET).zip $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET); \
+			xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET).zip \
+				--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
+			echo "notarized: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"; \
+		else \
+			echo "skipping notarization (APPLE_ID/PASSWORD/TEAM_ID not all set)"; \
+		fi; \
+	else \
+		echo "skipping signing (APPLE_SIGNING_IDENTITY not set)"; \
+	fi
 
 # Linux x86_64 CLI binary (via Docker)
 .PHONY: build-linux
@@ -119,17 +156,23 @@ info:
 	@echo "output:  $(BUILD_DIR)/$(VERSION)/"
 	@echo ""
 	@echo "CLI binaries:"
-	@echo "  make build-mac-arm   - macOS arm64"
-	@echo "  make build-mac-intel - macOS x86_64"
+	@echo "  make build-mac-arm   - macOS arm64 (signs + notarizes if APPLE_* set)"
+	@echo "  make build-mac-intel - macOS x86_64 (signs + notarizes if APPLE_* set)"
 	@echo "  make build-linux     - Linux x86_64 (Docker)"
 	@echo "  make build-pi        - Linux aarch64 (Docker)"
 	@echo "  make build-pi32      - Linux armv7 (Docker)"
 	@echo ""
 	@echo "Tauri desktop apps:"
-	@echo "  make build-tauri-mac-arm     - macOS arm64 .dmg"
-	@echo "  make build-tauri-mac-intel   - macOS x86_64 .dmg"
+	@echo "  make build-tauri-mac-arm     - macOS arm64 .dmg (signs if APPLE_SIGNING_IDENTITY set)"
+	@echo "  make build-tauri-mac-intel   - macOS x86_64 .dmg (signs if APPLE_SIGNING_IDENTITY set)"
 	@echo "  make build-tauri-linux-intel - Linux x86_64 .deb/.rpm (Docker)"
 	@echo "  make build-tauri-linux-arm64 - Linux aarch64 .deb/.rpm (Docker)"
+	@echo ""
+	@echo "Code signing env vars (set in .env):"
+	@echo "  APPLE_SIGNING_IDENTITY - signing identity (e.g. \"Developer ID Application: ...\")"
+	@echo "  APPLE_ID               - Apple ID email (for notarization)"
+	@echo "  APPLE_PASSWORD - app-specific password (for notarization)"
+	@echo "  APPLE_TEAM_ID  - team ID (for notarization)"
 	@echo ""
 	@echo "Build all:"
 	@echo "  make build-all  - build everything"
@@ -155,31 +198,67 @@ help: info
 .PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64
 TAURI_DIR := client/tauri
 
+# macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
 	@echo "building freqhole CLI for bundling..."
 	cargo build --package cli --release --target aarch64-apple-darwin
 	@mkdir -p $(TAURI_DIR)/src-tauri/bin
 	cp target/aarch64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
+		echo "signing bundled CLI binary..."; \
+		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(TAURI_DIR)/src-tauri/bin/freqhole; \
+	fi
 	@echo "building spume client..."
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS arm64..."
-	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
+		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
+		APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
+	else \
+		echo "  signing disabled (APPLE_SIGNING_IDENTITY not set)"; \
+		cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
+	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg"
+	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole-app_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg"
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ] && [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
+		echo "notarizing dmg (this may take a few minutes)..."; \
+		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg \
+			--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
+		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg; \
+		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg"; \
+	fi
 
+# macOS x86_64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-intel:
 	@echo "building freqhole CLI for bundling (x86_64, vendored OpenSSL)..."
 	OPENSSL_STATIC=1 cargo build --package cli --release --target x86_64-apple-darwin --features grimoire/vendored-openssl
 	@mkdir -p $(TAURI_DIR)/src-tauri/bin
 	cp target/x86_64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
+		echo "signing bundled CLI binary..."; \
+		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(TAURI_DIR)/src-tauri/bin/freqhole; \
+	fi
 	@echo "building spume client..."
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS x86_64..."
-	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
+		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
+		APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
+	else \
+		echo "  signing disabled (APPLE_SIGNING_IDENTITY not set)"; \
+		cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
+	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg"
+	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole-app_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg"
+	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ] && [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
+		echo "notarizing dmg (this may take a few minutes)..."; \
+		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg \
+			--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
+		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg; \
+		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg"; \
+	fi
 
 build-tauri-linux-intel:
 	@echo "building Tauri app for Linux x86_64 using Docker..."
