@@ -1,6 +1,6 @@
 // albums view - displays all albums in a grid with infinite scroll
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";

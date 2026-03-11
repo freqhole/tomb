@@ -7,7 +7,7 @@
 //   const url = await resolveBlobUrl(blobId, remoteId, "audio");
 //   <img src={url} /> or <audio src={url} />
 
-import { createSignal } from "solid-js";
+import { createSignal, createMemo, type Accessor } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import {
@@ -198,6 +198,44 @@ export function revokeBlobUrl(blobId: string, remoteId: string): void {
 export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | null {
   const cacheKey = `${remoteId}/${blobId}`;
   return activeBlobUrls[cacheKey] ?? null;
+}
+
+/**
+ * reactive hook for resolving P2P image URLs.
+ * returns a memo that tracks the P2P cache and triggers fetch if needed.
+ * 
+ * usage:
+ *   const url = useResolvedP2PImageUrl(() => ({ blobId, remoteId, httpFallback }));
+ *   <div style={{ "background-image": `url(${url()})` }} />
+ * 
+ * @param source - accessor returning blob ID, remote ID, and optional HTTP fallback URL
+ * @returns accessor that returns URL string or undefined
+ */
+export function useResolvedP2PImageUrl(
+  source: Accessor<{ blobId?: string; remoteId?: string; httpFallback?: string | null } | undefined>
+): Accessor<string | undefined> {
+  return createMemo(() => {
+    const s = source();
+    if (!s) return undefined;
+    const { blobId, remoteId, httpFallback } = s;
+    
+    // check P2P cache if we have both IDs
+    if (blobId && remoteId) {
+      const cached = getCachedP2PBlobUrl(blobId, remoteId);
+      if (cached) return cached;
+      
+      // not cached yet - trigger background fetch (fire-and-forget)
+      // the memo will re-run when pre-caching completes and updates activeBlobUrls
+      void preCacheP2PBlob(blobId, remoteId, undefined, "image");
+    }
+    
+    // fall back to HTTP URL if valid
+    if (httpFallback && isValidHttpUrl(httpFallback)) {
+      return httpFallback;
+    }
+    
+    return undefined;
+  });
 }
 
 /**
@@ -491,10 +529,10 @@ export async function preCacheNextP2PSongs(
     // also pre-cache first song's waveform and thumbnail (awaited for immediate display)
     if (firstSong.waveformBlobId && firstSong.waveformRemoteId) {
       debug("blobResolver", `pre-caching first song waveform: ${firstSong.waveformBlobId.slice(0, 8)}...`);
-      void preCacheP2PBlob(firstSong.waveformBlobId, firstSong.waveformRemoteId, undefined, "image");
+      await preCacheP2PBlob(firstSong.waveformBlobId, firstSong.waveformRemoteId, undefined, "image");
     }
     if (firstSong.thumbnailBlobId && firstSong.thumbnailRemoteId) {
-      void preCacheP2PBlob(firstSong.thumbnailBlobId, firstSong.thumbnailRemoteId, undefined, "image");
+      await preCacheP2PBlob(firstSong.thumbnailBlobId, firstSong.thumbnailRemoteId, undefined, "image");
     }
   } catch (err) {
     // log but don't fail the whole pre-cache

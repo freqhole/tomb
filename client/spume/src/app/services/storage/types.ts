@@ -8,6 +8,9 @@ export interface AppState {
   queue_open: boolean; // whether queue sidebar is open
   active_remote_id: string | null; // currently active remote source id
   last_updated: number;
+  // tracks dismissed persistent notices, keyed by notice ID + version
+  // e.g. { "config-upgrade:0.1.4": true }
+  dismissed_notices?: Record<string, boolean>;
 }
 
 // queue history entry — represents one "add to queue" action
@@ -106,7 +109,7 @@ export interface P2PIdentity {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 4; // bumped for analytics_events store + history progress fields
+export const APP_DB_VERSION = 4; // analytics_events store + history progress fields
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"

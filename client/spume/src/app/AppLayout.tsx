@@ -68,7 +68,7 @@ import {
 } from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";
 import { IconNames, type IconName } from "../components/icons/registry";
-import { routes } from "../music/utils/routing";
+import { routes, matchRoute } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import { showImageCarousel, openAddMusic } from "../music/hooks/modals";
@@ -84,7 +84,8 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { saveRoute } from "./services/tauri";
+import { saveRoute, isTauriMode, setWindowTitle } from "./services/tauri";
+import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
@@ -119,6 +120,25 @@ export function AppLayout(props: AppLayoutProps) {
     saveRoute(location.pathname);
   });
 
+  // update window/document title (freqhole ▸ remote ▸ route)
+  createEffect(() => {
+    const remote = getCurrentRemote();
+    const remoteName = remote?.name ?? "local";
+    const pathname = location.pathname;
+    const routeKey = matchRoute(pathname);
+    const routeName = routeKey || "songs";
+
+    const title = `freqhole ▸ ${remoteName} ▸ ${routeName}`;
+
+    // set browser document title
+    document.title = title;
+
+    // also set tauri window title if in tauri mode
+    if (isTauriMode()) {
+      setWindowTitle(title);
+    }
+  });
+
   // fetch recent playlists (contextual to current data source)
   const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
 
@@ -148,6 +168,9 @@ export function AppLayout(props: AppLayoutProps) {
 
     // start analytics sync loop
     startAnalyticsSync();
+
+    // check if config needs upgrade (tauri mode only, shows persistent toast if needed)
+    checkAndShowConfigUpgradeToast();
 
     try {
       const allRemotes = await getAllRemotes();

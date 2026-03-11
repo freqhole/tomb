@@ -5,7 +5,13 @@
  * they are only callable in tauri mode - will throw in browser builds.
  */
 
-import { FreqholeConfigSchema, AuthInviteSchema, type FreqholeConfig } from "./schema";
+import { 
+  FreqholeConfigSchema, 
+  AuthInviteSchema, 
+  ConfigUpgradeStatusSchema,
+  type FreqholeConfig, 
+  type ConfigUpgradeStatus,
+} from "./schema";
 
 // dynamically import tauri to allow tree-shaking in browser builds
 async function getInvoke() {
@@ -50,5 +56,50 @@ export async function generateAuthInvite(): Promise<string | null> {
   } catch (error) {
     console.error("[tauri/commands] failed to generate auth invite:", error);
     return null;
+  }
+}
+
+/**
+ * check if server config needs upgrade (version mismatch).
+ * 
+ * returns status with needs_upgrade flag and version info.
+ */
+export async function checkConfigNeedsUpgrade(): Promise<ConfigUpgradeStatus | null> {
+  try {
+    const invoke = await getInvoke();
+    const result = await invoke("check_config_needs_upgrade");
+    return ConfigUpgradeStatusSchema.parse(result);
+  } catch (error) {
+    console.error("[tauri/commands] failed to check config upgrade:", error);
+    return null;
+  }
+}
+
+/**
+ * open the setup wizard window at a specific route.
+ * 
+ * @param route - route to navigate to, e.g. "/settings"
+ */
+export async function openSetupWizard(route: string = "/"): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("open_setup_wizard", { route });
+  } catch (error) {
+    console.error("[tauri/commands] failed to open setup wizard:", error);
+  }
+}
+
+/**
+ * set the main window title.
+ * 
+ * @param title - the window title to set
+ */
+export async function setWindowTitle(title: string): Promise<void> {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const window = getCurrentWindow();
+    await window.setTitle(title);
+  } catch (error) {
+    // silently fail - not critical
   }
 }

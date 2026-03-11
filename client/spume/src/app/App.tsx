@@ -91,6 +91,34 @@ export function App() {
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
 
+  // register auth refresh handler immediately (before any queries can run)
+  // this must happen synchronously at component init, not in async functions
+  if (isTauriMode()) {
+    setAuthRefreshHandler(async (inviteCode, remoteId) => {
+      debug(`tauri: auth refresh for ${remoteId}, redeeming invite...`);
+      const currentRemote = getCurrentRemote();
+      if (!currentRemote) {
+        console.warn("no current remote to refresh auth for");
+        return;
+      }
+
+      const client = await getClientForRemote(currentRemote);
+      const redeemResult = await client.auth.redeemInvite({
+        invite_code: inviteCode,
+        username: null,
+        node_id: null,
+      });
+
+      if (redeemResult.success) {
+        debug("tauri: auth refresh successful");
+        clearRemoteNeedsAuth(remoteId);
+        queryClient.invalidateQueries();
+      } else {
+        console.warn("tauri: auth refresh failed:", redeemResult);
+      }
+    });
+  }
+
   // track current hash reactively (allows settings in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
@@ -240,31 +268,6 @@ export function App() {
 
       // subscribe to all tauri events (scan progress, etc.)
       await onEvent((event: TauriEvent) => handleTauriEvent(event));
-
-      // set up auth refresh handler (called when session expires)
-      setAuthRefreshHandler(async (inviteCode, remoteId) => {
-        debug(`tauri: auth refresh for ${remoteId}, redeeming invite...`);
-        const currentRemote = getCurrentRemote();
-        if (!currentRemote) {
-          console.warn("no current remote to refresh auth for");
-          return;
-        }
-
-        const client = await getClientForRemote(currentRemote);
-        const redeemResult = await client.auth.redeemInvite({
-          invite_code: inviteCode,
-          username: null,
-          node_id: null,
-        });
-
-        if (redeemResult.success) {
-          debug("tauri: auth refresh successful");
-          clearRemoteNeedsAuth(remoteId);
-          queryClient.invalidateQueries();
-        } else {
-          console.warn("tauri: auth refresh failed:", redeemResult);
-        }
-      });
     } catch (error) {
       console.error("failed to setup tauri remote:", error);
     }

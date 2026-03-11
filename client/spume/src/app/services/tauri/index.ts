@@ -33,7 +33,7 @@ export {
 } from "./schema";
 
 // re-export commands
-export { getConfig, generateAuthInvite } from "./commands";
+export { getConfig, generateAuthInvite, setWindowTitle } from "./commands";
 
 // re-export event listeners
 export {

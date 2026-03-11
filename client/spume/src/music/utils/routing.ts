@@ -49,23 +49,35 @@ export const routes = {
   settings: () => "/settings",
   settingsStorage: () => "/settings/storage",
   remotes: () => buildRoute("/remotes"),
+  favorites: () => buildRoute("/favorites"),
 };
 
 /** parameterless view route keys */
-const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "search", "remotes"] as const;
+const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings"] as const;
 
-export type RouteKey = (typeof VIEW_KEYS)[number] | "settings";
+export type RouteKey = (typeof VIEW_KEYS)[number];
 
 /**
  * match a path to a known route key
  * returns the route key (e.g., "songs", "albums", "feed") or null if no match.
- * strips query params before matching. uses exact equality against routes.
+ * strips query params before matching.
+ * handles both exact matches and detail views (e.g., /albums/123 -> "albums")
  */
 export function matchRoute(path: string): RouteKey | null {
   const pathname = path.split("?")[0].replace(/\/+$/, "");
-  for (const key of VIEW_KEYS) {
-    if (pathname === routes[key]().replace(/\/+$/, "")) return key;
-  }
+  
+  // check settings first (top-level route)
   if (pathname.startsWith("/settings")) return "settings";
+  
+  // check each view key - exact match or detail view (starts with route + /)
+  for (const key of VIEW_KEYS) {
+    if (key === "settings") continue; // already handled above
+    const routePath = routes[key]().replace(/\/+$/, "");
+    // exact match or detail view (path starts with route/)
+    if (pathname === routePath || pathname.startsWith(routePath + "/")) {
+      return key;
+    }
+  }
+  
   return null;
 }

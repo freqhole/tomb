@@ -10,10 +10,11 @@ use crate::app_config::save_server_config_path;
 use crate::commands::store_invite_code;
 use crate::sidecar::{start_server, ServerManager};
 
-/// tauri command to open setup wizard at default route
+/// tauri command to open setup wizard at specified route (defaults to /setup)
 #[tauri::command]
-pub async fn open_setup_wizard(app: AppHandle<Wry>) -> Result<(), String> {
-    open_setup_wizard_at_route(app, "/setup")
+pub async fn open_setup_wizard(app: AppHandle<Wry>, route: Option<String>) -> Result<(), String> {
+    let target_route = route.as_deref().unwrap_or("/setup");
+    open_setup_wizard_at_route(app, target_route)
 }
 
 /// open setup wizard window at a specific route

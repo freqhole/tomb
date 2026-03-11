@@ -35,6 +35,20 @@ export const AuthInviteSchema = z.string();
 
 export type AuthInvite = z.infer<typeof AuthInviteSchema>;
 
+/**
+ * config upgrade status from check_config_needs_upgrade command
+ */
+export const ConfigUpgradeStatusSchema = z.object({
+  /** true if config version differs from binary version */
+  needs_upgrade: z.boolean(),
+  /** version in config file */
+  config_version: z.string(),
+  /** version of this binary */
+  binary_version: z.string(),
+});
+
+export type ConfigUpgradeStatus = z.infer<typeof ConfigUpgradeStatusSchema>;
+
 // ============================================================================
 // event schemas (Rust → JS via emit/listen)
 // ============================================================================

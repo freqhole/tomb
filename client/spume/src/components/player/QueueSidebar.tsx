@@ -1,5 +1,5 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
@@ -12,7 +12,7 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { isSongCachedReactive, getLoadingProgress } from "../../music/services/cache/blobCache";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
-import { getCachedP2PBlobUrl, isValidHttpUrl } from "../../music/services/storage/blobResolver";
+import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
 type QueueTab = "queue" | "history";
@@ -357,32 +357,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     }
                   };
 
-                  // get waveform URL - memo tracks P2P cache reactively
-                  const waveformUrl = createMemo(() => {
+                  // get waveform URL - hook handles P2P fetch and reactive tracking
+                  const waveformUrl = useResolvedP2PImageUrl(() => {
                     const s = song();
                     if (!s?.images) return undefined;
 
                     const waveformImg = getWaveformImage(s.images);
                     if (!waveformImg) return undefined;
 
-                    // check if waveform has P2P blob info - use cached URL if available
-                    if (waveformImg.remote_blob_id && waveformImg.remote_server_id) {
-                      const cached = getCachedP2PBlobUrl(
-                        waveformImg.remote_blob_id,
-                        waveformImg.remote_server_id
-                      );
-                      if (cached) {
-                        return cached;
-                      }
-                      // P2P not cached - only fall back if we have a valid HTTP URL
-                    }
-
-                    // only use remote_url if it's a valid full HTTP URL (not relative paths)
-                    if (isValidHttpUrl(waveformImg.remote_url)) {
-                      return waveformImg.remote_url!;
-                    }
-
-                    return undefined;
+                    return {
+                      blobId: waveformImg.remote_blob_id ?? undefined,
+                      remoteId: waveformImg.remote_server_id ?? undefined,
+                      httpFallback: waveformImg.remote_url,
+                    };
                   });
 
                   const songRow = (

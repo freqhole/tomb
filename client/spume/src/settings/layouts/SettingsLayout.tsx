@@ -1,7 +1,8 @@
 // settings layout - wrapper for all settings pages with navigation
-import { JSX, For } from "solid-js";
+import { JSX, For, onMount } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
+import { isTauriMode, setWindowTitle } from "../../app/services/tauri";
 
 interface SettingsNavItem {
   path: string;
@@ -20,6 +21,16 @@ const navItems: SettingsNavItem[] = [
 
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();
+
+  // set window/document title for settings
+  onMount(() => {
+    const title = "freqhole ▸ settings";
+
+    document.title = title;
+    if (isTauriMode()) {
+      setWindowTitle(title);
+    }
+  });
 
   return (
     <div class="min-h-screen bg-[var(--color-bg-primary)]">
