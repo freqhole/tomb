@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name={{product_name}}
+Comment=music library server
+Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 {{exec}}
+Icon={{icon}}
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;audio;library;server;
+StartupWMClass={{product_name}}

@@ -129,7 +129,14 @@ pub fn run() {
                 }
             }
 
-            // setup system tray
+            // setup system tray (non-fatal on linux - may fail without appindicator)
+            #[cfg(target_os = "linux")]
+            if let Err(e) = tray::setup_tray(app.handle()) {
+                eprintln!(
+                    "warning: system tray setup failed (install libayatana-appindicator3-dev): {e}"
+                );
+            }
+            #[cfg(not(target_os = "linux"))]
             tray::setup_tray(app.handle())?;
 
             // setup application menu

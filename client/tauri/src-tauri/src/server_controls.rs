@@ -57,12 +57,24 @@ pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
     });
 }
 
-/// quit the app (stop server first)
+/// quit the app (stop server first, cleanup tray)
 pub fn quit_app(app: &AppHandle<Wry>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        // stop the server
         let state: tauri::State<'_, ServerManager> = app.state();
         let _ = sidecar::stop_server(&state).await;
+
+        // explicitly remove tray icon before exit (prevents panel crashes on linux)
+        if let Some(tray) = app.tray_by_id("main") {
+            // clear menu and icon before removal
+            let _ = tray.set_menu(None::<tauri::menu::Menu<Wry>>);
+            let _ = tray.set_visible(false);
+        }
+
+        // small delay for cleanup to propagate
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         app.exit(0);
     });
 }

@@ -183,6 +183,7 @@ build-tauri-mac-intel:
 
 build-tauri-linux-intel:
 	@echo "building Tauri app for Linux x86_64 using Docker..."
+	$(MAKE) db-prepare
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-amd64 --platform linux/amd64 \
 		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu \
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
@@ -195,6 +196,7 @@ build-tauri-linux-intel:
 
 build-tauri-linux-arm64:
 	@echo "building Tauri app for Linux aarch64 using Docker..."
+	$(MAKE) db-prepare
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-arm64 --platform linux/arm64 \
 		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu \
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
@@ -208,27 +210,27 @@ build-tauri-linux-arm64:
 # version management
 .PHONY: bump-version
 bump-version:
+	@echo "current version: $(VERSION)"
 	@if [ -z "$(NEW_VERSION)" ]; then \
-		echo "usage: make bump-version NEW_VERSION=x.y.z"; \
-		echo "current version: $(VERSION)"; \
-		exit 1; \
+		read -p "enter new version: " ver && \
+		if [ -z "$$ver" ]; then \
+			echo "error: version cannot be empty"; \
+			exit 1; \
+		fi && \
+		$(MAKE) bump-version NEW_VERSION=$$ver; \
+	else \
+		echo "bumping version to $(NEW_VERSION)..."; \
+		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml; \
+		sed -i '' 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json; \
+		cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version; \
+		cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version; \
+		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts; \
+		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts; \
+		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml; \
+		echo "version bumped to $(NEW_VERSION)"; \
+		echo ""; \
+		echo "verify changes with: git diff"; \
 	fi
-	@echo "bumping version to $(NEW_VERSION)..."
-	@# Cargo workspace version 
-	sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml
-	@# tauri.conf.json
-	sed -i '' 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json
-	@# package.json files
-	cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version
-	cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version
-	@# TypeScript version constants
-	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts
-	sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts
-	@# freqhole-config.toml
-	sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml
-	@echo "version bumped to $(NEW_VERSION)"
-	@echo ""
-	@echo "verify changes with: git diff"
 
 # database commands (from grimoire)
 .PHONY: db-reset db-migrate db-prepare
