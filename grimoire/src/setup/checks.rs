@@ -7,6 +7,8 @@ use std::path::PathBuf;
 pub struct DependencyStatus {
     /// path to ffmpeg if found (recommended for audio processing)
     pub ffmpeg_path: Option<PathBuf>,
+    /// path to ffprobe if found (comes with ffmpeg, used for duration extraction)
+    pub ffprobe_path: Option<PathBuf>,
     /// path to yt-dlp if found (optional, enables URL downloads)
     pub ytdlp_path: Option<PathBuf>,
 }
@@ -20,6 +22,11 @@ impl DependencyStatus {
     /// returns true if ffmpeg is available
     pub fn has_ffmpeg(&self) -> bool {
         self.ffmpeg_path.is_some()
+    }
+
+    /// returns true if ffprobe is available
+    pub fn has_ffprobe(&self) -> bool {
+        self.ffprobe_path.is_some()
     }
 
     /// returns true if yt-dlp is available
@@ -60,6 +67,7 @@ fn find_executable(name: &str) -> Option<PathBuf> {
 pub fn check_dependencies() -> DependencyStatus {
     DependencyStatus {
         ffmpeg_path: find_executable("ffmpeg"),
+        ffprobe_path: find_executable("ffprobe"),
         ytdlp_path: find_executable("yt-dlp"),
     }
 }
@@ -75,6 +83,7 @@ mod tests {
         // actual availability depends on system
         let _ = status.can_proceed();
         let _ = status.has_ffmpeg();
+        let _ = status.has_ffprobe();
         let _ = status.has_ytdlp();
     }
 }

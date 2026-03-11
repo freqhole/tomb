@@ -78,6 +78,8 @@ pub struct SetupStatus {
 pub struct DependencyCheckResult {
     pub ffmpeg_path: Option<String>,
     pub ffmpeg_installed: bool,
+    pub ffprobe_path: Option<String>,
+    pub ffprobe_installed: bool,
     pub ytdlp_path: Option<String>,
     pub ytdlp_installed: bool,
     pub can_proceed: bool,
@@ -90,6 +92,11 @@ pub async fn check_dependencies() -> DependencyCheckResult {
     DependencyCheckResult {
         ffmpeg_path: status.ffmpeg_path.as_ref().map(|p| p.display().to_string()),
         ffmpeg_installed: status.has_ffmpeg(),
+        ffprobe_path: status
+            .ffprobe_path
+            .as_ref()
+            .map(|p| p.display().to_string()),
+        ffprobe_installed: status.has_ffprobe(),
         ytdlp_path: status.ytdlp_path.as_ref().map(|p| p.display().to_string()),
         ytdlp_installed: status.has_ytdlp(),
         can_proceed: status.can_proceed(),
@@ -163,6 +170,9 @@ pub async fn run_setup_core(
         fetch_music_dir: fetch_music_dir.map(PathBuf::from),
         initial_scan_dirs: Vec::new(), // handled by music step in UI
         allowed_origins: Some(allowed_origins),
+        ffmpeg_path: deps.ffmpeg_path.clone(),
+        ffprobe_path: deps.ffprobe_path.clone(),
+        ytdlp_path: deps.ytdlp_path.clone(),
     };
 
     let service = grimoire::setup::SetupService::new();

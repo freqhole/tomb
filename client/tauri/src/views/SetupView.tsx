@@ -9,6 +9,8 @@ type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
 interface DependencyCheckResult {
   ffmpeg_path: string | null;
   ffmpeg_installed: boolean;
+  ffprobe_path: string | null;
+  ffprobe_installed: boolean;
   ytdlp_path: string | null;
   ytdlp_installed: boolean;
   can_proceed: boolean;

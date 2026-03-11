@@ -49,6 +49,12 @@ pub struct SetupConfig {
     pub initial_scan_dirs: Vec<ScanDir>,
     /// allowed origins for CORS and WebAuthn (None = derive from server_port, vec!["any"] = allow any)
     pub allowed_origins: Option<Vec<String>>,
+    /// absolute path to ffmpeg (written to config if provided)
+    pub ffmpeg_path: Option<PathBuf>,
+    /// absolute path to ffprobe (written to config if provided)
+    pub ffprobe_path: Option<PathBuf>,
+    /// absolute path to yt-dlp (written to config if provided)
+    pub ytdlp_path: Option<PathBuf>,
 }
 
 /// a directory to scan with optional tags
@@ -261,6 +267,9 @@ impl SetupService {
             config.ytdlp_available,
             Some(fetch_music_dir),
             config.allowed_origins.clone(),
+            config.ffmpeg_path.clone(),
+            config.ffprobe_path.clone(),
+            config.ytdlp_path.clone(),
         )
     }
 

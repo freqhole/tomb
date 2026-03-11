@@ -614,6 +614,9 @@ pub fn create_config_with_server_info(
         false, // ytdlp_available
         None,  // fetch_music_dir
         None,  // allowed_origins
+        None,  // ffmpeg_path
+        None,  // ffprobe_path
+        None,  // ytdlp_path
     )
 }
 
@@ -629,6 +632,9 @@ pub fn create_config_with_server_info(
 /// * `ytdlp_available` - Whether yt-dlp is available for downloads
 /// * `fetch_music_dir` - Optional custom directory for fetched/uploaded music (defaults to data_dir/fetch)
 /// * `allowed_origins` - Optional list of allowed origins for CORS/WebAuthn (None = derive from port, vec!["any"] = allow any)
+/// * `ffmpeg_path` - Optional absolute path to ffmpeg binary
+/// * `ffprobe_path` - Optional absolute path to ffprobe binary
+/// * `ytdlp_path` - Optional absolute path to yt-dlp binary
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -639,6 +645,9 @@ pub fn create_config_full(
     ytdlp_available: bool,
     fetch_music_dir: Option<PathBuf>,
     allowed_origins: Option<Vec<String>>,
+    ffmpeg_path: Option<PathBuf>,
+    ffprobe_path: Option<PathBuf>,
+    ytdlp_path: Option<PathBuf>,
 ) -> Result<PathBuf, ConfigError> {
     let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
     let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -673,6 +682,9 @@ pub fn create_config_full(
         ytdlp_available,
         &fetch_dir,
         allowed_origins.as_deref(),
+        ffmpeg_path.as_deref(),
+        ffprobe_path.as_deref(),
+        ytdlp_path.as_deref(),
     );
 
     // write file
@@ -696,6 +708,9 @@ fn generate_config_template(
     ytdlp_available: bool,
     fetch_dir: &Path,
     allowed_origins: Option<&[String]>,
+    ffmpeg_path: Option<&Path>,
+    ffprobe_path: Option<&Path>,
+    ytdlp_path: Option<&Path>,
 ) -> String {
     let mut doc = CONFIG_TEMPLATE
         .parse::<DocumentMut>()
@@ -705,7 +720,17 @@ fn generate_config_template(
     doc["data_dir"] = value(data_dir.display().to_string());
 
     // enable auto migrations - server will run migrations on startup
-    doc["database"]["auto_run_migrations"] = value(true);
+    doc["database"]["auto_run_migrations"] = value(false);
+
+    // update media section with absolute paths if provided
+    if let Some(media) = doc["media"].as_table_mut() {
+        if let Some(path) = ffmpeg_path {
+            media["ffmpeg_path"] = value(path.display().to_string());
+        }
+        if let Some(path) = ffprobe_path {
+            media["ffprobe_path"] = value(path.display().to_string());
+        }
+    }
 
     // update server section
     doc["server"]["name"] = value(server_name);
@@ -740,9 +765,19 @@ fn generate_config_template(
     doc["server"]["fetch_music"]["enabled"] = value(ytdlp_available);
     doc["server"]["fetch_music"]["output_dir"] = value(fetch_dir.display().to_string());
 
-    // remove cors.allowed_origins since it's now in auth.allowed_origins
-    if let Some(cors) = doc["server"]["cors"].as_table_mut() {
-        cors.remove("allowed_origins");
+    // update fetch commands with absolute yt-dlp path if provided
+    if let Some(ytdlp) = ytdlp_path {
+        let ytdlp_str = ytdlp.display().to_string();
+        if let Some(fetch_music) = doc["server"]["fetch_music"].as_table_mut() {
+            // precheck_command uses yt-dlp
+            fetch_music["precheck_command"] =
+                value(format!("{} --print-json --no-download", ytdlp_str));
+            // fetch_command uses yt-dlp
+            fetch_music["fetch_command"] = value(format!(
+                "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath",
+                ytdlp_str
+            ));
+        }
     }
 
     doc.to_string()
