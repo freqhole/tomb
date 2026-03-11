@@ -39,6 +39,15 @@ pub struct P2pBlobData {
     pub size: u64,
 }
 
+/// upload result with blob and job ids
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pUploadResult {
+    pub blob_id: Option<String>,
+    pub job_id: Option<String>,
+    /// full server response body for client parsing
+    pub body: Option<String>,
+}
+
 /// set the federation endpoint for client operations
 ///
 /// call this after creating the federation endpoint in the server.
@@ -205,6 +214,42 @@ pub async fn fetch_blob(peer_addr: &str, blob_id: &str) -> GrimoireResult<P2pBlo
         data,
         content_type: info.content_type,
         size: info.size,
+    })
+}
+
+/// upload a blob to a remote peer
+///
+/// sends the blob data to the peer's server for import.
+/// returns blob_id and job_id on success.
+pub async fn upload_blob(
+    peer_addr: &str,
+    filename: &str,
+    content_type: &str,
+    data: &[u8],
+) -> GrimoireResult<P2pUploadResult> {
+    let endpoint = get_endpoint()?;
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16];
+
+    info!(
+        "uploading {} ({} bytes) to {}",
+        filename,
+        data.len(),
+        node_id_short
+    );
+
+    let conn = get_or_connect(&endpoint, &addr).await?;
+    let result = conn.upload_blob(filename, content_type, data).await?;
+
+    info!(
+        "upload complete: blob_id={:?}, job_id={:?}",
+        result.blob_id, result.job_id
+    );
+
+    Ok(P2pUploadResult {
+        blob_id: result.blob_id,
+        job_id: result.job_id,
+        body: result.body,
     })
 }
 

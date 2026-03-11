@@ -100,6 +100,33 @@ export class MiddenNode {
      * store this in IndexedDB to maintain the same identity across sessions
      */
     secret_key(): Uint8Array;
+    /**
+     * upload a blob to a peer
+     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
+     * returns UploadResult with blob_id and job_id on success
+     */
+    upload_blob(peer_addr: string, filename: string, content_type: string, data: Uint8Array): Promise<UploadResult>;
+}
+
+/**
+ * upload result
+ */
+export class UploadResult {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * get the created blob_id (if successful)
+     */
+    blob_id(): string | undefined;
+    /**
+     * get the full server response body (for Zod validation)
+     */
+    body(): string | undefined;
+    /**
+     * get the import job_id
+     */
+    job_id(): string | undefined;
 }
 
 export function start(): void;

@@ -15,6 +15,16 @@ export interface BlobResultLike {
 }
 
 /**
+ * upload result from midden
+ */
+export interface UploadResultLike {
+  blob_id(): string | undefined;
+  job_id(): string | undefined;
+  /** full server response body for Zod validation */
+  body(): string | undefined;
+}
+
+/**
  * interface matching midden's MiddenNode WASM class
  * use this type when you don't want to import midden directly
  */
@@ -34,6 +44,13 @@ export interface MiddenNodeLike {
     blob_id: string,
     on_progress: (received: number, total: number) => void,
   ): Promise<BlobResultLike>;
+  // upload blob to peer - optional, only available after midden rebuild
+  upload_blob?(
+    peer_addr: string,
+    filename: string,
+    content_type: string,
+    data: Uint8Array,
+  ): Promise<UploadResultLike>;
 }
 
 /**
@@ -102,10 +119,61 @@ export class WasmTransport implements Transport {
     };
   }
 
-  async upload(_path: string, _formData: FormData): Promise<TransportResponse> {
-    // P2P upload not supported yet
-    // would need to serialize FormData to multipart and send via proxy_request
-    throw new Error("uploads not supported over P2P transport");
+  async upload(_path: string, formData: FormData): Promise<TransportResponse> {
+    // check if upload is supported (requires midden rebuild)
+    if (!this.node.upload_blob) {
+      throw new Error(
+        "P2P upload requires midden rebuild with upload_blob support",
+      );
+    }
+
+    // extract file from form data
+    const file = formData.get("file") as File | null;
+    if (!file) {
+      return {
+        status: 400,
+        body: JSON.stringify({ error: "no file provided" }),
+      };
+    }
+
+    // read file data
+    const data = new Uint8Array(await file.arrayBuffer());
+    const contentType = file.type || "application/octet-stream";
+
+    try {
+      const result = await this.node.upload_blob(
+        this.peerAddr,
+        file.name,
+        contentType,
+        data,
+      );
+
+      // use full server response body if available (for proper Zod validation)
+      const serverBody = result.body();
+      if (serverBody) {
+        return {
+          status: 200,
+          body: serverBody,
+        };
+      }
+
+      // fallback to minimal response (shouldn't happen with updated midden)
+      return {
+        status: 200,
+        body: JSON.stringify({
+          blob_id: result.blob_id(),
+          job_id: result.job_id(),
+          message: "upload successful",
+        }),
+      };
+    } catch (e) {
+      return {
+        status: 500,
+        body: JSON.stringify({
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      };
+    }
   }
 
   async fetchBlob(blobId: string): Promise<BlobData> {

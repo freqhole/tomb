@@ -55,4 +55,31 @@ pub enum PeerMessage {
         /// error message if blob not found
         error: Option<String>,
     },
+
+    /// request to upload a blob
+    /// header is length-prefixed JSON, followed by raw bytes
+    BlobUploadRequest {
+        /// request id for correlation
+        id: u64,
+        /// original filename (for metadata extraction)
+        filename: String,
+        /// content type (mime)
+        content_type: String,
+        /// total size in bytes
+        size: u64,
+    },
+
+    /// blob upload response (sent after receiving full blob)
+    BlobUploadResponse {
+        /// request id for correlation
+        id: u64,
+        /// created blob_id (if successful)
+        blob_id: Option<String>,
+        /// job_id for import processing
+        job_id: Option<String>,
+        /// error message if upload failed
+        error: Option<String>,
+        /// full server response body for client parsing
+        body: Option<String>,
+    },
 }

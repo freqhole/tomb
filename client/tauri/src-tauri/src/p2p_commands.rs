@@ -22,6 +22,15 @@ pub struct P2pBlobResponse {
     pub size: u64,
 }
 
+/// upload response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pUploadResponse {
+    pub blob_id: Option<String>,
+    pub job_id: Option<String>,
+    /// full server response body for client parsing
+    pub body: Option<String>,
+}
+
 /// initialize P2P client endpoint for outbound connections
 ///
 /// must be called after the server starts and grimoire config is available.
@@ -126,4 +135,33 @@ pub fn p2p_close_connection(peer_addr: String) -> Result<(), String> {
 #[tauri::command]
 pub fn p2p_close_all_connections() {
     grimoire::federation::p2p_client::close_all_connections();
+}
+
+/// upload a blob to a remote peer via P2P
+///
+/// data: base64-encoded blob data (since tauri can't easily pass raw bytes)
+#[tauri::command]
+pub async fn p2p_upload_blob(
+    peer_addr: String,
+    filename: String,
+    content_type: String,
+    data: String,
+) -> Result<P2pUploadResponse, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    // decode base64 data
+    let bytes = STANDARD
+        .decode(&data)
+        .map_err(|e| format!("failed to decode base64 data: {}", e))?;
+
+    let result =
+        grimoire::federation::p2p_client::upload_blob(&peer_addr, &filename, &content_type, &bytes)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    Ok(P2pUploadResponse {
+        blob_id: result.blob_id,
+        job_id: result.job_id,
+        body: result.body,
+    })
 }

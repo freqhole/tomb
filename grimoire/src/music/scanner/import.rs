@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-use super::filename_parser::parse_filename;
+use super::filename_parser::{parse_filename, parse_filename_str};
 
 /// Result of importing an audio file
 #[derive(Debug, Clone)]
@@ -76,10 +76,12 @@ struct ExtractedMetadata {
 /// * `media_blob_id` - ID of the media blob for this file
 /// * `file_path` - Path to the audio file
 /// * `created_by` - Optional user ID that created/uploaded this file
+/// * `original_filename` - Optional original filename (for uploads where file is stored with blob_id)
 pub async fn extract_and_import(
     media_blob_id: &str,
     file_path: &Path,
     created_by: Option<String>,
+    original_filename: Option<&str>,
 ) -> Result<ImportResult, JobError> {
     // Parse audio file with lofty with error handling
     let tagged_file = match Probe::open(file_path).and_then(|p| p.read()) {
@@ -91,12 +93,12 @@ pub async fn extract_and_import(
                 e
             );
             // Fall back to basic song record with filename
-            return import_basic(media_blob_id, file_path, created_by).await;
+            return import_basic(media_blob_id, file_path, created_by, original_filename).await;
         }
     };
 
     // Extract metadata from tags and filename
-    let metadata = extract_metadata(&tagged_file, file_path);
+    let metadata = extract_metadata(&tagged_file, file_path, original_filename);
 
     // Extract file properties for the metadata JSON
     let file_props = extract_file_properties(&tagged_file);
@@ -221,7 +223,11 @@ pub async fn extract_and_import(
 }
 
 /// Extract and merge metadata from tags and filename
-fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> ExtractedMetadata {
+fn extract_metadata(
+    tagged_file: &lofty::TaggedFile,
+    file_path: &Path,
+    original_filename: Option<&str>,
+) -> ExtractedMetadata {
     // Extract properties
     let properties = tagged_file.properties();
     let duration_ms = properties.duration().as_millis() as i64;
@@ -278,8 +284,12 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
     let parse_track_number =
         |s: &str| -> Option<i64> { s.split('/').next()?.trim().parse::<i64>().ok() };
 
-    // Parse filename for fallback data
-    let filename_data = parse_filename(file_path);
+    // Parse filename for fallback data - use original filename if available
+    let filename_data = if let Some(orig) = original_filename {
+        parse_filename_str(orig)
+    } else {
+        parse_filename(file_path)
+    };
 
     // Extract standardized fields from tags
     let tag_title = get_tag("TrackTitle", &["Title", "TITLE", "TIT2"]);
@@ -394,21 +404,35 @@ fn extract_metadata(tagged_file: &lofty::TaggedFile, file_path: &Path) -> Extrac
 /// * `media_blob_id` - ID of the media blob for this file
 /// * `file_path` - Path to the audio file
 /// * `created_by` - Optional user ID that created/uploaded this file
+/// * `original_filename` - Optional original filename (for uploads where file is stored with blob_id)
 pub async fn import_basic(
     media_blob_id: &str,
     file_path: &Path,
     created_by: Option<String>,
+    original_filename: Option<&str>,
 ) -> Result<ImportResult, JobError> {
-    // Try to parse filename for any available data
-    let filename_data = parse_filename(file_path);
+    // Try to parse filename for any available data - use original filename if available
+    let filename_data = if let Some(orig) = original_filename {
+        parse_filename_str(orig)
+    } else {
+        parse_filename(file_path)
+    };
     let has_filename_data = filename_data.has_data();
 
+    // For title fallback, prefer original_filename over file_path
     let title = filename_data.track.clone().unwrap_or_else(|| {
-        file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown Title")
-            .to_string()
+        if let Some(orig) = original_filename {
+            // strip extension from original filename
+            orig.rsplit_once('.')
+                .map(|(name, _)| name.to_string())
+                .unwrap_or_else(|| orig.to_string())
+        } else {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unknown Title")
+                .to_string()
+        }
     });
 
     let artist_name = filename_data.artist.clone();

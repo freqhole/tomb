@@ -77,6 +77,21 @@ impl ParsedFilename {
 ///    - 1 part: track only (or album+track if "full album")
 ///    - 2 parts: artist, track
 ///    - 3+ parts: artist, album, track (remaining parts joined)
+/// parse metadata from a filename string directly
+///
+/// same as parse_filename but takes a string instead of a path.
+/// useful when the original filename is available but stored separately
+/// from the file path (e.g., uploaded files stored with blob_id as filename)
+pub fn parse_filename_str(filename: &str) -> ParsedFilename {
+    // remove extension if present
+    let filename = filename
+        .rsplit_once('.')
+        .map(|(name, _ext)| name)
+        .unwrap_or(filename);
+
+    parse_filename_inner(filename)
+}
+
 pub fn parse_filename(file_path: &Path) -> ParsedFilename {
     // get filename without extension
     let filename = match file_path.file_stem().and_then(|s| s.to_str()) {
@@ -84,6 +99,11 @@ pub fn parse_filename(file_path: &Path) -> ParsedFilename {
         None => return ParsedFilename::empty(),
     };
 
+    parse_filename_inner(filename)
+}
+
+/// internal parsing logic shared by parse_filename and parse_filename_str
+fn parse_filename_inner(filename: &str) -> ParsedFilename {
     // clean filename: remove youtube IDs, combining chars, normalize hyphens
     let cleaned = clean_filename(filename);
 

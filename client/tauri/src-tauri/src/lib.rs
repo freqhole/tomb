@@ -199,6 +199,7 @@ pub fn run() {
             p2p_commands::p2p_get_node_id,
             p2p_commands::p2p_proxy_request,
             p2p_commands::p2p_fetch_blob,
+            p2p_commands::p2p_upload_blob,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
         ])

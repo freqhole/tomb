@@ -180,6 +180,10 @@ pub struct FederationConfig {
     /// This does not apply to blob streaming, only JSON message payloads.
     #[serde(default = "default_max_message_size_mb")]
     pub max_message_size_mb: u32,
+    /// Maximum upload size in MB for P2P file uploads (default: 500)
+    /// Larger files will be rejected with an error response.
+    #[serde(default = "default_max_upload_size_mb")]
+    pub max_upload_size_mb: u32,
 }
 
 fn default_federation_role() -> String {
@@ -190,10 +194,19 @@ fn default_max_message_size_mb() -> u32 {
     10
 }
 
+fn default_max_upload_size_mb() -> u32 {
+    500
+}
+
 impl FederationConfig {
     /// Get the max message size in bytes
     pub fn max_message_size_bytes(&self) -> usize {
         (self.max_message_size_mb as usize) * 1024 * 1024
+    }
+
+    /// Get the max upload size in bytes
+    pub fn max_upload_size_bytes(&self) -> usize {
+        (self.max_upload_size_mb as usize) * 1024 * 1024
     }
 }
 

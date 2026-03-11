@@ -97,12 +97,17 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
     let config = grimoire::config::get_config();
 
     // initialize tracing with config log level
+    // RUST_LOG env var takes full precedence if set
+    // otherwise use config level + silence noisy iroh internals
     let log_level = config.logging.level.as_str();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(format!(
+            "{},iroh=error,iroh_relay=error,iroh_quinn=error",
+            log_level
+        ))
+    });
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
-        )
+        .with(filter)
         .with(tracing_subscriber::fmt::layer())
         .init();
 

@@ -406,3 +406,9 @@ default_role = "viewer"
 # increase if you have extremely large playlists or search results that exceed this.
 # decrease if you want to limit memory usage on constrained devices.
 # max_message_size_mb = 10
+
+# OPTIONAL: maximum upload size in MB for P2P file uploads (default: 500)
+# this limits the maximum file size that can be uploaded via P2P.
+# note: this is a separate limit from max_message_size_mb since uploads are streamed
+# differently than regular API messages.
+# max_upload_size_mb = 500

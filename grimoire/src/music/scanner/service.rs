@@ -77,7 +77,7 @@ pub async fn import_audio_file(
     file_path: &Path,
     created_by: Option<String>,
 ) -> GrimoireResponse<ImportResult> {
-    match extract_and_import(media_blob_id, file_path, created_by).await {
+    match extract_and_import(media_blob_id, file_path, created_by, None).await {
         Ok(result) => GrimoireResponse::success("Audio file imported successfully", result),
         Err(e) => {
             // check if this is a JobError with a wrapped GrimoireResponse

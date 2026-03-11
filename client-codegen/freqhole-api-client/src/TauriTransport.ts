@@ -59,6 +59,17 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
+ * encode Uint8Array to base64 string
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
  * TauriTransport - P2P transport using Tauri IPC commands
  * implements Transport interface for use with FreqholeClient
  */
@@ -108,12 +119,58 @@ export class TauriTransport implements Transport {
   }
 
   /**
-   * upload via P2P (not yet implemented)
+   * upload via P2P
    */
-  async upload(_path: string, _formData: FormData): Promise<TransportResponse> {
-    // P2P upload would require streaming the file over iroh
-    // for now, return an error
-    throw new Error("upload not supported over P2P transport");
+  async upload(_path: string, formData: FormData): Promise<TransportResponse> {
+    const inv = await ensureInvoke();
+
+    // extract file from form data
+    const file = formData.get("file") as File | null;
+    if (!file) {
+      return {
+        status: 400,
+        body: JSON.stringify({ error: "no file provided" }),
+      };
+    }
+
+    // read file and encode as base64 (tauri IPC requires this for binary data)
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const base64 = bytesToBase64(bytes);
+    const contentType = file.type || "application/octet-stream";
+
+    try {
+      const result = (await inv("p2p_upload_blob", {
+        peerAddr: this.peerAddr,
+        filename: file.name,
+        contentType,
+        data: base64,
+      })) as { blob_id: string | null; job_id: string | null; body: string | null };
+
+      // use full server response body if available (for proper Zod validation)
+      if (result.body) {
+        return {
+          status: 200,
+          body: result.body,
+        };
+      }
+
+      // fallback to minimal response (shouldn't happen with updated server)
+      return {
+        status: 200,
+        body: JSON.stringify({
+          blob_id: result.blob_id,
+          job_id: result.job_id,
+          message: "upload successful",
+        }),
+      };
+    } catch (e) {
+      return {
+        status: 500,
+        body: JSON.stringify({
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      };
+    }
   }
 
   /**

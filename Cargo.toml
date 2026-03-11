@@ -72,6 +72,8 @@ webauthn-rs = { version = "0.5.1", features = [
 reqwest = { version = "0.12", features = [
     "json",
     "rustls-tls",
+    "multipart",
+    "stream",
 ], default-features = false }
 testcontainers = "0.20"
 testcontainers-modules = { version = "0.8", features = ["postgres"] }
