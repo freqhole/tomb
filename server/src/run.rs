@@ -111,6 +111,23 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // check if config needs upgrade
+    if let Ok(needs_upgrade) = grimoire::config::config_needs_upgrade(&options.config_path) {
+        if needs_upgrade {
+            tracing::warn!("");
+            tracing::warn!("╔══════════════════════════════════════════════════════════════════╗");
+            tracing::warn!("║  CONFIG UPGRADE AVAILABLE!                                       ║");
+            tracing::warn!("║                                                                  ║");
+            tracing::warn!("║  your config file is using an older format.                      ║");
+            tracing::warn!("║  please run this command to upgrade:                             ║");
+            tracing::warn!("║                                                                  ║");
+            tracing::warn!("║    freqhole config upgrade                                       ║");
+            tracing::warn!("║                                                                  ║");
+            tracing::warn!("╚══════════════════════════════════════════════════════════════════╝");
+            tracing::warn!("");
+        }
+    }
+
     tracing::info!("starting freqhole server...");
     tracing::info!("config: {}", options.config_path.display());
     tracing::info!("log level: {}", log_level);
