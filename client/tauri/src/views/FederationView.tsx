@@ -399,7 +399,9 @@ export default function FederationView() {
                       <div class="peer-meta">
                         <span>added {formatTimestamp(peer.created_at)}</span>
                         <Show when={peer.instance_name}>
-                          <span class="instance-name">{peer.instance_name}</span>
+                          <span class="instance-name">
+                            {peer.instance_name}
+                          </span>
                         </Show>
                       </div>
                       <button
@@ -525,71 +527,71 @@ export default function FederationView() {
                     </form>
                   </div>
                 }
-            >
-              <div class="status-grid">
-                <div class="status-item">
-                  <span class="label">status</span>
-                  <span
-                    class={`value ${isVerified() ? "ok" : status()?.credentials.verified === false ? "error" : "warning"}`}
-                  >
-                    {isVerified()
-                      ? "verified"
-                      : status()?.credentials.verified === false
-                        ? "invalid"
-                        : "not verified"}
-                  </span>
-                </div>
-                <div class="status-item">
-                  <span class="label">email</span>
-                  <span class="value">{status()?.credentials.email}</span>
-                </div>
-                <Show when={status()?.credentials.verification_error}>
-                  <div class="status-item full-width">
-                    <span class="label">error</span>
-                    <span class="value error">
-                      {status()?.credentials.verification_error}
+              >
+                <div class="status-grid">
+                  <div class="status-item">
+                    <span class="label">status</span>
+                    <span
+                      class={`value ${isVerified() ? "ok" : status()?.credentials.verified === false ? "error" : "warning"}`}
+                    >
+                      {isVerified()
+                        ? "verified"
+                        : status()?.credentials.verified === false
+                          ? "invalid"
+                          : "not verified"}
                     </span>
                   </div>
-                </Show>
-              </div>
-
-              {/* show sign-in form if credentials invalid */}
-              <Show when={!isVerified()}>
-                <div class="credentials-setup" style="margin-top: 1rem">
-                  <form onSubmit={handleSetup}>
-                    <div class="form-group">
-                      <label for="email">email</label>
-                      <input
-                        id="email"
-                        type="email"
-                        value={email()}
-                        onInput={(e) => setEmail(e.currentTarget.value)}
-                        placeholder="your@email.com"
-                        required
-                      />
+                  <div class="status-item">
+                    <span class="label">email</span>
+                    <span class="value">{status()?.credentials.email}</span>
+                  </div>
+                  <Show when={status()?.credentials.verification_error}>
+                    <div class="status-item full-width">
+                      <span class="label">error</span>
+                      <span class="value error">
+                        {status()?.credentials.verification_error}
+                      </span>
                     </div>
-                    <div class="form-group">
-                      <label for="password">password</label>
-                      <input
-                        id="password"
-                        type="password"
-                        value={password()}
-                        onInput={(e) => setPassword(e.currentTarget.value)}
-                        placeholder="password"
-                        required
-                      />
-                    </div>
-                    <button type="submit" disabled={setupLoading()}>
-                      {setupLoading() ? "signing in..." : "sign in"}
-                    </button>
-                    <Show when={setupError()}>
-                      <div class="form-error">{setupError()}</div>
-                    </Show>
-                  </form>
+                  </Show>
                 </div>
+
+                {/* show sign-in form if credentials invalid */}
+                <Show when={!isVerified()}>
+                  <div class="credentials-setup" style="margin-top: 1rem">
+                    <form onSubmit={handleSetup}>
+                      <div class="form-group">
+                        <label for="email">email</label>
+                        <input
+                          id="email"
+                          type="email"
+                          value={email()}
+                          onInput={(e) => setEmail(e.currentTarget.value)}
+                          placeholder="your@email.com"
+                          required
+                        />
+                      </div>
+                      <div class="form-group">
+                        <label for="password">password</label>
+                        <input
+                          id="password"
+                          type="password"
+                          value={password()}
+                          onInput={(e) => setPassword(e.currentTarget.value)}
+                          placeholder="password"
+                          required
+                        />
+                      </div>
+                      <button type="submit" disabled={setupLoading()}>
+                        {setupLoading() ? "signing in..." : "sign in"}
+                      </button>
+                      <Show when={setupError()}>
+                        <div class="form-error">{setupError()}</div>
+                      </Show>
+                    </form>
+                  </div>
+                </Show>
               </Show>
-            </Show>
-          </section>
+            </section>
           </Show>
 
           {/* sync controls - show when credentials are valid */}
