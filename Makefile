@@ -220,13 +220,22 @@ bump-version:
 		$(MAKE) bump-version NEW_VERSION=$$ver; \
 	else \
 		echo "bumping version to $(NEW_VERSION)..."; \
+		echo "  updating Cargo.toml..."; \
 		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml; \
+		echo "  updating client/midden/Cargo.toml..."; \
+		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' client/midden/Cargo.toml; \
+		echo "  updating tauri.conf.json..."; \
 		sed -i '' 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json; \
-		cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version; \
-		cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version; \
+		echo "  updating package.json files..."; \
+		(cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version); \
+		(cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version); \
+		(cd client-codegen/freqhole-api-client && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version); \
+		echo "  updating version.ts files..."; \
 		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts; \
 		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts; \
+		echo "  updating freqhole-config.toml..."; \
 		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml; \
+		echo ""; \
 		echo "version bumped to $(NEW_VERSION)"; \
 		echo ""; \
 		echo "verify changes with: git diff"; \
