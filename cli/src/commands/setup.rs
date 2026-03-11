@@ -332,6 +332,9 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         fetch_music_dir: None, // defaults to data_dir/fetch
         initial_scan_dirs,
         allowed_origins,
+        ffmpeg_path: deps.ffmpeg_path.clone(),
+        ffprobe_path: deps.ffprobe_path.clone(),
+        ytdlp_path: deps.ytdlp_path.clone(),
     };
 
     let service = SetupService::new();

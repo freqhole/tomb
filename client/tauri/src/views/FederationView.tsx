@@ -100,6 +100,9 @@ export default function FederationView() {
   const [peersLoading, setPeersLoading] = createSignal(false);
   const [removingPeerId, setRemovingPeerId] = createSignal<string | null>(null);
 
+  // copy feedback
+  const [nodeIdCopied, setNodeIdCopied] = createSignal(false);
+
   onMount(async () => {
     await loadStatus();
     await loadPeers();
@@ -297,7 +300,7 @@ export default function FederationView() {
       </Show>
 
       <Show when={!loading() && status()}>
-        {/* configuration status */}
+        {/* configuration & identity status */}
         <section class="status-section">
           <h2>configuration</h2>
           <Show
@@ -316,14 +319,14 @@ export default function FederationView() {
             }
           >
             <div class="status-grid">
-              <div class="status-item">
-                <span class="label">status</span>
-                <span class="value ok">enabled</span>
-              </div>
-              <div class="status-item">
-                <span class="label">haruspex url</span>
-                <span class="value mono">{status()?.config?.haruspex_url}</span>
-              </div>
+              <Show when={status()?.config?.haruspex_url}>
+                <div class="status-item">
+                  <span class="label">haruspex url</span>
+                  <span class="value mono">
+                    {status()?.config?.haruspex_url}
+                  </span>
+                </div>
+              </Show>
               <div class="status-item">
                 <span class="label">auto create users</span>
                 <span class="value">
@@ -334,6 +337,35 @@ export default function FederationView() {
                 <span class="label">default role</span>
                 <span class="value">{status()?.config?.default_role}</span>
               </div>
+              <div class="status-item full-width">
+                <span class="label">keypair</span>
+                <span class="value mono small">
+                  {hasKeypair()
+                    ? status()?.identity.keypair_path
+                    : "not generated"}
+                </span>
+              </div>
+              <Show when={hasKeypair()}>
+                <div class="status-item full-width">
+                  <span class="label">node id</span>
+                  <span class="value mono small">
+                    {status()?.identity.node_id}
+                  </span>
+                  <button
+                    class="secondary small copy-btn"
+                    onClick={async () => {
+                      const nodeId = status()?.identity.node_id;
+                      if (nodeId) {
+                        await navigator.clipboard.writeText(nodeId);
+                        setNodeIdCopied(true);
+                        setTimeout(() => setNodeIdCopied(false), 5000);
+                      }
+                    }}
+                  >
+                    {nodeIdCopied() ? "copied!" : "copy"}
+                  </button>
+                </div>
+              </Show>
             </div>
             <div class="section-actions">
               <button
@@ -347,40 +379,14 @@ export default function FederationView() {
           </Show>
         </section>
 
-        {/* identity status - only show when federation is enabled */}
+        {/* allowed peers - only show when federation is enabled */}
         <Show when={isConfigured()}>
-          <section class="status-section">
-            <h2>identity</h2>
-            <div class="status-grid">
-              <div class="status-item">
-                <span class="label">keypair</span>
-                <span class={`value ${hasKeypair() ? "ok" : "warning"}`}>
-                  {hasKeypair() ? "exists" : "not generated"}
-                </span>
-              </div>
-              <Show when={hasKeypair()}>
-                <div class="status-item full-width">
-                  <span class="label">node id</span>
-                  <span class="value mono small">
-                    {status()?.identity.node_id}
-                  </span>
-                </div>
-              </Show>
-              <div class="status-item full-width">
-                <span class="label">keypair path</span>
-                <span class="value mono small">
-                  {status()?.identity.keypair_path}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          {/* allow peer - manual node_id registration */}
           <section class="status-section">
             <h2>allowed peers</h2>
             <p class="help-text">
-              P2P peers that can connect to this instance. peers can be added
-              manually below or synced from haruspex.
+              list of all P2P peers that can connect to this instance. peers can
+              be added manually below
+              {hasHaruspexConfig() ? " or synced from haruspex" : ""}.
             </p>
 
             {/* peer list */}
@@ -473,19 +479,8 @@ export default function FederationView() {
             </details>
           </section>
 
-          {/* credentials status with sign-in form */}
-          <Show
-            when={hasHaruspexConfig()}
-            fallback={
-              <section class="status-section">
-                <h2>haruspex credentials</h2>
-                <div class="status-message warning">
-                  haruspex_url and haruspex_anon_key must be configured in
-                  freqhole-config.toml before you can sign in.
-                </div>
-              </section>
-            }
-          >
+          {/* credentials status with sign-in form - only show if haruspex is configured */}
+          <Show when={hasHaruspexConfig()}>
             <section class="status-section">
               <h2>haruspex credentials</h2>
               <Show

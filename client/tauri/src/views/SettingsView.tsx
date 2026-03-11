@@ -8,6 +8,18 @@ interface SaveConfigResult {
   validation_errors: string[];
 }
 
+interface ConfigUpgradeStatus {
+  needs_upgrade: boolean;
+  config_version: string;
+  binary_version: string;
+}
+
+interface ConfigUpgradeResult {
+  backup_path: string;
+  old_version: string;
+  new_version: string;
+}
+
 export default function SettingsView() {
   const [configPath, setConfigPath] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
@@ -17,12 +29,18 @@ export default function SettingsView() {
   const [editorLoading, setEditorLoading] = createSignal(true);
   const [wordWrap, setWordWrap] = createSignal(false);
 
+  // config upgrade state
+  const [upgradeStatus, setUpgradeStatus] =
+    createSignal<ConfigUpgradeStatus | null>(null);
+  const [isUpgrading, setIsUpgrading] = createSignal(false);
+
   let editorContainer: HTMLDivElement | undefined;
   let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 
   onMount(async () => {
     await loadConfigPath();
     await loadConfigContent();
+    await checkConfigUpgrade();
   });
 
   onCleanup(() => {
@@ -47,6 +65,58 @@ export default function SettingsView() {
       setSaveMessage(`failed to load config: ${e}`);
       setIsError(true);
       setEditorLoading(false);
+    }
+  }
+
+  async function checkConfigUpgrade() {
+    try {
+      const status = await invoke<ConfigUpgradeStatus>(
+        "check_config_needs_upgrade",
+      );
+      setUpgradeStatus(status);
+    } catch (e) {
+      console.error("failed to check config upgrade status:", e);
+    }
+  }
+
+  async function performUpgrade() {
+    setIsUpgrading(true);
+    setSaveMessage("");
+    setSaveErrors([]);
+    setIsError(false);
+
+    try {
+      const result = await invoke<ConfigUpgradeResult>("upgrade_config");
+
+      // success - reload config and restart server
+      setSaveMessage(
+        `config upgraded: ${result.old_version} → ${result.new_version} (backup: ${result.backup_path})`,
+      );
+      setIsError(false);
+
+      // reload editor with new config
+      await reloadConfig();
+
+      // restart server
+      try {
+        await invoke("server_restart");
+        setSaveMessage(
+          `config upgraded: ${result.old_version} → ${result.new_version} - server restarted (backup: ${result.backup_path})`,
+        );
+      } catch (e) {
+        setSaveMessage(
+          `config upgraded but failed to restart server: ${e} (backup: ${result.backup_path})`,
+        );
+        setIsError(true);
+      }
+
+      // re-check upgrade status (should now be false)
+      await checkConfigUpgrade();
+    } catch (e) {
+      setSaveMessage(`failed to upgrade config: ${e}`);
+      setIsError(true);
+    } finally {
+      setIsUpgrading(false);
     }
   }
 
@@ -149,18 +219,39 @@ export default function SettingsView() {
       </div>
 
       <div class="editor-section">
+        <Show when={upgradeStatus()?.needs_upgrade}>
+          <div class="upgrade-banner">
+            <button
+              class="warning"
+              onClick={performUpgrade}
+              disabled={isUpgrading() || isSaving()}
+              title={`upgrade config: ${upgradeStatus()?.config_version} → ${upgradeStatus()?.binary_version}`}
+            >
+              {isUpgrading() ? "upgrading..." : `update config`}
+            </button>
+            <span class="upgrade-hint">
+              new config template available! ({upgradeStatus()?.config_version}{" "}
+              → {upgradeStatus()?.binary_version})
+            </span>
+            <span class="upgrade-hint">
+              please upgrade your config file to the latest version. a backup of
+              your old config will be created.
+            </span>
+          </div>
+        </Show>
+
         <div class="editor-toolbar">
           <button
             class="primary small"
             onClick={saveConfig}
-            disabled={isSaving()}
+            disabled={isSaving() || isUpgrading()}
           >
             {isSaving() ? "saving..." : "save & restart"}
           </button>
           <button
             class="secondary small"
             onClick={reloadConfig}
-            disabled={isSaving()}
+            disabled={isSaving() || isUpgrading()}
           >
             reload
           </button>

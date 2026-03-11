@@ -396,7 +396,7 @@ button {
 
 button.primary {
   background: #ff1a9e;
-  color: #ffffff;
+  color: #eeddee;
 }
 
 button.primary:hover {
@@ -411,11 +411,45 @@ button.primary:disabled {
 
 button.secondary {
   background: #27272a;
-  color: #fafafa;
+  color: #eeddee;
 }
 
 button.secondary:hover {
   background: #3f3f46;
+}
+
+button.warning {
+  background: #422006;
+  color: #eeddee;
+  border: 1px solid #78350f;
+}
+
+button.warning:hover {
+  background: #78350f;
+}
+
+button.warning:disabled {
+  background: #27272a;
+  color: #52525b;
+  cursor: not-allowed;
+  border-color: #27272a;
+}
+
+.upgrade-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  background: #422006;
+  border: 1px solid #78350f;
+  border-radius: 8px;
+}
+
+.upgrade-banner .upgrade-hint {
+  color: #fbbf24;
+  font-size: 0.875rem;
 }
 
 .path-display {
@@ -455,6 +489,12 @@ button.secondary:hover {
 
 .error {
   color: #f87171;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.success {
+  color: #4ade80;
   font-size: 0.875rem;
   margin-top: 0.5rem;
 }
@@ -793,6 +833,18 @@ button.small {
   color: #71717a;
 }
 
+.item-meta strong {
+  color: #fff;
+}
+
+.invite-type {
+  color: #71717a;
+}
+
+.expires-text {
+  font-style: italic;
+}
+
 .item-actions {
   display: flex;
   align-items: center;
@@ -842,6 +894,14 @@ button.small {
 .invite-generator input {
   width: 60px;
   text-align: center;
+}
+
+.invite-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
 
 /* invite item improvements */
@@ -901,7 +961,7 @@ button.small {
 button.danger {
   background: #450a0a;
   border-color: #7f1d1d;
-  color: #fca5a5;
+  color: #eeddee;
 }
 
 button.danger:hover {
@@ -1460,10 +1520,10 @@ button.small {
 }
 
 button.danger {
-  background: #dc2626;
-  color: #fafafa;
+  background: #7f1d1d;
+  color: #eeddee;
 }
 
 button.danger:hover {
-  background: #b91c1c;
+  background: #991b1b;
 }

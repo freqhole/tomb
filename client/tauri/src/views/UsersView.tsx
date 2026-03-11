@@ -48,6 +48,15 @@ export default function UsersView() {
   const [invitesLoading, setInvitesLoading] = createSignal(true);
   const [error, setError] = createSignal("");
   const [generating, setGenerating] = createSignal(false);
+  const [showInactive, setShowInactive] = createSignal(false);
+  const [deactivatingAll, setDeactivatingAll] = createSignal(false);
+  const [confirmDeactivateAll, setConfirmDeactivateAll] = createSignal(false);
+  const [linkCopiedUserId, setLinkCopiedUserId] = createSignal<string | null>(
+    null,
+  );
+  const [copiedInviteCode, setCopiedInviteCode] = createSignal<string | null>(
+    null,
+  );
 
   onMount(async () => {
     await Promise.all([loadUsers(), loadInvites()]);
@@ -120,6 +129,19 @@ export default function UsersView() {
     }
   }
 
+  async function deactivateAllInvites() {
+    setDeactivatingAll(true);
+    setConfirmDeactivateAll(false);
+    try {
+      await invoke("deactivate_all_invites");
+      await loadInvites();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDeactivatingAll(false);
+    }
+  }
+
   async function updateInviteRole(code: string, role: string) {
     try {
       await invoke("update_invite_role", { code, role });
@@ -129,25 +151,53 @@ export default function UsersView() {
     }
   }
 
-  async function copyToClipboard(text: string) {
+  async function copyToClipboard(text: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(text);
+      setCopiedInviteCode(text);
+      setTimeout(() => setCopiedInviteCode(null), 5000);
+      return true;
     } catch (e) {
       console.error("copy failed:", e);
+      return false;
     }
   }
 
   async function generateAccountLink(userId: string) {
+    setError("");
     try {
       const code = await invoke<string>("generate_account_link_code", {
         userId,
       });
-      await copyToClipboard(code);
+      console.log("generated account link code:", code);
+      // show feedback immediately - code is generated and visible in invites list
+      setLinkCopiedUserId(userId);
+      setTimeout(() => setLinkCopiedUserId(null), 5000);
+      // attempt clipboard copy (may fail due to expired user gesture)
+      try {
+        await navigator.clipboard.writeText(code);
+      } catch (e) {
+        console.log("clipboard copy failed (expected after async invoke):", e);
+      }
       await loadInvites();
     } catch (e) {
       setError(String(e));
     }
   }
+
+  // filtered invites based on show/hide inactive toggle
+  const visibleInvites = () => {
+    if (showInactive()) {
+      return invites();
+    }
+    return invites().filter((i) => i.is_active && !i.used_by);
+  };
+
+  const activeInviteCount = () =>
+    invites().filter((i) => i.is_active && !i.used_by).length;
+
+  const inactiveInviteCount = () =>
+    invites().filter((i) => !i.is_active || i.used_by).length;
 
   return (
     <div class="view-content">
@@ -219,9 +269,9 @@ export default function UsersView() {
                     <button
                       class="secondary small"
                       onClick={() => generateAccountLink(user.id)}
-                      title="generate account-link code (copies to clipboard)"
+                      title="generate account-link code"
                     >
-                      + link
+                      {linkCopiedUserId() === user.id ? "created!" : "+ link"}
                     </button>
                   </div>
                 </Show>
@@ -236,7 +286,7 @@ export default function UsersView() {
         <h2 class="active">
           invite<span class="pinky">z</span>
         </h2>
-        <div class="invite-generator">
+        <div class="invite-toolbar">
           <button
             class="primary small"
             onClick={generateInvite}
@@ -244,6 +294,43 @@ export default function UsersView() {
           >
             {generating() ? "generating..." : "generate invite"}
           </button>
+          <Show when={activeInviteCount() > 0 && !confirmDeactivateAll()}>
+            <button
+              class="danger small"
+              onClick={() => setConfirmDeactivateAll(true)}
+              disabled={deactivatingAll()}
+            >
+              {deactivatingAll()
+                ? "deactivating..."
+                : `deactivate all (${activeInviteCount()})`}
+            </button>
+          </Show>
+          <Show when={confirmDeactivateAll()}>
+            <button
+              class="danger small"
+              onClick={deactivateAllInvites}
+              disabled={deactivatingAll()}
+            >
+              {deactivatingAll() ? "deactivating..." : "confirm"}
+            </button>
+            <button
+              class="secondary small"
+              onClick={() => setConfirmDeactivateAll(false)}
+            >
+              cancel
+            </button>
+          </Show>
+          <div class="flex-spacer" />
+          <Show when={inactiveInviteCount() > 0}>
+            <button
+              class={`small ${showInactive() ? "active" : "secondary"}`}
+              onClick={() => setShowInactive(!showInactive())}
+            >
+              {showInactive()
+                ? `hide inactive (${inactiveInviteCount()})`
+                : `show inactive (${inactiveInviteCount()})`}
+            </button>
+          </Show>
         </div>
 
         <Show when={invitesLoading()}>
@@ -254,10 +341,10 @@ export default function UsersView() {
         </Show>
 
         <Show when={!invitesLoading()}>
-          <Show when={invites().length === 0}>
+          <Show when={visibleInvites().length === 0}>
             <p class="empty">no invite codez yet.</p>
           </Show>
-          <For each={invites()}>
+          <For each={visibleInvites()}>
             {(invite) => (
               <div
                 class={`list-item invite-item ${!invite.is_active || invite.used_by ? "inactive" : ""}`}
@@ -271,7 +358,9 @@ export default function UsersView() {
                         class="secondary small copy-btn"
                         onClick={() => copyToClipboard(invite.code)}
                       >
-                        copy
+                        {copiedInviteCode() === invite.code
+                          ? "copied!"
+                          : "copy"}
                       </button>
                     </Show>
                   </div>
@@ -299,7 +388,9 @@ export default function UsersView() {
                     )}
                     {" · "}created {formatDateTime(invite.created_at)}
                     <Show when={invite.expires_at}>
-                      {" · "}expires {formatDateTime(invite.expires_at!)}
+                      <span class="expires-text">
+                        {" · "}expires {formatDateTime(invite.expires_at!)}
+                      </span>
                     </Show>
                   </span>
                 </div>

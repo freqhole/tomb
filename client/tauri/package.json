@@ -11,7 +11,8 @@
     "build": "vite build",
     "build:wizard": "vite build --outDir dist/wizard",
     "serve": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit"
   },
   "license": "MIT",
   "dependencies": {

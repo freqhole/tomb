@@ -626,6 +626,30 @@ impl UserService {
         }
     }
 
+    /// Deactivate all active invite codes that haven't been used
+    pub async fn deactivate_all_active_invites(
+        &self,
+        requesting_user: &User,
+    ) -> GrimoireResponse<u64> {
+        // Only admins can deactivate invite codes
+        if !requesting_user.is_admin() {
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        match self.repository.deactivate_all_active_invites().await {
+            Ok(count) => GrimoireResponse::success(
+                format!("{} invite code(s) deactivated", count),
+                count,
+            ),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to deactivate invite codes", vec![err.into()])
+            }
+        }
+    }
+
     /// Update the role granted by an active invite code
     pub async fn update_invite_role(
         &self,

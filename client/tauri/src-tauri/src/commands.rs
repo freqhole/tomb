@@ -842,6 +842,20 @@ pub async fn deactivate_invite(app_handle: tauri::AppHandle, code: String) -> Re
     }
 }
 
+/// deactivate all active invite codes
+#[tauri::command]
+pub async fn deactivate_all_invites(app_handle: tauri::AppHandle) -> Result<u64, String> {
+    ensure_initialized(&app_handle).await?;
+    let service = grimoire::users::UserService::new();
+    let root_user = get_root_user().await?;
+    let result = service.deactivate_all_active_invites(&root_user).await;
+
+    match result.data {
+        Some(count) => Ok(count),
+        None => Err(result.message),
+    }
+}
+
 /// update the role granted by an invite code
 #[tauri::command]
 pub async fn update_invite_role(
@@ -1861,4 +1875,71 @@ pub async fn remove_peer_node(
     } else {
         Err(result.message)
     }
+}
+
+// ============================================================================
+// config upgrade commands
+// ============================================================================
+
+/// result of checking if config needs upgrade
+#[derive(Debug, Serialize)]
+pub struct ConfigUpgradeStatus {
+    /// true if config version differs from binary version
+    pub needs_upgrade: bool,
+    /// version in config file
+    pub config_version: String,
+    /// version of this binary
+    pub binary_version: String,
+}
+
+/// check if config needs upgrade (version mismatch)
+#[tauri::command]
+pub fn check_config_needs_upgrade(
+    app_handle: tauri::AppHandle,
+) -> Result<ConfigUpgradeStatus, String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    let needs_upgrade =
+        grimoire::config::config_needs_upgrade(&config_path).map_err(|e| e.to_string())?;
+
+    // get versions for display
+    let binary_version = grimoire::config::get_binary_version().to_string();
+    let config_version = grimoire::config::GrimoireConfig::load(&config_path)
+        .ok()
+        .and_then(|c| c.server.map(|s| s.version))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(ConfigUpgradeStatus {
+        needs_upgrade,
+        config_version,
+        binary_version,
+    })
+}
+
+/// result of config upgrade operation
+#[derive(Debug, Serialize)]
+pub struct ConfigUpgradeResult {
+    /// path to backup of original config
+    pub backup_path: String,
+    /// old version from user's config
+    pub old_version: String,
+    /// new version written to upgraded config
+    pub new_version: String,
+}
+
+/// upgrade config file to current version
+/// creates backup first, then merges user values into fresh template
+#[tauri::command]
+pub fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResult, String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    let result = grimoire::config::upgrade_config(&config_path).map_err(|e| e.to_string())?;
+
+    Ok(ConfigUpgradeResult {
+        backup_path: result.backup_path.display().to_string(),
+        old_version: result.old_version,
+        new_version: result.new_version,
+    })
 }

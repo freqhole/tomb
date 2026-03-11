@@ -142,7 +142,7 @@ level = "info"
 
 # REQUIRED: server display name
 name = "freqhole"
-# REQUIRED: server version (semantic versioning recommended)
+# REQUIRED: server version (you probably should never edit this)
 version = "0.1.4"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
@@ -264,8 +264,8 @@ allowed_origins = ["http://localhost:1420", "http://localhost:5173"]
 # REQUIRED: enable serving static files (HTML, JS, CSS, images, etc.)
 enabled = false
 # REQUIRED when enabled=true: directory to serve from (must be absolute path)
-# OPTIONAL when enabled=false (can omit)
-# directory = "/path/to/static"
+# OPTIONAL when enabled=false (can omit or leave as empty string)
+directory = ""
 
 # ============================================================================
 # CORS (Cross-Origin Resource Sharing) configuration

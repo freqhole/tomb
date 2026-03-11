@@ -481,6 +481,24 @@ impl UserRepository {
         Ok(())
     }
 
+    /// Deactivate all active invite codes that haven't been used
+    pub async fn deactivate_all_active_invites(&self) -> AuthResult<u64> {
+        let pool = database::connect().await?;
+
+        let rows_affected = sqlx::query!(
+            r#"
+            UPDATE invite_codez
+            SET is_active = 0
+            WHERE is_active = 1 AND used_by_id IS NULL
+            "#
+        )
+        .execute(&pool)
+        .await?
+        .rows_affected();
+
+        Ok(rows_affected)
+    }
+
     /// Update the role granted by an invite code
     pub async fn update_invite_role(&self, code: &str, role: &UserRole) -> AuthResult<()> {
         let pool = database::connect().await?;

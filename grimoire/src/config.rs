@@ -977,6 +977,214 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
     Ok(blob.id)
 }
 
+// ============================================================================
+// config upgrade / migration
+// ============================================================================
+
+/// get the binary version (from Cargo.toml at compile time)
+pub fn get_binary_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// result of a config upgrade operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigUpgradeResult {
+    /// path to the backup copy of the original config
+    pub backup_path: PathBuf,
+    /// old version from user's config
+    pub old_version: String,
+    /// new version written to upgraded config
+    pub new_version: String,
+}
+
+/// check if config needs upgrade (version mismatch)
+///
+/// returns true if server.version in config differs from binary version
+pub fn config_needs_upgrade(config_path: &Path) -> Result<bool, ConfigError> {
+    let content = std::fs::read_to_string(config_path).map_err(|e| ConfigError::FileNotFound {
+        path: config_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+
+    let doc = content
+        .parse::<DocumentMut>()
+        .map_err(|e| ConfigError::ParseError(format!("failed to parse config: {}", e)))?;
+
+    let config_version = doc
+        .get("server")
+        .and_then(|s| s.get("version"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("0.0.0");
+
+    Ok(config_version != get_binary_version())
+}
+
+/// upgrade config by merging user values into fresh template
+///
+/// 1. creates backup of original config
+/// 2. parses user config to extract values
+/// 3. merges values into fresh template (preserves template comments)
+/// 4. writes upgraded config
+///
+/// keys that exist in user config but not in template are silently dropped.
+/// server.version is always set to binary version (not migrated from user config).
+pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigError> {
+    // read user's current config
+    let user_content =
+        std::fs::read_to_string(config_path).map_err(|e| ConfigError::FileNotFound {
+            path: config_path.display().to_string(),
+            error: e.to_string(),
+        })?;
+
+    // parse user config to get current version
+    let user_doc = user_content
+        .parse::<DocumentMut>()
+        .map_err(|e| ConfigError::ParseError(format!("failed to parse user config: {}", e)))?;
+
+    let old_version = user_doc
+        .get("server")
+        .and_then(|s| s.get("version"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("0.0.0")
+        .to_string();
+
+    // parse user config as toml::Value for easy traversal
+    let user_values: toml::Value = toml::from_str(&user_content)
+        .map_err(|e| ConfigError::ParseError(format!("failed to parse user config: {}", e)))?;
+
+    // parse fresh template (preserves comments)
+    let mut template_doc = CONFIG_TEMPLATE
+        .parse::<DocumentMut>()
+        .expect("embedded config template should be valid TOML");
+
+    // merge user values into template
+    if let toml::Value::Table(user_table) = user_values {
+        merge_values_into_doc(&mut template_doc, &user_table, "");
+    }
+
+    // always set server.version from binary (don't keep user's old version)
+    if let Some(server) = template_doc.get_mut("server") {
+        if let Some(server_table) = server.as_table_mut() {
+            server_table["version"] = value(get_binary_version());
+        }
+    }
+
+    // create backup with timestamp
+    let now = time::OffsetDateTime::now_utc();
+    let timestamp = format!(
+        "{:04}{:02}{:02}_{:02}{:02}{:02}",
+        now.year(),
+        now.month() as u8,
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    );
+    let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
+    std::fs::copy(config_path, &backup_path).map_err(|e| {
+        ConfigError::CreateFailed(format!("failed to create backup: {}", e))
+    })?;
+
+    // write upgraded config
+    std::fs::write(config_path, template_doc.to_string()).map_err(|e| {
+        ConfigError::CreateFailed(format!("failed to write upgraded config: {}", e))
+    })?;
+
+    Ok(ConfigUpgradeResult {
+        backup_path,
+        old_version,
+        new_version: get_binary_version().to_string(),
+    })
+}
+
+/// recursively merge user values into template document
+///
+/// walks the user's toml::Table and for each key that exists in the template,
+/// sets the user's value. nested tables are handled recursively.
+fn merge_values_into_doc(doc: &mut DocumentMut, user_table: &toml::map::Map<String, toml::Value>, path_prefix: &str) {
+    for (key, user_value) in user_table {
+        let full_path = if path_prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{}.{}", path_prefix, key)
+        };
+
+        // skip server.version - always set from binary
+        if full_path == "server.version" {
+            continue;
+        }
+
+        match user_value {
+            toml::Value::Table(nested_table) => {
+                // check if this table exists in template
+                let template_has_table = get_item_at_path(doc, &full_path)
+                    .map(|item| item.is_table() || item.is_inline_table())
+                    .unwrap_or(false);
+
+                if template_has_table {
+                    // recurse into nested table
+                    merge_values_into_doc(doc, nested_table, &full_path);
+                }
+                // if template doesn't have this table, skip it (deprecated section)
+            }
+            _ => {
+                // check if key exists in template before setting
+                if get_item_at_path(doc, &full_path).is_some() {
+                    let toml_edit_value = toml_value_to_edit_value(user_value);
+                    let _ = set_nested_value(doc, &full_path, toml_edit_value);
+                }
+                // if key doesn't exist in template, skip it (deprecated key)
+            }
+        }
+    }
+}
+
+/// get item at dot-separated path in document
+fn get_item_at_path<'a>(doc: &'a DocumentMut, path: &str) -> Option<&'a toml_edit::Item> {
+    let parts: Vec<&str> = path.split('.').collect();
+    let mut current: &toml_edit::Item = doc.as_item();
+
+    for part in parts {
+        match current {
+            toml_edit::Item::Table(t) => {
+                current = t.get(part)?;
+            }
+            _ => return None,
+        }
+    }
+
+    Some(current)
+}
+
+/// convert toml::Value to toml_edit::Value
+fn toml_value_to_edit_value(v: &toml::Value) -> toml_edit::Value {
+    match v {
+        toml::Value::String(s) => toml_edit::Value::from(s.as_str()),
+        toml::Value::Integer(i) => toml_edit::Value::from(*i),
+        toml::Value::Float(f) => toml_edit::Value::from(*f),
+        toml::Value::Boolean(b) => toml_edit::Value::from(*b),
+        toml::Value::Datetime(dt) => {
+            // format datetime back to string and parse as toml_edit datetime
+            let dt_str = dt.to_string();
+            dt_str.parse().unwrap_or_else(|_| toml_edit::Value::from(dt_str))
+        }
+        toml::Value::Array(arr) => {
+            let mut edit_arr = toml_edit::Array::new();
+            for item in arr {
+                edit_arr.push(toml_value_to_edit_value(item));
+            }
+            toml_edit::Value::Array(edit_arr)
+        }
+        toml::Value::Table(t) => {
+            let mut edit_table = toml_edit::InlineTable::new();
+            for (k, val) in t {
+                edit_table.insert(k, toml_value_to_edit_value(val));
+            }
+            toml_edit::Value::InlineTable(edit_table)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
