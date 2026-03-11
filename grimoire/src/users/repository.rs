@@ -61,6 +61,32 @@ impl From<UserPeerNodeRow> for UserPeerNode {
     }
 }
 
+/// Database row struct for peer nodes joined with user info
+#[derive(Debug)]
+struct PeerNodeWithUserRow {
+    user_id: String,
+    node_id: String,
+    instance_name: Option<String>,
+    created_at: i64,
+    last_seen_at: Option<i64>,
+    username: String,
+    role: String,
+}
+
+impl From<PeerNodeWithUserRow> for PeerNodeWithUser {
+    fn from(row: PeerNodeWithUserRow) -> Self {
+        PeerNodeWithUser {
+            user_id: row.user_id,
+            node_id: row.node_id,
+            instance_name: row.instance_name,
+            created_at: row.created_at,
+            last_seen_at: row.last_seen_at,
+            username: row.username,
+            role: row.role,
+        }
+    }
+}
+
 /// Database row struct for invite_codez table
 #[derive(Debug)]
 struct InviteCodeRow {
@@ -743,6 +769,33 @@ impl UserRepository {
         .await?;
 
         Ok(())
+    }
+
+    /// Get all peer nodes across all users with username info
+    pub async fn get_all_peer_nodes(&self) -> AuthResult<Vec<PeerNodeWithUser>> {
+        let pool = database::connect().await?;
+
+        let rows = sqlx::query_as!(
+            PeerNodeWithUserRow,
+            r#"
+            SELECT 
+                p.user_id as "user_id!",
+                p.node_id as "node_id!",
+                p.instance_name,
+                p.created_at as "created_at!",
+                p.last_seen_at,
+                u.username as "username!",
+                u.role as "role!"
+            FROM user_peer_nodez p
+            INNER JOIN user_accountz u ON p.user_id = u.id
+            WHERE u.deleted_at IS NULL
+            ORDER BY p.created_at DESC
+            "#
+        )
+        .fetch_all(&pool)
+        .await?;
+
+        Ok(rows.into_iter().map(PeerNodeWithUser::from).collect())
     }
 }
 

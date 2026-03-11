@@ -143,6 +143,18 @@ pub struct UserPeerNode {
     pub last_seen_at: Option<i64>,
 }
 
+/// Peer node with associated user information for listing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerNodeWithUser {
+    pub user_id: String,
+    pub node_id: String,
+    pub instance_name: Option<String>,
+    pub created_at: i64,
+    pub last_seen_at: Option<i64>,
+    pub username: String,
+    pub role: String,
+}
+
 impl User {
     /// Check if this user has admin privileges
     pub fn is_admin(&self) -> bool {

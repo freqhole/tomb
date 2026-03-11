@@ -35,18 +35,18 @@ all: info
 build-mac-arm:
 	@echo "building freqhole CLI for macOS arm64..."
 	cargo build --package cli --release --target $(MAC_ARM_TARGET)
-	@mkdir -p $(BUILD_DIR)
-	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_ARM_TARGET)
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_ARM_TARGET)"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"
 
 # macOS x86_64 CLI binary (uses vendored OpenSSL for cross-compile from arm)
 .PHONY: build-mac-intel
 build-mac-intel:
 	@echo "building freqhole CLI for macOS x86_64 (vendored OpenSSL)..."
 	OPENSSL_STATIC=1 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --features grimoire/vendored-openssl
-	@mkdir -p $(BUILD_DIR)
-	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_INTEL_TARGET)
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(MAC_INTEL_TARGET)"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"
 
 # Linux x86_64 CLI binary (via Docker)
 .PHONY: build-linux
@@ -56,10 +56,10 @@ build-linux:
 	docker build -f Dockerfile.build -t freqhole-linux-builder . \
 		--platform linux/amd64 \
 		--build-arg TARGET_ARCH=$(LINUX_TARGET)
-	@mkdir -p $(BUILD_DIR)
-	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-linux-builder \
-		sh -c "cp /app/target/$(LINUX_TARGET)/release/freqhole /output/freqhole-$(VERSION)-$(LINUX_TARGET)"
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(LINUX_TARGET)"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-linux-builder \
+		sh -c "cp /app/target/$(LINUX_TARGET)/release/freqhole /output/freqhole-$(LINUX_TARGET)"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(LINUX_TARGET)"
 
 # Raspberry Pi aarch64 CLI binary (via Docker)
 .PHONY: build-pi
@@ -67,10 +67,10 @@ build-pi:
 	@echo "building freqhole CLI for Raspberry Pi (aarch64) using Docker..."
 	$(MAKE) db-prepare
 	docker build -f Dockerfile.build -t freqhole-pi-builder .
-	@mkdir -p $(BUILD_DIR)
-	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-pi-builder \
-		sh -c "cp /app/target/$(PI_TARGET)/release/freqhole /output/freqhole-$(VERSION)-$(PI_TARGET)"
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(PI_TARGET)"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi-builder \
+		sh -c "cp /app/target/$(PI_TARGET)/release/freqhole /output/freqhole-$(PI_TARGET)"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(PI_TARGET)"
 
 # Raspberry Pi 32-bit CLI binary (via Docker, webauthn disabled)
 .PHONY: build-pi32
@@ -81,10 +81,10 @@ build-pi32:
 		--build-arg BASE_IMAGE=debian:bullseye \
 		--build-arg TARGET_ARCH=$(PI32_TARGET) \
 		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
-	@mkdir -p $(BUILD_DIR)
-	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-pi32-builder \
-		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/freqhole-$(VERSION)-$(PI32_TARGET)"
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-$(PI32_TARGET)"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi32-builder \
+		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/freqhole-$(PI32_TARGET)"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(PI32_TARGET)"
 
 # build all targets
 .PHONY: build-all
@@ -103,8 +103,8 @@ build-all:
 	$(MAKE) build-tauri-linux-intel
 	$(MAKE) build-tauri-linux-arm64
 	@echo ""
-	@echo "all targets built! artifacts in $(BUILD_DIR)/:"
-	@find $(BUILD_DIR) -type f | sort | sed 's|^|  |'
+	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
+	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'
 
 .PHONY: clean
 clean:
@@ -116,7 +116,7 @@ info:
 	@echo "FREQHOLE release build"
 	@echo "======================"
 	@echo "version: $(VERSION)"
-	@echo "output:  $(BUILD_DIR)/"
+	@echo "output:  $(BUILD_DIR)/$(VERSION)/"
 	@echo ""
 	@echo "CLI binaries:"
 	@echo "  make build-mac-arm   - macOS arm64"
@@ -164,9 +164,9 @@ build-tauri-mac-arm:
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS arm64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin
-	@mkdir -p $(BUILD_DIR)
-	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/
-	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_aarch64.dmg"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg"
 
 build-tauri-mac-intel:
 	@echo "building freqhole CLI for bundling (x86_64, vendored OpenSSL)..."
@@ -177,9 +177,9 @@ build-tauri-mac-intel:
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS x86_64..."
 	cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin
-	@mkdir -p $(BUILD_DIR)
-	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/
-	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_x64.dmg"
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg"
 
 build-tauri-linux-intel:
 	@echo "building Tauri app for Linux x86_64 using Docker..."
@@ -187,12 +187,12 @@ build-tauri-linux-intel:
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-amd64 --platform linux/amd64 \
 		--build-arg TARGET_ARCH=x86_64-unknown-linux-gnu \
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
-	@mkdir -p $(BUILD_DIR)
-	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-tauri-builder-amd64 \
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-tauri-builder-amd64 \
 		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
 		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
-	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_amd64.deb"
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-1.x86_64.rpm"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_amd64.deb"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(VERSION)-1.x86_64.rpm"
 
 build-tauri-linux-arm64:
 	@echo "building Tauri app for Linux aarch64 using Docker..."
@@ -200,12 +200,12 @@ build-tauri-linux-arm64:
 	docker build -f Dockerfile.tauri -t freqhole-tauri-builder-arm64 --platform linux/arm64 \
 		--build-arg TARGET_ARCH=aarch64-unknown-linux-gnu \
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
-	@mkdir -p $(BUILD_DIR)
-	docker run --rm -v $(PWD)/$(BUILD_DIR):/output freqhole-tauri-builder-arm64 \
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-tauri-builder-arm64 \
 		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
 		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
-	@echo "built: $(BUILD_DIR)/freqhole_$(VERSION)_arm64.deb"
-	@echo "built: $(BUILD_DIR)/freqhole-$(VERSION)-1.aarch64.rpm"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(VERSION)-1.aarch64.rpm"
 
 # version management
 .PHONY: bump-version

@@ -184,6 +184,8 @@ pub fn run() {
             commands::federation_logout,
             commands::toggle_federation_enabled,
             commands::allow_peer,
+            commands::list_peer_nodes,
+            commands::remove_peer_node,
             sidecar::server_status,
             sidecar::server_start,
             sidecar::server_stop,

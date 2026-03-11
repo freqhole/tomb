@@ -25,6 +25,7 @@ pub use models::{
     InviteCodeInfoResponse,
     InviteCodeType,
     InviteCodesGeneratedResponse,
+    PeerNodeWithUser,
     RedeemInviteRequest,
     UpdateUserRequest,
     User,

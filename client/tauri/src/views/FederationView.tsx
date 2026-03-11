@@ -1,9 +1,10 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onMount, Show, For } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 
 interface FederationConfigStatus {
   enabled: boolean;
   haruspex_url: string;
+  haruspex_anon_key: string;
   auto_create_users: boolean;
   default_role: string;
 }
@@ -54,6 +55,16 @@ interface AllowPeerResult {
   created_user: boolean;
 }
 
+interface PeerNodeInfo {
+  user_id: string;
+  node_id: string;
+  instance_name: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  username: string;
+  role: string;
+}
+
 export default function FederationView() {
   const [status, setStatus] = createSignal<FederationStatus | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -83,11 +94,15 @@ export default function FederationView() {
   const [peerUsername, setPeerUsername] = createSignal("");
   const [peerRole, setPeerRole] = createSignal("viewer");
   const [allowPeerLoading, setAllowPeerLoading] = createSignal(false);
-  const [allowPeerResult, setAllowPeerResult] =
-    createSignal<AllowPeerResult | null>(null);
+
+  // peer list
+  const [peerNodes, setPeerNodes] = createSignal<PeerNodeInfo[]>([]);
+  const [peersLoading, setPeersLoading] = createSignal(false);
+  const [removingPeerId, setRemovingPeerId] = createSignal<string | null>(null);
 
   onMount(async () => {
     await loadStatus();
+    await loadPeers();
   });
 
   async function loadStatus() {
@@ -179,6 +194,7 @@ export default function FederationView() {
             : {
                 enabled: newValue,
                 haruspex_url: "",
+                haruspex_anon_key: "",
                 auto_create_users: false,
                 default_role: "guest",
               },
@@ -196,7 +212,6 @@ export default function FederationView() {
     setAllowPeerLoading(true);
     setError("");
     setSuccess("");
-    setAllowPeerResult(null);
 
     try {
       const result = await invoke<AllowPeerResult>("allow_peer", {
@@ -204,15 +219,15 @@ export default function FederationView() {
         username: peerUsername() || undefined,
         role: peerRole(),
       });
-      setAllowPeerResult(result);
       setSuccess(
         result.created_user
           ? `peer allowed: created user "${result.username}"`
           : `peer allowed: linked to existing user "${result.username}"`,
       );
-      // clear form
+      // clear form and refresh peer list
       setPeerNodeId("");
       setPeerUsername("");
+      await loadPeers();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -220,7 +235,47 @@ export default function FederationView() {
     }
   }
 
+  async function loadPeers() {
+    setPeersLoading(true);
+    try {
+      const peers = await invoke<PeerNodeInfo[]>("list_peer_nodes");
+      setPeerNodes(peers);
+    } catch (e) {
+      console.error("failed to load peers:", e);
+    } finally {
+      setPeersLoading(false);
+    }
+  }
+
+  async function removePeer(userId: string, nodeId: string) {
+    setRemovingPeerId(nodeId);
+    setError("");
+
+    try {
+      await invoke("remove_peer_node", { userId, nodeId });
+      await loadPeers();
+      setSuccess("peer removed");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemovingPeerId(null);
+    }
+  }
+
+  function formatNodeId(nodeId: string): string {
+    if (nodeId.length <= 16) return nodeId;
+    return `${nodeId.slice(0, 8)}...${nodeId.slice(-8)}`;
+  }
+
+  function formatTimestamp(ts: number): string {
+    return new Date(ts * 1000).toLocaleDateString();
+  }
+
   const isConfigured = () => status()?.config?.enabled ?? false;
+  const hasHaruspexConfig = () => {
+    const cfg = status()?.config;
+    return cfg?.haruspex_url && cfg?.haruspex_anon_key;
+  };
   const hasCredentials = () => status()?.credentials.stored ?? false;
   const isVerified = () => status()?.credentials.verified === true;
   const hasKeypair = () => status()?.identity.keypair_exists ?? false;
@@ -322,107 +377,154 @@ export default function FederationView() {
 
           {/* allow peer - manual node_id registration */}
           <section class="status-section">
-            <h2>allow peer</h2>
+            <h2>allowed peers</h2>
             <p class="help-text">
-              manually allow a P2P peer by their node_id. creates a user if
-              needed.
+              P2P peers that can connect to this instance. peers can be added
+              manually below or synced from haruspex.
             </p>
-            <form onSubmit={handleAllowPeer}>
-              <div class="form-group">
-                <label for="peer-node-id">node_id</label>
-                <input
-                  id="peer-node-id"
-                  type="text"
-                  value={peerNodeId()}
-                  onInput={(e) => setPeerNodeId(e.currentTarget.value)}
-                  placeholder="64-character hex node id"
-                  pattern="[0-9a-fA-F]{64}"
-                  required
-                />
-              </div>
-              <div class="form-group">
-                <label for="peer-username">username (optional)</label>
-                <input
-                  id="peer-username"
-                  type="text"
-                  value={peerUsername()}
-                  onInput={(e) => setPeerUsername(e.currentTarget.value)}
-                  placeholder="auto-generated if empty"
-                />
-              </div>
-              <div class="form-group">
-                <label for="peer-role">role</label>
-                <select
-                  id="peer-role"
-                  value={peerRole()}
-                  onChange={(e) => setPeerRole(e.currentTarget.value)}
-                >
-                  <option value="viewer">viewer (read-only)</option>
-                  <option value="member">member (can upload)</option>
-                  <option value="admin">admin (full access)</option>
-                </select>
-              </div>
-              <button type="submit" disabled={allowPeerLoading()}>
-                {allowPeerLoading() ? "allowing..." : "allow peer"}
-              </button>
-            </form>
-            <Show when={allowPeerResult()}>
-              <div class="sync-result" style="margin-top: 1rem">
-                <div class="stat">
-                  <span class="label">user</span>
-                  <span class="num">{allowPeerResult()?.username}</span>
-                </div>
-                <div class="stat">
-                  <span class="label">
-                    {allowPeerResult()?.created_user ? "created" : "linked"}
-                  </span>
-                </div>
+
+            {/* peer list */}
+            <Show when={peerNodes().length > 0}>
+              <div class="peer-list">
+                <For each={peerNodes()}>
+                  {(peer) => (
+                    <div class="peer-item">
+                      <div class="peer-info">
+                        <span class="peer-username">{peer.username}</span>
+                        <span class="peer-role">{peer.role}</span>
+                      </div>
+                      <div class="peer-node-id" title={peer.node_id}>
+                        {formatNodeId(peer.node_id)}
+                      </div>
+                      <div class="peer-meta">
+                        <span>added {formatTimestamp(peer.created_at)}</span>
+                        <Show when={peer.instance_name}>
+                          <span class="instance-name">{peer.instance_name}</span>
+                        </Show>
+                      </div>
+                      <button
+                        class="peer-remove"
+                        onClick={() => removePeer(peer.user_id, peer.node_id)}
+                        disabled={removingPeerId() === peer.node_id}
+                        title="remove peer"
+                      >
+                        {removingPeerId() === peer.node_id ? "..." : "×"}
+                      </button>
+                    </div>
+                  )}
+                </For>
               </div>
             </Show>
+
+            <Show when={peerNodes().length === 0 && !peersLoading()}>
+              <div class="status-message" style="margin-bottom: 1rem">
+                no peers allowed yet
+              </div>
+            </Show>
+
+            {/* add peer form */}
+            <details class="add-peer-form">
+              <summary>add peer manually</summary>
+              <form onSubmit={handleAllowPeer}>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="peer-node-id">node_id</label>
+                    <input
+                      id="peer-node-id"
+                      type="text"
+                      value={peerNodeId()}
+                      onInput={(e) => setPeerNodeId(e.currentTarget.value)}
+                      placeholder="64-character hex node id"
+                      pattern="[0-9a-fA-F]{64}"
+                      required
+                    />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="peer-username">username (optional)</label>
+                    <input
+                      id="peer-username"
+                      type="text"
+                      value={peerUsername()}
+                      onInput={(e) => setPeerUsername(e.currentTarget.value)}
+                      placeholder="auto-generated if empty"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="peer-role">role</label>
+                    <select
+                      id="peer-role"
+                      value={peerRole()}
+                      onChange={(e) => setPeerRole(e.currentTarget.value)}
+                    >
+                      <option value="viewer">viewer</option>
+                      <option value="member">member</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </div>
+                </div>
+                <button type="submit" disabled={allowPeerLoading()}>
+                  {allowPeerLoading() ? "adding..." : "add peer"}
+                </button>
+              </form>
+            </details>
           </section>
 
           {/* credentials status with sign-in form */}
-          <section class="status-section">
-            <h2>haruspex credentials</h2>
-            <Show
-              when={hasCredentials()}
-              fallback={
-                <div class="credentials-setup">
-                  <div class="status-message" style="margin-bottom: 1rem">
-                    no credentials stored. sign in to connect to haruspex.
-                  </div>
-                  <form onSubmit={handleSetup}>
-                    <div class="form-group">
-                      <label for="email">email</label>
-                      <input
-                        id="email"
-                        type="email"
-                        value={email()}
-                        onInput={(e) => setEmail(e.currentTarget.value)}
-                        placeholder="your@email.com"
-                        required
-                      />
-                    </div>
-                    <div class="form-group">
-                      <label for="password">password</label>
-                      <input
-                        id="password"
-                        type="password"
-                        value={password()}
-                        onInput={(e) => setPassword(e.currentTarget.value)}
-                        placeholder="password"
-                        required
-                      />
-                    </div>
-                    <button type="submit" disabled={setupLoading()}>
-                      {setupLoading() ? "signing in..." : "sign in"}
-                    </button>
-                    <Show when={setupError()}>
-                      <div class="form-error">{setupError()}</div>
-                    </Show>
-                  </form>
+          <Show
+            when={hasHaruspexConfig()}
+            fallback={
+              <section class="status-section">
+                <h2>haruspex credentials</h2>
+                <div class="status-message warning">
+                  haruspex_url and haruspex_anon_key must be configured in
+                  freqhole-config.toml before you can sign in.
                 </div>
-              }
+              </section>
+            }
+          >
+            <section class="status-section">
+              <h2>haruspex credentials</h2>
+              <Show
+                when={hasCredentials()}
+                fallback={
+                  <div class="credentials-setup">
+                    <div class="status-message" style="margin-bottom: 1rem">
+                      no credentials stored. sign in to connect to haruspex.
+                    </div>
+                    <form onSubmit={handleSetup}>
+                      <div class="form-group">
+                        <label for="email">email</label>
+                        <input
+                          id="email"
+                          type="email"
+                          value={email()}
+                          onInput={(e) => setEmail(e.currentTarget.value)}
+                          placeholder="your@email.com"
+                          required
+                        />
+                      </div>
+                      <div class="form-group">
+                        <label for="password">password</label>
+                        <input
+                          id="password"
+                          type="password"
+                          value={password()}
+                          onInput={(e) => setPassword(e.currentTarget.value)}
+                          placeholder="password"
+                          required
+                        />
+                      </div>
+                      <button type="submit" disabled={setupLoading()}>
+                        {setupLoading() ? "signing in..." : "sign in"}
+                      </button>
+                      <Show when={setupError()}>
+                        <div class="form-error">{setupError()}</div>
+                      </Show>
+                    </form>
+                  </div>
+                }
             >
               <div class="status-grid">
                 <div class="status-item">
@@ -488,6 +590,7 @@ export default function FederationView() {
               </Show>
             </Show>
           </section>
+          </Show>
 
           {/* sync controls - show when credentials are valid */}
           <Show when={isVerified()}>

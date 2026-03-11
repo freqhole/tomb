@@ -26,12 +26,17 @@ impl UserService {
     ///
     /// This bypasses the normal permission check that prevents creating root users
     /// through registration. Only use this during initial setup when no root user exists.
+    /// If the root user already exists with the expected username, returns that user.
     pub async fn bootstrap_root_user(&self, username: &str) -> GrimoireResponse<User> {
         // Check if a root user already exists
         match self.repository.find_first_root_user().await {
             Ok(Some(existing)) => {
+                // if it's the same username we want, just return it (idempotent)
+                if existing.username == username {
+                    return GrimoireResponse::success("Root user already exists", existing);
+                }
                 return GrimoireResponse::failure(
-                    "Root user already exists",
+                    "Root user already exists with different username",
                     vec![AuthError::UserAlreadyExists {
                         username: existing.username,
                     }
@@ -52,9 +57,10 @@ impl UserService {
             return GrimoireResponse::failure("Invalid username", vec![err.into()]);
         }
 
-        // Check if username already exists
+        // Check if username already exists (but not as root - that was checked above)
         match self.repository.find_user_by_username(username).await {
             Ok(Some(_)) => {
+                // username exists but not as root - this is a conflict
                 return GrimoireResponse::failure(
                     "Username already exists",
                     vec![AuthError::UserAlreadyExists {
@@ -897,6 +903,14 @@ impl UserService {
         match self.repository.touch_peer_node(node_id).await {
             Ok(()) => GrimoireResponse::success("Peer node touched", ()),
             Err(err) => GrimoireResponse::failure("Failed to touch peer node", vec![err.into()]),
+        }
+    }
+
+    /// Get all peer nodes across all users
+    pub async fn get_all_peer_nodes(&self) -> GrimoireResponse<Vec<PeerNodeWithUser>> {
+        match self.repository.get_all_peer_nodes().await {
+            Ok(nodes) => GrimoireResponse::success("Peer nodes retrieved", nodes),
+            Err(err) => GrimoireResponse::failure("Failed to get peer nodes", vec![err.into()]),
         }
     }
 

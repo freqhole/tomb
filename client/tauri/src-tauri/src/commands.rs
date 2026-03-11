@@ -1498,6 +1498,7 @@ pub async fn remove_scanned_directory(path: String) -> Result<(), String> {
 pub struct FederationConfigStatus {
     pub enabled: bool,
     pub haruspex_url: String,
+    pub haruspex_anon_key: String,
     pub auto_create_users: bool,
     pub default_role: String,
 }
@@ -1661,12 +1662,14 @@ fn read_federation_config_from_file(
         Some(f) if !f.enabled => Ok(Some(FederationConfigStatus {
             enabled: false,
             haruspex_url: String::new(),
+            haruspex_anon_key: String::new(),
             auto_create_users: false,
             default_role: String::new(),
         })),
         Some(f) => Ok(Some(FederationConfigStatus {
             enabled: true,
-            haruspex_url: f.haruspex_url,
+            haruspex_url: f.haruspex_url.clone(),
+            haruspex_anon_key: f.haruspex_anon_key.clone(),
             auto_create_users: f.auto_create_users,
             default_role: f.default_role,
         })),
@@ -1804,4 +1807,60 @@ pub async fn allow_peer(
         node_id,
         created_user,
     })
+}
+
+/// peer node with user info for listing
+#[derive(Debug, Serialize)]
+pub struct PeerNodeInfo {
+    pub user_id: String,
+    pub node_id: String,
+    pub instance_name: Option<String>,
+    pub created_at: i64,
+    pub last_seen_at: Option<i64>,
+    pub username: String,
+    pub role: String,
+}
+
+/// list all peer nodes across all users
+#[tauri::command]
+pub async fn list_peer_nodes(app_handle: tauri::AppHandle) -> Result<Vec<PeerNodeInfo>, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let service = grimoire::users::UserService::new();
+    let result = service.get_all_peer_nodes().await;
+
+    match result.data {
+        Some(nodes) => Ok(nodes
+            .into_iter()
+            .map(|n| PeerNodeInfo {
+                user_id: n.user_id,
+                node_id: n.node_id,
+                instance_name: n.instance_name,
+                created_at: n.created_at,
+                last_seen_at: n.last_seen_at,
+                username: n.username,
+                role: n.role,
+            })
+            .collect()),
+        None => Err(result.message),
+    }
+}
+
+/// remove a peer node by user_id and node_id
+#[tauri::command]
+pub async fn remove_peer_node(
+    app_handle: tauri::AppHandle,
+    user_id: String,
+    node_id: String,
+) -> Result<(), String> {
+    ensure_initialized(&app_handle).await?;
+
+    let service = grimoire::users::UserService::new();
+    let result = service.remove_peer_node(&user_id, &node_id).await;
+
+    if result.data.is_some() {
+        Ok(())
+    } else {
+        Err(result.message)
+    }
 }
