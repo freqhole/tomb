@@ -155,7 +155,7 @@ level = "info"
 # REQUIRED: server display name
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.4"
+version = "0.1.5"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
