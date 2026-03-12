@@ -220,6 +220,7 @@ export function PlayerBar(props: PlayerBarProps) {
               imageUrl={props.song?.thumbnailUrl}
               alt={props.song?.title || "song artwork"}
               domainType="song"
+              thumbnailSize={50}
               class="w-10 h-10 rounded object-cover"
             />
             <Show when={props.onImageClick && props.song}>
@@ -429,6 +430,7 @@ export function PlayerBar(props: PlayerBarProps) {
               imageUrl={props.song?.thumbnailUrl}
               alt={props.song?.title || "song artwork"}
               domainType="song"
+              thumbnailSize={50}
               class="w-12 h-12 rounded object-cover"
             />
             <Show when={props.onImageClick && props.song}>

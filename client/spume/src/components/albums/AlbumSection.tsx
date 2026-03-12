@@ -117,6 +117,7 @@ function AlbumHeader(props: {
               alt={`${props.albumTitle} artwork`}
               class="w-full h-full object-cover"
               domainType="album"
+              thumbnailSize={200}
             />
           </button>
           {/* info + actions stacked */}
@@ -184,6 +185,7 @@ function AlbumHeader(props: {
             alt={`${props.albumTitle} artwork`}
             class="w-full h-full object-cover"
             domainType="album"
+            thumbnailSize={200}
           />
         </button>
 

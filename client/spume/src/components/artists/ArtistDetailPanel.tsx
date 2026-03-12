@@ -236,6 +236,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     alt={props.artist.name}
                     class="w-full h-full object-cover"
                     domainType="artist"
+                    thumbnailSize={200}
                   />
                 </Show>
                 <Show when={hasArtistImages()}>
@@ -383,6 +384,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     alt={props.artist.name}
                     class="w-full h-full object-cover"
                     domainType="artist"
+                    thumbnailSize={200}
                   />
                 </Show>
                 <Show when={hasArtistImages()}>

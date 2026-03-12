@@ -46,6 +46,7 @@ export function SongCard(props: SongCardProps) {
               alt={props.song.title}
               domainType="song"
               enableAlbumHover
+              thumbnailSize={200}
               class="w-full h-full"
             />
           </div>

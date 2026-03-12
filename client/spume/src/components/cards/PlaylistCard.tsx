@@ -50,6 +50,7 @@ export function PlaylistCard(props: PlaylistCardProps) {
               alt={props.playlist.title}
               domainType="playlist"
               enableAlbumHover
+              thumbnailSize={200}
               class="w-full h-full"
             />
           </div>

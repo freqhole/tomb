@@ -372,7 +372,7 @@ function FeedRow(props: {
               />
             }
           >
-            <ImageCollageGrid images={collageImages()!} size={IMAGE_SIZE} />
+            <ImageCollageGrid images={collageImages()!} size={IMAGE_SIZE} thumbnailSize={50} />
           </Show>
 
           {/* feed type icon overlay — visible by default, hidden when ROW is hovered

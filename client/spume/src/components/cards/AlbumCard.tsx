@@ -47,6 +47,7 @@ export function AlbumCard(props: AlbumCardProps) {
               alt={props.album.title}
               domainType="album"
               enableAlbumHover
+              thumbnailSize={200}
               class="w-full h-full"
             />
           </div>

@@ -631,6 +631,7 @@ export function TopNav(props: TopNavProps) {
                                     alt=""
                                     class="w-8 h-8 object-cover rounded flex-shrink-0"
                                     domainType="playlist"
+                                    thumbnailSize={50}
                                   />
                                   <div class="flex-1 min-w-0">
                                     <div class="text-sm text-[var(--color-text-primary)] truncate">

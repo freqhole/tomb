@@ -3,6 +3,7 @@
 
 import { createEffect, createSignal, For, type JSX } from "solid-js";
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
+import type { ThumbnailSize } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface ImageCollageGridProps {
@@ -10,23 +11,31 @@ export interface ImageCollageGridProps {
   images: ImageMetadata[];
   /** total size of the grid container in pixels */
   size: number;
+  /** optional thumbnail size for remote HTTP images */
+  thumbnailSize?: ThumbnailSize;
 }
 
 // resolve a single image to a displayable URL
-function resolveUrl(img: ImageMetadata): string | null {
-  if (img.remote_url) return img.remote_url;
+function resolveUrl(img: ImageMetadata, thumbnailSize?: ThumbnailSize): string | null {
+  if (img.remote_url) {
+    // append thumbnail path for HTTP blob URLs if requested
+    return thumbnailSize ? `${img.remote_url}/thumb/${thumbnailSize}` : img.remote_url;
+  }
   if (img.local_blob_id) return getCachedBlobObjectURL(img.local_blob_id);
   return null;
 }
 
 export function ImageCollageGrid(props: ImageCollageGridProps): JSX.Element {
   // resolve URLs for each image, handling async local blob lookups
-  const [urls, setUrls] = createSignal<(string | null)[]>(props.images.map(resolveUrl));
+  const [urls, setUrls] = createSignal<(string | null)[]>(
+    props.images.map((img) => resolveUrl(img, props.thumbnailSize))
+  );
 
   createEffect(() => {
     const images = props.images;
+    const thumbSize = props.thumbnailSize;
     // start with sync-resolved URLs
-    const initial = images.map(resolveUrl);
+    const initial = images.map((img) => resolveUrl(img, thumbSize));
     setUrls(initial);
 
     // async-resolve any local blob IDs that weren't cached

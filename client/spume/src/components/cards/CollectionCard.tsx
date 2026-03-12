@@ -141,6 +141,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
           domainType={props.collection.domainType}
           showFallback={true}
           enableAlbumHover={true}
+          thumbnailSize={200}
           class="w-full h-full rounded-lg group-hover:rounded-none"
         />
 

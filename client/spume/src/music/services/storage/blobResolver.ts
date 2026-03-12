@@ -60,12 +60,38 @@ export function getLoadingP2PSongIds(): Set<string> {
 // track in-progress P2P fetches with their promises so callers can await them
 const inProgressP2PFetches = new Map<string, Promise<string>>();
 
+// sync cache of remote transport types - populated on first async lookup
+// allows sync check of whether a remote is P2P (for avoiding flicker)
+const transportTypeCache = new Map<string, "http" | "wasm" | "app">();
+
+/**
+ * check if a remote is P2P synchronously (from cache).
+ * returns undefined if transport type not yet cached (need async lookup).
+ */
+export function isP2PRemoteSync(remoteId: string): boolean | undefined {
+  const cached = transportTypeCache.get(remoteId);
+  if (cached === undefined) return undefined;
+  return cached === "wasm" || cached === "app";
+}
+
+/**
+ * cache a remote's transport type for future sync lookups.
+ */
+function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app") {
+  transportTypeCache.set(remoteId, transport);
+}
+
+// valid thumbnail sizes (must match server config)
+export type ThumbnailSize = 50 | 200;
+
 /**
  * resolve a blob ID to a URL for display/playback.
  *
  * @param blobId - the blob ID (sha256 or server blob ID)
  * @param remoteId - the remote server ID (for looking up transport type)
  * @param type - the blob type ("audio" or "image") for cache metadata tracking
+ * @param onProgress - optional callback for download progress
+ * @param thumbnailSize - optional thumbnail size (50 or 200px) - uses original if not specified
  * @returns URL string usable in <img src> or <audio src>
  */
 export async function resolveBlobUrl(
@@ -73,9 +99,14 @@ export async function resolveBlobUrl(
   remoteId: string,
   type: "audio" | "image" = "image",
   onProgress?: BlobProgressCallback,
+  thumbnailSize?: ThumbnailSize,
 ): Promise<string> {
+  // include thumbnail size in cache key so different sizes are cached separately
+  const cacheKey = thumbnailSize 
+    ? `${remoteId}/${blobId}/thumb/${thumbnailSize}`
+    : `${remoteId}/${blobId}`;
+  
   // check if we already have an active blob URL (fast path, no logging)
-  const cacheKey = `${remoteId}/${blobId}`;
   const cached = activeBlobUrls[cacheKey];
   if (cached) {
     return cached;
@@ -85,6 +116,9 @@ export async function resolveBlobUrl(
   if (!remote) {
     throw new Error(`remote not found: ${remoteId}`);
   }
+
+  // cache transport type for future sync lookups (reduces flicker)
+  cacheTransportType(remoteId, remote.transport);
 
   // check if this is a P2P remote
   if (isP2PTransportType(remote)) {
@@ -100,6 +134,8 @@ export async function resolveBlobUrl(
     debug("blobResolver", `starting P2P fetch for ${blobId.slice(0, 8)}...`);
     
     // start the fetch and track it
+    // note: P2P thumbnail support requires proxy_request - use original blob for now
+    // TODO: add P2P thumbnail support via proxy_request to /api/blobs/{id}/thumb/{size}
     const fetchPromise = resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
     inProgressP2PFetches.set(cacheKey, fetchPromise);
     
@@ -110,8 +146,9 @@ export async function resolveBlobUrl(
       inProgressP2PFetches.delete(cacheKey);
     }
   } else {
-    // HTTP transport - return direct URL
-    return `${remote.base_url}/api/blobs/${blobId}`;
+    // HTTP transport - return direct URL (with thumbnail suffix if requested)
+    const basePath = `${remote.base_url}/api/blobs/${blobId}`;
+    return thumbnailSize ? `${basePath}/thumb/${thumbnailSize}` : basePath;
   }
 }
 
@@ -177,8 +214,10 @@ async function resolveP2PBlob(
  * revoke a cached blob URL to free memory.
  * call this when an image/audio element is removed from the DOM.
  */
-export function revokeBlobUrl(blobId: string, remoteId: string): void {
-  const cacheKey = `${remoteId}/${blobId}`;
+export function revokeBlobUrl(blobId: string, remoteId: string, thumbnailSize?: ThumbnailSize): void {
+  const cacheKey = thumbnailSize 
+    ? `${remoteId}/${blobId}/thumb/${thumbnailSize}`
+    : `${remoteId}/${blobId}`;
   const url = activeBlobUrls[cacheKey];
   if (url) {
     // only revoke blob: URLs (not http: URLs)
@@ -195,9 +234,20 @@ export function revokeBlobUrl(blobId: string, remoteId: string): void {
  * use this for instant render without async lookup.
  * reactive - components re-render when THIS key changes (granular tracking).
  */
-export function getCachedP2PBlobUrl(blobId: string, remoteId: string): string | null {
-  const cacheKey = `${remoteId}/${blobId}`;
+export function getCachedP2PBlobUrl(blobId: string, remoteId: string, thumbnailSize?: ThumbnailSize): string | null {
+  const cacheKey = thumbnailSize 
+    ? `${remoteId}/${blobId}/thumb/${thumbnailSize}`
+    : `${remoteId}/${blobId}`;
   return activeBlobUrls[cacheKey] ?? null;
+}
+
+/**
+ * build an HTTP blob URL with optional thumbnail size.
+ * use for direct HTTP remotes (not P2P).
+ */
+export function buildHttpBlobUrl(baseUrl: string, blobId: string, thumbnailSize?: ThumbnailSize): string {
+  const basePath = `${baseUrl}/api/blobs/${blobId}`;
+  return thumbnailSize ? `${basePath}/thumb/${thumbnailSize}` : basePath;
 }
 
 /**
@@ -288,21 +338,25 @@ export async function evictP2PBlob(blobId: string, remoteId: string): Promise<vo
 
 /**
  * check if a remote uses P2P transport (wasm or app).
+ * also caches the result for future sync lookups.
  */
 export async function isP2PRemote(remoteId: string): Promise<boolean> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return false;
+  cacheTransportType(remoteId, remote.transport);
   return isP2PTransportType(remote);
 }
 
 /**
  * get the transport type for a remote.
+ * also caches the result for future sync lookups.
  */
 export async function getRemoteTransportType(
   remoteId: string,
 ): Promise<"http" | "wasm" | "app" | null> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return null;
+  cacheTransportType(remoteId, remote.transport);
   return remote.transport;
 }
 

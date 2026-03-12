@@ -352,6 +352,7 @@ function SuggestionRow(props: {
             (props.suggestion.category as "song" | "album" | "artist" | "genre" | "playlist") ||
             undefined
           }
+          thumbnailSize={50}
         />
         <Show when={hasPlayAction() && imageHovered()}>
           <div class="absolute inset-0 bg-black/50 flex items-center justify-center rounded z-40">

@@ -4,41 +4,74 @@ import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/s
 import {
   resolveBlobUrl,
   isP2PRemote,
+  isP2PRemoteSync,
   getCachedP2PBlobUrl,
+  type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 
 /**
+ * determine thumbnail size to request based on display size
+ * returns undefined for sizes > 200 (use original)
+ */
+function getThumbnailSizeForDisplay(displaySize: number | undefined): ThumbnailSize | undefined {
+  if (!displaySize) return 50; // default to small
+  if (displaySize <= 50) return 50;
+  if (displaySize <= 200) return 200;
+  return undefined; // use original for large displays
+}
+
+/**
  * get the URL for an image - handles local_blob_id, remote_url, P2P remotes, or legacy
+ * @param thumbnailSize - optional thumbnail size for remote URLs (50 or 200)
  */
 async function resolveImageUrl(
   image: ImageMetadata | null,
   legacyBlobId?: string | null,
-  legacyUrl?: string | null
+  legacyUrl?: string | null,
+  thumbnailSize?: ThumbnailSize
 ): Promise<string | null> {
-  // priority 1: local blob ID (OPFS lookup)
+  // priority 1: local blob ID (OPFS lookup) - thumbnails not supported locally yet
   const blobId = image?.local_blob_id || legacyBlobId;
   if (blobId) {
     return await getBlobObjectURL(blobId);
   }
 
-  // priority 2: P2P remote (has remote_server_id)
+  // priority 2: remote with server ID - check transport type
   if (image?.remote_blob_id && image?.remote_server_id) {
     try {
       const isP2P = await isP2PRemote(image.remote_server_id);
       if (isP2P) {
-        return await resolveBlobUrl(image.remote_blob_id, image.remote_server_id);
+        // P2P remote - use P2P resolution
+        return await resolveBlobUrl(
+          image.remote_blob_id,
+          image.remote_server_id,
+          "image",
+          undefined,
+          thumbnailSize
+        );
+      } else {
+        // HTTP remote - use URL directly
+        if (image.remote_url) {
+          return thumbnailSize ? `${image.remote_url}/thumb/${thumbnailSize}` : image.remote_url;
+        }
       }
     } catch (err) {
-      console.error("failed to resolve P2P thumbnail:", err);
+      console.error("failed to resolve remote image:", err);
     }
   }
 
-  // priority 3: HTTP remote URL
-  if (image?.remote_url) return image.remote_url;
-  if (legacyUrl) return legacyUrl;
+  // priority 3: just remote URL (no server ID)
+  if (image?.remote_url) {
+    return thumbnailSize ? `${image.remote_url}/thumb/${thumbnailSize}` : image.remote_url;
+  }
+
+  if (legacyUrl) {
+    // legacy URL - can't easily append thumbnail suffix
+    return legacyUrl;
+  }
 
   return null;
 }
@@ -71,21 +104,40 @@ export interface MediaThumbnailProps {
 }
 
 export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
+  // determine thumbnail size to request based on display size
+  const thumbnailSize = () => getThumbnailSizeForDisplay(props.size);
+
   // compute initial image URL synchronously to avoid first-render flicker
   const getInitialUrl = (): string | null => {
     const image = pickBestImage(props.images);
-    // priority 1: local blob (OPFS)
+    const thumbSize = thumbnailSize();
+    // priority 1: local blob (OPFS) - thumbnails not supported locally yet
     const blobId = image?.local_blob_id || props.thumbnailBlobId;
     if (blobId) return getCachedBlobObjectURL(blobId);
-    // priority 2: P2P remote - check sync cache (instant if previously resolved)
+    // priority 2: remote with server ID - check transport type
     if (image?.remote_blob_id && image?.remote_server_id) {
-      const cached = getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id);
+      const isP2P = isP2PRemoteSync(image.remote_server_id);
+      if (isP2P === true) {
+        // known P2P remote - check blob cache only
+        return getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id, thumbSize);
+      } else if (isP2P === false) {
+        // known HTTP remote - use URL directly
+        if (image.remote_url) {
+          return thumbSize ? `${image.remote_url}/thumb/${thumbSize}` : image.remote_url;
+        }
+      }
+      // unknown transport - try P2P cache, else use URL optimistically
+      const cached = getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id, thumbSize);
       if (cached) return cached;
-      // not cached yet - will resolve async, return null for now
+      if (image.remote_url) {
+        return thumbSize ? `${image.remote_url}/thumb/${thumbSize}` : image.remote_url;
+      }
       return null;
     }
-    // priority 3: HTTP remote URL
-    if (image?.remote_url) return image.remote_url;
+    // priority 3: just remote URL (no server ID)
+    if (image?.remote_url) {
+      return thumbSize ? `${image.remote_url}/thumb/${thumbSize}` : image.remote_url;
+    }
     if (props.thumbnailUrl) return props.thumbnailUrl;
     return null;
   };
@@ -95,7 +147,8 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
   // resolve image URL when props change (handles async blob lookups)
   createEffect(() => {
     const image = pickBestImage(props.images);
-    resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl).then((url) => {
+    const thumbSize = thumbnailSize();
+    resolveImageUrl(image, props.thumbnailBlobId, props.thumbnailUrl, thumbSize).then((url) => {
       if (url !== imageUrl()) setImageUrl(url);
     });
   });

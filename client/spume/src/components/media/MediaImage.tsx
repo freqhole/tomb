@@ -2,8 +2,9 @@ import { createEffect, createMemo, createSignal, JSX, on, Show } from "solid-js"
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import {
   resolveBlobUrl,
-  isP2PRemote,
   getCachedP2PBlobUrl,
+  isP2PRemoteSync,
+  type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
@@ -38,6 +39,8 @@ interface MediaImageProps {
   remoteServerId?: string | null;
   alt: string;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
+  /** request a specific thumbnail size (50 or 200px) instead of original */
+  thumbnailSize?: ThumbnailSize;
   class?: string;
   enableAlbumHover?: boolean;
   showFallback?: boolean;
@@ -65,20 +68,49 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
   // compute initial URL synchronously:
   // - local blob: check OPFS cache
-  // - P2P: check activeBlobUrls cache
-  // - HTTP: use URL directly
+  // - remote: check transport type to decide HTTP vs P2P path
   const getInitialUrl = (): string | null => {
-    // priority 1: local blob (OPFS cache)
+    const thumbSize = props.thumbnailSize;
+    // priority 1: local blob (OPFS cache) - thumbnails not supported locally yet
     if (initialSource.blobId) {
       return getCachedBlobObjectURL(initialSource.blobId);
     }
-    // priority 2: P2P remote - check sync cache
+    // priority 2: remote with server ID - check transport type
     if (initialSource.remoteBlobId && initialSource.remoteServerId) {
-      return getCachedP2PBlobUrl(initialSource.remoteBlobId, initialSource.remoteServerId);
+      const isP2P = isP2PRemoteSync(initialSource.remoteServerId);
+      if (isP2P === true) {
+        // known P2P remote - check blob cache only
+        return getCachedP2PBlobUrl(
+          initialSource.remoteBlobId,
+          initialSource.remoteServerId,
+          thumbSize
+        );
+      } else if (isP2P === false) {
+        // known HTTP remote - use URL directly
+        if (initialSource.remoteUrl) {
+          return thumbSize
+            ? `${initialSource.remoteUrl}/thumb/${thumbSize}`
+            : initialSource.remoteUrl;
+        }
+      }
+      // unknown transport (isP2P === undefined) - try P2P cache, else use URL optimistically
+      const cached = getCachedP2PBlobUrl(
+        initialSource.remoteBlobId,
+        initialSource.remoteServerId,
+        thumbSize
+      );
+      if (cached) return cached;
+      // no P2P cache - use remote_url if available (works for HTTP, async will handle P2P)
+      if (initialSource.remoteUrl) {
+        return thumbSize
+          ? `${initialSource.remoteUrl}/thumb/${thumbSize}`
+          : initialSource.remoteUrl;
+      }
+      return null;
     }
-    // priority 3: HTTP remote URL
+    // priority 3: just remote URL (no server ID) - use directly
     if (initialSource.remoteUrl) {
-      return initialSource.remoteUrl;
+      return thumbSize ? `${initialSource.remoteUrl}/thumb/${thumbSize}` : initialSource.remoteUrl;
     }
     return null;
   };
@@ -106,7 +138,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   const p2pCachedUrl = createMemo(() => {
     const source = imageSource();
     if (source.remoteBlobId && source.remoteServerId) {
-      return getCachedP2PBlobUrl(source.remoteBlobId, source.remoteServerId);
+      return getCachedP2PBlobUrl(source.remoteBlobId, source.remoteServerId, props.thumbnailSize);
     }
     return null;
   });
@@ -120,6 +152,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         remoteBlobId: imageSource().remoteBlobId,
         remoteServerId: imageSource().remoteServerId,
         p2pCached: p2pCachedUrl(),
+        thumbnailSize: props.thumbnailSize,
       }),
       async (source, prevSource) => {
         // skip if nothing actually changed
@@ -129,12 +162,15 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           source.remoteUrl === prevSource.remoteUrl &&
           source.remoteBlobId === prevSource.remoteBlobId &&
           source.remoteServerId === prevSource.remoteServerId &&
-          source.p2pCached === prevSource.p2pCached
+          source.p2pCached === prevSource.p2pCached &&
+          source.thumbnailSize === prevSource.thumbnailSize
         ) {
           return;
         }
 
-        // priority 1: local blob ID (from OPFS)
+        const thumbSize = source.thumbnailSize;
+
+        // priority 1: local blob ID (from OPFS) - thumbnails not supported locally yet
         if (source.blobId) {
           setIsLoading(true);
           try {
@@ -147,37 +183,46 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           return;
         }
 
-        // priority 2: P2P cached URL (from reactive signal)
-        if (source.p2pCached) {
-          setResolvedUrl(source.p2pCached);
-          setIsLoading(false);
-          return;
-        }
-
-        // priority 3: P2P remote - try async resolution
+        // priority 2: remote with server ID - check transport type
         if (source.remoteBlobId && source.remoteServerId) {
+          const isP2P = isP2PRemoteSync(source.remoteServerId);
+
+          // known HTTP remote - use URL directly
+          if (isP2P === false && source.remoteUrl) {
+            setResolvedUrl(thumbSize ? `${source.remoteUrl}/thumb/${thumbSize}` : source.remoteUrl);
+            setIsLoading(false);
+            return;
+          }
+
+          // P2P cached URL available
+          if (source.p2pCached) {
+            setResolvedUrl(source.p2pCached);
+            setIsLoading(false);
+            return;
+          }
+
+          // P2P remote (or unknown) - async resolution will determine transport
           setIsLoading(true);
           try {
-            // check if this remote uses P2P transport
-            const isP2P = await isP2PRemote(source.remoteServerId);
-            if (isP2P) {
-              const url = await resolveBlobUrl(source.remoteBlobId, source.remoteServerId);
-              setResolvedUrl(url);
-            } else {
-              // HTTP remote - use the remote_url directly
-              setResolvedUrl(source.remoteUrl ?? null);
-            }
+            const url = await resolveBlobUrl(
+              source.remoteBlobId,
+              source.remoteServerId,
+              "image",
+              undefined,
+              thumbSize
+            );
+            setResolvedUrl(url);
           } catch (err) {
-            console.error("failed to resolve P2P image:", err);
+            console.error("failed to resolve remote image:", err);
             setResolvedUrl(null);
           }
           setIsLoading(false);
           return;
         }
 
-        // priority 3: HTTP remote URL
+        // priority 3: just remote URL (no server ID) - use directly
         if (source.remoteUrl) {
-          setResolvedUrl(source.remoteUrl);
+          setResolvedUrl(thumbSize ? `${source.remoteUrl}/thumb/${thumbSize}` : source.remoteUrl);
           setIsLoading(false);
           return;
         }

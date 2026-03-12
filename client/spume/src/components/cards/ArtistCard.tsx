@@ -34,6 +34,7 @@ export function ArtistCard(props: ArtistCardProps) {
               images={props.artist.images}
               alt={props.artist.name}
               domainType="artist"
+              thumbnailSize={200}
               class="w-full h-full object-cover"
             />
           </div>

@@ -142,6 +142,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
               alt=""
               class="w-10 h-10 object-cover rounded flex-shrink-0"
               domainType="album"
+              thumbnailSize={50}
             />
 
             <div class="flex-1 min-w-0">
