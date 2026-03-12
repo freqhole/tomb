@@ -71,6 +71,23 @@ pub fn run() {
             // check if setup wizard should run
             let needs_setup = !is_setup_complete(app.handle());
 
+            // silently upgrade app config if needed (with backup)
+            if !needs_setup && app_config::app_config_needs_upgrade(app.handle()) {
+                match app_config::upgrade_app_config(app.handle()) {
+                    Ok(result) => {
+                        eprintln!(
+                            "[tauri] silently upgraded app config: {} → {} (backup: {})",
+                            result.old_version,
+                            result.new_version,
+                            result.backup_path.display()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("[tauri] failed to upgrade app config: {}", e);
+                    }
+                }
+            }
+
             if needs_setup {
                 // setup wizard runs on port 1421 (tauri UI)
                 // main app (spume) runs on port 1420
@@ -191,6 +208,7 @@ pub fn run() {
             commands::create_admin_user,
             commands::get_default_data_dir,
             commands::get_os_username,
+            commands::get_app_version,
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,

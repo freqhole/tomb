@@ -167,10 +167,26 @@ async fn update_menu_status_loop(app: AppHandle<Wry>) {
 fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
     match id {
         MENU_ABOUT => {
-            // show about dialog or window
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
+            // show about window (or focus if already open)
+            if let Some(about_window) = app.get_webview_window("about") {
+                let _ = about_window.show();
+                let _ = about_window.set_focus();
+            } else {
+                // create about window
+                #[cfg(debug_assertions)]
+                let about_url = tauri::WebviewUrl::External(
+                    "http://localhost:1421/about.html".parse().unwrap(),
+                );
+                #[cfg(not(debug_assertions))]
+                let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
+
+                let _ = tauri::WebviewWindowBuilder::new(app, "about", about_url)
+                    .title("about freqhole")
+                    .inner_size(280.0, 320.0)
+                    .resizable(false)
+                    .center()
+                    .theme(Some(tauri::Theme::Dark))
+                    .build();
             }
         }
         MENU_OPEN_CONFIG => {

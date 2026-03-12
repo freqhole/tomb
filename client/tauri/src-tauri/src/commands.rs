@@ -372,6 +372,12 @@ pub fn get_os_username() -> String {
         .unwrap_or_else(|_| "freqroot".to_string())
 }
 
+/// get the app version
+#[tauri::command]
+pub fn get_app_version() -> String {
+    crate::app_config::get_binary_version().to_string()
+}
+
 /// get the config file path (from app config or legacy location)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
@@ -1886,13 +1892,16 @@ pub async fn remove_peer_node(
 pub struct ConfigUpgradeStatus {
     /// true if config version differs from binary version
     pub needs_upgrade: bool,
-    /// version in config file
+    /// version in app config file
     pub config_version: String,
     /// version of this binary
     pub binary_version: String,
 }
 
 /// check if config needs upgrade (version mismatch)
+///
+/// checks freqhole-config.toml (server config) for structural changes.
+/// app config (freqhole-app-config.toml) is upgraded silently on startup.
 #[tauri::command]
 pub fn check_config_needs_upgrade(
     app_handle: tauri::AppHandle,
@@ -1920,16 +1929,18 @@ pub fn check_config_needs_upgrade(
 /// result of config upgrade operation
 #[derive(Debug, Serialize)]
 pub struct ConfigUpgradeResult {
-    /// path to backup of original config
+    /// path to backup of original server config
     pub backup_path: String,
-    /// old version from user's config
+    /// old version from server config
     pub old_version: String,
-    /// new version written to upgraded config
+    /// new version written to config
     pub new_version: String,
 }
 
-/// upgrade config file to current version
-/// creates backup first, then merges user values into fresh template
+/// upgrade server config to current version
+///
+/// creates backup first, then merges user values into fresh template.
+/// app config (freqhole-app-config.toml) is upgraded silently on startup.
 #[tauri::command]
 pub fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResult, String> {
     let config_path = get_server_config_path_resolved(&app_handle)

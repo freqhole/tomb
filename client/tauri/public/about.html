@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>about freqhole</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        background: #0a0a0a;
+        color: #e5e5e5;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+      }
+      .logo {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 24px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #fff;
+      }
+      .version {
+        font-size: 14px;
+        color: #888;
+        margin-bottom: 20px;
+      }
+      .tagline {
+        font-size: 14px;
+        color: #aaa;
+        margin-bottom: 16px;
+      }
+      .link-container {
+        position: relative;
+      }
+      .link {
+        font-size: 13px;
+        color: #eeddee;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .link:hover {
+        text-decoration: underline;
+      }
+      .copied {
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 11px;
+        color: #ff11ff;
+        margin-top: 4px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .copied.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <svg
+      class="logo"
+      viewBox="0 0 500 500"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M250 405L125 155L375 155L303.611 340.714L250 405Z"
+        fill="#FF00FF"
+      />
+    </svg>
+    <h1>freqhole</h1>
+    <div class="version">v0.1.4</div>
+    <div class="tagline">made with 💖 in NYC</div>
+    <div class="link-container">
+      <a class="link" id="website-link">freqhole.net</a>
+      <div class="copied" id="copied">copied!</div>
+    </div>
+
+    <script>
+      document
+        .getElementById("website-link")
+        .addEventListener("click", async (e) => {
+          e.preventDefault();
+          try {
+            await navigator.clipboard.writeText("https://freqhole.net");
+            const copied = document.getElementById("copied");
+            copied.classList.add("show");
+            setTimeout(() => copied.classList.remove("show"), 3000);
+          } catch (e) {
+            console.error("copy failed:", e);
+          }
+        });
+    </script>
+  </body>
+</html>

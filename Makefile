@@ -314,6 +314,8 @@ bump-version:
 		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts; \
 		echo "  updating freqhole-config.toml..."; \
 		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml; \
+		echo "  updating about.html..."; \
+		sed -i '' 's/>v[0-9]*\.[0-9]*\.[0-9]*</>v$(NEW_VERSION)</' $(TAURI_DIR)/public/about.html; \
 		echo ""; \
 		echo "version bumped to $(NEW_VERSION)"; \
 		echo ""; \

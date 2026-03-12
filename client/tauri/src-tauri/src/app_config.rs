@@ -15,6 +15,10 @@ const APP_CONFIG_FILENAME: &str = "freqhole-app-config.toml";
 /// freqhole app configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FreqholeAppConfig {
+    /// app config version (tracks which binary version last wrote this config)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+
     /// path to the server's freqhole-config.toml file
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_config_path: Option<String>,
@@ -136,6 +140,8 @@ pub fn save_admin_user(
 pub fn save_server_config_path(app_handle: &tauri::AppHandle, path: &str) -> Result<(), String> {
     let mut config = load_or_create(app_handle);
     config.set_server_config_path(path);
+    // also set version when saving config path (means setup is complete or being updated)
+    config.version = Some(get_binary_version().to_string());
     config.save(app_handle)
 }
 
@@ -183,4 +189,77 @@ pub fn get_server_config_path_resolved(app_handle: &tauri::AppHandle) -> Option<
 /// - legacy config exists in app data dir (backward compat)
 pub fn is_setup_complete(app_handle: &tauri::AppHandle) -> bool {
     get_server_config_path_resolved(app_handle).is_some()
+}
+
+/// get the binary version from cargo
+pub fn get_binary_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// check if app config needs upgrade (version mismatch)
+///
+/// returns true if version in app config differs from binary version,
+/// or if version is missing (old config format)
+pub fn app_config_needs_upgrade(app_handle: &tauri::AppHandle) -> bool {
+    let Some(config) = FreqholeAppConfig::load(app_handle) else {
+        return false; // no config means setup not done yet, not an upgrade situation
+    };
+
+    let config_version = config.version.as_deref().unwrap_or("0.0.0");
+    config_version != get_binary_version()
+}
+
+/// result of an app config upgrade
+#[derive(Debug, Clone)]
+pub struct AppConfigUpgradeResult {
+    /// path to backup of original config
+    pub backup_path: std::path::PathBuf,
+    /// old version from config (or "0.0.0" if missing)
+    pub old_version: String,
+    /// new version written to config
+    pub new_version: String,
+}
+
+/// upgrade app config to current binary version
+///
+/// creates backup first, then updates version field.
+/// preserves all other config values.
+pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgradeResult, String> {
+    let config_path =
+        get_config_path(app_handle).ok_or_else(|| "failed to get app config path".to_string())?;
+
+    if !config_path.exists() {
+        return Err("app config does not exist".to_string());
+    }
+
+    // load current config
+    let mut config = FreqholeAppConfig::load(app_handle)
+        .ok_or_else(|| "failed to load app config".to_string())?;
+
+    let old_version = config
+        .version
+        .clone()
+        .unwrap_or_else(|| "0.0.0".to_string());
+
+    // create backup with timestamp
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let timestamp = now.as_secs();
+    let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
+
+    std::fs::copy(&config_path, &backup_path)
+        .map_err(|e| format!("failed to create backup: {}", e))?;
+
+    // update version
+    config.version = Some(get_binary_version().to_string());
+
+    // save updated config
+    config.save(app_handle)?;
+
+    Ok(AppConfigUpgradeResult {
+        backup_path,
+        old_version,
+        new_version: get_binary_version().to_string(),
+    })
 }
