@@ -109,6 +109,75 @@ pub async fn blob_metadata_handler(
     Ok(Json(response))
 }
 
+inventory::submit! {
+    RouteInfo {
+        name: "get_blob_thumbnail",
+        path: "/api/blobs/{id}/thumb/{size}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "String", // binary response, not typed
+        auth: RouteAuth::Authenticated,
+    }
+}
+
+/// get or generate a sized thumbnail for a blob
+///
+/// GET /api/blobs/{id}/thumb/{size}
+///
+/// size must be one of the configured thumbnail sizes (default: 50 or 200 pixels)
+/// if on-demand generation is enabled, creates thumbnail if it doesn't exist
+/// if on-demand is disabled, returns 404 if thumbnail doesn't exist
+pub async fn blob_thumbnail_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    Path((blob_id, size_str)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, ApiError> {
+    // parse size parameter
+    let size: u32 = size_str
+        .parse()
+        .map_err(|_| ApiError::BadRequest("invalid size parameter".to_string()))?;
+
+    // validate size is one of the configured values
+    if !grimoire::blob_data::is_valid_size(size) {
+        return Err(ApiError::BadRequest(format!(
+            "size must be one of: {:?}",
+            grimoire::blob_data::get_thumbnail_sizes()
+        )));
+    }
+
+    // get or generate the thumbnail based on config
+    let thumb_blob_id = if grimoire::blob_data::is_on_demand_enabled() {
+        // on-demand enabled: generate if needed
+        grimoire::blob_data::get_or_generate_thumbnail(&blob_id, size, Some(user.user_id.clone()))
+            .await
+            .map_err(|e| ApiError::Internal(format!("thumbnail generation failed: {}", e)))?
+    } else {
+        // on-demand disabled: only return existing thumbnail
+        grimoire::blob_data::find_existing_thumbnail(&blob_id, size)
+            .await
+            .map(|b| b.id)
+            .ok_or(ApiError::NotFound)?
+    };
+
+    // stream the thumbnail blob
+    let (blob, db_data) = grimoire::media_blobz::get_media_blob_with_data(&thumb_blob_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+
+    let content_type = blob
+        .mime
+        .clone()
+        .unwrap_or_else(|| "image/webp".to_string());
+
+    // thumbnails are always in database (not local files)
+    if let Some(data) = db_data {
+        stream_from_memory(data, content_type, req).await
+    } else {
+        Err(ApiError::NotFound)
+    }
+}
+
 // ============================================================================
 // File Streaming
 // ============================================================================

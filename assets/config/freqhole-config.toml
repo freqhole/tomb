@@ -112,6 +112,18 @@ skip_duplicates = true
 # (default: false)
 generate_scan_duplicate_report = false
 
+# OPTIONAL: thumbnail sizes to generate (in pixels, square thumbnails)
+# thumbnails are always pre-generated when images are created (scan/upload)
+# smaller sizes load faster in virtualized lists
+# (default: [50, 200])
+thumbnail_sizes = [50, 200]
+
+# OPTIONAL: enable on-demand thumbnail generation via /api/blobs/{id}/thumb/{size}
+# when disabled (default): endpoint returns 404 if thumbnail doesn't exist
+# when enabled: thumbnails are generated lazily on first request
+# (default: false)
+thumbnail_on_demand_enabled = false
+
 # ============================================================================
 # MusicBrainz integration for metadata enrichment
 # ============================================================================

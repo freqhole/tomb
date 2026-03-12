@@ -2,6 +2,7 @@
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
+use grimoire::blob_data::{backfill_thumbnails, count_blobs_needing_thumbnails};
 use grimoire::maintenance::{cleanup_orphaned_genres, cleanup_orphaned_tags};
 use serde::Serialize;
 
@@ -31,6 +32,15 @@ pub enum MaintenanceAction {
     /// Run all cleanup operations
     CleanupAll {
         /// Show what would be deleted without actually deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Generate sized thumbnails (50px, 200px) for images without them
+    BackfillThumbnails {
+        /// Maximum number of blobs to process
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Show what would be processed without actually generating
         #[arg(long)]
         dry_run: bool,
     },
@@ -110,6 +120,50 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_js
             };
 
             CommandOutput::success(message, combined)
+        }
+
+        MaintenanceAction::BackfillThumbnails { limit, dry_run } => {
+            if dry_run {
+                // just count what would be processed (doesn't load all rows)
+                let response = count_blobs_needing_thumbnails().await;
+
+                if !response.success {
+                    return CommandOutput::failure(response.message, response.errors, ());
+                }
+
+                let Some(total) = response.data else {
+                    return CommandOutput::failure("No data returned", vec![], ());
+                };
+
+                let to_process = limit.map(|l| l.min(total)).unwrap_or(total);
+
+                let summary = serde_json::json!({
+                    "dry_run": true,
+                    "blobs_needing_thumbnails": total,
+                    "will_process": to_process,
+                    "limit": limit,
+                });
+
+                let message = format!(
+                    "Found {} blobs needing thumbnails, will process {} (dry run)",
+                    total, to_process
+                );
+
+                CommandOutput::success(message, summary)
+            } else {
+                // actually generate thumbnails
+                let response = backfill_thumbnails(limit, None).await;
+
+                if !response.success {
+                    return CommandOutput::failure(response.message, response.errors, ());
+                }
+
+                let Some(result) = response.data else {
+                    return CommandOutput::failure("No result data returned", vec![], ());
+                };
+
+                CommandOutput::success(response.message, result)
+            }
         }
     }
 }

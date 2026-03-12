@@ -342,6 +342,10 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
             routes["music"]["blob_metadata"].path,
             get(blobs::blob_metadata_handler),
         )
+        .route(
+            routes["music"]["get_blob_thumbnail"].path,
+            get(blobs::blob_thumbnail_handler),
+        )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // webauthn routes (feature-gated, require origin validation)

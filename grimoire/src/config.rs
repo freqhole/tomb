@@ -88,6 +88,15 @@ pub struct MediaConfig {
     /// Generate CSV report of skipped duplicates during scan
     #[serde(default = "default_generate_scan_duplicate_report")]
     pub generate_scan_duplicate_report: bool,
+    /// Thumbnail sizes to generate (in pixels, square thumbnails)
+    /// thumbnails are always generated when images are created (scan/upload)
+    #[serde(default = "default_thumbnail_sizes")]
+    pub thumbnail_sizes: Vec<u32>,
+    /// Enable on-demand thumbnail generation via /api/blobs/{id}/thumb/{size}
+    /// when disabled (default), the endpoint returns 404 if thumbnail doesn't exist
+    /// when enabled, thumbnails are generated lazily on first request
+    #[serde(default)]
+    pub thumbnail_on_demand_enabled: bool,
 }
 
 fn default_max_connections() -> u32 {
@@ -129,6 +138,10 @@ fn default_skip_duplicates() -> bool {
 
 fn default_generate_scan_duplicate_report() -> bool {
     false
+}
+
+fn default_thumbnail_sizes() -> Vec<u32> {
+    vec![50, 200]
 }
 
 fn default_max_fs_file_size() -> u64 {
@@ -909,6 +922,7 @@ fn set_nested_value(
 /// # returns
 /// the blob_id of the server image
 pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, ConfigError> {
+    use crate::blob_data::generate_sized_thumbnails;
     use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
     use crate::Bytes;
     use sha2::{Digest, Sha256};
@@ -974,6 +988,15 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
     let blob = create_media_blob(request)
         .await
         .map_err(|e| ConfigError::InvalidValue(format!("failed to create media blob: {}", e)))?;
+
+    // generate thumbnails for the server image
+    let thumb_result = generate_sized_thumbnails(&blob.id, None).await;
+    if !thumb_result.success {
+        tracing::warn!(
+            "failed to generate thumbnails for server image: {}",
+            thumb_result.message
+        );
+    }
 
     // update config with blob_id
     set_config_values(

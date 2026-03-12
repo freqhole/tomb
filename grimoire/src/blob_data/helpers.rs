@@ -445,6 +445,7 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
 }
 
 /// create an image blob from webp data with flexible options
+/// automatically generates sized thumbnails for Original and Waveform blobs
 pub async fn create_image_blob_from_webp_data(
     webp_data: Vec<u8>,
     blob_type: BlobType,
@@ -466,14 +467,34 @@ pub async fn create_image_blob_from_webp_data(
         parent_blob_id,
         blob_type: Some(blob_type),
         metadata,
-        created_by,
+        created_by: created_by.clone(),
         data: Some(webp_data.into()), // Store as binary data
         width: None,
         height: None,
     };
 
     match media_blobz::create_media_blob(request).await {
-        Ok(blob) => GrimoireResponse::success("Image blob created from WebP data", blob.id),
+        Ok(blob) => {
+            let blob_id = blob.id.clone();
+
+            // generate sized thumbnails for Original and Waveform blobs
+            // (not for Thumbnails - that would cause infinite recursion)
+            if blob_type == BlobType::Original || blob_type == BlobType::Waveform {
+                let thumb_result =
+                    super::thumbnails::generate_sized_thumbnails(&blob_id, created_by).await;
+                if !thumb_result.success {
+                    tracing::warn!(
+                        "failed to generate thumbnails for blob {}: {}",
+                        blob_id,
+                        thumb_result.message
+                    );
+                } else if let Some(thumbs) = thumb_result.data {
+                    tracing::debug!("generated {} thumbnails for blob {}", thumbs.len(), blob_id);
+                }
+            }
+
+            GrimoireResponse::success("Image blob created from WebP data", blob_id)
+        }
         Err(e) => {
             GrimoireResponse::failure("Failed to create image blob from WebP data", vec![e.into()])
         }
@@ -557,12 +578,8 @@ pub async fn collect_song_images(
     // step 1: try to extract embedded art
     match extract_album_art_to_webp(audio_file_path, config).await {
         Ok(webp_data) => {
-            let blob_response = create_album_art_blob(
-                webp_data,
-                "embedded_album_art",
-                created_by.clone(),
-            )
-            .await;
+            let blob_response =
+                create_album_art_blob(webp_data, "embedded_album_art", created_by.clone()).await;
 
             if blob_response.success {
                 if let Some(blob_id) = blob_response.data {
