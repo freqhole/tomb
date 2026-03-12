@@ -6,6 +6,7 @@
 
 use crate::analytics::{record_event, MediaEvent, MediaEventType};
 use crate::blob_data;
+use crate::config;
 use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
@@ -17,7 +18,7 @@ use crate::music::entities::songs::add_song_image;
 use crate::music::scanner::extract_and_import;
 use serde_json::{json, Value};
 use std::path::Path;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 /// process image to WebP conversion job
 ///
@@ -325,6 +326,62 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
         info!("note: failed to record analytics event: {}", e);
     }
 
+    // generate waveform for uploaded audio
+    let cfg = config::get_config();
+    let mut waveform_generated = false;
+    match blob_data::create_audio_waveform_blob(
+        &blob_id,
+        local_path_str,
+        &cfg,
+        job.created_by.clone(),
+    )
+    .await
+    {
+        response if response.success => {
+            if let Some(waveform_blob_id) = response.data {
+                debug!("waveform generated as blob: {}", waveform_blob_id);
+                // link waveform to song in song_imagez table
+                let pool = match database::connect().await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        warn!("failed to connect to database for waveform linking: {}", e);
+                        // don't fail the job, waveform is optional
+                        return Ok(Some(json!({
+                            "blob_id": blob_id,
+                            "song_id": import_result.song_id,
+                            "artist_id": import_result.artist_id,
+                            "album_id": import_result.album_id,
+                            "metadata_extracted": import_result.metadata_extracted,
+                            "waveform_generated": false,
+                            "message": "music imported but waveform linking failed"
+                        })));
+                    }
+                };
+                if let Err(e) = sqlx::query!(
+                    r#"INSERT OR IGNORE INTO song_imagez (song_id, media_blob_id, is_primary) VALUES (?, ?, 0)"#,
+                    import_result.song_id,
+                    waveform_blob_id
+                )
+                .execute(&pool)
+                .await
+                {
+                    warn!("failed to link waveform to song: {}", e);
+                } else {
+                    debug!("linked waveform {} to song {}", waveform_blob_id, import_result.song_id);
+                    waveform_generated = true;
+                }
+            }
+        }
+        response => {
+            let error_msg = if !response.errors.is_empty() {
+                response.errors[0].detail.clone()
+            } else {
+                response.message
+            };
+            warn!("waveform generation failed: {}", error_msg);
+        }
+    }
+
     // return job result with created entity IDs
     Ok(Some(json!({
         "blob_id": blob_id,
@@ -332,6 +389,7 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
         "artist_id": import_result.artist_id,
         "album_id": import_result.album_id,
         "metadata_extracted": import_result.metadata_extracted,
+        "waveform_generated": waveform_generated,
         "message": if import_result.metadata_extracted {
             "music imported successfully with metadata"
         } else {
