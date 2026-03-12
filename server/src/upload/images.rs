@@ -135,29 +135,9 @@ pub async fn upload_image_handler(
 
     let size = data.len() as i64;
 
-    // determine blob_type and parent_blob_id based on association
-    // - for songs: use Thumbnail type with song's media_blob_id as parent
-    // - for albums/artists/playlists: use Original type (they ARE the primary image)
-    let (blob_type, parent_blob_id) = if let Some(ref assoc) = association {
-        if assoc.entity_type == "song" {
-            // lookup the song's media_blob_id to use as parent
-            match songs::get_song_media_blob_id(&assoc.entity_id).await {
-                Ok(parent_id) => (BlobType::Thumbnail, Some(parent_id)),
-                Err(_) => {
-                    return Err(ApiError::BadRequest(format!(
-                        "song not found: {}",
-                        assoc.entity_id
-                    )));
-                }
-            }
-        } else {
-            // albums, artists, playlists: use Original type with no parent
-            (BlobType::Original, None)
-        }
-    } else {
-        // no association specified, use Original
-        (BlobType::Original, None)
-    };
+    // all uploaded images are Original type with no parent
+    // entity associations are handled via *_imagez junction tables, not parent_blob_id
+    // (parent_blob_id is reserved for sized thumbnails pointing to their full-res source)
 
     // create media blob in database (with deduplication)
     let blob = create_media_blob(CreateMediaBlobRequest {
@@ -167,13 +147,15 @@ pub async fn upload_image_handler(
         source_client_id: None,
         local_path: None,
         filename: Some(filename.to_string()),
-        parent_blob_id,
-        blob_type: Some(blob_type),
+        parent_blob_id: None,
+        blob_type: Some(BlobType::Original),
         metadata: json!({
             "original_filename": filename,
         }),
         created_by: Some(user.user_id.clone()),
         data: Some(Bytes::from(data)),
+        width: None,
+        height: None,
     })
     .await
     .map_err(|e| ApiError::Internal(format!("failed to create blob: {}", e)))?;
@@ -309,7 +291,9 @@ pub async fn set_primary_image_handler(
 
     tracing::info!(
         "setting primary image for {} {} with blob {}",
-        req.entity_type, req.entity_id, req.blob_id
+        req.entity_type,
+        req.entity_id,
+        req.blob_id
     );
 
     // call the appropriate set_primary_*_image function based on entity type
@@ -330,10 +314,7 @@ pub async fn set_primary_image_handler(
         return Err(ApiError::Internal(response.message));
     }
 
-    Ok(Json(GrimoireResponse::success(
-        "primary image updated",
-        (),
-    )))
+    Ok(Json(GrimoireResponse::success("primary image updated", ())))
 }
 
 /// detect image mime type from filename and magic bytes

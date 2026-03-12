@@ -967,6 +967,8 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         metadata: serde_json::json!({}),
         created_by: None,
         data: Some(Bytes::from(data)),
+        width: None,
+        height: None,
     };
 
     let blob = create_media_blob(request)

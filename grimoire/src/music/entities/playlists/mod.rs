@@ -3,7 +3,6 @@
 
 mod models;
 mod repository;
-mod thumbnail_helpers;
 
 // re-export public types
 pub use models::{
@@ -18,4 +17,3 @@ pub use repository::{
     remove_songs_from_playlist, set_primary_playlist_image, update_playlist,
     update_song_position, update_songs_position,
 };
-pub use thumbnail_helpers::{create_thumbnail_from_bytes, create_thumbnail_from_file};

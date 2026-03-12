@@ -129,6 +129,8 @@ pub async fn upload_music_handler(
         }),
         created_by: Some(user.user_id.clone()),
         data: None,
+        width: None,
+        height: None,
     })
     .await
     .map_err(|e| ApiError::Internal(format!("failed to create blob: {}", e)))?;

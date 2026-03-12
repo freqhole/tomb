@@ -34,7 +34,9 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             deleted_at,
             deleted_by,
             created_by,
-            updated_by
+            updated_by,
+            width,
+            height
          FROM media_blobz
          WHERE sha256 = ?
          LIMIT 1",
@@ -74,7 +76,9 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
                     deleted_at,
                     deleted_by,
                     created_by,
-                    updated_by",
+                    updated_by,
+                    width,
+                    height",
                 req.created_by,
                 existing_blob.id
             )
@@ -108,8 +112,8 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         "INSERT INTO media_blobz (
             sha256, size, mime, source_client_id, local_path, filename,
             parent_blob_id, blob_type, metadata,
-            created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_by, updated_by, width, height
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
             id as \"id!\",
             sha256 as \"sha256!\",
@@ -126,7 +130,9 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             deleted_at,
             deleted_by,
             created_by,
-            updated_by",
+            updated_by,
+            width,
+            height",
         req.sha256,
         req.size,
         req.mime,
@@ -137,7 +143,9 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         blob_type_str,
         metadata_str,
         req.created_by,
-        req.created_by
+        req.created_by,
+        req.width,
+        req.height
     )
     .fetch_one(&pool)
     .await?;
@@ -190,7 +198,9 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
             deleted_at,
             deleted_by,
             created_by,
-            updated_by
+            updated_by,
+            width,
+            height
          FROM media_blobz
          WHERE deleted_at IS NULL
          ORDER BY created_at DESC",
@@ -233,7 +243,9 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
             deleted_at,
             deleted_by,
             created_by,
-            updated_by
+            updated_by,
+            width,
+            height
          FROM media_blobz
          WHERE id = ?
          LIMIT 1",
@@ -307,7 +319,9 @@ pub async fn update_blob_local_path(
             deleted_at,
             deleted_by,
             created_by,
-            updated_by",
+            updated_by,
+            width,
+            height",
         local_path,
         id
     )

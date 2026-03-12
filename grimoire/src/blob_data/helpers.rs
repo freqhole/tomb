@@ -140,6 +140,8 @@ pub async fn create_media_blob_from_file(
         }),
         created_by,
         data: None, // Store as file reference
+        width: None,
+        height: None,
     };
 
     match media_blobz::create_media_blob(request).await {
@@ -153,7 +155,7 @@ pub async fn create_media_blob_from_file(
 /// create a thumbnail blob from audio file using ffmpeg
 /// returns error if no album art found (no fallbacks/placeholders)
 pub async fn create_audio_thumbnail_blob(
-    source_blob_id: &str,
+    _source_blob_id: &str, // kept for API compatibility but no longer used
     audio_file_path: &str,
     config: &GrimoireConfig,
     created_by: Option<String>,
@@ -161,8 +163,7 @@ pub async fn create_audio_thumbnail_blob(
     // Try extracting embedded album art first
     match extract_album_art_to_webp(audio_file_path, config).await {
         Ok(webp_data) => {
-            return create_thumbnail_blob_from_webp_data(source_blob_id, webp_data, "album_art", created_by)
-                .await;
+            return create_album_art_blob(webp_data, "embedded_album_art", created_by).await;
         }
         Err(_) => {
             // Continue to next method
@@ -172,13 +173,7 @@ pub async fn create_audio_thumbnail_blob(
     // Try finding album art in directory
     match find_album_art_in_directory_to_webp(audio_file_path).await {
         Ok(webp_data) => {
-            return create_thumbnail_blob_from_webp_data(
-                source_blob_id,
-                webp_data,
-                "directory_art",
-                created_by,
-            )
-            .await;
+            return create_album_art_blob(webp_data, "directory_art", created_by).await;
         }
         Err(_) => {
             // Continue to error
@@ -473,6 +468,8 @@ pub async fn create_image_blob_from_webp_data(
         metadata,
         created_by,
         data: Some(webp_data.into()), // Store as binary data
+        width: None,
+        height: None,
     };
 
     match media_blobz::create_media_blob(request).await {
@@ -483,25 +480,25 @@ pub async fn create_image_blob_from_webp_data(
     }
 }
 
-/// create a thumbnail blob from webp data (for audio thumbnails)
-async fn create_thumbnail_blob_from_webp_data(
-    source_blob_id: &str,
+/// create an album art blob from webp data
+/// these are standalone images (BlobType::Original) - not sized thumbnails
+/// the relationship to songs is tracked via song_imagez junction table
+async fn create_album_art_blob(
     webp_data: Vec<u8>,
     art_type: &str,
     created_by: Option<String>,
 ) -> GrimoireResponse<String> {
     let metadata = serde_json::json!({
-        "type": "thumbnail",
+        "type": "album_art",
         "art_type": art_type,
-        "source_blob_id": source_blob_id,
         "format": "webp",
         "generated_with": "grimoire"
     });
 
     create_image_blob_from_webp_data(
         webp_data,
-        BlobType::Thumbnail,
-        Some(source_blob_id.to_string()),
+        BlobType::Original,
+        None, // standalone image, no parent
         metadata,
         created_by,
     )
@@ -547,7 +544,7 @@ pub struct CollectedImages {
 /// creates blobs for each image found (uses database cache to avoid re-processing directory images)
 /// requires session_id to use the cache
 pub async fn collect_song_images(
-    source_blob_id: &str,
+    _source_blob_id: &str, // kept for API compatibility but no longer used
     audio_file_path: &str,
     config: &GrimoireConfig,
     session_id: Option<&str>,
@@ -560,8 +557,7 @@ pub async fn collect_song_images(
     // step 1: try to extract embedded art
     match extract_album_art_to_webp(audio_file_path, config).await {
         Ok(webp_data) => {
-            let blob_response = create_thumbnail_blob_from_webp_data(
-                source_blob_id,
+            let blob_response = create_album_art_blob(
                 webp_data,
                 "embedded_album_art",
                 created_by.clone(),
@@ -666,7 +662,7 @@ pub async fn collect_song_images(
         if path.exists() {
             if let Some(path_str) = path.to_str() {
                 if processed_paths.insert(path_str.to_string()) {
-                    match process_directory_image(source_blob_id, &path, created_by.clone()).await {
+                    match process_directory_image(&path, created_by.clone()).await {
                         Ok(blob_id) => {
                             directory_image_blob_ids.push(blob_id);
                             known_filename_found = true;
@@ -697,7 +693,7 @@ pub async fn collect_song_images(
                         if let Some(path_str) = path.to_str() {
                             // skip if already processed
                             if processed_paths.insert(path_str.to_string()) {
-                                match process_directory_image(source_blob_id, &path, created_by.clone()).await {
+                                match process_directory_image(&path, created_by.clone()).await {
                                     Ok(blob_id) => {
                                         directory_image_blob_ids.push(blob_id);
                                     }
@@ -739,7 +735,6 @@ pub async fn collect_song_images(
 
 /// process a single directory image: read, convert to webp, create blob
 async fn process_directory_image(
-    source_blob_id: &str,
     image_path: &std::path::Path,
     created_by: Option<String>,
 ) -> Result<String, GrimoireError> {
@@ -757,8 +752,7 @@ async fn process_directory_image(
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
 
-    let blob_response = create_thumbnail_blob_from_webp_data(
-        source_blob_id,
+    let blob_response = create_album_art_blob(
         webp_data,
         &format!("directory_image_{}", filename),
         created_by,

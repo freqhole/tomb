@@ -10,13 +10,13 @@ use zod_gen_derive::ZodSchema;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BlobType {
-    /// original media file (audio, video, etc.) - must have parent_blob_id = NULL
+    /// original/standalone media file (audio, video, images) - parent_blob_id = NULL
     Original,
-    /// thumbnail image - must have parent_blob_id pointing to original
+    /// sized thumbnail image (50x50, 200x200) - parent_blob_id points to the full-res image
     Thumbnail,
-    /// waveform visualization data - must have parent_blob_id pointing to original
+    /// waveform visualization data - parent_blob_id points to the audio blob
     Waveform,
-    /// preview/sample clip - must have parent_blob_id pointing to original
+    /// preview/sample clip - parent_blob_id points to original
     Preview,
 }
 
@@ -89,6 +89,10 @@ pub struct MediaBlob {
     pub deleted_by: Option<String>,
     pub created_by: Option<String>,
     pub updated_by: Option<String>,
+    /// width in pixels (for sized thumbnails)
+    pub width: Option<i64>,
+    /// height in pixels (for sized thumbnails)
+    pub height: Option<i64>,
 }
 
 /// safe response type for blob metadata endpoint - excludes internal fields like local_path
@@ -132,6 +136,10 @@ pub struct CreateMediaBlobRequest {
     /// binary data for thumbnails, waveforms, etc. (exclusive with local_path)
     #[serde(skip)]
     pub data: Option<Bytes>,
+    /// width in pixels (for sized thumbnails)
+    pub width: Option<i64>,
+    /// height in pixels (for sized thumbnails)
+    pub height: Option<i64>,
 }
 
 impl ZodSchema for MediaBlob {
@@ -153,6 +161,8 @@ impl ZodSchema for MediaBlob {
             ("deleted_by", &zod_nullable(zod_string())),
             ("created_by", &zod_nullable(zod_string())),
             ("updated_by", &zod_nullable(zod_string())),
+            ("width", &zod_nullable(zod_number())),
+            ("height", &zod_nullable(zod_number())),
         ])
     }
 }
