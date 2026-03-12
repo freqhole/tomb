@@ -32,7 +32,7 @@
         "desktopTemplate": "freqhole.desktop"
       },
       "rpm": {
-        "depends": ["libayatana-appindicator-gtk3", "ffmpeg"],
+        "depends": ["libayatana-appindicator-gtk3"],
         "desktopTemplate": "freqhole.desktop"
       }
     }
