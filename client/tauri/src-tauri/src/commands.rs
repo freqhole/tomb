@@ -1943,3 +1943,154 @@ pub fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResul
         new_version: result.new_version,
     })
 }
+
+// ============================================================================
+// knock request commands
+// ============================================================================
+
+/// knock request info for UI display
+#[derive(Debug, Serialize)]
+pub struct KnockInfo {
+    pub id: String,
+    pub node_id: String,
+    pub username: String,
+    pub message: String,
+    pub status: String,
+    pub created_at: i64,
+    pub processed_at: Option<i64>,
+    pub processed_by: Option<String>,
+}
+
+/// list pending knock requests
+#[tauri::command]
+pub async fn list_knocks(
+    app_handle: tauri::AppHandle,
+    include_all: bool,
+) -> Result<Vec<KnockInfo>, String> {
+    ensure_initialized(&app_handle).await?;
+
+    let result = grimoire::federation::knock::list_knocks(include_all).await;
+    match result.data {
+        Some(knocks) => Ok(knocks
+            .into_iter()
+            .map(|k| KnockInfo {
+                id: k.id,
+                node_id: k.node_id,
+                username: k.username,
+                message: k.message,
+                status: k.status.to_string(),
+                created_at: k.created_at,
+                processed_at: k.processed_at,
+                processed_by: k.processed_by,
+            })
+            .collect()),
+        None => Err(result.message),
+    }
+}
+
+/// result of accepting a knock request
+#[derive(Debug, Serialize)]
+pub struct AcceptKnockResult {
+    pub user_id: String,
+    pub username: String,
+    pub node_id: String,
+    pub role: String,
+    pub created_user: bool,
+}
+
+/// accept a knock request - creates user and peer node mapping
+#[tauri::command]
+pub async fn accept_knock(
+    app_handle: tauri::AppHandle,
+    knock_id: String,
+    username: Option<String>,
+    role: String,
+) -> Result<AcceptKnockResult, String> {
+    ensure_initialized(&app_handle).await?;
+
+    // get admin user id from app config
+    let app_config = crate::app_config::FreqholeAppConfig::load(&app_handle)
+        .ok_or_else(|| "app config not found".to_string())?;
+    let admin_user_id = app_config
+        .admin_user
+        .user_id
+        .ok_or_else(|| "admin user id not configured".to_string())?;
+
+    let request = grimoire::federation::knock::ProcessKnockRequest {
+        username,
+        role: role.clone(),
+    };
+
+    let result =
+        grimoire::federation::knock::accept_knock(&knock_id, request, &admin_user_id).await;
+
+    match result {
+        Ok(knock) => Ok(AcceptKnockResult {
+            user_id: knock.processed_by.unwrap_or_default(),
+            username: knock.username,
+            node_id: knock.node_id,
+            role,
+            created_user: true,
+        }),
+        Err(e) => Err(format!("failed to accept knock: {}", e)),
+    }
+}
+
+/// reject a knock request
+#[tauri::command]
+pub async fn reject_knock(app_handle: tauri::AppHandle, knock_id: String) -> Result<(), String> {
+    ensure_initialized(&app_handle).await?;
+
+    // get admin user id from app config
+    let app_config = crate::app_config::FreqholeAppConfig::load(&app_handle)
+        .ok_or_else(|| "app config not found".to_string())?;
+    let admin_user_id = app_config
+        .admin_user
+        .user_id
+        .ok_or_else(|| "admin user id not configured".to_string())?;
+
+    grimoire::federation::knock::reject_knock(&knock_id, &admin_user_id)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("failed to reject knock: {}", e))
+}
+
+/// delete a knock request
+#[tauri::command]
+pub async fn delete_knock(app_handle: tauri::AppHandle, knock_id: String) -> Result<(), String> {
+    ensure_initialized(&app_handle).await?;
+
+    grimoire::federation::knock::delete_knock(&knock_id)
+        .await
+        .map_err(|e| format!("failed to delete knock: {}", e))
+}
+
+/// reject all pending knock requests
+#[tauri::command]
+pub async fn reject_all_knocks(app_handle: tauri::AppHandle) -> Result<u32, String> {
+    ensure_initialized(&app_handle).await?;
+
+    // get admin user id from app config
+    let app_config = crate::app_config::FreqholeAppConfig::load(&app_handle)
+        .ok_or_else(|| "app config not found".to_string())?;
+    let admin_user_id = app_config
+        .admin_user
+        .user_id
+        .ok_or_else(|| "admin user id not configured".to_string())?;
+
+    // get all pending knocks and reject each
+    let list_result = grimoire::federation::knock::list_knocks(false).await;
+    let knocks = list_result.data.ok_or_else(|| list_result.message)?;
+
+    let mut rejected = 0u32;
+    for knock in knocks {
+        if grimoire::federation::knock::reject_knock(&knock.id, &admin_user_id)
+            .await
+            .is_ok()
+        {
+            rejected += 1;
+        }
+    }
+
+    Ok(rejected)
+}

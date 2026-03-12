@@ -62,6 +62,13 @@ export interface Transport {
     blobId: string,
     onProgress: (received: number, total: number) => void,
   ): Promise<string>;
+
+  /**
+   * fetch server image (public, no auth required)
+   * used during "add remote" flow before user is authenticated
+   * only implemented by P2P transports (WasmTransport)
+   */
+  fetchHelloImage?(): Promise<BlobData | null>;
 }
 
 /**

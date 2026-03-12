@@ -32,6 +32,10 @@ interface MediaImageProps {
   images?: ImageMetadata[];
   blobId?: string | null;
   imageUrl?: string | null;
+  /** remote blob id for P2P fetch (use with remoteServerId) */
+  remoteBlobId?: string | null;
+  /** remote server id for P2P fetch (typically peer_addr) */
+  remoteServerId?: string | null;
   alt: string;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   class?: string;
@@ -53,8 +57,8 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     const bestImage = pickBestImage(props.images);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-    const remoteBlobId = bestImage?.remote_blob_id;
-    const remoteServerId = bestImage?.remote_server_id;
+    const remoteBlobId = bestImage?.remote_blob_id || props.remoteBlobId;
+    const remoteServerId = bestImage?.remote_server_id || props.remoteServerId;
     return { blobId, remoteUrl, remoteBlobId, remoteServerId };
   };
   const initialSource = getInitialSource();
@@ -93,8 +97,8 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     const bestImage = pickBestImage(props.images);
     const blobId = bestImage?.local_blob_id || props.blobId;
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
-    const remoteBlobId = bestImage?.remote_blob_id;
-    const remoteServerId = bestImage?.remote_server_id;
+    const remoteBlobId = bestImage?.remote_blob_id || props.remoteBlobId;
+    const remoteServerId = bestImage?.remote_server_id || props.remoteServerId;
     return { blobId, remoteUrl, remoteBlobId, remoteServerId };
   });
 

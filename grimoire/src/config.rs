@@ -155,35 +155,40 @@ pub struct MusicBrainzConfig {
     pub enabled: bool,
 }
 
-/// Federation/P2P configuration for peer-to-peer music sharing
+/// federation/p2p configuration for peer-to-peer music sharing
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FederationConfig {
-    /// Enable federation features (default: false)
+    /// enable federation features (default: false)
     #[serde(default)]
     pub enabled: bool,
-    /// Haruspex (Supabase) URL for peer coordination
+    /// haruspex (supabase) url for peer coordination
     /// e.g., "http://127.0.0.1:54321" for local dev or "https://xxx.supabase.co"
     #[serde(default)]
     pub haruspex_url: String,
-    /// Haruspex (Supabase) anon/publishable key (NOT the service role key!)
+    /// haruspex (supabase) anon/publishable key (not the service role key!)
     #[serde(default)]
     pub haruspex_anon_key: String,
-    /// Automatically create freqhole users for authenticated peers on first request
-    /// When true: P2P request from known node_id creates user with default_role
-    /// When false: users must be synced manually via CLI or admin UI
+    /// automatically create freqhole users for authenticated peers on first request
+    /// when true: p2p request from known node_id creates user with default_role
+    /// when false: users must be synced manually via cli or admin ui
     #[serde(default)]
     pub auto_create_users: bool,
-    /// Role to assign auto-created users: "visitor", "member", etc.
+    /// role to assign auto-created users: "visitor", "member", etc.
     #[serde(default = "default_federation_role")]
     pub default_role: String,
-    /// Maximum message size in MB for P2P requests (default: 10)
-    /// This does not apply to blob streaming, only JSON message payloads.
+    /// maximum message size in mb for p2p requests (default: 10)
+    /// this does not apply to blob streaming, only json message payloads.
     #[serde(default = "default_max_message_size_mb")]
     pub max_message_size_mb: u32,
-    /// Maximum upload size in MB for P2P file uploads (default: 500)
-    /// Larger files will be rejected with an error response.
+    /// maximum upload size in mb for p2p file uploads (default: 500)
+    /// larger files will be rejected with an error response.
     #[serde(default = "default_max_upload_size_mb")]
     pub max_upload_size_mb: u32,
+    /// allow unknown peers to "knock" and request access (default: false)
+    /// when true: unauthenticated p2p peers can send a knock request
+    /// requests are stored and can be approved/rejected via cli or tauri wizard
+    #[serde(default)]
+    pub knocking_enabled: bool,
 }
 
 fn default_federation_role() -> String {
@@ -1081,9 +1086,8 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
         now.second()
     );
     let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
-    std::fs::copy(config_path, &backup_path).map_err(|e| {
-        ConfigError::CreateFailed(format!("failed to create backup: {}", e))
-    })?;
+    std::fs::copy(config_path, &backup_path)
+        .map_err(|e| ConfigError::CreateFailed(format!("failed to create backup: {}", e)))?;
 
     // write upgraded config
     std::fs::write(config_path, template_doc.to_string()).map_err(|e| {
@@ -1101,7 +1105,11 @@ pub fn upgrade_config(config_path: &Path) -> Result<ConfigUpgradeResult, ConfigE
 ///
 /// walks the user's toml::Table and for each key that exists in the template,
 /// sets the user's value. nested tables are handled recursively.
-fn merge_values_into_doc(doc: &mut DocumentMut, user_table: &toml::map::Map<String, toml::Value>, path_prefix: &str) {
+fn merge_values_into_doc(
+    doc: &mut DocumentMut,
+    user_table: &toml::map::Map<String, toml::Value>,
+    path_prefix: &str,
+) {
     for (key, user_value) in user_table {
         let full_path = if path_prefix.is_empty() {
             key.clone()
@@ -1166,7 +1174,9 @@ fn toml_value_to_edit_value(v: &toml::Value) -> toml_edit::Value {
         toml::Value::Datetime(dt) => {
             // format datetime back to string and parse as toml_edit datetime
             let dt_str = dt.to_string();
-            dt_str.parse().unwrap_or_else(|_| toml_edit::Value::from(dt_str))
+            dt_str
+                .parse()
+                .unwrap_or_else(|_| toml_edit::Value::from(dt_str))
         }
         toml::Value::Array(arr) => {
             let mut edit_arr = toml_edit::Array::new();

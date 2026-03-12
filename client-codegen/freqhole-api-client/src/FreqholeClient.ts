@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { Transport, BlobData } from "./transport.js";
 import { HttpTransport } from "./transport.js";
+import { createAdminMethods } from "./domains/admin.js";
 import { createAppMethods } from "./domains/app.js";
 import { createAuthMethods } from "./domains/auth.js";
 import { createMusicMethods } from "./domains/music.js";
@@ -23,6 +24,7 @@ const AUTH_ERROR_PATH = "__auth_expired__";
 // ============================================================================
 
 export class FreqholeClient {
+  public readonly admin: ReturnType<typeof createAdminMethods>;
   public readonly app: ReturnType<typeof createAppMethods>;
   public readonly auth: ReturnType<typeof createAuthMethods>;
   public readonly music: ReturnType<typeof createMusicMethods>;
@@ -30,6 +32,7 @@ export class FreqholeClient {
 
   constructor(public readonly transport: Transport) {
     const call = this.createCallFn();
+    this.admin = createAdminMethods(call);
     this.app = createAppMethods(call);
     this.auth = createAuthMethods(call);
     this.music = createMusicMethods(call);

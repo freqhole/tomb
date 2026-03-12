@@ -251,6 +251,31 @@ export class TauriTransport implements Transport {
     }
     urlCache.clear();
   }
+
+  /**
+   * fetch server image (public, no auth required)
+   * used during "add remote" flow before user is authenticated
+   */
+  async fetchHelloImage(): Promise<BlobData | null> {
+    const inv = await ensureInvoke();
+
+    try {
+      const result = (await inv("p2p_fetch_hello_image", {
+        peerAddr: this.peerAddr,
+      })) as { data: string; content_type: string | null };
+
+      // decode base64 data
+      const bytes = base64ToBytes(result.data);
+
+      return {
+        data: bytes,
+        contentType: result.content_type ?? "image/png",
+      };
+    } catch (e) {
+      console.error("fetchHelloImage failed:", e);
+      return null;
+    }
+  }
 }
 
 // transport cache - reuse instances per peer

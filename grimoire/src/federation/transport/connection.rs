@@ -198,6 +198,97 @@ impl PeerConnection {
         }
     }
 
+    /// request server image stream (public, no auth required)
+    ///
+    /// returns image metadata and a reader for the raw bytes.
+    /// used during "add remote" flow before user is authenticated.
+    pub async fn stream_hello_image(
+        &self,
+    ) -> GrimoireResult<(BlobStreamInfo, iroh::endpoint::RecvStream)> {
+        let id = self.next_request_id();
+        let (mut send, mut recv) =
+            self.conn
+                .open_bi()
+                .await
+                .map_err(|e| GrimoireError::FederationApiError {
+                    message: format!("failed to open stream: {}", e),
+                })?;
+
+        // send hello image request
+        let msg = PeerMessage::HelloImageRequest { id };
+        let msg_bytes =
+            serde_json::to_vec(&msg).map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to serialize request: {}", e),
+            })?;
+
+        send.write_all(&msg_bytes)
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to write request: {}", e),
+            })?;
+        send.finish()
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to finish send: {}", e),
+            })?;
+
+        // read response header - length-prefixed JSON
+        let mut len_bytes = [0u8; 4];
+        recv.read_exact(&mut len_bytes)
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to read response length: {}", e),
+            })?;
+        let len = u32::from_be_bytes(len_bytes) as usize;
+
+        if len > 64 * 1024 {
+            return Err(GrimoireError::FederationApiError {
+                message: format!("hello image header too large: {} bytes", len),
+            });
+        }
+
+        let mut resp_bytes = vec![0u8; len];
+        recv.read_exact(&mut resp_bytes)
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to read response header: {}", e),
+            })?;
+
+        let response: PeerMessage =
+            serde_json::from_slice(&resp_bytes).map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to parse response: {}", e),
+            })?;
+
+        match response {
+            PeerMessage::HelloImageResponse {
+                id: resp_id,
+                size,
+                content_type,
+                error,
+            } => {
+                if resp_id != id {
+                    return Err(GrimoireError::FederationApiError {
+                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
+                    });
+                }
+                if let Some(err) = error {
+                    return Err(GrimoireError::FederationApiError {
+                        message: format!("hello image error: {}", err),
+                    });
+                }
+                let info = BlobStreamInfo {
+                    blob_id: "hello-image".to_string(),
+                    size: size.unwrap_or(0),
+                    content_type,
+                };
+                // remaining bytes come from recv stream
+                Ok((info, recv))
+            }
+            _ => Err(GrimoireError::FederationApiError {
+                message: "unexpected response type for hello image".to_string(),
+            }),
+        }
+    }
+
     /// upload a blob to the peer
     ///
     /// sends a length-prefixed header followed by raw blob bytes.

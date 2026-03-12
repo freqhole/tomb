@@ -158,6 +158,12 @@ pub enum GrimoireError {
 
     #[error("federation credentials invalid: {message}")]
     FederationCredentialsInvalid { message: String },
+
+    #[error("knock request not found: {id}")]
+    KnockNotFound { id: String },
+
+    #[error("knock already processed: {id}")]
+    KnockAlreadyProcessed { id: String },
 }
 
 /// result type alias for grimoire operations
@@ -227,6 +233,9 @@ impl GrimoireError {
             GrimoireError::FederationNotConfigured => false,
             GrimoireError::FederationCredentialsNotFound => false,
             GrimoireError::FederationCredentialsInvalid { .. } => false,
+            // knock errors
+            GrimoireError::KnockNotFound { .. } => false,
+            GrimoireError::KnockAlreadyProcessed { .. } => false,
         }
     }
 }

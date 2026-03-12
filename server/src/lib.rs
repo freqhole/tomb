@@ -7,6 +7,7 @@ pub mod blobs;
 pub mod error;
 pub mod health;
 pub mod jobs;
+pub mod knock;
 pub mod music;
 pub mod routes;
 pub mod run;

@@ -87,6 +87,12 @@ export class MiddenNode {
      */
     fetch_blob_with_progress(peer_addr: string, blob_id: string, on_progress: Function): Promise<BlobResult>;
     /**
+     * fetch server image from a peer (public, no auth required)
+     * used during "add remote" flow before user is authenticated
+     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
+     */
+    fetch_hello_image(peer_addr: string): Promise<BlobResult>;
+    /**
      * get our node_id (iroh public key)
      */
     node_id(): string;

@@ -217,6 +217,40 @@ pub async fn fetch_blob(peer_addr: &str, blob_id: &str) -> GrimoireResult<P2pBlo
     })
 }
 
+/// fetch server image from a remote peer (public, no auth required)
+///
+/// used during "add remote" flow before user is authenticated.
+/// returns error if server has no image configured or connection fails.
+pub async fn fetch_hello_image(peer_addr: &str) -> GrimoireResult<P2pBlobData> {
+    let endpoint = get_endpoint()?;
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16];
+
+    info!("fetching hello image from {}", node_id_short);
+
+    let conn = get_or_connect(&endpoint, &addr).await?;
+    let (info, mut stream) = conn.stream_hello_image().await?;
+
+    // read all image data (10MB max for server image)
+    let data = stream.read_to_end(10 * 1024 * 1024).await.map_err(|e| {
+        GrimoireError::FederationApiError {
+            message: format!("failed to read image data: {}", e),
+        }
+    })?;
+
+    info!(
+        "received {} bytes for hello image from {}",
+        data.len(),
+        node_id_short
+    );
+
+    Ok(P2pBlobData {
+        data,
+        content_type: info.content_type,
+        size: info.size,
+    })
+}
+
 /// upload a blob to a remote peer
 ///
 /// sends the blob data to the peer's server for import.

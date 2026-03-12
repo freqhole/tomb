@@ -161,6 +161,10 @@ port = 8080
 #   - example: "server-icon.png" → accessible at /api/hello/image
 image_path = ""
 
+# OPTIONAL: server image blob ID (default: null)
+# run `freqhole config update-server-image` to set this using the image_path image
+image_blob_id = ""
+
 # OPTIONAL: start job processor in the server (default: false)
 # when enabled (true):
 #   - server spawns a background task that continuously processes jobs
@@ -412,3 +416,9 @@ default_role = "viewer"
 # note: this is a separate limit from max_message_size_mb since uploads are streamed
 # differently than regular API messages.
 # max_upload_size_mb = 500
+
+# OPTIONAL: allow unknown peers to "knock" and request access (default: false)
+# when true: unauthenticated P2P peers can send a knock request with username/message
+# these requests are stored and can be approved/rejected via CLI or tauri wizard.
+# when approved, the peer is granted access with the specified role.
+knocking_enabled = false

@@ -6,7 +6,7 @@ use axum::{
 };
 use grimoire::api_registry;
 
-use crate::{auth, blobs, health, jobs, music, state::AppState, static_files, upload};
+use crate::{auth, blobs, health, jobs, knock, music, state::AppState, static_files, upload};
 
 /// build the application router
 ///
@@ -292,6 +292,25 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
             routes["music"]["get_musicbrainz_release"].path,
             post(music::musicbrainz::get_release_handler),
         )
+        // knock management routes (admin only)
+        .route(routes["admin"]["list_knocks"].path, get(knock::list_knocks))
+        .route(
+            routes["admin"]["list_all_knocks"].path,
+            get(knock::list_all_knocks),
+        )
+        .route(routes["admin"]["get_knock"].path, get(knock::get_knock))
+        .route(
+            routes["admin"]["accept_knock"].path,
+            post(knock::accept_knock),
+        )
+        .route(
+            routes["admin"]["reject_knock"].path,
+            post(knock::reject_knock),
+        )
+        .route(
+            routes["admin"]["delete_knock"].path,
+            delete(knock::delete_knock),
+        )
         // upload routes
         .route(
             routes["music"]["upload_image"].path,
@@ -355,6 +374,15 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
         )
         .route(routes["app"]["server_info"].path, get(health::server_info))
         .route("/api/hello/image", get(static_files::serve_server_image))
+        // public knock routes (P2P only - use X-Peer-Node-Id header)
+        .route(
+            routes["admin"]["create_knock_public"].path,
+            post(knock::create_knock_public),
+        )
+        .route(
+            routes["admin"]["get_knock_status_public"].path,
+            get(knock::get_knock_status_public),
+        )
         // public routes that require origin validation
         .merge(
             Router::new()
@@ -380,6 +408,15 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
         )
         .route(routes["app"]["server_info"].path, get(health::server_info))
         .route("/api/hello/image", get(static_files::serve_server_image))
+        // public knock routes (P2P only - use X-Peer-Node-Id header)
+        .route(
+            routes["admin"]["create_knock_public"].path,
+            post(knock::create_knock_public),
+        )
+        .route(
+            routes["admin"]["get_knock_status_public"].path,
+            get(knock::get_knock_status_public),
+        )
         // public routes that require origin validation
         .merge(
             Router::new()

@@ -38,19 +38,21 @@ export interface MiddenNodeLike {
     body?: string | null,
   ): Promise<{ status: number; body: string }>;
   fetch_blob(peer_addr: string, blob_id: string): Promise<BlobResultLike>;
-  // optional - only available after midden rebuild with progress support
+  // optional
   fetch_blob_with_progress?(
     peer_addr: string,
     blob_id: string,
     on_progress: (received: number, total: number) => void,
   ): Promise<BlobResultLike>;
-  // upload blob to peer - optional, only available after midden rebuild
+  // upload blob to peer - optional
   upload_blob?(
     peer_addr: string,
     filename: string,
     content_type: string,
     data: Uint8Array,
   ): Promise<UploadResultLike>;
+  // fetch server image (public, no auth required) - optional
+  fetch_hello_image?(peer_addr: string): Promise<BlobResultLike>;
 }
 
 /**
@@ -316,5 +318,23 @@ export class WasmTransport implements Transport {
       URL.revokeObjectURL(url);
     }
     this.blobUrlCache.clear();
+  }
+
+  /**
+   * fetch server image (public, no auth required)
+   * used during "add remote" flow before user is authenticated
+   * @returns blob data with content type, or null if method not available
+   */
+  async fetchHelloImage(): Promise<BlobData | null> {
+    if (!this.node.fetch_hello_image) {
+      console.warn("fetch_hello_image not available - midden rebuild required");
+      return null;
+    }
+
+    const result = await this.node.fetch_hello_image(this.peerAddr);
+    const data = result.data();
+    const contentType = result.content_type() ?? "image/png";
+
+    return { data, contentType };
   }
 }

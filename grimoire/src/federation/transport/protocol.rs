@@ -82,4 +82,24 @@ pub enum PeerMessage {
         /// full server response body for client parsing
         body: Option<String>,
     },
+
+    /// request server image (public, no auth required)
+    /// used during "add remote" flow before user is authenticated
+    HelloImageRequest {
+        /// request id for correlation
+        id: u64,
+    },
+
+    /// server image response header - raw bytes follow
+    /// same streaming format as BlobStreamResponse
+    HelloImageResponse {
+        /// request id for correlation
+        id: u64,
+        /// image size in bytes (if known)
+        size: Option<u64>,
+        /// mime type (if known)
+        content_type: Option<String>,
+        /// error message if image not configured
+        error: Option<String>,
+    },
 }

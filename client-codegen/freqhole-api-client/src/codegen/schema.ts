@@ -378,6 +378,12 @@ export const CreateJobRequestSchema = z.object({
 });
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
 
+export const CreateKnockRequestSchema = z.object({
+  username: z.string(),
+  message: z.string()
+});
+export type CreateKnockRequest = z.infer<typeof CreateKnockRequestSchema>;
+
 export const CreateListenSessionRequestSchema = z.object({
   session_type: z.string(),
   entity_id: z.string().nullable(),
@@ -1057,6 +1063,27 @@ export const JobResponseSchema = z.object({
   created_by: z.string().nullable()
 });
 export type JobResponse = z.infer<typeof JobResponseSchema>;
+
+export const KnockRequestSchema = z.object({
+  id: z.string(),
+  node_id: z.string(),
+  username: z.string(),
+  message: z.string(),
+  status: z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")]),
+  created_at: z.number(),
+  processed_at: z.number().nullable(),
+  processed_by: z.string().nullable()
+});
+export type KnockRequest = z.infer<typeof KnockRequestSchema>;
+
+export const KnockStatusSchema = z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")]);
+export type KnockStatus = z.infer<typeof KnockStatusSchema>;
+
+export const KnockStatusResponseSchema = z.object({
+  status: z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")]),
+  processed: z.boolean()
+});
+export type KnockStatusResponse = z.infer<typeof KnockStatusResponseSchema>;
 
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullable(),
@@ -1792,6 +1819,12 @@ export const PlaylistsQueryResultSchema = z.object({
 });
 export type PlaylistsQueryResult = z.infer<typeof PlaylistsQueryResultSchema>;
 
+export const ProcessKnockRequestSchema = z.object({
+  username: z.string().nullable(),
+  role: z.string()
+});
+export type ProcessKnockRequest = z.infer<typeof ProcessKnockRequestSchema>;
+
 export const QueryContextSchema = z.object({
   tags: z.object({
   include: z.array(z.string()),
@@ -2022,7 +2055,8 @@ export const ServerInfoResponseSchema = z.object({
   description: z.string().nullable(),
   version: z.string(),
   image_url: z.string().nullable(),
-  image_blob_id: z.string().nullable()
+  image_blob_id: z.string().nullable(),
+  knocking_enabled: z.boolean().nullable()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
 

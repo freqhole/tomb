@@ -501,10 +501,85 @@ async fn handle_stream(
             }
         }
 
+        PeerMessage::HelloImageRequest { id } => {
+            debug!("hello image request from {}", node_id_short);
+
+            // public endpoint - no auth required
+            let url = format!("{}/api/hello/image", base_url);
+            let response = http_client.get(&url).send().await;
+
+            match response {
+                Ok(r) => {
+                    if !r.status().is_success() {
+                        let resp = PeerMessage::HelloImageResponse {
+                            id,
+                            size: None,
+                            content_type: None,
+                            error: Some(format!(
+                                "server image not configured: status {}",
+                                r.status()
+                            )),
+                        };
+                        send_length_prefixed(&mut send, &resp).await?;
+                        return Ok(());
+                    }
+
+                    // get size and content type from headers
+                    let size = r
+                        .headers()
+                        .get("content-length")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse().ok());
+                    let content_type = r
+                        .headers()
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+
+                    // send header
+                    let resp = PeerMessage::HelloImageResponse {
+                        id,
+                        size,
+                        content_type,
+                        error: None,
+                    };
+                    send_length_prefixed(&mut send, &resp).await?;
+
+                    // stream body
+                    let mut body = r.bytes_stream();
+                    while let Some(chunk) = body.next().await {
+                        match chunk {
+                            Ok(bytes) => {
+                                send.write_all(&bytes)
+                                    .await
+                                    .map_err(|e| format!("failed to write image chunk: {}", e))?;
+                            }
+                            Err(e) => {
+                                warn!("error reading image stream: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                    send.finish()
+                        .map_err(|e| format!("failed to finish image stream: {}", e))?;
+                }
+                Err(e) => {
+                    let resp = PeerMessage::HelloImageResponse {
+                        id,
+                        size: None,
+                        content_type: None,
+                        error: Some(format!("failed to fetch server image: {}", e)),
+                    };
+                    send_length_prefixed(&mut send, &resp).await?;
+                }
+            }
+        }
+
         // ignore responses sent to us (shouldn't happen)
         PeerMessage::ProxyResponse { .. }
         | PeerMessage::BlobStreamResponse { .. }
-        | PeerMessage::BlobUploadResponse { .. } => {
+        | PeerMessage::BlobUploadResponse { .. }
+        | PeerMessage::HelloImageResponse { .. } => {
             debug!("unexpected response message from {}", node_id_short);
         }
     }
@@ -549,6 +624,8 @@ async fn send_length_prefixed(
 /// public endpoints allow unknown peers to:
 /// - get server info (/api/hello)
 /// - register with invite code (/api/auth/invite)
+/// - create knock request (/api/knock)
+/// - check knock status (/api/knock/status)
 ///
 /// note: webauthn/passkey registration is not supported over P2P -
 /// invite code redemption links the peer's node_id to the user directly
@@ -556,6 +633,8 @@ fn is_public_endpoint(method: &str, path: &str) -> bool {
     match (method, path) {
         ("GET", "/api/hello") => true,
         ("POST", "/api/auth/invite") => true,
+        ("POST", "/api/knock") => true,
+        ("GET", "/api/knock/status") => true,
         _ => false,
     }
 }

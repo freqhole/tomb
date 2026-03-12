@@ -125,6 +125,25 @@ pub async fn p2p_fetch_blob(peer_addr: String, blob_id: String) -> Result<P2pBlo
     })
 }
 
+/// fetch server image from a remote peer via P2P (public, no auth required)
+///
+/// used during "add remote" flow before user is authenticated.
+/// returns base64-encoded data (since tauri can't easily pass raw bytes)
+#[tauri::command]
+pub async fn p2p_fetch_hello_image(peer_addr: String) -> Result<P2pBlobResponse, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let blob = grimoire::federation::p2p_client::fetch_hello_image(&peer_addr)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(P2pBlobResponse {
+        data: STANDARD.encode(&blob.data),
+        content_type: blob.content_type,
+        size: blob.size,
+    })
+}
+
 /// close connection to a specific peer (removes from cache)
 #[tauri::command]
 pub fn p2p_close_connection(peer_addr: String) -> Result<(), String> {

@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show, For } from "solid-js";
+import { createSignal, onMount, Show, For, createEffect, on } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 
 interface FederationConfigStatus {
@@ -65,6 +65,17 @@ interface PeerNodeInfo {
   role: string;
 }
 
+interface KnockInfo {
+  id: string;
+  node_id: string;
+  username: string;
+  message: string;
+  status: string;
+  created_at: number;
+  processed_at: number | null;
+  processed_by: string | null;
+}
+
 export default function FederationView() {
   const [status, setStatus] = createSignal<FederationStatus | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -100,13 +111,44 @@ export default function FederationView() {
   const [peersLoading, setPeersLoading] = createSignal(false);
   const [removingPeerId, setRemovingPeerId] = createSignal<string | null>(null);
 
+  // knock requests
+  const [knocks, setKnocks] = createSignal<KnockInfo[]>([]);
+  const [knocksLoading, setKnocksLoading] = createSignal(false);
+  const [processingKnockId, setProcessingKnockId] = createSignal<string | null>(
+    null,
+  );
+  const [acceptKnockUsername, setAcceptKnockUsername] = createSignal("");
+  const [acceptKnockRole, setAcceptKnockRole] = createSignal("viewer");
+  const [expandedKnockId, setExpandedKnockId] = createSignal<string | null>(
+    null,
+  );
+  const [confirmRejectAll, setConfirmRejectAll] = createSignal(false);
+
   // copy feedback
   const [nodeIdCopied, setNodeIdCopied] = createSignal(false);
+  const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(
+    null,
+  );
 
   onMount(async () => {
     await loadStatus();
     await loadPeers();
+    await loadKnocks();
   });
+
+  // auto-refresh knocks periodically when federation is enabled
+  createEffect(
+    on(
+      () => isConfigured(),
+      (enabled) => {
+        if (!enabled) return;
+        const interval = setInterval(() => {
+          loadKnocks();
+        }, 30000); // refresh every 30 seconds
+        return () => clearInterval(interval);
+      },
+    ),
+  );
 
   async function loadStatus() {
     setLoading(true);
@@ -265,6 +307,93 @@ export default function FederationView() {
     }
   }
 
+  // knock request functions
+  async function loadKnocks() {
+    setKnocksLoading(true);
+    try {
+      const result = await invoke<KnockInfo[]>("list_knocks", {
+        includeAll: false,
+      });
+      setKnocks(result);
+    } catch (e) {
+      console.error("failed to load knocks:", e);
+    } finally {
+      setKnocksLoading(false);
+    }
+  }
+
+  async function handleAcceptKnock(knock: KnockInfo) {
+    setProcessingKnockId(knock.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const username = acceptKnockUsername() || knock.username || undefined;
+      await invoke("accept_knock", {
+        knockId: knock.id,
+        username,
+        role: acceptKnockRole(),
+      });
+      setSuccess(
+        `accepted knock from "${username || knock.username}" as ${acceptKnockRole()}`,
+      );
+      // clear form state
+      setExpandedKnockId(null);
+      setAcceptKnockUsername("");
+      setAcceptKnockRole("viewer");
+      // refresh lists
+      await loadKnocks();
+      await loadPeers();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setProcessingKnockId(null);
+    }
+  }
+
+  async function handleRejectKnock(knockId: string) {
+    setProcessingKnockId(knockId);
+    setError("");
+
+    try {
+      await invoke("reject_knock", { knockId });
+      setSuccess("knock request rejected");
+      await loadKnocks();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setProcessingKnockId(null);
+    }
+  }
+
+  async function handleDeleteKnock(knockId: string) {
+    setProcessingKnockId(knockId);
+    setError("");
+
+    try {
+      await invoke("delete_knock", { knockId });
+      await loadKnocks();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setProcessingKnockId(null);
+    }
+  }
+
+  async function handleRejectAllKnocks() {
+    setError("");
+    setSuccess("");
+    setConfirmRejectAll(false);
+
+    try {
+      const rejected = await invoke<number>("reject_all_knocks");
+      setSuccess(`rejected ${rejected} pending knock request(s)`);
+      await loadKnocks();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   function formatNodeId(nodeId: string): string {
     if (nodeId.length <= 16) return nodeId;
     return `${nodeId.slice(0, 8)}...${nodeId.slice(-8)}`;
@@ -272,6 +401,20 @@ export default function FederationView() {
 
   function formatTimestamp(ts: number): string {
     return new Date(ts * 1000).toLocaleDateString();
+  }
+
+  function formatRelativeTime(ts: number): string {
+    const now = Date.now();
+    const diff = now - ts * 1000;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (seconds < 60) return "just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
   }
 
   const isConfigured = () => status()?.config?.enabled ?? false;
@@ -399,8 +542,18 @@ export default function FederationView() {
                         <span class="peer-username">{peer.username}</span>
                         <span class="peer-role">{peer.role}</span>
                       </div>
-                      <div class="peer-node-id" title={peer.node_id}>
-                        {formatNodeId(peer.node_id)}
+                      <div
+                        class="peer-node-id clickable"
+                        title="click to copy to clipboard"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(peer.node_id);
+                          setCopiedPeerNodeId(peer.node_id);
+                          setTimeout(() => setCopiedPeerNodeId(null), 3000);
+                        }}
+                      >
+                        {copiedPeerNodeId() === peer.node_id
+                          ? "copied!"
+                          : formatNodeId(peer.node_id)}
                       </div>
                       <div class="peer-meta">
                         <span>added {formatTimestamp(peer.created_at)}</span>
@@ -477,6 +630,152 @@ export default function FederationView() {
                 </button>
               </form>
             </details>
+          </section>
+
+          {/* access requests (knocks) - show pending knock requests */}
+          <section class="status-section">
+            <h2>access requests</h2>
+            <p class="help-text">
+              incoming requests from peers who want access to your instance.
+              accept to create a user and allow P2P connections.
+            </p>
+
+            <Show when={knocksLoading()}>
+              <div class="status-message">loading requests...</div>
+            </Show>
+
+            <Show when={!knocksLoading() && knocks().length === 0}>
+              <div class="status-message">no pending access requests</div>
+            </Show>
+
+            <Show when={knocks().length > 0}>
+              <div class="knock-list">
+                <For each={knocks()}>
+                  {(knock) => (
+                    <div class="knock-item">
+                      <div class="knock-header">
+                        <div class="knock-info">
+                          <span class="knock-username">
+                            {knock.username || "unknown"}
+                          </span>
+                          <span class="knock-time">
+                            {formatRelativeTime(knock.created_at)}
+                          </span>
+                        </div>
+                      </div>
+                      <Show when={knock.message}>
+                        <div class="knock-message">{knock.message}</div>
+                      </Show>
+                      <Show when={expandedKnockId() === knock.id}>
+                        <div class="knock-accept-form">
+                          <div class="form-row">
+                            <div class="form-group flex-1">
+                              <label>username</label>
+                              <input
+                                type="text"
+                                value={acceptKnockUsername() || knock.username}
+                                onInput={(e) =>
+                                  setAcceptKnockUsername(e.currentTarget.value)
+                                }
+                                placeholder={knock.username || "enter username"}
+                              />
+                            </div>
+                            <div class="form-group">
+                              <label>role</label>
+                              <select
+                                value={acceptKnockRole()}
+                                onChange={(e) =>
+                                  setAcceptKnockRole(e.currentTarget.value)
+                                }
+                              >
+                                <option value="viewer">viewer</option>
+                                <option value="member">member</option>
+                                <option value="admin">admin</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      </Show>
+                      <div class="knock-actions">
+                        <Show when={expandedKnockId() === knock.id}>
+                          <button
+                            class="small"
+                            onClick={() => handleAcceptKnock(knock)}
+                            disabled={processingKnockId() === knock.id}
+                          >
+                            {processingKnockId() === knock.id
+                              ? "..."
+                              : "confirm"}
+                          </button>
+                          <button
+                            class="secondary small"
+                            onClick={() => {
+                              setExpandedKnockId(null);
+                              setAcceptKnockUsername("");
+                              setAcceptKnockRole("viewer");
+                            }}
+                          >
+                            cancel
+                          </button>
+                        </Show>
+                        <Show when={expandedKnockId() !== knock.id}>
+                          <button
+                            class="small"
+                            onClick={() => setExpandedKnockId(knock.id)}
+                            disabled={processingKnockId() === knock.id}
+                          >
+                            accept
+                          </button>
+                          <button
+                            class="secondary small"
+                            onClick={() => handleRejectKnock(knock.id)}
+                            disabled={processingKnockId() === knock.id}
+                          >
+                            {processingKnockId() === knock.id
+                              ? "..."
+                              : "reject"}
+                          </button>
+                          <button
+                            class="secondary small"
+                            onClick={() => handleDeleteKnock(knock.id)}
+                            disabled={processingKnockId() === knock.id}
+                            title="delete request"
+                          >
+                            delete
+                          </button>
+                        </Show>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+              <Show when={knocks().length > 1}>
+                <div class="section-actions" style="margin-top: 1rem">
+                  <Show when={!confirmRejectAll()}>
+                    <button
+                      class="secondary small"
+                      onClick={() => setConfirmRejectAll(true)}
+                    >
+                      reject all
+                    </button>
+                  </Show>
+                  <Show when={confirmRejectAll()}>
+                    <button
+                      class="danger small"
+                      onClick={handleRejectAllKnocks}
+                    >
+                      confirm reject all
+                    </button>
+                    <button
+                      class="secondary small"
+                      onClick={() => setConfirmRejectAll(false)}
+                    >
+                      cancel
+                    </button>
+                  </Show>
+                </div>
+              </Show>
+            </Show>
           </section>
 
           {/* credentials status with sign-in form - only show if haruspex is configured */}

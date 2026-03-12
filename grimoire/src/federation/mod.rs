@@ -9,6 +9,7 @@
 mod client;
 mod credentials;
 mod identity;
+pub mod knock;
 pub mod p2p_client;
 mod resolver;
 mod setup;

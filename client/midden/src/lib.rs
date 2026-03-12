@@ -56,6 +56,15 @@ enum PeerMessage {
         error: Option<String>,
         body: Option<String>,
     },
+    HelloImageRequest {
+        id: u64,
+    },
+    HelloImageResponse {
+        id: u64,
+        size: Option<u64>,
+        content_type: Option<String>,
+        error: Option<String>,
+    },
 }
 
 /// response from proxy_request
@@ -451,6 +460,65 @@ impl MiddenNode {
                         break;
                     }
                 }
+
+                info!("received {} bytes", data.len());
+
+                Ok(BlobResult { data, content_type })
+            }
+            _ => Err(JsError::new("unexpected response type")),
+        }
+    }
+
+    /// fetch server image from a peer (public, no auth required)
+    /// used during "add remote" flow before user is authenticated
+    /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
+    pub async fn fetch_hello_image(&self, peer_addr: &str) -> Result<BlobResult, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let node_id_short = &addr.id.to_string()[..16];
+
+        info!("fetch hello image from {}", node_id_short);
+
+        // get cached connection or create new one
+        let conn = self.get_or_connect(&addr).await?;
+
+        let (mut send, mut recv): (SendStream, RecvStream) =
+            conn.open_bi().await.map_err(to_js_err)?;
+
+        // send request
+        let request = PeerMessage::HelloImageRequest { id: 1 };
+        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
+        send.write_all(&bytes).await.map_err(to_js_err)?;
+        send.finish().map_err(to_js_err)?;
+
+        // read length-prefixed header
+        let mut len_buf = [0u8; 4];
+        recv.read_exact(&mut len_buf).await.map_err(to_js_err)?;
+        let header_len = u32::from_be_bytes(len_buf) as usize;
+
+        let mut header_buf = vec![0u8; header_len];
+        recv.read_exact(&mut header_buf).await.map_err(to_js_err)?;
+
+        let response: PeerMessage = serde_json::from_slice(&header_buf).map_err(to_js_err)?;
+
+        match response {
+            PeerMessage::HelloImageResponse {
+                size,
+                content_type,
+                error,
+                ..
+            } => {
+                if let Some(err) = error {
+                    return Err(JsError::new(&err));
+                }
+
+                let expected_size = size.unwrap_or(0);
+                info!("receiving server image {} bytes", expected_size);
+
+                // read all image data
+                let data: Vec<u8> = recv
+                    .read_to_end(10 * 1024 * 1024) // 10MB max for server image
+                    .await
+                    .map_err(to_js_err)?;
 
                 info!("received {} bytes", data.len());
 

@@ -10,8 +10,10 @@ import {
   STORE_APP_STATE,
   STORE_QUEUE_HISTORY,
   STORE_REMOTES,
+  STORE_PENDING_KNOCKS,
   type AppState,
   type P2PIdentity,
+  type PendingKnock,
 } from "./types";
 import { debug } from "../../../utils/logger";
 import { generateUUID } from "../../../utils/uuid";
@@ -57,6 +59,16 @@ async function initAppDB(): Promise<IDBPDatabase> {
         });
         eventsStore.createIndex("by_status", "status");
         eventsStore.createIndex("by_created_at", "created_at");
+      }
+
+      // create pending_knocks store (v5)
+      if (!db.objectStoreNames.contains(STORE_PENDING_KNOCKS)) {
+        const knocksStore = db.createObjectStore(STORE_PENDING_KNOCKS, {
+          keyPath: "id",
+        });
+        knocksStore.createIndex("by_peer_addr", "peer_addr");
+        knocksStore.createIndex("by_status", "status");
+        knocksStore.createIndex("by_created_at", "created_at");
       }
     },
   });
@@ -220,11 +232,87 @@ async function deleteP2PIdentity(): Promise<void> {
   debug("appDB", "deleted P2P identity");
 }
 
+// ============================================================================
+// pending knocks - outbound access requests we've made
+// ============================================================================
+
+// create a pending knock (when user requests access to a remote)
+async function createPendingKnock(knock: Omit<PendingKnock, "id" | "created_at" | "last_checked_at">): Promise<PendingKnock> {
+  const db = await initAppDB();
+  const newKnock: PendingKnock = {
+    ...knock,
+    id: generateUUID(),
+    created_at: Date.now(),
+    last_checked_at: null,
+  };
+  await db.put(STORE_PENDING_KNOCKS, newKnock);
+  debug("appDB", "created pending knock for peer:", knock.peer_addr.slice(0, 16) + "...");
+  return newKnock;
+}
+
+// get all pending knocks
+async function getAllPendingKnocks(): Promise<PendingKnock[]> {
+  const db = await initAppDB();
+  return db.getAll(STORE_PENDING_KNOCKS);
+}
+
+// get pending knock by peer_addr
+async function getPendingKnockByPeerAddr(peerAddr: string): Promise<PendingKnock | undefined> {
+  const db = await initAppDB();
+  const index = db.transaction(STORE_PENDING_KNOCKS).store.index("by_peer_addr");
+  return index.get(peerAddr);
+}
+
+// get pending knock by id
+async function getPendingKnockById(id: string): Promise<PendingKnock | undefined> {
+  const db = await initAppDB();
+  return db.get(STORE_PENDING_KNOCKS, id);
+}
+
+// update pending knock status
+async function updatePendingKnock(id: string, updates: Partial<Omit<PendingKnock, "id">>): Promise<PendingKnock | undefined> {
+  const db = await initAppDB();
+  const knock = await db.get(STORE_PENDING_KNOCKS, id) as PendingKnock | undefined;
+  if (!knock) return undefined;
+  
+  const updated: PendingKnock = {
+    ...knock,
+    ...updates,
+    last_checked_at: Date.now(),
+  };
+  await db.put(STORE_PENDING_KNOCKS, updated);
+  debug("appDB", "updated pending knock:", id, "status:", updated.status);
+  return updated;
+}
+
+// delete pending knock (when accepted and converted to remote, or user dismisses)
+async function deletePendingKnock(id: string): Promise<void> {
+  const db = await initAppDB();
+  await db.delete(STORE_PENDING_KNOCKS, id);
+  debug("appDB", "deleted pending knock:", id);
+}
+
+// delete pending knock by peer_addr
+async function deletePendingKnockByPeerAddr(peerAddr: string): Promise<void> {
+  const db = await initAppDB();
+  const knock = await getPendingKnockByPeerAddr(peerAddr);
+  if (knock) {
+    await db.delete(STORE_PENDING_KNOCKS, knock.id);
+    debug("appDB", "deleted pending knock for peer:", peerAddr.slice(0, 16) + "...");
+  }
+}
+
 export {
   appState,
   clearAppData,
   closeAppDB,
+  createPendingKnock,
+  deletePendingKnock,
+  deletePendingKnockByPeerAddr,
   deleteP2PIdentity,
+  getAllPendingKnocks,
+  getPendingKnockById,
+  getPendingKnockByPeerAddr,
   getP2PIdentity,
   initAppDB,
   loadAppState,
@@ -234,5 +322,6 @@ export {
   setQueue,
   setQueueOpen,
   updateAppState,
+  updatePendingKnock,
   updateSongInQueue,
 };

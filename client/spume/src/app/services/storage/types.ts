@@ -109,10 +109,32 @@ export interface P2PIdentity {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 4; // analytics_events store + history progress fields
+export const APP_DB_VERSION = 5; // pending_knocks store
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
 export const STORE_REMOTES = "remotes";
 export const STORE_QUEUE_HISTORY = "queue_history";
 export const STORE_ANALYTICS_EVENTS = "analytics_events";
+export const STORE_PENDING_KNOCKS = "pending_knocks";
+
+// pending knock status
+export type PendingKnockStatus = "pending" | "checking" | "accepted" | "rejected";
+
+// pending knock — tracks outbound access requests we've made to remote servers
+export interface PendingKnock {
+  id: string; // uuid
+  peer_addr: string; // node_id of the remote we knocked on
+  username: string; // username we submitted
+  message: string; // message we submitted
+  status: PendingKnockStatus;
+  created_at: number; // when we made the request
+  last_checked_at: number | null; // when we last polled for status
+  // cached server info (from when we made the request)
+  server_name: string | null;
+  server_description: string | null;
+  server_version: string | null;
+  // cached server image (base64 encoded)
+  server_image_data: string | null;
+  server_image_type: string | null;
+}

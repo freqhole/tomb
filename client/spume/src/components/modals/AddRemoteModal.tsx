@@ -1,9 +1,16 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
-import { createEffect, createSignal, Match, on, Show, Switch } from "solid-js";
+import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
 import { getClientForRemote, isTauriAvailable } from "../../app/api/client";
 import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
+import {
+  createPendingKnock,
+  deletePendingKnock,
+  getAllPendingKnocks,
+  updatePendingKnock,
+} from "../../app/services/storage/db";
+import type { PendingKnock } from "../../app/services/storage/types";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
@@ -76,6 +83,21 @@ function parsePeerAddress(
   return { type: "http", url: trimmed };
 }
 
+// format a timestamp as relative time (e.g., "2 minutes ago")
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -87,25 +109,61 @@ export interface AddRemoteModalProps {
   }) => void;
 }
 
-type Step = "url" | "testing" | "auth" | "complete";
+type Step = "url" | "testing" | "auth" | "complete" | "knock-sent";
 
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const [step, setStep] = createSignal<Step>("url");
-  const [url, setUrl] = createSignal("");
+  const [inputValue, setInputValue] = createSignal(""); // raw user input, preserved across steps
+  const [url, setUrl] = createSignal(""); // parsed HTTP URL
   const [peerAddr, setPeerAddr] = createSignal<string | null>(null); // set when input is P2P
   const [error, setError] = createSignal<string | null>(null);
   const [isLoading, setIsLoading] = createSignal(false);
+  const [testingStatus, setTestingStatus] = createSignal<string | null>(null); // progress status during testing
+  const [foundPeer, setFoundPeer] = createSignal(false); // true when P2P connection succeeds
   const [abortController, setAbortController] = createSignal<AbortController | null>(null);
   const [serverInfo, setServerInfo] = createSignal<{
     name: string;
     description?: string | null;
     version: string;
     image_url?: string | null;
+    image_blob_id?: string | null;
     requiresAuth: boolean;
+    knocking_enabled?: boolean | null;
   } | null>(null);
+
+  // pre-fetched P2P server image URL (stored as object URL during connection test)
+  const [p2pImageUrl, setP2pImageUrl] = createSignal<string | null>(null);
+  // cached image data for storing in IDB with pending knock
+  const [p2pImageData, setP2pImageData] = createSignal<{ data: string; type: string } | null>(null);
+
+  // debug: log when p2pImageUrl changes
+  createEffect(() => {
+    const imgUrl = p2pImageUrl();
+    console.log("[AddRemoteModal] p2pImageUrl changed:", imgUrl);
+  });
+
+  // pending knocks state
+  const [pendingKnocks, setPendingKnocks] = createSignal<PendingKnock[]>([]);
+  const [showKnockOption, setShowKnockOption] = createSignal(false); // show request access after failed P2P connection
 
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
+
+  // load pending knocks when modal opens
+  createEffect(
+    on(
+      () => props.isOpen,
+      async (isOpen) => {
+        if (!isOpen) return;
+        try {
+          const knocks = await getAllPendingKnocks();
+          setPendingKnocks(knocks);
+        } catch (err) {
+          console.error("failed to load pending knocks:", err);
+        }
+      }
+    )
+  );
 
   // check if current origin could be a remote server when modal opens
   createEffect(
@@ -143,7 +201,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setError(null);
     setPeerAddr(null);
 
-    const input = url().trim();
+    const input = inputValue().trim();
 
     if (!input) {
       setError("please enter a server url or peer id");
@@ -156,8 +214,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     if (parsed?.type === "p2p") {
       // P2P connection via midden
       setPeerAddr(parsed.peer_addr);
-      setUrl(""); // clear URL display for P2P
+      setUrl(""); // clear URL for P2P (peerAddr is used instead)
       setIsLoading(true);
+      setTestingStatus(null); // reset status
+      setFoundPeer(false); // reset found peer status
       setStep("testing");
 
       // create abort controller for cancellation
@@ -198,14 +258,81 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
         const info = infoResult.data;
 
-        // save server info and show auth step for registration
+        setFoundPeer(true); // mark connection as successful!
+        setTestingStatus(`connected to ${info.name}`);
+        console.log("[AddRemoteModal] server info received:", {
+          name: info.name,
+          image_url: info.image_url,
+          image_blob_id: info.image_blob_id,
+          knocking_enabled: info.knocking_enabled,
+        });
+
+        // save server info first
         setServerInfo({
           name: info.name,
           description: info.description,
           version: info.version,
           image_url: info.image_url,
+          image_blob_id: info.image_blob_id,
           requiresAuth: false, // P2P registration uses invite code only - no passkey needed
+          knocking_enabled: info.knocking_enabled,
         });
+
+        // check if user already has access via whoami BEFORE fetching image
+        setTestingStatus(`checking access to ${info.name}...`);
+        try {
+          const whoamiResult = await client.auth.whoami();
+          if (whoamiResult.success && whoamiResult.data) {
+            console.log(
+              "[AddRemoteModal] P2P whoami succeeded - user has access:",
+              whoamiResult.data
+            );
+            // user already has access, skip to complete
+            await completeSetup();
+            return;
+          }
+        } catch (whoamiErr) {
+          console.log(
+            "[AddRemoteModal] P2P whoami failed (expected if not registered):",
+            whoamiErr
+          );
+          // whoami failed - user needs to register, continue to fetch image for auth step
+        }
+
+        // try to fetch server image via dedicated HelloImageRequest (public, no auth required)
+        // only needed if user doesn't have access yet (for pending knock display)
+        setTestingStatus(`fetching server image from ${info.name}...`);
+        console.log("[AddRemoteModal] attempting to fetch server image via fetchHelloImage");
+        try {
+          if (client.transport.fetchHelloImage) {
+            const blobData = await client.transport.fetchHelloImage();
+            console.log("[AddRemoteModal] server image fetch result:", {
+              hasData: !!blobData?.data,
+              dataLength: blobData?.data?.length,
+              contentType: blobData?.contentType,
+            });
+            if (blobData?.data && blobData.data.length > 0) {
+              const blob = new Blob([new Uint8Array(blobData.data)], {
+                type: blobData.contentType,
+              });
+              const objectUrl = URL.createObjectURL(blob);
+              console.log("[AddRemoteModal] created server image URL:", objectUrl);
+              setP2pImageUrl(objectUrl);
+              // cache base64 for storing with pending knock
+              const bytes = new Uint8Array(blobData.data);
+              let binary = "";
+              for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              setP2pImageData({ data: btoa(binary), type: blobData.contentType });
+            }
+          } else {
+            console.log("[AddRemoteModal] fetchHelloImage not available on transport");
+          }
+        } catch (imgErr) {
+          console.error("[AddRemoteModal] server image fetch failed:", imgErr);
+          // image fetch failed, continue without it
+        }
 
         // move to auth step - P2P requires registration
         setStep("auth");
@@ -217,6 +344,87 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
         // provide more helpful error message
         const errMsg = err instanceof Error ? err.message : String(err);
+
+        // check if this is a 401/403 with knocking enabled - show request access option
+        const is401or403 =
+          errMsg.includes("401") ||
+          errMsg.includes("403") ||
+          errMsg.includes("Unauthorized") ||
+          errMsg.includes("Forbidden");
+
+        // try to get server info even on auth error to check knocking_enabled
+        // hello endpoint is public so it should work
+        if (is401or403) {
+          console.log("[AddRemoteModal] 401/403 detected, trying to get server info...");
+          try {
+            const serverInfoClient = await getClientForRemote({
+              peer_addr: parsed.peer_addr,
+              transport_type: isTauriAvailable() ? "app" : "wasm",
+            });
+            const helloResult = await serverInfoClient.app.serverInfo();
+            if (helloResult.success && helloResult.data) {
+              const info = helloResult.data;
+              console.log("[AddRemoteModal] 401/403 path - server info:", {
+                name: info.name,
+                image_blob_id: info.image_blob_id,
+                knocking_enabled: info.knocking_enabled,
+              });
+
+              // try to fetch server image via dedicated HelloImageRequest (public, no auth required)
+              if (!controller.signal.aborted) {
+                console.log("[AddRemoteModal] 401/403 path - fetching image via fetchHelloImage");
+                try {
+                  if (serverInfoClient.transport.fetchHelloImage) {
+                    const blobData = await serverInfoClient.transport.fetchHelloImage();
+                    console.log("[AddRemoteModal] 401/403 path - image result:", {
+                      hasData: !!blobData?.data,
+                      dataLength: blobData?.data?.length,
+                    });
+                    if (blobData?.data) {
+                      const blob = new Blob([new Uint8Array(blobData.data)], {
+                        type: blobData.contentType,
+                      });
+                      const objectUrl = URL.createObjectURL(blob);
+                      console.log("[AddRemoteModal] 401/403 path - created URL:", objectUrl);
+                      setP2pImageUrl(objectUrl);
+                      // cache base64 for storing with pending knock
+                      const bytes = new Uint8Array(blobData.data);
+                      let binary = "";
+                      for (let i = 0; i < bytes.length; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                      }
+                      setP2pImageData({ data: btoa(binary), type: blobData.contentType });
+                    }
+                  } else {
+                    console.log("[AddRemoteModal] 401/403 path - fetchHelloImage not available");
+                  }
+                } catch (imgErr) {
+                  console.error("[AddRemoteModal] 401/403 path - image fetch failed:", imgErr);
+                  // image fetch failed, continue without it
+                }
+              }
+
+              setServerInfo({
+                name: info.name,
+                description: info.description,
+                version: info.version,
+                image_url: info.image_url,
+                image_blob_id: info.image_blob_id,
+                requiresAuth: true,
+                knocking_enabled: info.knocking_enabled,
+              });
+              if (info.knocking_enabled) {
+                setShowKnockOption(true);
+                setError(`access denied - you can request access from the server admin`);
+                setStep("url");
+                return;
+              }
+            }
+          } catch {
+            // couldn't get server info, just show the regular error
+          }
+        }
+
         if (errMsg.includes("timeout") || errMsg.includes("Timeout")) {
           setError("P2P connection timed out - peer may be offline or unreachable");
         } else if (errMsg.includes("not found") || errMsg.includes("NotFound")) {
@@ -244,6 +452,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     // trim trailing slash
     remoteUrl = remoteUrl.replace(/\/+$/, "");
     setUrl(remoteUrl);
+    setInputValue(remoteUrl); // update input to show normalized URL
 
     // validate url format
     try {
@@ -265,6 +474,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
 
     setIsLoading(true);
+    setTestingStatus(null); // reset status
     setStep("testing");
 
     // create abort controller for cancellation
@@ -297,6 +507,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           description: info.description,
           version: info.version,
           image_url: info.image_url,
+          image_blob_id: info.image_blob_id,
           requiresAuth: true,
         });
         await completeSetup();
@@ -309,6 +520,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         description: info.description,
         version: info.version,
         image_url: info.image_url,
+        image_blob_id: info.image_blob_id,
         requiresAuth: true,
       });
 
@@ -428,6 +640,218 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
+  // handle requesting access via knock
+  const handleRequestAccess = async (username: string, message: string) => {
+    const currentPeerAddr = peerAddr();
+    if (!currentPeerAddr) {
+      setError("no peer address available");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = await getClientForRemote({
+        peer_addr: currentPeerAddr,
+        transport_type: isTauriAvailable() ? "app" : "wasm",
+      });
+
+      debug("knock", "sending knock request...");
+      const result = await client.admin.createKnockPublic({
+        username,
+        message,
+      });
+
+      if (!result.success) {
+        throw new Error(
+          "error" in result ? formatErrorMessage(result.error) : "knock request failed"
+        );
+      }
+
+      debug("knock", "knock request sent successfully");
+
+      // save to IDB for tracking
+      const info = serverInfo();
+      const imageData = p2pImageData();
+      await createPendingKnock({
+        peer_addr: currentPeerAddr,
+        server_name: info?.name ?? null,
+        server_description: info?.description ?? null,
+        server_version: info?.version ?? null,
+        server_image_data: imageData?.data ?? null,
+        server_image_type: imageData?.type ?? null,
+        username,
+        message,
+        status: "pending",
+      });
+
+      // refresh pending knocks list
+      const knocks = await getAllPendingKnocks();
+      setPendingKnocks(knocks);
+
+      setShowKnockOption(false);
+      setStep("knock-sent");
+    } catch (err) {
+      console.error("failed to send knock request:", err);
+      setError(err instanceof Error ? err.message : "failed to send access request");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // retry a pending knock to see if it was accepted
+  const handleRetryKnock = async (knock: PendingKnock) => {
+    setInputValue(knock.peer_addr);
+    setPeerAddr(knock.peer_addr);
+    setError(null);
+    setShowKnockOption(false);
+    setIsLoading(true);
+    setTestingStatus(null); // reset status
+    setStep("testing");
+
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    try {
+      const client = await getClientForRemote({
+        peer_addr: knock.peer_addr,
+        transport_type: isTauriAvailable() ? "app" : "wasm",
+      });
+
+      if (controller.signal.aborted) return;
+
+      // check knock status first
+      const statusResult = await client.admin.getKnockStatusPublic();
+
+      if (controller.signal.aborted) return;
+
+      // update last checked time
+      await updatePendingKnock(knock.id, { last_checked_at: Date.now() });
+      const knocks = await getAllPendingKnocks();
+      setPendingKnocks(knocks);
+
+      if (statusResult.success && statusResult.data) {
+        const status = statusResult.data;
+
+        if (status.status === "accepted") {
+          // knock was accepted! try to get full server info
+          const infoResult = await client.app.serverInfo();
+
+          if (infoResult.success && infoResult.data) {
+            const info = infoResult.data;
+            setServerInfo({
+              name: info.name,
+              description: info.description,
+              version: info.version,
+              image_url: info.image_url,
+              image_blob_id: info.image_blob_id,
+              requiresAuth: false,
+              knocking_enabled: info.knocking_enabled,
+            });
+          }
+
+          // remove from pending knocks
+          await deletePendingKnock(knock.id);
+          const updatedKnocks = await getAllPendingKnocks();
+          setPendingKnocks(updatedKnocks);
+
+          // check if user already has access via whoami
+          setTestingStatus("checking access...");
+          try {
+            const whoamiResult = await client.auth.whoami();
+            if (whoamiResult.success && whoamiResult.data) {
+              console.log("[AddRemoteModal] knock accepted & whoami succeeded - completing setup");
+              await completeSetup();
+              return;
+            }
+          } catch (whoamiErr) {
+            console.log("[AddRemoteModal] whoami failed after knock accepted:", whoamiErr);
+          }
+
+          // fallback to auth step if whoami failed
+          setStep("auth");
+          return;
+        } else if (status.status === "rejected") {
+          // knock was rejected
+          await updatePendingKnock(knock.id, { status: "rejected" });
+          const updatedKnocks = await getAllPendingKnocks();
+          setPendingKnocks(updatedKnocks);
+
+          setError("your access request was rejected by the server admin");
+          setStep("url");
+          return;
+        }
+
+        // still pending
+        setError("access request is still pending - the server admin has not yet responded");
+        setStep("url");
+      } else {
+        // couldn't get status, try a regular connection
+        const infoResult = await client.app.serverInfo();
+
+        if (infoResult.success && infoResult.data) {
+          // connection succeeded! knock must have been accepted
+          const info = infoResult.data;
+          setServerInfo({
+            name: info.name,
+            description: info.description,
+            version: info.version,
+            image_url: info.image_url,
+            image_blob_id: info.image_blob_id,
+            requiresAuth: false,
+            knocking_enabled: info.knocking_enabled,
+          });
+
+          await deletePendingKnock(knock.id);
+          const updatedKnocks = await getAllPendingKnocks();
+          setPendingKnocks(updatedKnocks);
+
+          // check if user already has access via whoami
+          setTestingStatus("checking access...");
+          try {
+            const whoamiResult = await client.auth.whoami();
+            if (whoamiResult.success && whoamiResult.data) {
+              console.log(
+                "[AddRemoteModal] connection succeeded & whoami succeeded - completing setup"
+              );
+              await completeSetup();
+              return;
+            }
+          } catch (whoamiErr) {
+            console.log("[AddRemoteModal] whoami failed despite connection success:", whoamiErr);
+          }
+
+          // fallback to auth step if whoami failed
+          setStep("auth");
+        } else {
+          setError("still waiting for access approval");
+          setStep("url");
+        }
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return;
+
+      console.error("failed to check knock status:", err);
+      setError("still waiting for access approval - server may be offline");
+      setStep("url");
+    } finally {
+      setIsLoading(false);
+      setAbortController(null);
+    }
+  };
+
+  // delete a pending knock
+  const handleDeleteKnock = async (knock: PendingKnock) => {
+    try {
+      await deletePendingKnock(knock.id);
+      const knocks = await getAllPendingKnocks();
+      setPendingKnocks(knocks);
+    } catch (err) {
+      console.error("failed to delete pending knock:", err);
+    }
+  };
+
   const handleClose = () => {
     // allow close during testing step (abort the connection), but not during auth
     if (isLoading() && step() !== "testing") return;
@@ -440,21 +864,29 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
 
     setStep("url");
+    setInputValue("");
     setUrl("");
     setPeerAddr(null);
     setError(null);
     setServerInfo(null);
     setOriginHint(null);
+    setShowKnockOption(false);
     setIsLoading(false);
+    // revoke and clear P2P image URL
+    const imgUrl = p2pImageUrl();
+    if (imgUrl) {
+      URL.revokeObjectURL(imgUrl);
+      setP2pImageUrl(null);
+    }
     props.onClose();
   };
 
   const canGoBack = () => {
-    return step() === "auth" || (step() === "testing" && isLoading());
+    return step() === "auth" || step() === "knock-sent" || (step() === "testing" && isLoading());
   };
 
   const handleBack = () => {
-    if (step() === "auth") {
+    if (step() === "auth" || step() === "knock-sent") {
       setStep("url");
       setError(null);
     } else if (step() === "testing") {
@@ -479,11 +911,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       >
         {/* modal */}
         <div
-          class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl max-w-md w-full border border-[var(--color-border-default)]"
+          class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl max-w-md w-full border border-[var(--color-border-default)] flex flex-col max-h-[80dvh]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* header */}
-          <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)]">
+          <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)] flex-shrink-0">
             <div class="flex items-center gap-3">
               <Show when={canGoBack()}>
                 <button
@@ -521,14 +953,31 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           </div>
 
           {/* content */}
-          <div class="p-6">
+          <div class="p-6 overflow-y-auto flex-1 min-h-0">
             <Switch>
               {/* step 1: enter url */}
               <Match when={step() === "url"}>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    handleTestConnection();
+                    if (showKnockOption()) {
+                      // submit request access form
+                      const form = e.currentTarget;
+                      const usernameInput = form.querySelector<HTMLInputElement>("#knock-username");
+                      const messageInput =
+                        form.querySelector<HTMLTextAreaElement>("#knock-message");
+                      const username = usernameInput?.value?.trim() || "";
+                      const message = messageInput?.value?.trim() || "";
+                      if (!username) {
+                        setError("please enter a username");
+                      } else if (!message) {
+                        setError("please enter a message - tell the admin who you are");
+                      } else {
+                        handleRequestAccess(username, message);
+                      }
+                    } else {
+                      handleTestConnection();
+                    }
                   }}
                   class="space-y-4"
                 >
@@ -542,11 +991,14 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     <input
                       id="remote-url"
                       type="text"
-                      value={url()}
-                      onInput={(e) => setUrl(e.currentTarget.value)}
+                      value={inputValue()}
+                      onInput={(e) => {
+                        setInputValue(e.currentTarget.value);
+                        setShowKnockOption(false); // reset knock option when input changes
+                      }}
                       placeholder="https://music.example.com or node_id"
                       class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:border-transparent font-mono text-sm"
-                      disabled={isLoading()}
+                      disabled={isLoading() || showKnockOption()}
                     />
                     <p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
                       enter a URL for HTTP, or paste a 64-char node_id for P2P
@@ -559,18 +1011,103 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     </div>
                   </Show>
 
-                  <Button type="submit" variant="primary" disabled={isLoading()} class="w-full">
-                    test connection
-                  </Button>
+                  {/* request access form - shown when knocking is enabled */}
+                  <Show when={showKnockOption()}>
+                    {/* server info display - same as auth step */}
+                    <Show when={serverInfo()}>
+                      <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md">
+                        <div class="flex items-start gap-3">
+                          <MediaImage
+                            imageUrl={p2pImageUrl()}
+                            alt={serverInfo()?.name ?? "Server"}
+                            class="w-12 h-12 rounded object-cover"
+                          />
+                          <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-[var(--color-text-primary)]">
+                              {serverInfo()?.name}
+                            </p>
+                            <Show when={serverInfo()?.description}>
+                              <p class="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                                {serverInfo()?.description}
+                              </p>
+                            </Show>
+                            <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                              P2P • version {serverInfo()?.version}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </Show>
+
+                    <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md space-y-3">
+                      <p class="text-sm text-[var(--color-text-secondary)]">
+                        request access to this server. the admin will review your request.
+                      </p>
+                      <div>
+                        <label
+                          for="knock-username"
+                          class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
+                        >
+                          your name
+                        </label>
+                        <input
+                          id="knock-username"
+                          type="text"
+                          placeholder="how should we address you?"
+                          class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
+                          disabled={isLoading()}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          for="knock-message"
+                          class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
+                        >
+                          message
+                        </label>
+                        <textarea
+                          id="knock-message"
+                          placeholder="say who you are and mention something only the admin would know (but no passwords or secrets!)"
+                          rows={3}
+                          class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)] resize-none"
+                          disabled={isLoading()}
+                        />
+                      </div>
+                    </div>
+                  </Show>
+
+                  <Show when={!showKnockOption()}>
+                    <Button type="submit" variant="primary" disabled={isLoading()} class="w-full">
+                      test connection
+                    </Button>
+                  </Show>
+                  <Show when={showKnockOption()}>
+                    <div class="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setShowKnockOption(false);
+                          setError(null);
+                        }}
+                        class="flex-1"
+                      >
+                        cancel
+                      </Button>
+                      <Button type="submit" variant="primary" disabled={isLoading()} class="flex-1">
+                        {isLoading() ? "sending..." : "request access"}
+                      </Button>
+                    </div>
+                  </Show>
 
                   {/* hint: use current origin if it's a valid server */}
-                  <Show when={originHint()}>
+                  <Show when={originHint() && !showKnockOption()}>
                     <div class="text-center pt-2 border-t border-[var(--color-border-default)]">
                       <button
                         type="button"
                         class="text-sm text-[var(--color-accent-primary)] hover:underline"
                         onClick={() => {
-                          setUrl(originHint()!);
+                          setInputValue(originHint()!);
                           handleTestConnection();
                         }}
                         disabled={isLoading()}
@@ -579,17 +1116,126 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       </button>
                     </div>
                   </Show>
+
+                  {/* pending knocks list */}
+                  <Show when={pendingKnocks().length > 0}>
+                    <div class="pt-4 border-t border-[var(--color-border-default)]">
+                      <h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                        pending access requests
+                      </h3>
+                      <div class="space-y-2">
+                        <For each={pendingKnocks()}>
+                          {(knock) => (
+                            <div class="flex items-center gap-2 p-2 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)]">
+                              {/* server image */}
+                              <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)]">
+                                <Show
+                                  when={knock.server_image_data}
+                                  fallback={
+                                    <div class="w-full h-full flex items-center justify-center text-[var(--color-text-tertiary)]">
+                                      <svg
+                                        class="w-5 h-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          stroke-width="1.5"
+                                          d="M5 12h14M12 5l7 7-7 7"
+                                        />
+                                      </svg>
+                                    </div>
+                                  }
+                                >
+                                  <img
+                                    src={`data:${knock.server_image_type || "image/png"};base64,${knock.server_image_data}`}
+                                    alt={knock.server_name || "server"}
+                                    class="w-full h-full object-cover"
+                                  />
+                                </Show>
+                              </div>
+                              <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                                  {knock.server_name || knock.peer_addr.slice(0, 16) + "..."}
+                                </p>
+                                <p class="text-xs text-[var(--color-text-tertiary)]">
+                                  {knock.status === "pending" && "waiting for approval"}
+                                  {knock.status === "rejected" && "request rejected"}
+                                  {knock.last_checked_at && (
+                                    <> • checked {formatRelativeTime(knock.last_checked_at)}</>
+                                  )}
+                                </p>
+                              </div>
+                              <div class="flex gap-1">
+                                <button
+                                  type="button"
+                                  class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
+                                  onClick={() => handleRetryKnock(knock)}
+                                  title="check status"
+                                  disabled={isLoading()}
+                                >
+                                  <svg
+                                    class="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="2"
+                                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                    />
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
+                                  onClick={() => handleDeleteKnock(knock)}
+                                  title="remove"
+                                >
+                                  <svg
+                                    class="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      stroke-linecap="round"
+                                      stroke-linejoin="round"
+                                      stroke-width="2"
+                                      d="M6 18L18 6M6 6l12 12"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
                 </form>
               </Match>
 
               {/* step 2: testing connection */}
               <Match when={step() === "testing"}>
                 <div class="flex flex-col items-center justify-center py-8 space-y-4">
-                  <div class="w-12 h-12 border-4 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
+                  <Show when={!foundPeer()}>
+                    <div class="w-12 h-12 border-4 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
+                  </Show>
+                  <Show when={foundPeer()}>
+                    <p class="text-lg font-semibold text-[var(--color-accent-primary)]">
+                      found peer!
+                    </p>
+                  </Show>
                   <p class="text-sm text-[var(--color-text-secondary)]">
-                    {peerAddr()
-                      ? `connecting via P2P to ${peerAddr()!.slice(0, 16)}...`
-                      : `connecting to ${url()}...`}
+                    {testingStatus() ||
+                      (peerAddr()
+                        ? `connecting via P2P to ${peerAddr()!.slice(0, 16)}...`
+                        : `connecting to ${url()}...`)}
                   </p>
                 </div>
               </Match>
@@ -603,9 +1249,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       <div class="flex items-start gap-3">
                         <MediaImage
                           imageUrl={
-                            serverInfo()?.image_url && !peerAddr()
-                              ? `${url()}${serverInfo()?.image_url}`
-                              : null
+                            peerAddr()
+                              ? p2pImageUrl() // use pre-fetched P2P image
+                              : serverInfo()?.image_url
+                                ? `${url()}${serverInfo()?.image_url}`
+                                : null
                           }
                           alt={serverInfo()?.name ?? "Server"}
                           class="w-12 h-12 rounded object-cover"
@@ -646,7 +1294,62 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     loading={isLoading()}
                     error={error() || undefined}
                     showModeToggle={!peerAddr()} // hide mode toggle for P2P (login not supported)
+                    hidePasskeyInfo={!!peerAddr() || isTauriAvailable()} // hide for P2P and tauri
                   />
+
+                  {/* request access option for P2P when knocking is enabled */}
+                  <Show when={peerAddr() && serverInfo()?.knocking_enabled}>
+                    <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
+                      <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                        don't have an invite code?
+                      </p>
+                      <button
+                        type="button"
+                        class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                        onClick={() => {
+                          setShowKnockOption(true);
+                          setStep("url");
+                        }}
+                        disabled={isLoading()}
+                      >
+                        request access from the admin
+                      </button>
+                    </div>
+                  </Show>
+                </div>
+              </Match>
+
+              {/* step: knock sent - waiting for approval */}
+              <Match when={step() === "knock-sent"}>
+                <div class="flex flex-col items-center justify-center py-8 space-y-4">
+                  <div class="w-16 h-16 rounded-full bg-[var(--color-accent-primary)]/10 flex items-center justify-center">
+                    <svg
+                      class="w-8 h-8 text-[var(--color-accent-primary)]"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <div class="text-center">
+                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">
+                      access request sent!
+                    </h3>
+                    <p class="text-sm text-[var(--color-text-secondary)] mb-4">
+                      the server admin will review your request.
+                      <br />
+                      check back later to see if it was approved.
+                    </p>
+                    <Button variant="secondary" onClick={handleBack}>
+                      done
+                    </Button>
+                  </div>
                 </div>
               </Match>
 

@@ -67,12 +67,20 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
     // image_blob_id for P2P transport (stored in config after running update-server-image)
     let image_blob_id = server_config.image_blob_id.clone();
 
+    // knocking_enabled from federation config (only include if federation is enabled)
+    let knocking_enabled = config
+        .federation
+        .as_ref()
+        .filter(|f| f.enabled)
+        .map(|f| f.knocking_enabled);
+
     Ok(Json(ServerInfoResponse {
         name,
         description,
         version,
         image_url,
         image_blob_id,
+        knocking_enabled,
     }))
 }
 

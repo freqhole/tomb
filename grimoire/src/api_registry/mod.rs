@@ -36,6 +36,7 @@ pub enum Domain {
     App,
     Auth,
     Music,
+    Admin,
 }
 
 impl Domain {
@@ -44,6 +45,7 @@ impl Domain {
             Domain::App => "app",
             Domain::Auth => "auth",
             Domain::Music => "music",
+            Domain::Admin => "admin",
         }
     }
 }
@@ -227,6 +229,11 @@ pub mod type_registry {
         AlbumSearchResult, ArtistSearchResult, FilterSet, GenreSearchResult, PlaylistSearchResult,
         QueryContext, SearchField, SearchRequest, SearchResponse, SongSearchResult, Suggestion,
         SuggestionType, SuggestionsRequest, SuggestionsResponse,
+    };
+
+    // knock types
+    use crate::federation::knock::{
+        CreateKnockRequest, KnockRequest, KnockStatus, KnockStatusResponse, ProcessKnockRequest,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -700,5 +707,21 @@ pub mod type_registry {
 
         gen.add_schema::<PlaylistSearchResult>("PlaylistSearchResult");
         registered.insert("PlaylistSearchResult".to_string());
+
+        // knock types
+        gen.add_schema::<KnockRequest>("KnockRequest");
+        registered.insert("KnockRequest".to_string());
+
+        gen.add_schema::<KnockStatus>("KnockStatus");
+        registered.insert("KnockStatus".to_string());
+
+        gen.add_schema::<KnockStatusResponse>("KnockStatusResponse");
+        registered.insert("KnockStatusResponse".to_string());
+
+        gen.add_schema::<CreateKnockRequest>("CreateKnockRequest");
+        registered.insert("CreateKnockRequest".to_string());
+
+        gen.add_schema::<ProcessKnockRequest>("ProcessKnockRequest");
+        registered.insert("ProcessKnockRequest".to_string());
     }
 }

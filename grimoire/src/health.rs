@@ -35,4 +35,6 @@ pub struct ServerInfoResponse {
     pub image_url: Option<String>,
     /// optional server image blob id (for P2P transport)
     pub image_blob_id: Option<String>,
+    /// whether knocking is enabled for P2P access requests
+    pub knocking_enabled: Option<bool>,
 }

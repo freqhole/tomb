@@ -45,6 +45,39 @@ pub enum FederationAction {
         #[arg(short, long)]
         role: Option<String>,
     },
+
+    /// List pending knock requests from unknown peers
+    ListKnocks {
+        /// Include all knocks, not just pending
+        #[arg(short, long)]
+        all: bool,
+    },
+
+    /// Accept a knock request - creates user and peer mapping
+    AcceptKnock {
+        /// ID of the knock request to accept
+        id: String,
+
+        /// Override the username from the knock request
+        #[arg(short, long)]
+        username: Option<String>,
+
+        /// Role for the new user: admin, member, or viewer (default: member)
+        #[arg(short, long, default_value = "member")]
+        role: String,
+    },
+
+    /// Reject a knock request
+    RejectKnock {
+        /// ID of the knock request to reject
+        id: String,
+    },
+
+    /// Delete a knock request (allows node to knock again)
+    DeleteKnock {
+        /// ID of the knock request to delete
+        id: String,
+    },
 }
 
 // Response types for JSON serialization
@@ -134,6 +167,12 @@ pub async fn handle_command(action: FederationAction) -> CommandOutput<serde_jso
             username,
             role,
         } => allow_peer(node_id, username, role).await,
+        FederationAction::ListKnocks { all } => list_knocks(all).await,
+        FederationAction::AcceptKnock { id, username, role } => {
+            accept_knock(id, username, role).await
+        }
+        FederationAction::RejectKnock { id } => reject_knock(id).await,
+        FederationAction::DeleteKnock { id } => delete_knock(id).await,
     }
 }
 
@@ -408,4 +447,112 @@ async fn allow_peer(
     };
 
     CommandOutput::success(message, data)
+}
+
+async fn list_knocks(include_all: bool) -> CommandOutput<serde_json::Value> {
+    let result = grimoire::federation::knock::list_knocks(include_all).await;
+
+    if !result.success {
+        return CommandOutput::failure(result.message, result.errors, ());
+    }
+
+    let knocks = result.data.unwrap_or_default();
+    let count = knocks.len();
+    let message = if include_all {
+        format!("{} knock request(s) total", count)
+    } else {
+        format!("{} pending knock request(s)", count)
+    };
+
+    CommandOutput::success(message, knocks)
+}
+
+async fn accept_knock(
+    knock_id: String,
+    username: Option<String>,
+    role: String,
+) -> CommandOutput<serde_json::Value> {
+    use grimoire::federation::knock::ProcessKnockRequest;
+    use grimoire::users::UserService;
+
+    let request = ProcessKnockRequest { username, role };
+
+    // get root user for admin_user_id
+    let service = UserService::new();
+    let admin_user = match service.get_first_root_user().await {
+        grimoire::response::GrimoireResponse {
+            data: Some(user), ..
+        } => user,
+        response => {
+            return CommandOutput::failure(
+                "no root user found - run setup first",
+                response.errors,
+                (),
+            );
+        }
+    };
+
+    match grimoire::federation::knock::accept_knock(&knock_id, request, &admin_user.id).await {
+        Ok(knock) => {
+            let message = format!(
+                "accepted knock '{}' - created user for node {}",
+                knock_id,
+                &knock.node_id[..8]
+            );
+            CommandOutput::success(message, knock)
+        }
+        Err(e) => CommandOutput::failure(
+            format!("failed to accept knock: {}", e),
+            vec![ErrorDetail::from(e)],
+            (),
+        ),
+    }
+}
+
+async fn reject_knock(knock_id: String) -> CommandOutput<serde_json::Value> {
+    use grimoire::users::UserService;
+
+    // get root user for admin_user_id
+    let service = UserService::new();
+    let admin_user = match service.get_first_root_user().await {
+        grimoire::response::GrimoireResponse {
+            data: Some(user), ..
+        } => user,
+        response => {
+            return CommandOutput::failure(
+                "no root user found - run setup first",
+                response.errors,
+                (),
+            );
+        }
+    };
+
+    match grimoire::federation::knock::reject_knock(&knock_id, &admin_user.id).await {
+        Ok(knock) => {
+            let message = format!("rejected knock '{}'", knock_id);
+            CommandOutput::success(message, knock)
+        }
+        Err(e) => CommandOutput::failure(
+            format!("failed to reject knock: {}", e),
+            vec![ErrorDetail::from(e)],
+            (),
+        ),
+    }
+}
+
+async fn delete_knock(knock_id: String) -> CommandOutput<serde_json::Value> {
+    match grimoire::federation::knock::delete_knock(&knock_id).await {
+        Ok(()) => {
+            let message = format!("deleted knock '{}'", knock_id);
+            CommandOutput::success(
+                message,
+                serde_json::json!({ "deleted": true, "id": knock_id }),
+            )
+        }
+        Err(e) => CommandOutput::failure(
+            format!("failed to delete knock: {}", e),
+            vec![ErrorDetail::from(e)],
+            (),
+        ),
+    }
 }

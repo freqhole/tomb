@@ -23,6 +23,8 @@ export interface AuthFormProps {
   onModeChange?: (mode: AuthMode) => void;
   /** whether to show the mode toggle */
   showModeToggle?: boolean;
+  /** hide the passkey info text (for P2P or tauri) */
+  hidePasskeyInfo?: boolean;
   /** additional classes for the container */
   class?: string;
 }
@@ -123,8 +125,8 @@ export function AuthForm(props: AuthFormProps) {
         </div>
       </Show>
 
-      {/* info text */}
-      <Show when={isWebAuthnAvailable()}>
+      {/* info text - hide for P2P/tauri where webauthn isn't used */}
+      <Show when={isWebAuthnAvailable() && !props.hidePasskeyInfo}>
         <div class="bg-[var(--color-bg-secondary)] rounded p-4">
           <p class="caption text-[var(--color-text-tertiary)] leading-relaxed">
             <Show
