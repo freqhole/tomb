@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev:all",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build:wizard && cd ../spume && VITE_TAURI_MODE=true npm run build && cp -r ../tauri/dist/wizard dist/",
+    "beforeBuildCommand": "npm run build:wizard && cd ../spume && VITE_TAURI_MODE=true npm run build && cp -r ../tauri/dist/wizard dist/ && cp ../tauri/public/about.html dist/",
     "frontendDist": "../../spume/dist"
   },
   "app": {

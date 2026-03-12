@@ -19,9 +19,9 @@ export const FreqholeConfigSchema = z.object({
   /** server URL (e.g. http://localhost:8686) */
   server_url: z.string(),
   /** invite code for authentication (used for initial login after setup) */
-  invite_code: z.string().optional(),
+  invite_code: z.string().nullish(),
   /** admin username (used with invite code for authentication) */
-  admin_username: z.string().optional(),
+  admin_username: z.string().nullish(),
   /** whether to disable backdrop blur (performance setting) */
   disable_backdrop_blur: z.boolean().optional(),
 });
