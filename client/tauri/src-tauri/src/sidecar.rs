@@ -647,3 +647,54 @@ pub async fn clear_server_logs(state: tauri::State<'_, ServerManager>) -> Result
     guard.logs.clear();
     Ok(())
 }
+
+/// read logs directly from the log file (freqhole.log)
+/// returns the last N lines from the file
+#[tauri::command]
+pub async fn read_log_file(
+    app: tauri::AppHandle,
+    max_lines: Option<usize>,
+) -> Result<Vec<String>, String> {
+    use std::io::{BufRead, BufReader};
+
+    // get server config path from app config
+    let app_config =
+        FreqholeAppConfig::load(&app).ok_or_else(|| "app config not loaded".to_string())?;
+
+    let server_config_path = app_config
+        .get_server_config_path()
+        .ok_or_else(|| "server config path not set".to_string())?;
+
+    // parse server config to get data_dir and log_file
+    let config_content = std::fs::read_to_string(&server_config_path)
+        .map_err(|e| format!("failed to read server config: {}", e))?;
+
+    let server_config: grimoire::config::GrimoireConfig = toml::from_str(&config_content)
+        .map_err(|e| format!("failed to parse server config: {}", e))?;
+
+    // get log file path
+    let log_path = server_config
+        .log_file_path()
+        .ok_or_else(|| "file logging is disabled".to_string())?;
+
+    if !log_path.exists() {
+        return Ok(vec![]); // file doesn't exist yet
+    }
+
+    // read last N lines efficiently (read from end)
+    let max = max_lines.unwrap_or(500).min(10_000);
+    let file =
+        std::fs::File::open(&log_path).map_err(|e| format!("failed to open log file: {}", e))?;
+
+    let reader = BufReader::new(file);
+    let all_lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
+    // return last N lines
+    let start = if all_lines.len() > max {
+        all_lines.len() - max
+    } else {
+        0
+    };
+
+    Ok(all_lines[start..].to_vec())
+}

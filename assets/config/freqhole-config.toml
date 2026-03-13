@@ -142,20 +142,12 @@ enabled = true
 # recommended: "info" ("debug" will log a LOT)
 level = "info"
 
-# OPTIONAL: slow query logging to file for debugging performance issues
-# when enabled, queries taking longer than the threshold are logged to a file
-# useful for identifying slow database operations in production
-#
-# slow_query_enabled (default: false): enable slow query file logging
-# slow_query_threshold_ms (default: 500): queries slower than this are logged
-# slow_query_file (default: "slow_queries.log"): log file path (relative to data_dir or absolute)
-#
-# log format: [timestamp] duration_ms [context] | query_text
-# example: [2026-03-13T14:30:00Z] 1234ms [get_all_songs] | SELECT * FROM songz ...
-#
-slow_query_enabled = false
-slow_query_threshold_ms = 500
-slow_query_file = "slow_queries.log"
+# OPTIONAL: log destination - file OR stdout (not both)
+# set to a filename to log to file (relative to data_dir or absolute)
+# set to empty string "" to log to stdout instead
+# file is automatically rotated to keep ~10,000 lines
+# (default: "freqhole.log")
+log_file = "freqhole.log"
 
 # ============================================================================
 # OPTIONAL: server configuration

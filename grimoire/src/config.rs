@@ -233,25 +233,15 @@ impl FederationConfig {
 pub struct LoggingConfig {
     /// Log level: trace, debug, info, warn, error
     pub level: String,
-    /// Enable slow query logging to file (default: false)
-    #[serde(default)]
-    pub slow_query_enabled: bool,
-    /// Slow query threshold in milliseconds (default: 500ms)
-    /// queries taking longer than this are logged
-    #[serde(default = "default_slow_query_threshold_ms")]
-    pub slow_query_threshold_ms: u64,
-    /// Slow query log file path (relative to data_dir or absolute)
-    /// default: "slow_queries.log"
-    #[serde(default = "default_slow_query_file")]
-    pub slow_query_file: String,
+    /// Log file path (relative to data_dir or absolute)
+    /// default: "freqhole.log"
+    /// set to empty string "" to disable file logging
+    #[serde(default = "default_log_file")]
+    pub log_file: String,
 }
 
-fn default_slow_query_threshold_ms() -> u64 {
-    500
-}
-
-fn default_slow_query_file() -> String {
-    "slow_queries.log".to_string()
+fn default_log_file() -> String {
+    "freqhole.log".to_string()
 }
 
 /// Server configuration
@@ -532,14 +522,18 @@ impl GrimoireConfig {
         self.data_dir.join("federation-creds.toml")
     }
 
-    /// Get path to slow query log file
+    /// Get path to log file
+    /// returns None if log_file is empty (file logging disabled)
     /// returns absolute path resolved from data_dir if relative
-    pub fn slow_query_log_path(&self) -> PathBuf {
-        let path = PathBuf::from(&self.logging.slow_query_file);
+    pub fn log_file_path(&self) -> Option<PathBuf> {
+        if self.logging.log_file.is_empty() {
+            return None;
+        }
+        let path = PathBuf::from(&self.logging.log_file);
         if path.is_absolute() {
-            path
+            Some(path)
         } else {
-            self.data_dir.join(&self.logging.slow_query_file)
+            Some(self.data_dir.join(&self.logging.log_file))
         }
     }
 }

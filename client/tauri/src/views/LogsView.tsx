@@ -29,23 +29,27 @@ export default function LogsView() {
 
   async function fetchLogs() {
     try {
-      const result = await invoke<string[]>("get_server_logs", {
+      const result = await invoke<string[]>("read_log_file", {
         maxLines: 500,
       });
       // reverse so newest is at top
       setLogs([...result].reverse());
     } catch (e) {
-      console.error("failed to fetch logs:", e);
+      // fallback to sidecar buffer if log file isn't available yet
+      try {
+        const result = await invoke<string[]>("get_server_logs", {
+          maxLines: 500,
+        });
+        setLogs([...result].reverse());
+      } catch {
+        console.error("failed to fetch logs:", e);
+      }
     }
   }
 
-  async function clearLogs() {
-    try {
-      await invoke("clear_server_logs");
-      setLogs([]);
-    } catch (e) {
-      console.error("failed to clear logs:", e);
-    }
+  function clearLogs() {
+    // just clear the UI view, don't truncate the file
+    setLogs([]);
   }
 
   return (

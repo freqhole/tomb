@@ -166,6 +166,7 @@ async fn main() -> Result<()> {
     }
 
     // Initialize tracing (use config log level if available, else default to "info")
+    // Note: file logging is handled by server::run_server() for the server command
     let log_level = if needs_init {
         grimoire::config::get_config().logging.level.as_str()
     } else {
