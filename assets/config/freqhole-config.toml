@@ -170,7 +170,7 @@ slow_query_file = "slow_queries.log"
 # REQUIRED: server display name
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.5"
+version = "0.1.6"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
