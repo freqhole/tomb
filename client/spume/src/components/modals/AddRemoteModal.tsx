@@ -1274,7 +1274,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                   type="button"
                                   class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
                                   onClick={() => handleRetryKnock(pending)}
-                                  title={pending.stage === "connected" ? "continue setup" : "check status"}
+                                  title={
+                                    pending.stage === "connected"
+                                      ? "continue setup"
+                                      : "check status"
+                                  }
                                   disabled={isLoading()}
                                 >
                                   <svg
