@@ -3,8 +3,8 @@
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::config::{
-    config_needs_upgrade, create_config, ensure_server_image_blob, find_config,
-    get_binary_version, upgrade_config, ConfigValidationResponse, GrimoireConfig,
+    config_needs_upgrade, create_config, ensure_server_image_blob, find_config, get_binary_version,
+    upgrade_config, ConfigValidationResponse, GrimoireConfig,
 };
 use grimoire::error::GrimoireError;
 use std::path::PathBuf;
@@ -33,6 +33,9 @@ pub enum ConfigAction {
     /// Update server image blob for P2P transport
     /// reads server.image_path, creates a media blob, and stores the blob_id in config
     UpdateServerImage,
+    /// Update embedded spume web client files
+    /// cleans old assets and extracts new ones from the binary
+    UpdateSpume,
 }
 
 /// Handle config commands
@@ -169,7 +172,7 @@ pub async fn handle_command(
             }
         }
         ConfigAction::Upgrade => {
-            let path = match find_config(global_config) {
+            let path = match find_config(global_config.clone()) {
                 Ok(p) => p,
                 Err(e) => {
                     return CommandOutput::failure(
@@ -185,19 +188,50 @@ pub async fn handle_command(
 
             match upgrade_config(&path) {
                 Ok(result) => {
-                    let message = format!(
-                        "config upgraded: {} -> {} (backup: {})",
-                        result.old_version,
-                        result.new_version,
-                        result.backup_path.display()
-                    );
+                    // also update spume if embedded assets are available
+                    let (spume_updated, spume_files) = if grimoire::setup::has_embedded_spume() {
+                        // load updated config to get data_dir
+                        if let Ok(config) = GrimoireConfig::load(&path) {
+                            let spume_dir = config.data_dir.join("spume");
+                            match grimoire::setup::update_spume_to(&spume_dir) {
+                                Ok(spume_result) => (true, spume_result.files_extracted),
+                                Err(e) => {
+                                    eprintln!("warning: failed to update spume: {}", e);
+                                    (false, 0)
+                                }
+                            }
+                        } else {
+                            (false, 0)
+                        }
+                    } else {
+                        (false, 0)
+                    };
+
+                    let message = if spume_updated {
+                        format!(
+                            "config upgraded: {} -> {} (backup: {}), spume updated ({} files)",
+                            result.old_version,
+                            result.new_version,
+                            result.backup_path.display(),
+                            spume_files
+                        )
+                    } else {
+                        format!(
+                            "config upgraded: {} -> {} (backup: {})",
+                            result.old_version,
+                            result.new_version,
+                            result.backup_path.display()
+                        )
+                    };
                     CommandOutput::success(
                         message,
                         serde_json::json!({
                             "old_version": result.old_version,
                             "new_version": result.new_version,
                             "backup_path": result.backup_path.display().to_string(),
-                            "config_path": path.display().to_string()
+                            "config_path": path.display().to_string(),
+                            "spume_updated": spume_updated,
+                            "spume_files": spume_files
                         }),
                     )
                 }
@@ -239,6 +273,77 @@ pub async fn handle_command(
                 }
                 Err(e) => CommandOutput::failure(
                     "Failed to update server image blob",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
+        }
+        ConfigAction::UpdateSpume => {
+            // check for embedded assets first
+            if !grimoire::setup::has_embedded_spume() {
+                return CommandOutput::failure(
+                    "No embedded spume assets",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: "this build does not include embedded spume web client"
+                            .to_string(),
+                    }
+                    .into()],
+                    (),
+                );
+            }
+
+            // find config to get data_dir
+            let path = match find_config(global_config) {
+                Ok(p) => p,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to find config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
+
+            // load config to get data_dir
+            let config = match GrimoireConfig::load(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "Failed to load config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
+
+            let spume_dir = config.data_dir.join("spume");
+
+            match grimoire::setup::update_spume_to(&spume_dir) {
+                Ok(result) => {
+                    let message = format!(
+                        "spume updated: cleaned {} items, extracted {} files to {}",
+                        result.files_cleaned, result.files_extracted, result.destination
+                    );
+                    CommandOutput::success(
+                        message,
+                        serde_json::json!({
+                            "files_cleaned": result.files_cleaned,
+                            "files_extracted": result.files_extracted,
+                            "destination": result.destination
+                        }),
+                    )
+                }
+                Err(e) => CommandOutput::failure(
+                    "Failed to update spume",
                     vec![GrimoireError::ProcessingFailed {
                         message: e.to_string(),
                     }

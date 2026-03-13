@@ -18,6 +18,8 @@ interface ConfigUpgradeResult {
   backup_path: string;
   old_version: string;
   new_version: string;
+  spume_updated: boolean;
+  spume_files: number;
 }
 
 export default function SettingsView() {
@@ -88,9 +90,15 @@ export default function SettingsView() {
     try {
       const result = await invoke<ConfigUpgradeResult>("upgrade_config");
 
+      // build message parts
+      const versionMsg = `${result.old_version} → ${result.new_version}`;
+      const spumeMsg = result.spume_updated
+        ? `, web client updated (${result.spume_files} files)`
+        : "";
+
       // success - reload config and restart server
       setSaveMessage(
-        `config upgraded: ${result.old_version} → ${result.new_version} (backup: ${result.backup_path})`,
+        `config upgraded: ${versionMsg}${spumeMsg} (backup: ${result.backup_path})`,
       );
       setIsError(false);
 
@@ -101,7 +109,7 @@ export default function SettingsView() {
       try {
         await invoke("server_restart");
         setSaveMessage(
-          `config upgraded: ${result.old_version} → ${result.new_version} - server restarted (backup: ${result.backup_path})`,
+          `config upgraded: ${versionMsg}${spumeMsg} - server restarted (backup: ${result.backup_path})`,
         );
       } catch (e) {
         setSaveMessage(

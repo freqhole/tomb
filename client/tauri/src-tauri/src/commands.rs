@@ -604,6 +604,68 @@ pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveCo
     }
 }
 
+/// result of updating spume static files
+#[derive(Debug, Serialize)]
+pub struct UpdateSpumeResult {
+    pub success: bool,
+    pub message: String,
+    pub files_cleaned: usize,
+    pub files_extracted: usize,
+}
+
+/// update embedded spume web client files
+///
+/// safely cleans old files and extracts new ones from the embedded assets.
+/// performs safety checks to prevent accidental deletion of wrong directories.
+#[tauri::command]
+pub fn update_spume(app_handle: tauri::AppHandle) -> UpdateSpumeResult {
+    // check if we have embedded assets
+    if !grimoire::setup::has_embedded_spume() {
+        return UpdateSpumeResult {
+            success: false,
+            message: "no embedded spume assets available in this build".to_string(),
+            files_cleaned: 0,
+            files_extracted: 0,
+        };
+    }
+
+    // get data directory
+    let data_dir = match get_data_dir(app_handle) {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            return UpdateSpumeResult {
+                success: false,
+                message: "data directory not configured - run setup first".to_string(),
+                files_cleaned: 0,
+                files_extracted: 0,
+            }
+        }
+    };
+
+    let spume_dir = data_dir.join("spume");
+
+    match grimoire::setup::update_spume_to(&spume_dir) {
+        Ok(result) => {
+            eprintln!(
+                "updated spume: cleaned {} items, extracted {} files to {}",
+                result.files_cleaned, result.files_extracted, result.destination
+            );
+            UpdateSpumeResult {
+                success: true,
+                message: format!("web client updated ({} files)", result.files_extracted),
+                files_cleaned: result.files_cleaned,
+                files_extracted: result.files_extracted,
+            }
+        }
+        Err(e) => UpdateSpumeResult {
+            success: false,
+            message: format!("failed to update spume: {}", e),
+            files_cleaned: 0,
+            files_extracted: 0,
+        },
+    }
+}
+
 /// user info for listing
 #[derive(Debug, Serialize)]
 pub struct UserInfo {
@@ -1935,11 +1997,16 @@ pub struct ConfigUpgradeResult {
     pub old_version: String,
     /// new version written to config
     pub new_version: String,
+    /// whether spume web client was updated
+    pub spume_updated: bool,
+    /// number of spume files extracted (if updated)
+    pub spume_files: usize,
 }
 
 /// upgrade server config to current version
 ///
 /// creates backup first, then merges user values into fresh template.
+/// also updates embedded spume web client if available.
 /// app config (freqhole-app-config.toml) is upgraded silently on startup.
 #[tauri::command]
 pub fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResult, String> {
@@ -1948,10 +2015,37 @@ pub fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResul
 
     let result = grimoire::config::upgrade_config(&config_path).map_err(|e| e.to_string())?;
 
+    // also update spume if embedded assets are available
+    let (spume_updated, spume_files) = if grimoire::setup::has_embedded_spume() {
+        // load updated config to get data_dir
+        if let Ok(config) = grimoire::config::GrimoireConfig::load(&config_path) {
+            let spume_dir = config.data_dir.join("spume");
+            match grimoire::setup::update_spume_to(&spume_dir) {
+                Ok(spume_result) => {
+                    eprintln!(
+                        "updated spume: cleaned {} items, extracted {} files",
+                        spume_result.files_cleaned, spume_result.files_extracted
+                    );
+                    (true, spume_result.files_extracted)
+                }
+                Err(e) => {
+                    eprintln!("failed to update spume (non-fatal): {}", e);
+                    (false, 0)
+                }
+            }
+        } else {
+            (false, 0)
+        }
+    } else {
+        (false, 0)
+    };
+
     Ok(ConfigUpgradeResult {
         backup_path: result.backup_path.display().to_string(),
         old_version: result.old_version,
         new_version: result.new_version,
+        spume_updated,
+        spume_files,
     })
 }
 

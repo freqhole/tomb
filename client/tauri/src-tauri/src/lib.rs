@@ -215,6 +215,7 @@ pub fn run() {
             commands::open_config_dir,
             commands::read_config_file,
             commands::save_config_file,
+            commands::update_spume,
             commands::list_users,
             commands::update_user_role,
             commands::delete_user,
