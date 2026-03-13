@@ -82,11 +82,7 @@ pub fn log_slow_query(query: &str, duration_ms: u64, context: Option<&str>) {
     );
 
     // append to file
-    match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    {
+    match OpenOptions::new().create(true).append(true).open(&log_path) {
         Ok(mut file) => {
             if let Err(e) = file.write_all(log_entry.as_bytes()) {
                 warn!("failed to write slow query log: {}", e);
@@ -121,7 +117,11 @@ macro_rules! time_query {
         let _start = std::time::Instant::now();
         let result = $block;
         let _duration_ms = _start.elapsed().as_millis() as u64;
-        $crate::slow_query::log_slow_query("(query text not provided)", _duration_ms, Some($context));
+        $crate::slow_query::log_slow_query(
+            "(query text not provided)",
+            _duration_ms,
+            Some($context),
+        );
         result
     }};
 }
