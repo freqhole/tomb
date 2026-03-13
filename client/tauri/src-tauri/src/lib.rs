@@ -251,6 +251,7 @@ pub fn run() {
             sidecar::server_restart,
             sidecar::server_health_check,
             sidecar::get_server_logs,
+            sidecar::clear_server_logs,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
             // P2P native transport commands

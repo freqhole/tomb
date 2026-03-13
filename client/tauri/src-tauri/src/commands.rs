@@ -583,9 +583,8 @@ pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveCo
                 };
             }
 
-            // notify spume that config changed (requires reload)
-            let _ =
-                notify_config_changed(&app_handle, "config was updated - reload to apply changes");
+            // note: don't notify here - caller (SettingsView) will restart server
+            // which sends its own notification
 
             SaveConfigResult {
                 success: true,

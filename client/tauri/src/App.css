@@ -609,6 +609,7 @@ button.warning:disabled {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.5rem 0;
   font-size: 0.75rem;
   color: #a1a1aa;
   cursor: pointer;
@@ -1075,10 +1076,17 @@ button.danger:hover {
 }
 
 .save-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.75rem;
   border-radius: 6px;
   margin-bottom: 0.75rem;
   font-size: 0.875rem;
+}
+
+.save-message .message-text {
+  flex: 1;
 }
 
 .save-message.success {
@@ -1093,6 +1101,26 @@ button.danger:hover {
   color: #fca5a5;
 }
 
+.dismiss-btn {
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  width: 1.5rem;
+  min-width: 1.5rem;
+  max-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.dismiss-btn:hover {
+  opacity: 1;
+}
+
 .validation-errors {
   padding: 0.75rem;
   background: #450a0a;
@@ -1101,6 +1129,12 @@ button.danger:hover {
   margin-bottom: 0.75rem;
   font-size: 0.875rem;
   color: #fca5a5;
+}
+
+.validation-errors .errors-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .validation-errors strong {

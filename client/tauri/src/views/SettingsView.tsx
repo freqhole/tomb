@@ -36,8 +36,24 @@ export default function SettingsView() {
     createSignal<ConfigUpgradeStatus | null>(null);
   const [isUpgrading, setIsUpgrading] = createSignal(false);
 
+  // "show in finder" button copy state
+  const [pathCopied, setPathCopied] = createSignal(false);
+
   let editorContainer: HTMLDivElement | undefined;
   let editor: monaco.editor.IStandaloneCodeEditor | undefined;
+
+  // helper to relayout monaco after DOM changes
+  function relayoutEditor() {
+    // use setTimeout to let the DOM update first
+    setTimeout(() => editor?.layout(), 0);
+  }
+
+  // dismiss save message and relayout
+  function dismissMessage() {
+    setSaveMessage("");
+    setSaveErrors([]);
+    relayoutEditor();
+  }
 
   onMount(async () => {
     await loadConfigPath();
@@ -67,6 +83,7 @@ export default function SettingsView() {
       setSaveMessage(`failed to load config: ${e}`);
       setIsError(true);
       setEditorLoading(false);
+      relayoutEditor();
     }
   }
 
@@ -76,6 +93,7 @@ export default function SettingsView() {
         "check_config_needs_upgrade",
       );
       setUpgradeStatus(status);
+      relayoutEditor();
     } catch (e) {
       console.error("failed to check config upgrade status:", e);
     }
@@ -125,6 +143,7 @@ export default function SettingsView() {
       setIsError(true);
     } finally {
       setIsUpgrading(false);
+      relayoutEditor();
     }
   }
 
@@ -151,6 +170,13 @@ export default function SettingsView() {
   async function openConfigDir() {
     try {
       await invoke("open_config_dir");
+      // also copy path to clipboard
+      const path = configPath();
+      if (path) {
+        await navigator.clipboard.writeText(path);
+        setPathCopied(true);
+        setTimeout(() => setPathCopied(false), 5000);
+      }
     } catch (e) {
       console.error("failed to open config dir:", e);
     }
@@ -193,6 +219,7 @@ export default function SettingsView() {
       setIsError(true);
     } finally {
       setIsSaving(false);
+      relayoutEditor();
     }
   }
 
@@ -208,6 +235,8 @@ export default function SettingsView() {
     } catch (e) {
       setSaveMessage(`failed to reload config: ${e}`);
       setIsError(true);
+    } finally {
+      relayoutEditor();
     }
   }
 
@@ -269,7 +298,7 @@ export default function SettingsView() {
               onClick={openConfigDir}
               title={configPath()}
             >
-              show in finder
+              {pathCopied() ? "copied path!" : "show in finder"}
             </button>
           </Show>
           <div class="flex-spacer" />
@@ -284,13 +313,29 @@ export default function SettingsView() {
 
         <Show when={saveMessage()}>
           <div class={`save-message ${isError() ? "error" : "success"}`}>
-            {saveMessage()}
+            <span class="message-text">{saveMessage()}</span>
+            <button
+              class="dismiss-btn"
+              onClick={dismissMessage}
+              title="dismiss"
+            >
+              ×
+            </button>
           </div>
         </Show>
 
         <Show when={saveErrors().length > 0}>
           <div class="validation-errors">
-            <strong>validation errors:</strong>
+            <div class="errors-header">
+              <strong>validation errors:</strong>
+              <button
+                class="dismiss-btn"
+                onClick={dismissMessage}
+                title="dismiss"
+              >
+                ×
+              </button>
+            </div>
             <ul>
               {saveErrors().map((err) => (
                 <li>{err}</li>

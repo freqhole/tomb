@@ -39,6 +39,15 @@ export default function LogsView() {
     }
   }
 
+  async function clearLogs() {
+    try {
+      await invoke("clear_server_logs");
+      setLogs([]);
+    } catch (e) {
+      console.error("failed to clear logs:", e);
+    }
+  }
+
   return (
     <div class="view-content logs-view">
       <div class="view-header">
@@ -56,6 +65,9 @@ export default function LogsView() {
           </label>
           <button class="secondary small" onClick={fetchLogs}>
             refresh
+          </button>
+          <button class="secondary small" onClick={clearLogs}>
+            clear
           </button>
         </div>
       </div>

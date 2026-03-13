@@ -639,3 +639,11 @@ pub async fn get_server_logs(
     let logs: Vec<String> = guard.logs.iter().rev().take(max).cloned().collect();
     Ok(logs.into_iter().rev().collect())
 }
+
+/// clear server logs
+#[tauri::command]
+pub async fn clear_server_logs(state: tauri::State<'_, ServerManager>) -> Result<(), String> {
+    let mut guard = state.lock().unwrap();
+    guard.logs.clear();
+    Ok(())
+}
