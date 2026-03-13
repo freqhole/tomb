@@ -253,29 +253,9 @@ pub async fn get_combined_feed(
         }
     };
 
-    // count query
-    let mut count_query = Query::select();
-    count_query
-        .expr(Expr::col(sea_query::Asterisk).count())
-        .from(FeedView::Table);
-    apply_filters(&mut count_query);
-
-    let (count_sql, count_values) = count_query.build(SqliteQueryBuilder);
-
-    let mut count_sqlx = sqlx::query_scalar::<_, i32>(&count_sql);
-    for value in &count_values.0 {
-        match value {
-            sea_query::Value::String(Some(s)) => {
-                count_sqlx = count_sqlx.bind(s.as_ref());
-            }
-            _ => {}
-        }
-    }
-
-    let total_count = match count_sqlx.fetch_one(&pool).await {
-        Ok(c) => c as i64,
-        Err(e) => return GrimoireResponse::failure("failed to count feed items", vec![e.into()]),
-    };
+    // skip expensive COUNT query - client uses "has more" heuristic instead
+    // return -1 to indicate unknown total
+    let total_count: i64 = -1;
 
     // data query
     let mut data_query = Query::select();

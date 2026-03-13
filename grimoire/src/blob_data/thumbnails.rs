@@ -339,7 +339,9 @@ const BATCH_SIZE: i64 = 100;
 
 /// get a batch of blobs that need thumbnails generated (original images and waveforms without children)
 ///
-/// internal function - always returns at most BATCH_SIZE rows to avoid loading too much into memory
+/// internal function - always returns at most BATCH_SIZE rows to avoid loading too much into memory.
+/// also excludes blobs whose sha256 matches another blob that already has thumbnails
+/// (since dedup would just return the existing thumbnail, creating an infinite loop).
 async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -347,7 +349,8 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
     };
 
     // find original and waveform blobs that don't have any thumbnail children
-    // uses NOT EXISTS so processed blobs naturally excluded on next batch
+    // also excludes blobs whose content (sha256) matches a sibling blob that already has thumbnails
+    // (since thumbnail dedup would just return the sibling's thumbnail, causing infinite loop)
     let blobs = match sqlx::query_as!(
         MediaBlob,
         "SELECT
@@ -378,6 +381,20 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
                WHERE t.parent_blob_id = b.id
                  AND t.blob_type = 'thumbnail'
                  AND t.deleted_at IS NULL
+           )
+           AND NOT EXISTS (
+               -- exclude if a sibling blob (same sha256) already has thumbnails
+               -- since dedup would return that sibling's thumbnail anyway
+               SELECT 1 FROM media_blobz sibling
+               WHERE sibling.sha256 = b.sha256
+                 AND sibling.id != b.id
+                 AND sibling.deleted_at IS NULL
+                 AND EXISTS (
+                     SELECT 1 FROM media_blobz t2
+                     WHERE t2.parent_blob_id = sibling.id
+                       AND t2.blob_type = 'thumbnail'
+                       AND t2.deleted_at IS NULL
+                 )
            )
          ORDER BY b.created_at DESC
          LIMIT ?",
@@ -413,6 +430,18 @@ pub async fn count_blobs_needing_thumbnails() -> GrimoireResponse<u32> {
                WHERE t.parent_blob_id = b.id
                  AND t.blob_type = 'thumbnail'
                  AND t.deleted_at IS NULL
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM media_blobz sibling
+               WHERE sibling.sha256 = b.sha256
+                 AND sibling.id != b.id
+                 AND sibling.deleted_at IS NULL
+                 AND EXISTS (
+                     SELECT 1 FROM media_blobz t2
+                     WHERE t2.parent_blob_id = sibling.id
+                       AND t2.blob_type = 'thumbnail'
+                       AND t2.deleted_at IS NULL
+                 )
            )"
     )
     .fetch_one(&pool)

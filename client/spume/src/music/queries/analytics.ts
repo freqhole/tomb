@@ -153,8 +153,11 @@ export function useActivityFeedInfiniteQuery(
         return adaptFeedResponse(result.data, remote.base_url, remote.remote_id);
       },
       getNextPageParam: (lastPage: FeedResponse, allPages: FeedResponse[]) => {
+        // server returns -1 for total when count is skipped for performance
+        // use "fewer items than requested" heuristic to detect end
+        if (lastPage.items.length < pageSize) return undefined;
+        // return next offset (sum of all items fetched so far)
         const totalFetched = allPages.reduce((sum, page) => sum + page.items.length, 0);
-        if (totalFetched >= lastPage.total) return undefined;
         return totalFetched;
       },
       initialPageParam: 0,
