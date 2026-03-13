@@ -109,32 +109,38 @@ export interface P2PIdentity {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 5; // pending_knocks store
+export const APP_DB_VERSION = 6; // renamed pending_knocks → pending_remotes
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
 export const STORE_REMOTES = "remotes";
 export const STORE_QUEUE_HISTORY = "queue_history";
 export const STORE_ANALYTICS_EVENTS = "analytics_events";
-export const STORE_PENDING_KNOCKS = "pending_knocks";
+export const STORE_PENDING_REMOTES = "pending_remotes";
 
-// pending knock status
-export type PendingKnockStatus = "pending" | "checking" | "accepted" | "rejected";
+// pending remote stage - tracks progress of adding a new remote
+export type PendingRemoteStage =
+  | "connected"       // test connection succeeded, have server info
+  | "knock_pending"   // knock request was sent, awaiting response
+  | "knock_accepted"  // knock was accepted, can complete setup
+  | "knock_rejected"; // knock was rejected
 
-// pending knock — tracks outbound access requests we've made to remote servers
-export interface PendingKnock {
+// pending remote — tracks in-progress remote additions
+export interface PendingRemote {
   id: string; // uuid
-  peer_addr: string; // node_id of the remote we knocked on
-  username: string; // username we submitted
-  message: string; // message we submitted
-  status: PendingKnockStatus;
-  created_at: number; // when we made the request
-  last_checked_at: number | null; // when we last polled for status
-  // cached server info (from when we made the request)
+  peer_addr: string; // node_id or http url
+  transport: "http" | "wasm" | "app";
+  stage: PendingRemoteStage;
+  created_at: number;
+  updated_at: number;
+  // server info (from /api/hello)
   server_name: string | null;
   server_description: string | null;
   server_version: string | null;
   // cached server image (base64 encoded)
   server_image_data: string | null;
   server_image_type: string | null;
+  // knock info (optional, only if knock was sent)
+  knock_username: string | null;
+  knock_message: string | null;
 }

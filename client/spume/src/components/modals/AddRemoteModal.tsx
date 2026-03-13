@@ -5,12 +5,14 @@ import { getClientForRemote, isTauriAvailable } from "../../app/api/client";
 import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import {
-  createPendingKnock,
-  deletePendingKnock,
-  getAllPendingKnocks,
-  updatePendingKnock,
+  createPendingRemote,
+  deletePendingRemote,
+  deletePendingRemoteByPeerAddr,
+  getAllPendingRemotes,
+  getPendingRemoteByPeerAddr,
+  updatePendingRemote,
 } from "../../app/services/storage/db";
-import type { PendingKnock } from "../../app/services/storage/types";
+import type { PendingRemote } from "../../app/services/storage/types";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
@@ -83,21 +85,6 @@ function parsePeerAddress(
   return { type: "http", url: trimmed };
 }
 
-// format a timestamp as relative time (e.g., "2 minutes ago")
-function formatRelativeTime(timestamp: number): string {
-  const now = Date.now();
-  const diff = now - timestamp;
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (seconds < 60) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
-}
-
 export interface AddRemoteModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -142,24 +129,24 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     console.log("[AddRemoteModal] p2pImageUrl changed:", imgUrl);
   });
 
-  // pending knocks state
-  const [pendingKnocks, setPendingKnocks] = createSignal<PendingKnock[]>([]);
+  // pending remotes state (tracks in-progress remote additions, including knocks)
+  const [pendingRemotes, setPendingRemotes] = createSignal<PendingRemote[]>([]);
   const [showKnockOption, setShowKnockOption] = createSignal(false); // show request access after failed P2P connection
 
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
 
-  // load pending knocks when modal opens
+  // load pending remotes when modal opens
   createEffect(
     on(
       () => props.isOpen,
       async (isOpen) => {
         if (!isOpen) return;
         try {
-          const knocks = await getAllPendingKnocks();
-          setPendingKnocks(knocks);
+          const remotes = await getAllPendingRemotes();
+          setPendingRemotes(remotes);
         } catch (err) {
-          console.error("failed to load pending knocks:", err);
+          console.error("failed to load pending remotes:", err);
         }
       }
     )
@@ -334,6 +321,36 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           // image fetch failed, continue without it
         }
 
+        // create or update pending remote for recovery if user closes modal
+        const existingPending = await getPendingRemoteByPeerAddr(parsed.peer_addr);
+        const imageData = p2pImageData();
+        if (existingPending) {
+          await updatePendingRemote(existingPending.id, {
+            stage: "connected",
+            server_name: info.name,
+            server_description: info.description,
+            server_version: info.version,
+            server_image_data: imageData?.data ?? existingPending.server_image_data,
+            server_image_type: imageData?.type ?? existingPending.server_image_type,
+          });
+        } else {
+          await createPendingRemote({
+            peer_addr: parsed.peer_addr,
+            transport: isTauriAvailable() ? "app" : "wasm",
+            stage: "connected",
+            server_name: info.name,
+            server_description: info.description,
+            server_version: info.version,
+            server_image_data: imageData?.data ?? null,
+            server_image_type: imageData?.type ?? null,
+            knock_username: null,
+            knock_message: null,
+          });
+        }
+        // refresh the list
+        const remotes = await getAllPendingRemotes();
+        setPendingRemotes(remotes);
+
         // move to auth step - P2P requires registration
         setStep("auth");
       } catch (err) {
@@ -413,6 +430,37 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                 requiresAuth: true,
                 knocking_enabled: info.knocking_enabled,
               });
+
+              // create or update pending remote even on 401/403 - we got server info
+              const existingPending = await getPendingRemoteByPeerAddr(parsed.peer_addr);
+              const imageData = p2pImageData();
+              if (existingPending) {
+                await updatePendingRemote(existingPending.id, {
+                  stage: "connected",
+                  server_name: info.name,
+                  server_description: info.description,
+                  server_version: info.version,
+                  server_image_data: imageData?.data ?? existingPending.server_image_data,
+                  server_image_type: imageData?.type ?? existingPending.server_image_type,
+                });
+              } else {
+                await createPendingRemote({
+                  peer_addr: parsed.peer_addr,
+                  transport: isTauriAvailable() ? "app" : "wasm",
+                  stage: "connected",
+                  server_name: info.name,
+                  server_description: info.description,
+                  server_version: info.version,
+                  server_image_data: imageData?.data ?? null,
+                  server_image_type: imageData?.type ?? null,
+                  knock_username: null,
+                  knock_message: null,
+                });
+              }
+              // refresh the list
+              const remotes = await getAllPendingRemotes();
+              setPendingRemotes(remotes);
+
               if (info.knocking_enabled) {
                 setShowKnockOption(true);
                 setError(`access denied - you can request access from the server admin`);
@@ -524,6 +572,33 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         requiresAuth: true,
       });
 
+      // create or update pending remote for recovery if user closes modal
+      const existingPending = await getPendingRemoteByPeerAddr(remoteUrl);
+      if (existingPending) {
+        await updatePendingRemote(existingPending.id, {
+          stage: "connected",
+          server_name: info.name,
+          server_description: info.description,
+          server_version: info.version,
+        });
+      } else {
+        await createPendingRemote({
+          peer_addr: remoteUrl, // for HTTP, use URL as peer_addr
+          transport: "http",
+          stage: "connected",
+          server_name: info.name,
+          server_description: info.description,
+          server_version: info.version,
+          server_image_data: null, // HTTP remotes fetch images via URL
+          server_image_type: null,
+          knock_username: null,
+          knock_message: null,
+        });
+      }
+      // refresh the list
+      const remotes = await getAllPendingRemotes();
+      setPendingRemotes(remotes);
+
       // move to auth step
       setStep("auth");
     } catch (err) {
@@ -626,6 +701,14 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         peer_addr: currentPeerAddr || undefined,
       });
 
+      // delete pending remote now that we have a real remote
+      const peerAddrKey = currentPeerAddr || remoteUrl;
+      if (peerAddrKey) {
+        await deletePendingRemoteByPeerAddr(peerAddrKey);
+        const remotes = await getAllPendingRemotes();
+        setPendingRemotes(remotes);
+      }
+
       setStep("complete");
 
       // auto-close after short delay
@@ -671,24 +754,43 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       debug("knock", "knock request sent successfully");
 
-      // save to IDB for tracking
+      // update existing pending remote or create new one with knock_pending stage
       const info = serverInfo();
       const imageData = p2pImageData();
-      await createPendingKnock({
-        peer_addr: currentPeerAddr,
-        server_name: info?.name ?? null,
-        server_description: info?.description ?? null,
-        server_version: info?.version ?? null,
-        server_image_data: imageData?.data ?? null,
-        server_image_type: imageData?.type ?? null,
-        username,
-        message,
-        status: "pending",
-      });
+      const existingPending = await getPendingRemoteByPeerAddr(currentPeerAddr);
 
-      // refresh pending knocks list
-      const knocks = await getAllPendingKnocks();
-      setPendingKnocks(knocks);
+      if (existingPending) {
+        // update existing pending remote with knock details
+        await updatePendingRemote(existingPending.id, {
+          stage: "knock_pending",
+          knock_username: username,
+          knock_message: message,
+          // refresh server info if we have newer data
+          server_name: info?.name ?? existingPending.server_name,
+          server_description: info?.description ?? existingPending.server_description,
+          server_version: info?.version ?? existingPending.server_version,
+          server_image_data: imageData?.data ?? existingPending.server_image_data,
+          server_image_type: imageData?.type ?? existingPending.server_image_type,
+        });
+      } else {
+        // create new pending remote
+        await createPendingRemote({
+          peer_addr: currentPeerAddr,
+          transport: isTauriAvailable() ? "app" : "wasm",
+          stage: "knock_pending",
+          server_name: info?.name ?? null,
+          server_description: info?.description ?? null,
+          server_version: info?.version ?? null,
+          server_image_data: imageData?.data ?? null,
+          server_image_type: imageData?.type ?? null,
+          knock_username: username,
+          knock_message: message,
+        });
+      }
+
+      // refresh pending remotes list
+      const remotes = await getAllPendingRemotes();
+      setPendingRemotes(remotes);
 
       setShowKnockOption(false);
       setStep("knock-sent");
@@ -700,10 +802,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
-  // retry a pending knock to see if it was accepted
-  const handleRetryKnock = async (knock: PendingKnock) => {
-    setInputValue(knock.peer_addr);
-    setPeerAddr(knock.peer_addr);
+  // retry a pending remote to see if knock was accepted
+  const handleRetryKnock = async (pending: PendingRemote) => {
+    setInputValue(pending.peer_addr);
+    setPeerAddr(pending.peer_addr);
     setError(null);
     setShowKnockOption(false);
     setIsLoading(true);
@@ -715,7 +817,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
     try {
       const client = await getClientForRemote({
-        peer_addr: knock.peer_addr,
+        peer_addr: pending.peer_addr,
         transport_type: isTauriAvailable() ? "app" : "wasm",
       });
 
@@ -727,9 +829,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       if (controller.signal.aborted) return;
 
       // update last checked time
-      await updatePendingKnock(knock.id, { last_checked_at: Date.now() });
-      const knocks = await getAllPendingKnocks();
-      setPendingKnocks(knocks);
+      await updatePendingRemote(pending.id, {});
+      const remotes = await getAllPendingRemotes();
+      setPendingRemotes(remotes);
 
       if (statusResult.success && statusResult.data) {
         const status = statusResult.data;
@@ -751,10 +853,10 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             });
           }
 
-          // remove from pending knocks
-          await deletePendingKnock(knock.id);
-          const updatedKnocks = await getAllPendingKnocks();
-          setPendingKnocks(updatedKnocks);
+          // remove from pending remotes
+          await deletePendingRemote(pending.id);
+          const updatedRemotes = await getAllPendingRemotes();
+          setPendingRemotes(updatedRemotes);
 
           // check if user already has access via whoami
           setTestingStatus("checking access...");
@@ -774,9 +876,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           return;
         } else if (status.status === "rejected") {
           // knock was rejected
-          await updatePendingKnock(knock.id, { status: "rejected" });
-          const updatedKnocks = await getAllPendingKnocks();
-          setPendingKnocks(updatedKnocks);
+          await updatePendingRemote(pending.id, { stage: "knock_rejected" });
+          const updatedRemotes = await getAllPendingRemotes();
+          setPendingRemotes(updatedRemotes);
 
           setError("your access request was rejected by the server admin");
           setStep("url");
@@ -803,9 +905,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             knocking_enabled: info.knocking_enabled,
           });
 
-          await deletePendingKnock(knock.id);
-          const updatedKnocks = await getAllPendingKnocks();
-          setPendingKnocks(updatedKnocks);
+          await deletePendingRemote(pending.id);
+          const updatedRemotes = await getAllPendingRemotes();
+          setPendingRemotes(updatedRemotes);
 
           // check if user already has access via whoami
           setTestingStatus("checking access...");
@@ -841,14 +943,14 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
-  // delete a pending knock
-  const handleDeleteKnock = async (knock: PendingKnock) => {
+  // delete a pending remote
+  const handleDeletePending = async (pending: PendingRemote) => {
     try {
-      await deletePendingKnock(knock.id);
-      const knocks = await getAllPendingKnocks();
-      setPendingKnocks(knocks);
+      await deletePendingRemote(pending.id);
+      const remotes = await getAllPendingRemotes();
+      setPendingRemotes(remotes);
     } catch (err) {
-      console.error("failed to delete pending knock:", err);
+      console.error("failed to delete pending remote:", err);
     }
   };
 
@@ -1117,20 +1219,20 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     </div>
                   </Show>
 
-                  {/* pending knocks list */}
-                  <Show when={pendingKnocks().length > 0}>
+                  {/* pending remotes list */}
+                  <Show when={pendingRemotes().length > 0}>
                     <div class="pt-4 border-t border-[var(--color-border-default)]">
                       <h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                        pending access requests
+                        pending connections
                       </h3>
                       <div class="space-y-2">
-                        <For each={pendingKnocks()}>
-                          {(knock) => (
+                        <For each={pendingRemotes()}>
+                          {(pending) => (
                             <div class="flex items-center gap-2 p-2 bg-[var(--color-bg-secondary)] rounded border border-[var(--color-border-default)]">
                               {/* server image */}
                               <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)]">
                                 <Show
-                                  when={knock.server_image_data}
+                                  when={pending.server_image_data}
                                   fallback={
                                     <div class="w-full h-full flex items-center justify-center text-[var(--color-text-tertiary)]">
                                       <svg
@@ -1150,30 +1252,29 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                   }
                                 >
                                   <img
-                                    src={`data:${knock.server_image_type || "image/png"};base64,${knock.server_image_data}`}
-                                    alt={knock.server_name || "server"}
+                                    src={`data:${pending.server_image_type || "image/png"};base64,${pending.server_image_data}`}
+                                    alt={pending.server_name || "server"}
                                     class="w-full h-full object-cover"
                                   />
                                 </Show>
                               </div>
                               <div class="flex-1 min-w-0">
                                 <p class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                                  {knock.server_name || knock.peer_addr.slice(0, 16) + "..."}
+                                  {pending.server_name || pending.peer_addr.slice(0, 16) + "..."}
                                 </p>
                                 <p class="text-xs text-[var(--color-text-tertiary)]">
-                                  {knock.status === "pending" && "waiting for approval"}
-                                  {knock.status === "rejected" && "request rejected"}
-                                  {knock.last_checked_at && (
-                                    <> • checked {formatRelativeTime(knock.last_checked_at)}</>
-                                  )}
+                                  {pending.stage === "connected" && "ready to connect"}
+                                  {pending.stage === "knock_pending" && "waiting for approval"}
+                                  {pending.stage === "knock_accepted" && "access granted"}
+                                  {pending.stage === "knock_rejected" && "request rejected"}
                                 </p>
                               </div>
                               <div class="flex gap-1">
                                 <button
                                   type="button"
                                   class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
-                                  onClick={() => handleRetryKnock(knock)}
-                                  title="check status"
+                                  onClick={() => handleRetryKnock(pending)}
+                                  title={pending.stage === "connected" ? "continue setup" : "check status"}
                                   disabled={isLoading()}
                                 >
                                   <svg
@@ -1193,7 +1294,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                 <button
                                   type="button"
                                   class="p-1.5 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-accent-primary)] hover:bg-[var(--color-accent-primary)]/10 rounded transition-colors"
-                                  onClick={() => handleDeleteKnock(knock)}
+                                  onClick={() => handleDeletePending(pending)}
                                   title="remove"
                                 >
                                   <svg

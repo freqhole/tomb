@@ -10,10 +10,10 @@ import {
   STORE_APP_STATE,
   STORE_QUEUE_HISTORY,
   STORE_REMOTES,
-  STORE_PENDING_KNOCKS,
+  STORE_PENDING_REMOTES,
   type AppState,
   type P2PIdentity,
-  type PendingKnock,
+  type PendingRemote,
 } from "./types";
 import { debug } from "../../../utils/logger";
 import { generateUUID } from "../../../utils/uuid";
@@ -61,14 +61,19 @@ async function initAppDB(): Promise<IDBPDatabase> {
         eventsStore.createIndex("by_created_at", "created_at");
       }
 
-      // create pending_knocks store (v5)
-      if (!db.objectStoreNames.contains(STORE_PENDING_KNOCKS)) {
-        const knocksStore = db.createObjectStore(STORE_PENDING_KNOCKS, {
+      // delete old pending_knocks store if it exists (v5 → v6 migration)
+      if (db.objectStoreNames.contains("pending_knocks")) {
+        db.deleteObjectStore("pending_knocks");
+      }
+
+      // create pending_remotes store (v6)
+      if (!db.objectStoreNames.contains(STORE_PENDING_REMOTES)) {
+        const pendingStore = db.createObjectStore(STORE_PENDING_REMOTES, {
           keyPath: "id",
         });
-        knocksStore.createIndex("by_peer_addr", "peer_addr");
-        knocksStore.createIndex("by_status", "status");
-        knocksStore.createIndex("by_created_at", "created_at");
+        pendingStore.createIndex("by_peer_addr", "peer_addr");
+        pendingStore.createIndex("by_stage", "stage");
+        pendingStore.createIndex("by_created_at", "created_at");
       }
     },
   });
@@ -233,72 +238,77 @@ async function deleteP2PIdentity(): Promise<void> {
 }
 
 // ============================================================================
-// pending knocks - outbound access requests we've made
+// pending remotes - in-progress remote additions
 // ============================================================================
 
-// create a pending knock (when user requests access to a remote)
-async function createPendingKnock(knock: Omit<PendingKnock, "id" | "created_at" | "last_checked_at">): Promise<PendingKnock> {
+// create a pending remote (when test connection succeeds)
+async function createPendingRemote(
+  pending: Omit<PendingRemote, "id" | "created_at" | "updated_at">
+): Promise<PendingRemote> {
   const db = await initAppDB();
-  const newKnock: PendingKnock = {
-    ...knock,
+  const newPending: PendingRemote = {
+    ...pending,
     id: generateUUID(),
     created_at: Date.now(),
-    last_checked_at: null,
+    updated_at: Date.now(),
   };
-  await db.put(STORE_PENDING_KNOCKS, newKnock);
-  debug("appDB", "created pending knock for peer:", knock.peer_addr.slice(0, 16) + "...");
-  return newKnock;
+  await db.put(STORE_PENDING_REMOTES, newPending);
+  debug("appDB", "created pending remote for peer:", pending.peer_addr.slice(0, 16) + "...");
+  return newPending;
 }
 
-// get all pending knocks
-async function getAllPendingKnocks(): Promise<PendingKnock[]> {
+// get all pending remotes
+async function getAllPendingRemotes(): Promise<PendingRemote[]> {
   const db = await initAppDB();
-  return db.getAll(STORE_PENDING_KNOCKS);
+  return db.getAll(STORE_PENDING_REMOTES);
 }
 
-// get pending knock by peer_addr
-async function getPendingKnockByPeerAddr(peerAddr: string): Promise<PendingKnock | undefined> {
+// get pending remote by peer_addr
+async function getPendingRemoteByPeerAddr(peerAddr: string): Promise<PendingRemote | undefined> {
   const db = await initAppDB();
-  const index = db.transaction(STORE_PENDING_KNOCKS).store.index("by_peer_addr");
+  const index = db.transaction(STORE_PENDING_REMOTES).store.index("by_peer_addr");
   return index.get(peerAddr);
 }
 
-// get pending knock by id
-async function getPendingKnockById(id: string): Promise<PendingKnock | undefined> {
+// get pending remote by id
+async function getPendingRemoteById(id: string): Promise<PendingRemote | undefined> {
   const db = await initAppDB();
-  return db.get(STORE_PENDING_KNOCKS, id);
+  return db.get(STORE_PENDING_REMOTES, id);
 }
 
-// update pending knock status
-async function updatePendingKnock(id: string, updates: Partial<Omit<PendingKnock, "id">>): Promise<PendingKnock | undefined> {
+// update pending remote
+async function updatePendingRemote(
+  id: string,
+  updates: Partial<Omit<PendingRemote, "id" | "created_at">>
+): Promise<PendingRemote | undefined> {
   const db = await initAppDB();
-  const knock = await db.get(STORE_PENDING_KNOCKS, id) as PendingKnock | undefined;
-  if (!knock) return undefined;
-  
-  const updated: PendingKnock = {
-    ...knock,
+  const pending = (await db.get(STORE_PENDING_REMOTES, id)) as PendingRemote | undefined;
+  if (!pending) return undefined;
+
+  const updated: PendingRemote = {
+    ...pending,
     ...updates,
-    last_checked_at: Date.now(),
+    updated_at: Date.now(),
   };
-  await db.put(STORE_PENDING_KNOCKS, updated);
-  debug("appDB", "updated pending knock:", id, "status:", updated.status);
+  await db.put(STORE_PENDING_REMOTES, updated);
+  debug("appDB", "updated pending remote:", id, "stage:", updated.stage);
   return updated;
 }
 
-// delete pending knock (when accepted and converted to remote, or user dismisses)
-async function deletePendingKnock(id: string): Promise<void> {
+// delete pending remote (when converted to real remote, or user dismisses)
+async function deletePendingRemote(id: string): Promise<void> {
   const db = await initAppDB();
-  await db.delete(STORE_PENDING_KNOCKS, id);
-  debug("appDB", "deleted pending knock:", id);
+  await db.delete(STORE_PENDING_REMOTES, id);
+  debug("appDB", "deleted pending remote:", id);
 }
 
-// delete pending knock by peer_addr
-async function deletePendingKnockByPeerAddr(peerAddr: string): Promise<void> {
+// delete pending remote by peer_addr
+async function deletePendingRemoteByPeerAddr(peerAddr: string): Promise<void> {
   const db = await initAppDB();
-  const knock = await getPendingKnockByPeerAddr(peerAddr);
-  if (knock) {
-    await db.delete(STORE_PENDING_KNOCKS, knock.id);
-    debug("appDB", "deleted pending knock for peer:", peerAddr.slice(0, 16) + "...");
+  const pending = await getPendingRemoteByPeerAddr(peerAddr);
+  if (pending) {
+    await db.delete(STORE_PENDING_REMOTES, pending.id);
+    debug("appDB", "deleted pending remote for peer:", peerAddr.slice(0, 16) + "...");
   }
 }
 
@@ -306,13 +316,13 @@ export {
   appState,
   clearAppData,
   closeAppDB,
-  createPendingKnock,
-  deletePendingKnock,
-  deletePendingKnockByPeerAddr,
+  createPendingRemote,
+  deletePendingRemote,
+  deletePendingRemoteByPeerAddr,
   deleteP2PIdentity,
-  getAllPendingKnocks,
-  getPendingKnockById,
-  getPendingKnockByPeerAddr,
+  getAllPendingRemotes,
+  getPendingRemoteById,
+  getPendingRemoteByPeerAddr,
   getP2PIdentity,
   initAppDB,
   loadAppState,
@@ -322,6 +332,6 @@ export {
   setQueue,
   setQueueOpen,
   updateAppState,
-  updatePendingKnock,
+  updatePendingRemote,
   updateSongInQueue,
 };
