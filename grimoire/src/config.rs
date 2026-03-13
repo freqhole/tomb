@@ -233,6 +233,25 @@ impl FederationConfig {
 pub struct LoggingConfig {
     /// Log level: trace, debug, info, warn, error
     pub level: String,
+    /// Enable slow query logging to file (default: false)
+    #[serde(default)]
+    pub slow_query_enabled: bool,
+    /// Slow query threshold in milliseconds (default: 500ms)
+    /// queries taking longer than this are logged
+    #[serde(default = "default_slow_query_threshold_ms")]
+    pub slow_query_threshold_ms: u64,
+    /// Slow query log file path (relative to data_dir or absolute)
+    /// default: "slow_queries.log"
+    #[serde(default = "default_slow_query_file")]
+    pub slow_query_file: String,
+}
+
+fn default_slow_query_threshold_ms() -> u64 {
+    500
+}
+
+fn default_slow_query_file() -> String {
+    "slow_queries.log".to_string()
 }
 
 /// Server configuration
@@ -511,6 +530,17 @@ impl GrimoireConfig {
     /// Get path to federation credentials file
     pub fn federation_credentials_path(&self) -> PathBuf {
         self.data_dir.join("federation-creds.toml")
+    }
+
+    /// Get path to slow query log file
+    /// returns absolute path resolved from data_dir if relative
+    pub fn slow_query_log_path(&self) -> PathBuf {
+        let path = PathBuf::from(&self.logging.slow_query_file);
+        if path.is_absolute() {
+            path
+        } else {
+            self.data_dir.join(&self.logging.slow_query_file)
+        }
     }
 }
 

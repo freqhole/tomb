@@ -23,6 +23,7 @@ pub mod response;
 pub mod search;
 pub mod sessions;
 pub mod setup;
+pub mod slow_query;
 pub mod upload;
 pub mod users;
 pub mod wordlist;
@@ -57,6 +58,9 @@ pub use wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, WordlistConfig,
     WordlistGenerationResult, WordlistService, WordlistStats, WordlistValidationResult,
 };
+
+// slow query logging
+pub use slow_query::log_slow_query;
 
 /// initialize grimoire - ensures database connection works
 /// config must be initialized first via init_config()
