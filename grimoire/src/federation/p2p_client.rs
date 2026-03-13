@@ -7,8 +7,7 @@
 //!
 //! the endpoint must be initialized via `set_federation_endpoint()` before use.
 
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use iroh::{Endpoint, EndpointAddr, PublicKey};
 use serde::{Deserialize, Serialize};
@@ -19,10 +18,6 @@ use crate::federation::transport::{PeerConnection, FREQHOLE_ALPN};
 
 /// global federation endpoint for P2P client operations
 static FEDERATION_ENDPOINT: OnceLock<Arc<Endpoint>> = OnceLock::new();
-
-/// cached peer connections (expensive to create due to NAT traversal)
-static PEER_CONNECTIONS: OnceLock<RwLock<HashMap<PublicKey, Arc<PeerConnection>>>> =
-    OnceLock::new();
 
 /// response from a P2P proxy request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +49,6 @@ pub struct P2pUploadResult {
 /// subsequent calls will be ignored (endpoint is set once).
 pub fn set_federation_endpoint(endpoint: &Endpoint) {
     let _ = FEDERATION_ENDPOINT.set(Arc::new(endpoint.clone()));
-    let _ = PEER_CONNECTIONS.set(RwLock::new(HashMap::new()));
     info!("P2P client endpoint initialized");
 }
 
@@ -102,39 +96,18 @@ pub fn parse_peer_address(peer_addr: &str) -> GrimoireResult<EndpointAddr> {
     }
 }
 
-/// get or create a connection to a peer
+/// connect to a peer
 ///
-/// connections are cached to avoid NAT traversal overhead on every request.
-async fn get_or_connect(
+/// iroh handles connection caching/reuse internally, so we just call connect()
+/// each time and let iroh decide whether to reuse an existing connection.
+async fn connect_to_peer(
     endpoint: &Endpoint,
     addr: &EndpointAddr,
-) -> GrimoireResult<Arc<PeerConnection>> {
+) -> GrimoireResult<PeerConnection> {
     let peer_id = addr.id;
-
-    // check cache first
-    if let Some(connections) = PEER_CONNECTIONS.get() {
-        let connections_read =
-            connections
-                .read()
-                .map_err(|_| GrimoireError::FederationApiError {
-                    message: "failed to acquire connection cache lock".to_string(),
-                })?;
-
-        if let Some(conn) = connections_read.get(&peer_id) {
-            // verify connection is still open
-            if conn.is_open() {
-                debug!(
-                    "reusing cached connection to {}",
-                    &peer_id.to_string()[..16]
-                );
-                return Ok(conn.clone());
-            }
-        }
-    }
-
-    // need new connection
     let node_id_short = &peer_id.to_string()[..16];
-    info!("connecting to peer {}...", node_id_short);
+
+    debug!("connecting to peer {}...", node_id_short);
 
     let conn = endpoint
         .connect(addr.clone(), FREQHOLE_ALPN)
@@ -143,17 +116,8 @@ async fn get_or_connect(
             message: format!("failed to connect to peer {}: {}", node_id_short, e),
         })?;
 
-    let peer_conn = Arc::new(PeerConnection::new(conn, peer_id));
-
-    // cache the connection
-    if let Some(connections) = PEER_CONNECTIONS.get() {
-        if let Ok(mut connections_write) = connections.write() {
-            connections_write.insert(peer_id, peer_conn.clone());
-        }
-    }
-
-    info!("connected to peer {}", node_id_short);
-    Ok(peer_conn)
+    debug!("connected to peer {}", node_id_short);
+    Ok(PeerConnection::new(conn, peer_id))
 }
 
 /// send an API request to a remote peer
@@ -172,7 +136,7 @@ pub async fn proxy_request(
 
     debug!("P2P proxy {} {} to {}", method, path, node_id_short);
 
-    let conn = get_or_connect(&endpoint, &addr).await?;
+    let conn = connect_to_peer(&endpoint, &addr).await?;
     let response = conn.proxy_request(method, path, body).await?;
 
     Ok(P2pProxyResponse {
@@ -193,7 +157,7 @@ pub async fn fetch_blob(peer_addr: &str, blob_id: &str) -> GrimoireResult<P2pBlo
 
     info!("fetching blob {} from {}", blob_id_short, node_id_short);
 
-    let conn = get_or_connect(&endpoint, &addr).await?;
+    let conn = connect_to_peer(&endpoint, &addr).await?;
     let (info, mut stream) = conn.stream_blob(blob_id).await?;
 
     // read all blob data (100MB max)
@@ -228,7 +192,7 @@ pub async fn fetch_hello_image(peer_addr: &str) -> GrimoireResult<P2pBlobData> {
 
     info!("fetching hello image from {}", node_id_short);
 
-    let conn = get_or_connect(&endpoint, &addr).await?;
+    let conn = connect_to_peer(&endpoint, &addr).await?;
     let (info, mut stream) = conn.stream_hello_image().await?;
 
     // read all image data (10MB max for server image)
@@ -272,7 +236,7 @@ pub async fn upload_blob(
         node_id_short
     );
 
-    let conn = get_or_connect(&endpoint, &addr).await?;
+    let conn = connect_to_peer(&endpoint, &addr).await?;
     let result = conn.upload_blob(filename, content_type, data).await?;
 
     info!(
@@ -293,31 +257,20 @@ pub fn get_node_id() -> GrimoireResult<String> {
     Ok(endpoint.secret_key().public().to_string())
 }
 
-/// close a specific peer connection (removes from cache)
-pub fn close_connection(peer_addr: &str) -> GrimoireResult<()> {
-    let addr = parse_peer_address(peer_addr)?;
-
-    if let Some(connections) = PEER_CONNECTIONS.get() {
-        if let Ok(mut connections_write) = connections.write() {
-            if let Some(conn) = connections_write.remove(&addr.id) {
-                conn.close(0, "client requested close");
-                info!("closed connection to {}", &addr.id.to_string()[..16]);
-            }
-        }
-    }
-
+/// close a specific peer connection
+///
+/// note: iroh manages connections internally, so this is a no-op.
+/// kept for API compatibility.
+pub fn close_connection(_peer_addr: &str) -> GrimoireResult<()> {
+    // iroh handles connection lifecycle - nothing to do here
     Ok(())
 }
 
-/// close all cached peer connections
+/// close all peer connections
+///
+/// note: iroh manages connections internally, so this is a no-op.
+/// kept for API compatibility.
 pub fn close_all_connections() {
-    if let Some(connections) = PEER_CONNECTIONS.get() {
-        if let Ok(mut connections_write) = connections.write() {
-            for (peer_id, conn) in connections_write.drain() {
-                conn.close(0, "closing all connections");
-                debug!("closed connection to {}", &peer_id.to_string()[..16]);
-            }
-        }
-    }
-    info!("closed all P2P client connections");
+    // iroh handles connection lifecycle - nothing to do here
+    debug!("close_all_connections called (no-op, iroh manages connections)");
 }

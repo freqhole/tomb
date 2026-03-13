@@ -3,9 +3,6 @@
 //! uses iroh to connect to freqhole peers from the browser.
 //! accepts either plain node_id or full endpoint address JSON with relay/IP hints.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use js_sys::Uint8Array;
@@ -166,8 +163,6 @@ fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
 pub struct MiddenNode {
     endpoint: Endpoint,
     secret_key_bytes: [u8; 32],
-    /// cached connections per peer (avoids NAT traversal on every request)
-    connections: RefCell<HashMap<PublicKey, Connection>>,
 }
 
 #[wasm_bindgen]
@@ -219,7 +214,6 @@ impl MiddenNode {
         Ok(MiddenNode {
             endpoint,
             secret_key_bytes: bytes,
-            connections: RefCell::new(HashMap::new()),
         })
     }
 
@@ -234,33 +228,14 @@ impl MiddenNode {
         self.endpoint.secret_key().public().to_string()
     }
 
-    /// get a cached connection or create a new one
-    /// connections are expensive (NAT traversal), streams are cheap
-    async fn get_or_connect(&self, addr: &EndpointAddr) -> Result<Connection, JsError> {
-        // check if we have a valid cached connection
-        {
-            let connections = self.connections.borrow();
-            if let Some(conn) = connections.get(&addr.id) {
-                // close_reason() returns None if connection is still open
-                if conn.close_reason().is_none() {
-                    return Ok(conn.clone());
-                }
-            }
-        }
-
-        // need to create new connection
-        let node_id_short = &addr.id.to_string()[..16];
-        info!("creating new connection to {}", node_id_short);
-
+    /// connect to a peer
+    /// iroh handles connection caching/reuse internally
+    async fn connect_to_peer(&self, addr: &EndpointAddr) -> Result<Connection, JsError> {
         let conn = self
             .endpoint
             .connect(addr.clone(), FREQHOLE_ALPN)
             .await
             .map_err(to_js_err)?;
-
-        // cache it
-        self.connections.borrow_mut().insert(addr.id, conn.clone());
-
         Ok(conn)
     }
 
@@ -278,8 +253,7 @@ impl MiddenNode {
 
         info!("proxy {} {} to {}", method, path, node_id_short);
 
-        // get cached connection or create new one
-        let conn = self.get_or_connect(&addr).await?;
+        let conn = self.connect_to_peer(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
@@ -324,8 +298,8 @@ impl MiddenNode {
             node_id_short
         );
 
-        // get cached connection or create new one
-        let conn = self.get_or_connect(&addr).await?;
+        // connect to peer
+        let conn = self.connect_to_peer(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
@@ -395,8 +369,8 @@ impl MiddenNode {
             node_id_short
         );
 
-        // get cached connection or create new one
-        let conn = self.get_or_connect(&addr).await?;
+        // connect to peer
+        let conn = self.connect_to_peer(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
@@ -478,8 +452,8 @@ impl MiddenNode {
 
         info!("fetch hello image from {}", node_id_short);
 
-        // get cached connection or create new one
-        let conn = self.get_or_connect(&addr).await?;
+        // connect to peer
+        let conn = self.connect_to_peer(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
@@ -548,8 +522,8 @@ impl MiddenNode {
             node_id_short
         );
 
-        // get cached connection or create new one
-        let conn = self.get_or_connect(&addr).await?;
+        // connect to peer
+        let conn = self.connect_to_peer(&addr).await?;
 
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
