@@ -682,9 +682,9 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav.Viewport />
           </KobalteNav>
 
-          {/* view selector flyout - hidden when search is expanded on small screens, appears after search on small */}
+          {/* view selector flyout - hidden when search is expanded on small screens */}
           <Show when={props.viewOptions?.length && (!isSmall() || !searchExpanded())}>
-            <div class="order-2 sm:order-1">
+            <div class="order-1">
               <ViewSelector
                 views={props.viewOptions!}
                 currentTitle={props.pageTitle}
@@ -694,8 +694,8 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* search - grows to fill space, appears before view selector on small */}
-          <div class="flex-1 order-1 sm:order-2">
+          {/* search - last item on right, grows to fill remaining space */}
+          <div class="flex-1 order-last">
             <Show
               when={props.searchComponent !== undefined}
               fallback={
@@ -715,7 +715,7 @@ export function TopNav(props: TopNavProps) {
           {/* sort controls - when view has sorting, hidden when search expanded on small */}
           <Show when={info().sortFields?.length && (!isSmall() || !searchExpanded())}>
             <div
-              class="relative flex-shrink-0 order-3"
+              class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {
                 clearTimeout(sortCloseTimeout);
                 if (!sortOpen()) setSortOpen(true);
@@ -781,7 +781,7 @@ export function TopNav(props: TopNavProps) {
           {/* tag filter icon - when view has tags, hidden when search expanded on small */}
           <Show when={info().availableTags?.length && (!isSmall() || !searchExpanded())}>
             <div
-              class="relative flex-shrink-0 order-3"
+              class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {
                 clearTimeout(tagCloseTimeout);
                 if (!tagOpen()) setTagOpen(true);
@@ -867,7 +867,7 @@ export function TopNav(props: TopNavProps) {
           {/* feed type filter icon - when view has feed types, hidden when search expanded on small */}
           <Show when={info().feedTypeOptions?.length && (!isSmall() || !searchExpanded())}>
             <div
-              class="relative flex-shrink-0 order-3"
+              class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {
                 clearTimeout(feedFilterCloseTimeout);
                 if (!feedFilterOpen()) setFeedFilterOpen(true);
@@ -942,7 +942,7 @@ export function TopNav(props: TopNavProps) {
           {/* my items toggle - when view supports it, hidden when search expanded on small */}
           <Show when={info().onToggleMyItems && (!isSmall() || !searchExpanded())}>
             <button
-              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-3"
+              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-2"
               classList={{
                 "text-[var(--color-accent-500)]": info().myItemsOnly,
                 "text-white/60 hover:text-white": !info().myItemsOnly,
@@ -959,7 +959,7 @@ export function TopNav(props: TopNavProps) {
             when={info().showBackToTop && info().onBackToTop && (!isSmall() || !searchExpanded())}
           >
             <button
-              class="p-1.5 rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200 order-3"
+              class="p-1.5 rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200 order-2"
               onClick={() => info().onBackToTop?.()}
               title="back to top"
             >
