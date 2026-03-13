@@ -162,7 +162,7 @@ log_file = "freqhole.log"
 # REQUIRED: server display name
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.6"
+version = "0.1.7"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
