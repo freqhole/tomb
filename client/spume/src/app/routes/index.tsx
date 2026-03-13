@@ -30,7 +30,7 @@ import {
   RemotesSettingsView,
   FederationSettingsView,
 } from "../../settings";
-import { getSavedRoute, isTauriMode } from "../services/tauri";
+import { isTauriMode } from "../services/tauri";
 import { debug } from "../../utils/logger";
 
 interface RoutesProps {
@@ -52,34 +52,6 @@ function RootRedirect() {
       debug("routes", "current remote from init:", currentRemote.name);
       navigate(`/${currentRemote.remote_id}/songs`, { replace: true });
       return;
-    }
-
-    // check for saved route from previous tauri session
-    const savedRoute = getSavedRoute();
-    if (savedRoute) {
-      // extract remote ID from route if present (e.g., "/abc123/songs" -> "abc123")
-      const match = savedRoute.match(/^\/([^\/]+)/);
-      const routeContext = match?.[1];
-
-      if (routeContext && routeContext !== "local" && routeContext !== "settings") {
-        // try to restore remote context
-        const remote = await getRemoteById(routeContext);
-        // allow P2P remotes to try even if marked offline (midden node may not have been initialized)
-        const canTryRemote = remote && (!remote.is_offline || isP2PTransport(remote));
-        if (canTryRemote) {
-          await useRemoteSource(remote);
-          queryClient.invalidateQueries();
-          navigate(savedRoute, { replace: true });
-          return;
-        }
-        // if remote is offline, fall through to local
-      } else if (routeContext === "local" && !isTauriMode()) {
-        // skip local route restoration in tauri mode
-        await useLocalSource();
-        queryClient.invalidateQueries();
-        navigate(savedRoute, { replace: true });
-        return;
-      }
     }
 
     // fallback: check if there's an active remote in IndexedDB

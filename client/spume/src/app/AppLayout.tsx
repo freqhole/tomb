@@ -84,7 +84,7 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { saveRoute, isTauriMode, setWindowTitle } from "./services/tauri";
+import { isTauriMode, setWindowTitle } from "./services/tauri";
 import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
@@ -114,11 +114,6 @@ export function AppLayout(props: AppLayoutProps) {
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
-
-  // persist route for tauri (no-op in web mode)
-  createEffect(() => {
-    saveRoute(location.pathname);
-  });
 
   // update window/document title (freqhole ▸ remote ▸ route)
   createEffect(() => {

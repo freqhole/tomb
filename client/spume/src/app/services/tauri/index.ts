@@ -42,6 +42,3 @@ export {
   onScanProgress,
   onScanComplete,
 } from "./events";
-
-// re-export route persistence (tauri-only utility)
-export { saveRoute, getSavedRoute, clearSavedRoute } from "./routePersistence";
