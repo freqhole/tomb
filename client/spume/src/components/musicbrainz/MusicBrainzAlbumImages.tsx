@@ -13,6 +13,14 @@ const MAX_RETRIES = 3;
 /** delay before first retry (doubles each attempt) */
 const RETRY_BASE_DELAY = 1000;
 
+/** upgrade http:// URLs to https:// for mixed-content safety */
+function upgradeToHttps(url: string): string {
+  if (url.startsWith("http://")) {
+    return url.replace("http://", "https://");
+  }
+  return url;
+}
+
 type ImageState = "pending" | "loading" | "loaded" | "error";
 
 interface QueueEntry {
@@ -79,7 +87,7 @@ function sleep(ms: number): Promise<void> {
 /** queue an image URL for rate-limited loading. returns a blob object URL. */
 function loadImage(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    queue.push({ url, resolve, reject, retries: MAX_RETRIES });
+    queue.push({ url: upgradeToHttps(url), resolve, reject, retries: MAX_RETRIES });
     processQueue();
   });
 }
@@ -169,8 +177,10 @@ function AlbumArtTile(props: {
   const { state, objectUrl, cleanup } = createImageState(props.image.thumbUrl);
   onCleanup(cleanup);
 
-  const isImporting = () => props.importingUrls.has(props.image.fullUrl);
-  const isImported = () => props.importedUrls.has(props.image.fullUrl);
+  // use upgraded URL for tracking since that's what we import with
+  const fullUrl = () => upgradeToHttps(props.image.fullUrl);
+  const isImporting = () => props.importingUrls.has(fullUrl());
+  const isImported = () => props.importedUrls.has(fullUrl());
 
   return (
     <div class="flex-shrink-0 group relative">
@@ -221,7 +231,7 @@ function AlbumArtTile(props: {
       {/* import button on hover (only if loaded + not already imported) */}
       <Show when={state() === "loaded" && !isImported() && !isImporting()}>
         <button
-          onClick={() => props.onImport(props.image.fullUrl)}
+          onClick={() => props.onImport(fullUrl())}
           class="absolute inset-0 w-28 h-28 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs text-white font-medium rounded"
         >
           import
