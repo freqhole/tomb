@@ -251,102 +251,8 @@ export function VirtualSongList(props: VirtualSongListProps) {
         style={{ height: `${isNarrow() ? props.height : props.height - TABLE_ROW_HEIGHT}px` }}
         onScroll={checkNearEnd}
       >
-      {/* narrow layout: compact rows without header */}
-      <Show when={isNarrow()}>
-        <div
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            position: "relative",
-          }}
-          onClick={handleContainerClick}
-          onMouseOver={handleContainerMouseOver}
-          onMouseLeave={handleContainerMouseLeave}
-        >
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const song = props.songs[virtualRow.index];
-            if (!song) return null;
-
-            const isPlaying = props.playingSongId === song.sha256;
-            const isHovered = () => hoveredRowIndex() === virtualRow.index;
-            const isSelected = () =>
-              props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
-
-            const compactRow = (
-              <div
-                data-row-index={virtualRow.index}
-                class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer ${
-                  isSelected()
-                    ? "bg-[var(--color-accent-500)]/30"
-                    : isPlaying
-                      ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
-                      : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
-                }`}
-                style={{
-                  height: `${COMPACT_ROW_HEIGHT}px`,
-                  top: `${virtualRow.start}px`,
-                }}
-              >
-                {/* thumbnail */}
-                <div class="flex-shrink-0">
-                  <MediaThumbnail
-                    images={getImages(song)}
-                    indexText={getTrackText(song, virtualRow.index)}
-                    size={48}
-                    hideIndex={isHovered()}
-                    onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
-                    enablePlayClick={!!props.onPlayClick}
-                    showPlayIcon={true}
-                  />
-                </div>
-
-                {/* title + artist/album on two lines */}
-                <div class="flex-1 min-w-0">
-                  <div
-                    class={`text-sm font-medium truncate ${isPlaying ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)]"}`}
-                  >
-                    {song.title || "untitled"}
-                  </div>
-                  <div class="text-xs text-[var(--color-text-secondary)] truncate">
-                    {song.artist_name || "unknown"} • {song.album_title || "unknown"}
-                  </div>
-                </div>
-
-                {/* favorite */}
-                <div class="flex-shrink-0">
-                  <FavoriteHeart
-                    isFavorite={song.is_favorite ?? false}
-                    onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
-                    size="sm"
-                    readonly={!props.onFavoriteToggle}
-                  />
-                </div>
-
-                {/* duration */}
-                <div class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0 w-10 text-right">
-                  {formatDuration(song.duration_seconds)}
-                </div>
-              </div>
-            );
-
-            if (props.getContextMenuActions) {
-              return (
-                <ContextMenu
-                  actions={props.getContextMenuActions(song, virtualRow.index)}
-                  onOpen={() => props.onContextMenuOpen?.()}
-                >
-                  {compactRow}
-                </ContextMenu>
-              );
-            }
-            return compactRow;
-          })}
-        </div>
-      </Show>
-
-      {/* wide layout: table with header */}
-      <Show when={!isNarrow()}>
-        <div style={{ "min-width": "1000px" }}>
-          {/* virtual container */}
+        {/* narrow layout: compact rows without header */}
+        <Show when={isNarrow()}>
           <div
             style={{
               height: `${virtualizer.getTotalSize()}px`,
@@ -365,79 +271,48 @@ export function VirtualSongList(props: VirtualSongListProps) {
               const isSelected = () =>
                 props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
 
-              const rowContent = (
+              const compactRow = (
                 <div
                   data-row-index={virtualRow.index}
-                  class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
+                  class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer ${
                     isSelected()
                       ? "bg-[var(--color-accent-500)]/30"
                       : isPlaying
                         ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
-                        : "hover:bg-[var(--color-bg-tertiary)]"
+                        : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
                   }`}
                   style={{
-                    height: `${TABLE_ROW_HEIGHT}px`,
+                    height: `${COMPACT_ROW_HEIGHT}px`,
                     top: `${virtualRow.start}px`,
                   }}
                 >
-                  {/* thumbnail with track number overlay and play hover */}
-                  <div class="w-12 shrink-0 flex items-center justify-center">
+                  {/* thumbnail */}
+                  <div class="flex-shrink-0">
                     <MediaThumbnail
                       images={getImages(song)}
                       indexText={getTrackText(song, virtualRow.index)}
-                      size={IMAGE_SIZE}
+                      size={48}
                       hideIndex={isHovered()}
                       onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
                       enablePlayClick={!!props.onPlayClick}
                       showPlayIcon={true}
                     />
                   </div>
-                  <MarqueeText
-                    text={song.title || "untitled"}
-                    class={`flex-1 min-w-0 text-sm text-[var(--color-text-primary)]`}
-                    padClass={CELL_PAD}
-                    isHovering={isHovered()}
-                  />
-                  <MarqueeText
-                    text={song.artist_name || "unknown artist"}
-                    class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
-                    padClass={CELL_PAD}
-                    isHovering={isHovered()}
-                  />
-                  <MarqueeText
-                    text={song.album_title || "unknown album"}
-                    class={`w-44 shrink-0 text-sm text-[var(--color-text-secondary)]`}
-                    padClass={CELL_PAD}
-                    isHovering={isHovered()}
-                  />
-                  {/* genres */}
-                  <MarqueeText
-                    text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
-                    class={`w-24 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
-                    padClass={CELL_PAD}
-                    isHovering={isHovered()}
-                  />
-                  {/* year */}
-                  <div
-                    class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
-                  >
-                    {song.year || ""}
+
+                  {/* title + artist/album on two lines */}
+                  <div class="flex-1 min-w-0">
+                    <div
+                      class={`text-sm font-medium truncate ${isPlaying ? "text-[var(--color-accent-500)]" : "text-[var(--color-text-primary)]"}`}
+                    >
+                      {song.title || "untitled"}
+                    </div>
+                    <div class="text-xs text-[var(--color-text-secondary)] truncate">
+                      {song.artist_name || "unknown"} • {song.album_title || "unknown"}
+                    </div>
                   </div>
-                  {/* duration */}
-                  <div
-                    class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
-                  >
-                    {formatDuration(song.duration_seconds)}
-                  </div>
-                  {/* tags */}
-                  <MarqueeText
-                    text={song.album_tags?.join(", ") || ""}
-                    class={`w-32 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
-                    padClass={CELL_PAD}
-                    isHovering={isHovered()}
-                  />
+
                   {/* favorite */}
-                  <div class="w-8 shrink-0 flex items-center justify-center">
+                  <div class="flex-shrink-0">
                     <FavoriteHeart
                       isFavorite={song.is_favorite ?? false}
                       onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
@@ -445,39 +320,164 @@ export function VirtualSongList(props: VirtualSongListProps) {
                       readonly={!props.onFavoriteToggle}
                     />
                   </div>
-                  {/* rating */}
-                  <div class="w-10 shrink-0 flex items-center justify-center">
-                    <Rating
-                      rating={song.user_rating}
-                      size="sm"
-                      onRatingChange={
-                        props.onRatingChange
-                          ? (rating) => props.onRatingChange?.(song, rating)
-                          : undefined
-                      }
-                    />
+
+                  {/* duration */}
+                  <div class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0 w-10 text-right">
+                    {formatDuration(song.duration_seconds)}
                   </div>
                 </div>
               );
 
-              // wrap with context menu if actions provided
               if (props.getContextMenuActions) {
                 return (
                   <ContextMenu
                     actions={props.getContextMenuActions(song, virtualRow.index)}
                     onOpen={() => props.onContextMenuOpen?.()}
                   >
-                    {rowContent}
+                    {compactRow}
                   </ContextMenu>
                 );
               }
-
-              return rowContent;
+              return compactRow;
             })}
           </div>
-        </div>
-      </Show>
-    </div>
+        </Show>
+
+        {/* wide layout: table with header */}
+        <Show when={!isNarrow()}>
+          <div style={{ "min-width": "1000px" }}>
+            {/* virtual container */}
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                position: "relative",
+              }}
+              onClick={handleContainerClick}
+              onMouseOver={handleContainerMouseOver}
+              onMouseLeave={handleContainerMouseLeave}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const song = props.songs[virtualRow.index];
+                if (!song) return null;
+
+                const isPlaying = props.playingSongId === song.sha256;
+                const isHovered = () => hoveredRowIndex() === virtualRow.index;
+                const isSelected = () =>
+                  props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
+
+                const rowContent = (
+                  <div
+                    data-row-index={virtualRow.index}
+                    class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
+                      isSelected()
+                        ? "bg-[var(--color-accent-500)]/30"
+                        : isPlaying
+                          ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                          : "hover:bg-[var(--color-bg-tertiary)]"
+                    }`}
+                    style={{
+                      height: `${TABLE_ROW_HEIGHT}px`,
+                      top: `${virtualRow.start}px`,
+                    }}
+                  >
+                    {/* thumbnail with track number overlay and play hover */}
+                    <div class="w-12 shrink-0 flex items-center justify-center">
+                      <MediaThumbnail
+                        images={getImages(song)}
+                        indexText={getTrackText(song, virtualRow.index)}
+                        size={IMAGE_SIZE}
+                        hideIndex={isHovered()}
+                        onPlayClick={() => props.onPlayClick?.(song, virtualRow.index)}
+                        enablePlayClick={!!props.onPlayClick}
+                        showPlayIcon={true}
+                      />
+                    </div>
+                    <MarqueeText
+                      text={song.title || "untitled"}
+                      class={`flex-1 min-w-0 text-sm text-[var(--color-text-primary)]`}
+                      padClass={CELL_PAD}
+                      isHovering={isHovered()}
+                    />
+                    <MarqueeText
+                      text={song.artist_name || "unknown artist"}
+                      class={`w-44 lg:w-48 xl:w-64 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                      padClass={CELL_PAD}
+                      isHovering={isHovered()}
+                    />
+                    <MarqueeText
+                      text={song.album_title || "unknown album"}
+                      class={`w-44 lg:w-48 xl:w-72 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                      padClass={CELL_PAD}
+                      isHovering={isHovered()}
+                    />
+                    {/* genres */}
+                    <MarqueeText
+                      text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
+                      class={`w-24 lg:w-28 xl:w-44 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
+                      padClass={CELL_PAD}
+                      isHovering={isHovered()}
+                    />
+                    {/* year */}
+                    <div
+                      class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
+                    >
+                      {song.year || ""}
+                    </div>
+                    {/* duration */}
+                    <div
+                      class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
+                    >
+                      {formatDuration(song.duration_seconds)}
+                    </div>
+                    {/* tags */}
+                    <MarqueeText
+                      text={song.album_tags?.join(", ") || ""}
+                      class={`w-32 lg:w-36 xl:w-36 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
+                      padClass={CELL_PAD}
+                      isHovering={isHovered()}
+                    />
+                    {/* favorite */}
+                    <div class="w-8 shrink-0 flex items-center justify-center">
+                      <FavoriteHeart
+                        isFavorite={song.is_favorite ?? false}
+                        onToggle={(isFavorite) => props.onFavoriteToggle?.(song, isFavorite)}
+                        size="sm"
+                        readonly={!props.onFavoriteToggle}
+                      />
+                    </div>
+                    {/* rating */}
+                    <div class="w-10 shrink-0 flex items-center justify-center">
+                      <Rating
+                        rating={song.user_rating}
+                        size="sm"
+                        onRatingChange={
+                          props.onRatingChange
+                            ? (rating) => props.onRatingChange?.(song, rating)
+                            : undefined
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+
+                // wrap with context menu if actions provided
+                if (props.getContextMenuActions) {
+                  return (
+                    <ContextMenu
+                      actions={props.getContextMenuActions(song, virtualRow.index)}
+                      onOpen={() => props.onContextMenuOpen?.()}
+                    >
+                      {rowContent}
+                    </ContextMenu>
+                  );
+                }
+
+                return rowContent;
+              })}
+            </div>
+          </div>
+        </Show>
+      </div>
 
       {/* header row - positioned at bottom */}
       <Show when={!isNarrow()}>
@@ -493,19 +493,19 @@ export function VirtualSongList(props: VirtualSongListProps) {
             <span class="text-[10px]">{getSortIndicator("title")}</span> title
           </div>
           <div
-            class={`w-44 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`w-44 lg:w-48 xl:w-64 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("artist")}
           >
             <span class="text-[10px]">{getSortIndicator("artist")}</span> artist
           </div>
           <div
-            class={`w-44 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`w-44 lg:w-48 xl:w-72 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("album")}
           >
             <span class="text-[10px]">{getSortIndicator("album")}</span> album
           </div>
           <div
-            class={`w-24 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`w-24 lg:w-28 xl:w-44 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("genre")}
           >
             <span class="text-[10px]">{getSortIndicator("genre")}</span> genres
@@ -523,7 +523,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
             <span class="text-[10px]">{getSortIndicator("duration")}</span> time
           </div>
           {/* tags column header */}
-          <div class="w-32 shrink-0" title="tags (not sortable)">
+          <div class="w-32 lg:w-36 xl:w-36 shrink-0 text-center" title="tags (not sortable)">
             tags
           </div>
           {/* favorite column header */}
