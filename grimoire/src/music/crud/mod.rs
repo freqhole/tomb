@@ -31,11 +31,12 @@ pub use models::{
 
 // re-export api request/response types
 pub use models::{
-    DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest, DeleteArtistResponse,
-    DeleteSongRequest, DeleteSongResponse, GetAlbumRequest, GetArtistRequest, GetGenreRequest,
-    GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse, RatingStats,
-    RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
-    SetRatingResponse,
+    BulkClearSongArtworkRequest, BulkClearSongArtworkResponse, BulkDeleteSongsRequest,
+    BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest,
+    DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse, GetAlbumRequest, GetArtistRequest,
+    GetGenreRequest, GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse,
+    RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
+    SetFavoriteResponse, SetRatingResponse,
 };
 
 // re-export update functions
@@ -101,7 +102,9 @@ pub use crate::music::entities::albums::{delete_album, get_album, list_albums};
 pub use crate::music::entities::artists::{delete_artist, get_artist, list_artists};
 
 // re-export song operations
-pub use crate::music::entities::songs::{delete_song, list_songs};
+pub use crate::music::entities::songs::{
+    bulk_clear_song_artwork, bulk_delete_songs, delete_song, list_songs,
+};
 
 // re-export genre operations
 pub use crate::music::entities::genres::{

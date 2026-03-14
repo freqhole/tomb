@@ -9,6 +9,8 @@ import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
+import { SelectionActionBar } from "../../components/layout/SelectionActionBar";
+import { BulkEditSongsModal } from "../../components/modals/BulkEditSongsModal";
 import {
   VirtualSongList,
   type SortField,
@@ -24,10 +26,22 @@ import {
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
-import { playQueue } from "../services/queue/queue";
+import { playQueue, addToQueue } from "../services/queue/queue";
 import { useSongContextMenu } from "../hooks/contextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { RemoteOfflineError } from "../data";
+import { isAdmin } from "../data/permissions";
+import { showPlaylistSelector } from "../hooks/playlistSelectorState";
+import { confirm } from "../../app/services/confirmState";
+import { useBulkDeleteSongsMutation, useBulkClearSongArtworkMutation } from "../queries/songs";
+import {
+  clearSelection,
+  getSelectedSongIds,
+  handleSongClick as handleSelectionClick,
+  updateSongIdList,
+  useClearSelectionOnNavigate,
+  useSelectionCount,
+} from "../hooks/songSelection";
 
 const songSortFields = [
   { value: "added_at", label: "date added", description: "sort by date added" },
@@ -46,6 +60,17 @@ export interface SongsViewProps {
 
 export function SongsView(props: SongsViewProps) {
   const [searchParams] = useSearchParams();
+
+  // clear selection when navigating away
+  useClearSelectionOnNavigate();
+
+  // selection state
+  const selectionCount = useSelectionCount();
+  const [showBulkEditModal, setShowBulkEditModal] = createSignal(false);
+  const [bulkEditMode, setBulkEditMode] = createSignal<"metadata" | "disc">("metadata");
+
+  // container ref for action bar centering
+  let contentContainerRef: HTMLDivElement | undefined;
 
   // responsive: track narrow viewport
   const [_isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
@@ -118,6 +143,12 @@ export function SongsView(props: SongsViewProps) {
   const allSongs = createMemo(() => {
     const pages = songsQuery.data?.pages ?? [];
     return pages.flatMap((page) => page.items);
+  });
+
+  // keep song ID list in sync for range selection
+  createEffect(() => {
+    const songs = allSongs();
+    updateSongIdList(songs.map((s) => s.id));
   });
 
   // update page info for TopNav
@@ -225,6 +256,80 @@ export function SongsView(props: SongsViewProps) {
     });
   };
 
+  // selection click handler for multi-select
+  const onSelectionClick = (song: Song, index: number, event: MouseEvent) => {
+    handleSelectionClick(song.id, index, event);
+  };
+
+  // action bar handlers
+  const handleEditMetadata = () => {
+    setBulkEditMode("metadata");
+    setShowBulkEditModal(true);
+  };
+
+  const handleSetDiscNumber = () => {
+    setBulkEditMode("disc");
+    setShowBulkEditModal(true);
+  };
+
+  const handleDeleteImages = async () => {
+    const selectedIds = Array.from(getSelectedSongIds());
+    const count = selectedIds.length;
+
+    const confirmed = await confirm({
+      title: "clear images",
+      message: `this will clear the primary image from ${count} songs. waveform images will be preserved.`,
+      confirmText: "clear images",
+      variant: "danger",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await bulkClearArtworkMutation.mutateAsync(selectedIds);
+      clearSelection();
+    } catch (error) {
+      console.error("bulk clear artwork failed:", error);
+    }
+  };
+
+  const handleAddToPlaylist = async () => {
+    const selectedIds = Array.from(getSelectedSongIds());
+    await showPlaylistSelector(selectedIds);
+    clearSelection();
+  };
+
+  const handleAddToQueue = async () => {
+    const selectedIds = getSelectedSongIds();
+    const selectedSongs = allSongs().filter((s) => selectedIds.has(s.id));
+    await addToQueue(selectedSongs);
+    clearSelection();
+  };
+
+  const bulkDeleteMutation = useBulkDeleteSongsMutation();
+  const bulkClearArtworkMutation = useBulkClearSongArtworkMutation();
+
+  const handleDeleteSongs = async () => {
+    const selectedIds = Array.from(getSelectedSongIds());
+    const count = selectedIds.length;
+
+    const confirmed = await confirm({
+      title: "delete songs",
+      message: `are you sure you want to delete ${count} songs? this cannot be undone.`,
+      confirmText: "delete",
+      variant: "danger",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await bulkDeleteMutation.mutateAsync(selectedIds);
+      clearSelection();
+    } catch (error) {
+      console.error("bulk delete failed:", error);
+    }
+  };
+
   // map UI sort field to query sort field
   const uiToQueryField: Record<SortField, SongSortField> = {
     title: "title",
@@ -268,7 +373,7 @@ export function SongsView(props: SongsViewProps) {
   return (
     <div class="flex flex-col h-full">
       {/* song list */}
-      <div class="flex-1 overflow-hidden">
+      <div ref={contentContainerRef} class="flex-1 overflow-hidden">
         {songsQuery.isError ? (
           <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
             <div class="text-center max-w-md">
@@ -317,11 +422,41 @@ export function SongsView(props: SongsViewProps) {
               onSortChange={handleSortChange}
               onFavoriteToggle={handleFavoriteToggle}
               onRatingChange={handleRatingChange}
+              selectedSongIds={getSelectedSongIds()}
+              onSelectionClick={isAdmin() ? onSelectionClick : undefined}
+              showSelectionHighlight={isAdmin() && selectionCount() > 1}
+              onContextMenuOpen={clearSelection}
             />
             <LoadingMoreIndicator isLoading={songsQuery.isFetchingNextPage} />
+            {isAdmin() && (
+              <SelectionActionBar
+                count={selectionCount()}
+                hasPlayerBar={playerBarHeight() > 0}
+                containerRef={contentContainerRef}
+                onEditMetadata={handleEditMetadata}
+                onSetDiscNumber={handleSetDiscNumber}
+                onDeleteImages={handleDeleteImages}
+                onAddToPlaylist={handleAddToPlaylist}
+                onAddToQueue={handleAddToQueue}
+                onDeleteSongs={handleDeleteSongs}
+                onClearSelection={clearSelection}
+              />
+            )}
           </>
         )}
       </div>
+
+      {/* bulk edit modal */}
+      <BulkEditSongsModal
+        isOpen={showBulkEditModal()}
+        onClose={() => setShowBulkEditModal(false)}
+        songIds={Array.from(getSelectedSongIds())}
+        mode={bulkEditMode()}
+        onSuccess={() => {
+          clearSelection();
+          songsQuery.refetch();
+        }}
+      />
     </div>
   );
 }

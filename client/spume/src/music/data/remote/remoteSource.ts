@@ -580,6 +580,51 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
+  async bulkDeleteSongs(
+    songIds: string[]
+  ): Promise<{ deleted_count: number; failed_ids: string[] }> {
+    const result = await (await this.getClient()).music.bulkDeleteSongs({
+      song_ids: songIds,
+      user_id: null,
+    });
+
+    if (!result.success) {
+      this.checkAuthError(result);
+      throw new Error("failed to bulk delete songs");
+    }
+
+    if (!result.data.success) {
+      throw new Error(result.data.message || "failed to bulk delete songs");
+    }
+
+    return {
+      deleted_count: result.data.deleted_count,
+      failed_ids: result.data.failed_ids,
+    };
+  }
+
+  async bulkClearSongArtwork(
+    songIds: string[]
+  ): Promise<{ cleared_count: number; failed_ids: string[] }> {
+    const result = await (await this.getClient()).music.bulkClearSongArtwork({
+      song_ids: songIds,
+    });
+
+    if (!result.success) {
+      this.checkAuthError(result);
+      throw new Error("failed to clear song artwork");
+    }
+
+    if (!result.data.success) {
+      throw new Error(result.data.message || "failed to clear song artwork");
+    }
+
+    return {
+      cleared_count: result.data.cleared_count,
+      failed_ids: result.data.failed_ids,
+    };
+  }
+
   async deleteAlbum(albumId: string): Promise<void> {
     const result = await (await this.getClient()).music.deleteAlbum({
       id: albumId,

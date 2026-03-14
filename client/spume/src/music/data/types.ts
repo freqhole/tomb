@@ -301,6 +301,8 @@ export interface MusicDataSource {
   ): Promise<PlaylistSummary>;
   deletePlaylist?(playlistId: string): Promise<void>;
   deleteSong?(songId: string): Promise<void>;
+  bulkDeleteSongs?(songIds: string[]): Promise<{ deleted_count: number; failed_ids: string[] }>;
+  bulkClearSongArtwork?(songIds: string[]): Promise<{ cleared_count: number; failed_ids: string[] }>;
   deleteAlbum?(albumId: string): Promise<void>;
   deleteArtist?(artistId: string): Promise<void>;
   addSongsToPlaylist?(playlistId: string, songIds: string[]): Promise<void>;

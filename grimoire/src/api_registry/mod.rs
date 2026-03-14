@@ -166,10 +166,11 @@ pub mod type_registry {
     use crate::media_blobz::{BlobMetadataResponse, MediaBlob};
     use crate::music::crud::{
         AlbumQueryResult, AlbumsQueryResult, ArtistQueryResult, ArtistsQueryResult,
-        DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest, DeleteArtistResponse,
-        DeleteSongRequest, DeleteSongResponse, FavoriteAlbumResult, FavoriteArtistResult,
-        FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, GenreQueryResult,
-        GenresQueryResult, GetAlbumRequest, GetArtistRequest, GetGenreRequest,
+        BulkClearSongArtworkRequest, BulkClearSongArtworkResponse, BulkDeleteSongsRequest,
+        BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest,
+        DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse, FavoriteAlbumResult,
+        FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
+        GenreQueryResult, GenresQueryResult, GetAlbumRequest, GetArtistRequest, GetGenreRequest,
         GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult,
         PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
         QueryPlaylistSongsRequest, RatingStats, RecentSongsRequest, RemoveRatingRequest,
@@ -551,6 +552,18 @@ pub mod type_registry {
 
         gen.add_schema::<DeleteSongResponse>("DeleteSongResponse");
         registered.insert("DeleteSongResponse".to_string());
+
+        gen.add_schema::<BulkDeleteSongsRequest>("BulkDeleteSongsRequest");
+        registered.insert("BulkDeleteSongsRequest".to_string());
+
+        gen.add_schema::<BulkDeleteSongsResponse>("BulkDeleteSongsResponse");
+        registered.insert("BulkDeleteSongsResponse".to_string());
+
+        gen.add_schema::<BulkClearSongArtworkRequest>("BulkClearSongArtworkRequest");
+        registered.insert("BulkClearSongArtworkRequest".to_string());
+
+        gen.add_schema::<BulkClearSongArtworkResponse>("BulkClearSongArtworkResponse");
+        registered.insert("BulkClearSongArtworkResponse".to_string());
 
         gen.add_schema::<SongsQueryResult>("SongsQueryResult");
         registered.insert("SongsQueryResult".to_string());

@@ -6,9 +6,10 @@ use axum::{
 };
 use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::music::crud::{
-    delete_song, list_recent_songs, query_songs, update_songs, DeleteSongRequest,
-    DeleteSongResponse, QueryParams, RecentSongsRequest, SongsQueryResult, UpdateSongsRequest,
-    UpdateSongsResult,
+    bulk_clear_song_artwork, bulk_delete_songs, delete_song, list_recent_songs, query_songs,
+    update_songs, BulkClearSongArtworkRequest, BulkClearSongArtworkResponse,
+    BulkDeleteSongsRequest, BulkDeleteSongsResponse, DeleteSongRequest, DeleteSongResponse,
+    QueryParams, RecentSongsRequest, SongsQueryResult, UpdateSongsRequest, UpdateSongsResult,
 };
 use grimoire::response::GrimoireResponse;
 use grimoire::users::UserRole;
@@ -66,6 +67,30 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "DeleteSongRequest",
         response_type: "DeleteSongResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "bulk_delete_songs",
+        path: "/api/songs/bulk-delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "BulkDeleteSongsRequest",
+        response_type: "BulkDeleteSongsResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    }
+}
+
+inventory::submit! {
+    RouteInfo {
+        name: "bulk_clear_song_artwork",
+        path: "/api/songs/bulk-clear-artwork",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "BulkClearSongArtworkRequest",
+        response_type: "BulkClearSongArtworkResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     }
 }
@@ -189,4 +214,44 @@ pub async fn delete_song_handler(
         success: true,
         message: format!("song {} deleted successfully", song_id),
     }))
+}
+
+/// Bulk delete songs (admin only)
+///
+/// POST /api/songs/bulk-delete
+pub async fn bulk_delete_songs_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(_state): State<AppState>,
+    Json(request): Json<BulkDeleteSongsRequest>,
+) -> Result<Json<BulkDeleteSongsResponse>, ApiError> {
+    check_role(&user, UserRole::Admin)?;
+
+    let user_id = request.user_id.unwrap_or_else(|| user.user_id.clone());
+    tracing::debug!(
+        "bulk_delete_songs: count={}, user_id={}",
+        request.song_ids.len(),
+        user_id
+    );
+
+    let response = bulk_delete_songs(request.song_ids, Some(user_id)).await;
+    Ok(Json(response))
+}
+
+/// Bulk clear artwork from songs (preserves waveform images)
+///
+/// POST /api/songs/bulk-clear-artwork
+pub async fn bulk_clear_song_artwork_handler(
+    Extension(user): Extension<AuthenticatedUser>,
+    State(_state): State<AppState>,
+    Json(request): Json<BulkClearSongArtworkRequest>,
+) -> Result<Json<BulkClearSongArtworkResponse>, ApiError> {
+    check_role(&user, UserRole::Admin)?;
+
+    tracing::debug!(
+        "bulk_clear_song_artwork: count={}",
+        request.song_ids.len()
+    );
+
+    let response = bulk_clear_song_artwork(request.song_ids).await;
+    Ok(Json(response))
 }

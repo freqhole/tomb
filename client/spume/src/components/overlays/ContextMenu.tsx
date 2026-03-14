@@ -16,9 +16,7 @@ export type MenuAction =
     };
 
 // type guard to check if action is not a separator
-function isActionItem(
-  action: MenuAction,
-): action is Exclude<MenuAction, { type: "separator" }> {
+function isActionItem(action: MenuAction): action is Exclude<MenuAction, { type: "separator" }> {
   return action.type !== "separator";
 }
 
@@ -29,18 +27,24 @@ export interface ContextMenuProps {
   actions: MenuAction[];
   /** additional content to show at the top of the menu */
   header?: JSX.Element;
+  /** callback when menu opens */
+  onOpen?: () => void;
 }
 
 // context menu component using kobalte primitives
 // automatically handles right-click, positioning, and viewport constraints
 export function ContextMenu(props: ContextMenuProps) {
-  const [local, rest] = splitProps(props, ["children", "actions", "header"]);
+  const [local, rest] = splitProps(props, ["children", "actions", "header", "onOpen"]);
+
+  const handleOpenChange = (open: boolean) => {
+    if (open && local.onOpen) {
+      local.onOpen();
+    }
+  };
 
   return (
-    <KobalteContextMenu {...rest}>
-      <KobalteContextMenu.Trigger class="outline-none">
-        {local.children}
-      </KobalteContextMenu.Trigger>
+    <KobalteContextMenu onOpenChange={handleOpenChange} {...rest}>
+      <KobalteContextMenu.Trigger class="outline-none">{local.children}</KobalteContextMenu.Trigger>
 
       <KobalteContextMenu.Portal>
         <KobalteContextMenu.Content
@@ -58,9 +62,7 @@ export function ContextMenu(props: ContextMenuProps) {
           "
         >
           <Show when={local.header}>
-            <div class="p-2 border-b border-[var(--color-border-default)]">
-              {local.header}
-            </div>
+            <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
           </Show>
 
           <div class="py-1">
@@ -90,11 +92,7 @@ export function ContextMenu(props: ContextMenuProps) {
                     closeOnSelect={true}
                   >
                     <Show when={action.icon}>
-                      <Icon
-                        name={action.icon!}
-                        size={16}
-                        color="currentColor"
-                      />
+                      <Icon name={action.icon!} size={16} color="currentColor" />
                     </Show>
                     <span>{action.label}</span>
                   </KobalteContextMenu.Item>
@@ -123,9 +121,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
 
   return (
     <KobalteContextMenu {...rest}>
-      <KobalteContextMenu.Trigger class="outline-none">
-        {local.trigger}
-      </KobalteContextMenu.Trigger>
+      <KobalteContextMenu.Trigger class="outline-none">{local.trigger}</KobalteContextMenu.Trigger>
 
       <KobalteContextMenu.Portal>
         <KobalteContextMenu.Content
@@ -143,9 +139,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
           "
         >
           <Show when={local.header}>
-            <div class="p-2 border-b border-[var(--color-border-default)]">
-              {local.header}
-            </div>
+            <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
           </Show>
 
           <div class="py-1">
@@ -175,11 +169,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
                     closeOnSelect={true}
                   >
                     <Show when={action.icon}>
-                      <Icon
-                        name={action.icon!}
-                        size={16}
-                        color="currentColor"
-                      />
+                      <Icon name={action.icon!} size={16} color="currentColor" />
                     </Show>
                     <span>{action.label}</span>
                   </KobalteContextMenu.Item>

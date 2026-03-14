@@ -88,6 +88,28 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    bulkDeleteSongs: (params: s.BulkDeleteSongsRequest) => {
+      return call(
+        "music", "bulk_delete_songs",
+        routes.music.bulk_delete_songs.resp,
+        routes.music.bulk_delete_songs.req,
+        routes.music.bulk_delete_songs.method,
+        routes.music.bulk_delete_songs.path,
+        params,
+      );
+    },
+
+    bulkClearSongArtwork: (params: s.BulkClearSongArtworkRequest) => {
+      return call(
+        "music", "bulk_clear_song_artwork",
+        routes.music.bulk_clear_song_artwork.resp,
+        routes.music.bulk_clear_song_artwork.req,
+        routes.music.bulk_clear_song_artwork.method,
+        routes.music.bulk_clear_song_artwork.path,
+        params,
+      );
+    },
+
     // albums
     queryAlbums: (params: s.QueryParams) => {
       return call(

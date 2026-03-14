@@ -712,6 +712,38 @@ pub struct DeleteSongResponse {
     pub message: String,
 }
 
+/// request for bulk deleting songs
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkDeleteSongsRequest {
+    pub song_ids: Vec<String>,
+    /// optional - server uses authenticated user from session
+    pub user_id: Option<String>,
+}
+
+/// response for bulk song deletion
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkDeleteSongsResponse {
+    pub success: bool,
+    pub message: String,
+    pub deleted_count: u32,
+    pub failed_ids: Vec<String>,
+}
+
+/// request for bulk clearing song artwork (preserves waveforms)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkClearSongArtworkRequest {
+    pub song_ids: Vec<String>,
+}
+
+/// response for bulk clearing song artwork
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkClearSongArtworkResponse {
+    pub success: bool,
+    pub message: String,
+    pub cleared_count: u32,
+    pub failed_ids: Vec<String>,
+}
+
 /// concrete query result type for songs
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SongsQueryResult {

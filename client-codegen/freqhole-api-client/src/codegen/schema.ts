@@ -362,6 +362,33 @@ export const BlobMetadataResponseSchema = z.object({
 });
 export type BlobMetadataResponse = z.infer<typeof BlobMetadataResponseSchema>;
 
+export const BulkClearSongArtworkRequestSchema = z.object({
+  song_ids: z.array(z.string())
+});
+export type BulkClearSongArtworkRequest = z.infer<typeof BulkClearSongArtworkRequestSchema>;
+
+export const BulkClearSongArtworkResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  cleared_count: z.number(),
+  failed_ids: z.array(z.string())
+});
+export type BulkClearSongArtworkResponse = z.infer<typeof BulkClearSongArtworkResponseSchema>;
+
+export const BulkDeleteSongsRequestSchema = z.object({
+  song_ids: z.array(z.string()),
+  user_id: z.string().nullable()
+});
+export type BulkDeleteSongsRequest = z.infer<typeof BulkDeleteSongsRequestSchema>;
+
+export const BulkDeleteSongsResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  deleted_count: z.number(),
+  failed_ids: z.array(z.string())
+});
+export type BulkDeleteSongsResponse = z.infer<typeof BulkDeleteSongsResponseSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullable()
@@ -729,7 +756,9 @@ export const FavoriteSongResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1393,7 +1422,9 @@ export const MediaBlobSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable()
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
@@ -1620,7 +1651,9 @@ export const PlaylistSongResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1750,7 +1783,9 @@ export const PlaylistSongsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -2272,7 +2307,9 @@ export const SongQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -2420,7 +2457,9 @@ export const SongsQueryResultSchema = z.object({
   deleted_at: z.number().nullable(),
   deleted_by: z.string().nullable(),
   created_by: z.string().nullable(),
-  updated_by: z.string().nullable()
+  updated_by: z.string().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),

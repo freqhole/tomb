@@ -54,6 +54,15 @@ export interface VirtualSongListProps {
   onFavoriteToggle?: (song: Song, isFavorite: boolean) => void;
   /** callback when rating changes */
   onRatingChange?: (song: Song, rating: number) => void;
+  // selection support
+  /** set of selected song IDs */
+  selectedSongIds?: Set<string>;
+  /** callback for selection-aware clicks (receives mouse event for modifier key detection) */
+  onSelectionClick?: (song: Song, index: number, event: MouseEvent) => void;
+  /** whether to show selection styling (only when 2+ selected) */
+  showSelectionHighlight?: boolean;
+  /** callback when context menu is about to open (use to clear selection) */
+  onContextMenuOpen?: () => void;
 }
 
 export function VirtualSongList(props: VirtualSongListProps) {
@@ -161,9 +170,18 @@ export function VirtualSongList(props: VirtualSongListProps) {
     const song = props.songs[index];
     if (!song) return;
 
+    // if selection callback provided and modifier key pressed, use selection handling
+    if (props.onSelectionClick && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      props.onSelectionClick(song, index, e);
+      return;
+    }
+
     // regular row click handling
     if (e.detail === 2) {
       props.onSongDoubleClick?.(song, index);
+    } else if (props.onSelectionClick) {
+      // if selection is enabled, single clicks go through selection handler too
+      props.onSelectionClick(song, index, e);
     } else {
       props.onSongClick?.(song, index);
     }
@@ -249,14 +267,18 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
             const isPlaying = props.playingSongId === song.sha256;
             const isHovered = () => hoveredRowIndex() === virtualRow.index;
+            const isSelected = () =>
+              props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
 
             const compactRow = (
               <div
                 data-row-index={virtualRow.index}
                 class={`absolute left-0 right-0 flex items-center gap-3 px-3 cursor-pointer ${
-                  isPlaying
-                    ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
-                    : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
+                  isSelected()
+                    ? "bg-[var(--color-accent-500)]/30"
+                    : isPlaying
+                      ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                      : "hover:bg-[var(--color-bg-tertiary)] active:bg-[var(--color-bg-elevated)]"
                 }`}
                 style={{
                   height: `${COMPACT_ROW_HEIGHT}px`,
@@ -307,7 +329,10 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
             if (props.getContextMenuActions) {
               return (
-                <ContextMenu actions={props.getContextMenuActions(song, virtualRow.index)}>
+                <ContextMenu
+                  actions={props.getContextMenuActions(song, virtualRow.index)}
+                  onOpen={() => props.onContextMenuOpen?.()}
+                >
                   {compactRow}
                 </ContextMenu>
               );
@@ -392,14 +417,18 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
               const isPlaying = props.playingSongId === song.sha256;
               const isHovered = () => hoveredRowIndex() === virtualRow.index;
+              const isSelected = () =>
+                props.showSelectionHighlight && props.selectedSongIds?.has(song.id);
 
               const rowContent = (
                 <div
                   data-row-index={virtualRow.index}
                   class={`absolute left-0 right-0 flex items-center px-4 cursor-pointer ${
-                    isPlaying
-                      ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
-                      : "hover:bg-[var(--color-bg-tertiary)]"
+                    isSelected()
+                      ? "bg-[var(--color-accent-500)]/30"
+                      : isPlaying
+                        ? "bg-[#66003b]/20 border-l-2 border-l-[var(--color-accent-500)]"
+                        : "hover:bg-[var(--color-bg-tertiary)]"
                   }`}
                   style={{
                     height: `${TABLE_ROW_HEIGHT}px`,
@@ -489,7 +518,10 @@ export function VirtualSongList(props: VirtualSongListProps) {
               // wrap with context menu if actions provided
               if (props.getContextMenuActions) {
                 return (
-                  <ContextMenu actions={props.getContextMenuActions(song, virtualRow.index)}>
+                  <ContextMenu
+                    actions={props.getContextMenuActions(song, virtualRow.index)}
+                    onOpen={() => props.onContextMenuOpen?.()}
+                  >
                     {rowContent}
                   </ContextMenu>
                 );

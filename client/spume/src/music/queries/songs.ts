@@ -439,3 +439,67 @@ export function useUpdateSongsMutation() {
     },
   }));
 }
+
+// bulk delete songs mutation
+export function useBulkDeleteSongsMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (songIds: string[]) => {
+      const dataSource = getDataSource();
+      if (!dataSource.bulkDeleteSongs) {
+        throw new Error("current data source does not support bulk delete");
+      }
+
+      return await dataSource.bulkDeleteSongs(songIds);
+    },
+    onSuccess: (result) => {
+      // invalidate all music queries to refresh data
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+
+      const { deleted_count, failed_ids } = result;
+      if (failed_ids.length > 0) {
+        toast.warning(`deleted ${deleted_count} songs, ${failed_ids.length} failed`);
+      } else {
+        toast.success(`deleted ${deleted_count} songs`);
+      }
+    },
+    onError: (error) => {
+      console.error("failed to bulk delete songs:", error);
+      toast.error("failed to delete songs");
+    },
+  }));
+}
+
+// bulk clear song artwork mutation (removes primary images, preserves waveforms)
+export function useBulkClearSongArtworkMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (songIds: string[]) => {
+      const dataSource = getDataSource();
+      if (!dataSource.bulkClearSongArtwork) {
+        throw new Error("current data source does not support clearing artwork");
+      }
+
+      return await dataSource.bulkClearSongArtwork(songIds);
+    },
+    onSuccess: (result) => {
+      // invalidate song queries to refresh image data
+      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+
+      const { cleared_count, failed_ids } = result;
+      if (failed_ids.length > 0) {
+        toast.warning(`cleared artwork for ${cleared_count} songs, ${failed_ids.length} failed`);
+      } else {
+        toast.success(`cleared artwork for ${cleared_count} songs`);
+      }
+    },
+    onError: (error) => {
+      console.error("failed to clear song artwork:", error);
+      toast.error("failed to clear artwork");
+    },
+  }));
+}

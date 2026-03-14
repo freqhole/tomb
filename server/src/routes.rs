@@ -152,6 +152,14 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
             routes["music"]["delete_song"].path,
             axum::routing::delete(music::songs::delete_song_handler),
         )
+        .route(
+            routes["music"]["bulk_delete_songs"].path,
+            post(music::songs::bulk_delete_songs_handler),
+        )
+        .route(
+            routes["music"]["bulk_clear_song_artwork"].path,
+            post(music::songs::bulk_clear_song_artwork_handler),
+        )
         // favorites routes
         .route(
             routes["music"]["set_favorite"].path,

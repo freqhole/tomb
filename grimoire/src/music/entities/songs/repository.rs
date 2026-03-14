@@ -281,6 +281,44 @@ pub async fn delete_song(id: &str, deleted_by: Option<String>) -> GrimoireRespon
     GrimoireResponse::success("Song deleted successfully", ())
 }
 
+/// bulk delete multiple songs at once
+pub async fn bulk_delete_songs(
+    song_ids: Vec<String>,
+    deleted_by: Option<String>,
+) -> crate::music::crud::BulkDeleteSongsResponse {
+    use crate::music::crud::BulkDeleteSongsResponse;
+
+    let mut deleted_count: u32 = 0;
+    let mut failed_ids = Vec::new();
+
+    for song_id in song_ids {
+        let result = delete_song(&song_id, deleted_by.clone()).await;
+        if result.success {
+            deleted_count += 1;
+        } else {
+            failed_ids.push(song_id);
+        }
+    }
+
+    let success = failed_ids.is_empty();
+    let message = if success {
+        format!("deleted {} songs", deleted_count)
+    } else {
+        format!(
+            "deleted {} songs, {} failed",
+            deleted_count,
+            failed_ids.len()
+        )
+    };
+
+    BulkDeleteSongsResponse {
+        success,
+        message,
+        deleted_count,
+        failed_ids,
+    }
+}
+
 /// get the media_blob_id for a song (used for parent blob lookups)
 pub async fn get_song_media_blob_id(song_id: &str) -> GrimoireResult<String> {
     let pool = database::connect().await?;
@@ -502,5 +540,74 @@ pub async fn clear_song_images(song_id: &str) -> GrimoireResponse<()> {
         Err(e) => {
             GrimoireResponse::failure("Failed to clear song images", vec![ErrorDetail::from(e)])
         }
+    }
+}
+
+/// clear non-waveform images from a song (preserves waveform images)
+pub async fn clear_song_artwork(song_id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // delete song_imagez entries where the linked blob is not a waveform
+    match sqlx::query!(
+        r#"DELETE FROM song_imagez
+           WHERE song_id = ?
+           AND media_blob_id IN (
+               SELECT mb.id FROM media_blobz mb
+               WHERE mb.blob_type != 'waveform'
+           )"#,
+        song_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("artwork cleared from song (waveforms preserved)", ()),
+        Err(e) => {
+            GrimoireResponse::failure("failed to clear song artwork", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// bulk clear artwork from multiple songs (preserves waveform images)
+pub async fn bulk_clear_song_artwork(
+    song_ids: Vec<String>,
+) -> crate::music::crud::BulkClearSongArtworkResponse {
+    use crate::music::crud::BulkClearSongArtworkResponse;
+
+    let mut cleared_count: u32 = 0;
+    let mut failed_ids = Vec::new();
+
+    for song_id in song_ids {
+        let result = clear_song_artwork(&song_id).await;
+        if result.success {
+            cleared_count += 1;
+        } else {
+            failed_ids.push(song_id);
+        }
+    }
+
+    let success = failed_ids.is_empty();
+    let message = if success {
+        format!("cleared artwork from {} songs", cleared_count)
+    } else {
+        format!(
+            "cleared artwork from {} songs, {} failed",
+            cleared_count,
+            failed_ids.len()
+        )
+    };
+
+    BulkClearSongArtworkResponse {
+        success,
+        message,
+        cleared_count,
+        failed_ids,
     }
 }
