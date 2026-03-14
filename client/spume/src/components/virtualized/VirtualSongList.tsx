@@ -71,8 +71,36 @@ export function VirtualSongList(props: VirtualSongListProps) {
   // track which row is hovered for marquee text
   const [hoveredRowIndex, setHoveredRowIndex] = createSignal<number | null>(null);
 
-  // responsive: track if we're in narrow mode
+  // responsive: window-based for compact layout
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+
+  // container-based breakpoints for column sizing (adapts to queue panel)
+  const [containerWidth, setContainerWidth] = createSignal(0);
+  // thresholds based on calculated min-widths: lg content fits at 1048px, xl at 1272px
+  const isContainerLg = () => containerWidth() >= 1050;
+  const isContainerXl = () => containerWidth() >= 1280;
+
+  // compute min-width based on container breakpoint to match column widths
+  // formula: padding(32) + fixed(232) + responsive + title(144)
+  // fixed: thumbnail(48) + year(56) + duration(56) + favorite(32) + rating(40) = 232
+  // responsive: artist + album + genres + tags (varies by breakpoint)
+  // base: 176+176+96+128 = 576 → 32+232+576+144 = 984
+  // lg: 192+192+112+144 = 640 → 32+232+640+144 = 1048
+  // xl: 256+288+176+144 = 864 → 32+232+864+144 = 1272
+  const tableMinWidth = () => {
+    if (isContainerXl()) return "1272px";
+    if (isContainerLg()) return "1048px";
+    return "984px";
+  };
+
+  // container-based column widths (in px)
+  // returns tailwind-style width class based on container size
+  const colWidth = {
+    artist: () => (isContainerXl() ? "w-64" : isContainerLg() ? "w-48" : "w-44"),
+    album: () => (isContainerXl() ? "w-72" : isContainerLg() ? "w-48" : "w-44"),
+    genres: () => (isContainerXl() ? "w-44" : isContainerLg() ? "w-28" : "w-24"),
+    tags: () => (isContainerXl() ? "w-36" : isContainerLg() ? "w-36" : "w-32"),
+  };
 
   // current row height based on layout mode
   const rowHeight = () => (isNarrow() ? COMPACT_ROW_HEIGHT : TABLE_ROW_HEIGHT);
@@ -89,7 +117,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
     overscan: OVERSCAN,
   });
 
-  // listen for resize to update layout mode
+  // listen for window resize to update compact layout mode
   onMount(() => {
     const handleResize = () => {
       const narrow = isNarrowViewport();
@@ -102,6 +130,21 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
+  });
+
+  // track container width for responsive column sizing (adapts to queue panel)
+  onMount(() => {
+    if (!scrollContainerRef) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+
+    observer.observe(scrollContainerRef);
+    onCleanup(() => observer.disconnect());
   });
 
   // restore scroll position on mount
@@ -345,7 +388,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
         {/* wide layout: table with header */}
         <Show when={!isNarrow()}>
-          <div style={{ "min-width": "1000px" }}>
+          <div style={{ "min-width": tableMinWidth() }}>
             {/* virtual container */}
             <div
               style={{
@@ -400,20 +443,20 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     />
                     <MarqueeText
                       text={song.artist_name || "unknown artist"}
-                      class={`w-44 lg:w-48 xl:w-64 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                      class={`${colWidth.artist()} shrink-0 text-sm text-[var(--color-text-secondary)]`}
                       padClass={CELL_PAD}
                       isHovering={isHovered()}
                     />
                     <MarqueeText
                       text={song.album_title || "unknown album"}
-                      class={`w-44 lg:w-48 xl:w-72 shrink-0 text-sm text-[var(--color-text-secondary)]`}
+                      class={`${colWidth.album()} shrink-0 text-sm text-[var(--color-text-secondary)]`}
                       padClass={CELL_PAD}
                       isHovering={isHovered()}
                     />
                     {/* genres */}
                     <MarqueeText
                       text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
-                      class={`w-24 lg:w-28 xl:w-44 shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
+                      class={`${colWidth.genres()} shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
                       padClass={CELL_PAD}
                       isHovering={isHovered()}
                     />
@@ -432,7 +475,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     {/* tags */}
                     <MarqueeText
                       text={song.album_tags?.join(", ") || ""}
-                      class={`w-32 lg:w-36 xl:w-36 shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
+                      class={`${colWidth.tags()} shrink-0 text-xs text-[var(--color-text-muted)] text-center`}
                       padClass={CELL_PAD}
                       isHovering={isHovered()}
                     />
@@ -483,7 +526,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
       <Show when={!isNarrow()}>
         <div
           class="absolute bottom-0 left-0 right-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider border-t border-[var(--color-border-default)]"
-          style={{ height: `${TABLE_ROW_HEIGHT}px`, "min-width": "1000px" }}
+          style={{ height: `${TABLE_ROW_HEIGHT}px`, "min-width": tableMinWidth() }}
         >
           <div class="w-12 shrink-0"></div>
           <div
@@ -493,19 +536,19 @@ export function VirtualSongList(props: VirtualSongListProps) {
             <span class="text-[10px]">{getSortIndicator("title")}</span> title
           </div>
           <div
-            class={`w-44 lg:w-48 xl:w-64 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`${colWidth.artist()} shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("artist")}
           >
             <span class="text-[10px]">{getSortIndicator("artist")}</span> artist
           </div>
           <div
-            class={`w-44 lg:w-48 xl:w-72 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`${colWidth.album()} shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("album")}
           >
             <span class="text-[10px]">{getSortIndicator("album")}</span> album
           </div>
           <div
-            class={`w-24 lg:w-28 xl:w-44 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            class={`${colWidth.genres()} shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
             onClick={() => handleSort("genre")}
           >
             <span class="text-[10px]">{getSortIndicator("genre")}</span> genres
@@ -523,7 +566,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
             <span class="text-[10px]">{getSortIndicator("duration")}</span> time
           </div>
           {/* tags column header */}
-          <div class="w-32 lg:w-36 xl:w-36 shrink-0 text-center" title="tags (not sortable)">
+          <div class={`${colWidth.tags()} shrink-0 text-center`} title="tags (not sortable)">
             tags
           </div>
           {/* favorite column header */}

@@ -45,3 +45,25 @@ export function isWideViewport(): boolean {
   if (typeof window === "undefined") return true;
   return window.innerWidth >= WIDE_MIN_WIDTH;
 }
+
+/** tailwind lg breakpoint (1024px) */
+export const LG_MIN_WIDTH = 1024;
+
+/** tailwind xl breakpoint (1280px) */
+export const XL_MIN_WIDTH = 1280;
+
+/**
+ * check if viewport is lg or larger (>= 1024px)
+ */
+export function isLgViewport(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.innerWidth >= LG_MIN_WIDTH;
+}
+
+/**
+ * check if viewport is xl or larger (>= 1280px)
+ */
+export function isXlViewport(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.innerWidth >= XL_MIN_WIDTH;
+}
