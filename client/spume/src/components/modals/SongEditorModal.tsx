@@ -61,6 +61,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
   const [lyricsExpanded, setLyricsExpanded] = createSignal(false);
   const [artistId, setArtistId] = createSignal<string | undefined>(undefined);
   const [albumId, setAlbumId] = createSignal<string | undefined>(undefined);
+  const [initialArtistId, setInitialArtistId] = createSignal<string | undefined>(undefined);
+  const [initialAlbumId, setInitialAlbumId] = createSignal<string | undefined>(undefined);
 
   // entity URLs management
   const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
@@ -94,6 +96,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
       setInitialData(data);
       setArtistId(song.artist_id);
       setAlbumId(song.album_id);
+      setInitialArtistId(song.artist_id);
+      setInitialAlbumId(song.album_id);
       setLoadedSongId(props.songId);
 
       // initialize entity URLs from song data
@@ -163,6 +167,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
       current.artist_name !== initial.artist_name ||
       current.album_title !== initial.album_title ||
       current.track_artist !== initial.track_artist ||
+      artistId() !== initialArtistId() ||
+      albumId() !== initialAlbumId() ||
       urlsChanged()
     );
   });
@@ -184,12 +190,20 @@ export function SongEditorModal(props: SongEditorModalProps) {
     if (current.lyrics !== initial.lyrics) updates.lyrics = current.lyrics;
     if (current.track_artist !== initial.track_artist)
       updates.track_artist = current.track_artist || null;
-    if (current.artist_name !== initial.artist_name) {
+
+    // artist: check both name and id changes
+    const artistIdChanged = artistId() !== initialArtistId();
+    const artistNameChanged = current.artist_name !== initial.artist_name;
+    if (artistIdChanged || artistNameChanged) {
       // prefer artist_id when available (from autocomplete selection)
       if (artistId()) updates.artist_id = artistId();
       else updates.artist = current.artist_name;
     }
-    if (current.album_title !== initial.album_title) {
+
+    // album: check both title and id changes
+    const albumIdChanged = albumId() !== initialAlbumId();
+    const albumTitleChanged = current.album_title !== initial.album_title;
+    if (albumIdChanged || albumTitleChanged) {
       // prefer album_id when available (from autocomplete selection)
       if (albumId()) updates.album_id = albumId();
       else updates.album = current.album_title;
@@ -235,12 +249,17 @@ export function SongEditorModal(props: SongEditorModalProps) {
     const initial = initialData();
     if (!initial) return;
     setFormData({ ...formData(), [field]: initial[field] });
+    // also reset associated IDs when resetting artist or album names
+    if (field === "artist_name") setArtistId(initialArtistId());
+    if (field === "album_title") setAlbumId(initialAlbumId());
   };
 
   const handleResetAll = () => {
     const initial = initialData();
     if (initial) {
       setFormData({ ...initial });
+      setArtistId(initialArtistId());
+      setAlbumId(initialAlbumId());
     }
   };
 
@@ -552,7 +571,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
                       </button>
                     </Show>
                     <Show
-                      when={initialData() && formData().artist_name !== initialData()!.artist_name}
+                      when={
+                        initialData() &&
+                        (formData().artist_name !== initialData()!.artist_name ||
+                          artistId() !== initialArtistId())
+                      }
                     >
                       <button
                         onClick={() => handleReset("artist_name")}
@@ -618,7 +641,11 @@ export function SongEditorModal(props: SongEditorModalProps) {
                       </button>
                     </Show>
                     <Show
-                      when={initialData() && formData().album_title !== initialData()!.album_title}
+                      when={
+                        initialData() &&
+                        (formData().album_title !== initialData()!.album_title ||
+                          albumId() !== initialAlbumId())
+                      }
                     >
                       <button
                         onClick={() => handleReset("album_title")}

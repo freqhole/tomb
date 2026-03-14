@@ -92,15 +92,15 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
     }
 
     // if we have a current value that's not in the results, add it
-    // so the combobox can display it even before user searches
+    // but only when not actively searching - once user types, use real results
     const currentVal = localValue();
-    if (currentVal && !results.find((r) => r.key === currentVal.key)) {
+    const input = searchInput();
+    if (currentVal && !input && !results.find((r) => r.key === currentVal.key)) {
       results.unshift(currentVal);
     }
 
     // add "create new" option if user has typed something
     // always show it so user can create albums with duplicate titles if needed
-    const input = searchInput();
     if (input && input.trim().length > 0) {
       const trimmed = input.trim();
       const exactMatch = items.find((item) => item.title === trimmed);

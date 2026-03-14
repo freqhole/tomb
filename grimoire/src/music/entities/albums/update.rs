@@ -595,9 +595,9 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             }
         };
 
-        // copy images from old album to new album
+        // copy images from old album to new album (ignore if already exists)
         if let Err(e) = sqlx::query!(
-            "INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
+            "INSERT OR IGNORE INTO album_imagez (album_id, media_blob_id, is_primary)
              SELECT ?, media_blob_id, is_primary
              FROM album_imagez
              WHERE album_id = ?",
