@@ -62,6 +62,7 @@ export type ApiClient = ReturnType<typeof CreateHttpClientFn>;
 // re-export TransportType and Remote for consumers
 import type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote } from "../services/storage/types";
 import { isHttpRemote, isP2PRemote, toRemoteRef } from "../services/storage/types";
+import { getRemoteCacheName } from "../../music/services/cache/blobCache";
 export type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote };
 export { isHttpRemote, isP2PRemote, toRemoteRef };
 
@@ -229,8 +230,9 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
       if (!peerAddr) {
         throw new Error('peer_addr required for wasm transport');
       }
-      const node = await getMiddenNode();
-      return new FreqholeClient(new WasmTransport(node, peerAddr));
+      const clientNode = await getMiddenNode();
+      const clientCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
+      return new FreqholeClient(new WasmTransport(clientNode, peerAddr, clientCacheName));
       
     case 'http':
     default:
@@ -266,8 +268,9 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
       if (!peerAddr) {
         throw new Error('peer_addr required for wasm transport');
       }
-      const node = await getMiddenNode();
-      return new WasmTransport(node, peerAddr);
+      const transportNode = await getMiddenNode();
+      const transportCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
+      return new WasmTransport(transportNode, peerAddr, transportCacheName);
       
     case 'http':
     default:
