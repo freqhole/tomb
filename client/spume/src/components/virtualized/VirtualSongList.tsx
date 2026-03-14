@@ -244,12 +244,13 @@ export function VirtualSongList(props: VirtualSongListProps) {
   };
 
   return (
-    <div
-      ref={scrollContainerRef}
-      class="overflow-auto"
-      style={{ height: `${props.height}px` }}
-      onScroll={checkNearEnd}
-    >
+    <div class="relative" style={{ height: `${props.height}px` }}>
+      <div
+        ref={scrollContainerRef}
+        class="overflow-auto"
+        style={{ height: `${isNarrow() ? props.height : props.height - TABLE_ROW_HEIGHT}px` }}
+        onScroll={checkNearEnd}
+      >
       {/* narrow layout: compact rows without header */}
       <Show when={isNarrow()}>
         <div
@@ -345,62 +346,6 @@ export function VirtualSongList(props: VirtualSongListProps) {
       {/* wide layout: table with header */}
       <Show when={!isNarrow()}>
         <div style={{ "min-width": "1000px" }}>
-          {/* header row */}
-          <div
-            class="sticky top-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider"
-            style={{ height: `${TABLE_ROW_HEIGHT}px` }}
-          >
-            <div class="w-12 shrink-0"></div>
-            <div
-              class={`flex-1 min-w-0 ${CELL_PAD} px-6 flex items-center justify-end gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-              onClick={() => handleSort("title")}
-            >
-              title <span class="text-[10px]">{getSortIndicator("title")}</span>
-            </div>
-            <div
-              class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-              onClick={() => handleSort("artist")}
-            >
-              artist <span class="text-[10px]">{getSortIndicator("artist")}</span>
-            </div>
-            <div
-              class={`w-44 shrink-0 ${CELL_PAD} flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-              onClick={() => handleSort("album")}
-            >
-              album <span class="text-[10px]">{getSortIndicator("album")}</span>
-            </div>
-            <div
-              class={`w-24 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-              onClick={() => handleSort("genre")}
-            >
-              genres <span class="text-[10px]">{getSortIndicator("genre")}</span>
-            </div>
-            <div
-              class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-              onClick={() => handleSort("year")}
-            >
-              year <span class="text-[10px]">{getSortIndicator("year")}</span>
-            </div>
-            <div
-              class={`w-14 shrink-0 ${CELL_PAD} flex items-center justify-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
-              onClick={() => handleSort("duration")}
-            >
-              time <span class="text-[10px]">{getSortIndicator("duration")}</span>
-            </div>
-            {/* tags column header */}
-            <div class={`w-32 shrink-0 ${CELL_PAD} text-center`} title="tags (not sortable)">
-              tags
-            </div>
-            {/* favorite column header */}
-            <div class="w-8 shrink-0 flex items-center justify-center" title="favorite">
-              ♡
-            </div>
-            {/* rating column header */}
-            <div class="w-10 shrink-0 flex items-center justify-center" title="rating">
-              ★
-            </div>
-          </div>
-
           {/* virtual container */}
           <div
             style={{
@@ -529,6 +474,65 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
               return rowContent;
             })}
+          </div>
+        </div>
+      </Show>
+    </div>
+
+      {/* header row - positioned at bottom */}
+      <Show when={!isNarrow()}>
+        <div
+          class="absolute bottom-0 left-0 right-0 z-10 flex items-center px-4 bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] uppercase tracking-wider border-t border-[var(--color-border-default)]"
+          style={{ height: `${TABLE_ROW_HEIGHT}px`, "min-width": "1000px" }}
+        >
+          <div class="w-12 shrink-0"></div>
+          <div
+            class={`flex-1 min-w-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("title")}
+          >
+            <span class="text-[10px]">{getSortIndicator("title")}</span> title
+          </div>
+          <div
+            class={`w-44 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("artist")}
+          >
+            <span class="text-[10px]">{getSortIndicator("artist")}</span> artist
+          </div>
+          <div
+            class={`w-44 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("album")}
+          >
+            <span class="text-[10px]">{getSortIndicator("album")}</span> album
+          </div>
+          <div
+            class={`w-24 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("genre")}
+          >
+            <span class="text-[10px]">{getSortIndicator("genre")}</span> genres
+          </div>
+          <div
+            class={`w-14 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("year")}
+          >
+            <span class="text-[10px]">{getSortIndicator("year")}</span> year
+          </div>
+          <div
+            class={`w-14 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("duration")}
+          >
+            <span class="text-[10px]">{getSortIndicator("duration")}</span> time
+          </div>
+          {/* tags column header */}
+          <div class="w-32 shrink-0" title="tags (not sortable)">
+            tags
+          </div>
+          {/* favorite column header */}
+          <div class="w-8 shrink-0 flex items-center" title="favorite">
+            ♡
+          </div>
+          {/* rating column header */}
+          <div class="w-10 shrink-0 flex items-center" title="rating">
+            ★
           </div>
         </div>
       </Show>
