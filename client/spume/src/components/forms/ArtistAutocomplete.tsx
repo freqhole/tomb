@@ -27,8 +27,13 @@ export interface ArtistAutocompleteProps {
 }
 
 interface ArtistOption {
-  value: string;
+  /** unique key - artist_id for existing, "new:name" for create new, "temp:name" for unresolved */
+  key: string;
+  /** display name (artist name) */
+  name: string;
+  /** label shown in dropdown (may include "create new:" prefix) */
   label: string;
+  /** artist id if this is an existing artist */
   id?: string;
   songCount?: number;
   albumCount?: number;
@@ -42,7 +47,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
   // local controlled value that syncs with props.value
   const [localValue, setLocalValue] = createSignal<ArtistOption | undefined>(
     props.value && props.value.trim().length > 0
-      ? { value: props.value, label: props.value }
+      ? { key: `temp:${props.value}`, name: props.value, label: props.value }
       : undefined
   );
 
@@ -50,7 +55,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
   createEffect(() => {
     const value = props.value;
     if (value && value.trim().length > 0) {
-      setLocalValue({ value: value, label: value });
+      setLocalValue({ key: `temp:${value}`, name: value, label: value });
     } else {
       setLocalValue(undefined);
     }
@@ -67,10 +72,12 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
     const results: ArtistOption[] = [];
     const items = artistQuery.data?.items || [];
 
-    // add existing artists - thumbnail_url already resolved
+    // add existing artists - use artist_id as key for uniqueness
+    // this allows multiple artists with the same name to appear separately
     for (const item of items) {
       results.push({
-        value: item.name,
+        key: item.artist_id,
+        name: item.name,
         label: item.name,
         id: item.artist_id,
         songCount: item.song_count,
@@ -84,23 +91,23 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
     // if we have a current value that's not in the results, add it
     // so the combobox can display it even before user searches
     const currentVal = localValue();
-    if (currentVal && !results.find((r) => r.value === currentVal.value)) {
+    if (currentVal && !results.find((r) => r.key === currentVal.key)) {
       results.unshift(currentVal);
     }
 
-    // add "create new" / "rename to" option if input doesn't exactly match an existing name
-    // (case-sensitive so users can change casing, e.g. "the beatles" -> "The Beatles")
+    // add "create new" option if user has typed something
+    // always show it so user can create artists with duplicate names if needed
     const input = searchInput();
     if (input && input.trim().length > 0) {
-      const exactMatch = items.find((item) => item.name === input.trim());
-      if (!exactMatch) {
-        const label = props.newLabel ? props.newLabel(input.trim()) : `create new: ${input.trim()}`;
-        results.unshift({
-          value: input.trim(),
-          label,
-          isNew: true,
-        });
-      }
+      const trimmed = input.trim();
+      const exactMatch = items.find((item) => item.name === trimmed);
+      const label = exactMatch ? `create new artist: ${trimmed}` : `create new: ${trimmed}`;
+      results.unshift({
+        key: `new:${trimmed}`,
+        name: trimmed,
+        label,
+        isNew: true,
+      });
     }
 
     return results;
@@ -114,7 +121,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
         if (option) {
           props.onSelect({
             id: option.id,
-            name: option.value,
+            name: option.name,
             isNew: option.isNew || false,
           });
         }
@@ -124,9 +131,9 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
         setSearchInput(value.trim().length > 0 ? value : undefined);
       }}
       options={options()}
-      optionValue="value"
-      optionTextValue="value"
-      optionLabel="value"
+      optionValue="key"
+      optionTextValue="name"
+      optionLabel="name"
       placeholder={props.placeholder || "search or type artist name..."}
       triggerMode="input"
       disabled={props.disabled}
@@ -149,7 +156,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
               </Show>
               <Show when={!props.item.rawValue.isNew}>
                 <div class="text-sm">
-                  <Combobox.ItemLabel>{props.item.rawValue.value}</Combobox.ItemLabel>
+                  <Combobox.ItemLabel>{props.item.rawValue.name}</Combobox.ItemLabel>
                 </div>
                 <div class="text-xs text-[var(--color-text-tertiary)]">
                   {props.item.rawValue.songCount || 0} song

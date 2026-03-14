@@ -30,8 +30,13 @@ export interface AlbumAutocompleteProps {
 }
 
 interface AlbumOption {
-  value: string;
+  /** unique key - album_id for existing, "new:title" for create new, "temp:title" for unresolved */
+  key: string;
+  /** album title */
+  title: string;
+  /** label shown in dropdown (may include "create new:" prefix) */
   label: string;
+  /** album id if this is an existing album */
   id?: string;
   artistName?: string;
   songCount?: number;
@@ -45,7 +50,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
   // local controlled value that syncs with props.value
   const [localValue, setLocalValue] = createSignal<AlbumOption | undefined>(
     props.value && props.value.trim().length > 0
-      ? { value: props.value, label: props.value }
+      ? { key: `temp:${props.value}`, title: props.value, label: props.value }
       : undefined
   );
 
@@ -53,7 +58,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
   createEffect(() => {
     const value = props.value;
     if (value && value.trim().length > 0) {
-      setLocalValue({ value: value, label: value });
+      setLocalValue({ key: `temp:${value}`, title: value, label: value });
     } else {
       setLocalValue(undefined);
     }
@@ -70,10 +75,12 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
     const results: AlbumOption[] = [];
     const items = albumQuery.data?.items || [];
 
-    // add existing albums - thumbnail_url already resolved
+    // add existing albums - use album_id as key for uniqueness
+    // this allows multiple albums with the same title to appear separately
     for (const item of items) {
       results.push({
-        value: item.title,
+        key: item.album_id,
+        title: item.title,
         label: item.title,
         id: item.album_id,
         artistName: item.artist_name,
@@ -87,23 +94,23 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
     // if we have a current value that's not in the results, add it
     // so the combobox can display it even before user searches
     const currentVal = localValue();
-    if (currentVal && !results.find((r) => r.value === currentVal.value)) {
+    if (currentVal && !results.find((r) => r.key === currentVal.key)) {
       results.unshift(currentVal);
     }
 
-    // add "create new" / "rename to" option if input doesn't exactly match an existing title
-    // (case-sensitive so users can change casing, e.g. "best of" -> "Best Of")
+    // add "create new" option if user has typed something
+    // always show it so user can create albums with duplicate titles if needed
     const input = searchInput();
     if (input && input.trim().length > 0) {
-      const exactMatch = items.find((item) => item.title === input.trim());
-      if (!exactMatch) {
-        const label = props.newLabel ? props.newLabel(input.trim()) : `create new: ${input.trim()}`;
-        results.unshift({
-          value: input.trim(),
-          label,
-          isNew: true,
-        });
-      }
+      const trimmed = input.trim();
+      const exactMatch = items.find((item) => item.title === trimmed);
+      const label = exactMatch ? `create new album: ${trimmed}` : `create new: ${trimmed}`;
+      results.unshift({
+        key: `new:${trimmed}`,
+        title: trimmed,
+        label,
+        isNew: true,
+      });
     }
 
     return results;
@@ -117,7 +124,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
         if (option) {
           props.onSelect({
             id: option.id,
-            title: option.value,
+            title: option.title,
             isNew: option.isNew || false,
           });
         }
@@ -127,9 +134,9 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
         setSearchInput(value.trim().length > 0 ? value : undefined);
       }}
       options={options()}
-      optionValue="value"
-      optionTextValue="value"
-      optionLabel="value"
+      optionValue="key"
+      optionTextValue="title"
+      optionLabel="title"
       placeholder={props.placeholder || "search or type album title..."}
       triggerMode="input"
       disabled={props.disabled}
@@ -153,7 +160,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
               </Show>
               <Show when={!props.item.rawValue.isNew}>
                 <div class="text-sm">
-                  <Combobox.ItemLabel>{props.item.rawValue.value}</Combobox.ItemLabel>
+                  <Combobox.ItemLabel>{props.item.rawValue.title}</Combobox.ItemLabel>
                 </div>
                 <div class="text-xs text-[var(--color-text-tertiary)]">
                   {props.item.rawValue.artistName}

@@ -99,8 +99,9 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 return GrimoireResponse::failure("Failed to update songs", errors);
             }
         }
-    } else if req.album.is_some() && req.album_id.is_none() {
-        // user is changing album by name but not artist - need current artist for scoping
+    } else if req.album.is_some() || req.album_id.is_some() {
+        // user is changing album (by name or ID) but not artist - need current artist for scoping
+        // and to ensure artist_albumz relationship exists
         match get_current_artist_for_song(&req.song_ids[0]).await {
             Ok(Some(artist)) => Some(artist),
             Ok(None) => {
