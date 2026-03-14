@@ -1,6 +1,6 @@
 // genres view - displays all genres in a two-column layout with genre detail panel
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { CheckCircleIcon } from "../../components/icons/registry";
 import { appState } from "../../app/services/storage/db";
@@ -134,6 +134,23 @@ export function GenresView(props: GenresViewProps) {
     setIsResetting(true);
     setTimeout(() => setIsResetting(false), 0);
   });
+
+  // auto-fetch next page when query becomes idle and has more data
+  createEffect(
+    on(
+      () => ({
+        hasNextPage: genresQuery.hasNextPage,
+        isFetchingNextPage: genresQuery.isFetchingNextPage,
+        isFetching: genresQuery.isFetching,
+      }),
+      (state) => {
+        // automatically load more if there's more data and we're not already fetching
+        if (state.hasNextPage && !state.isFetchingNextPage && !state.isFetching) {
+          genresQuery.fetchNextPage();
+        }
+      }
+    )
+  );
 
   // flatten all pages of genres
   const genresData = createMemo(() => {
