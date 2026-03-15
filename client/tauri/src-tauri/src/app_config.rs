@@ -254,6 +254,11 @@ pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgr
     // update version
     config.version = Some(get_binary_version().to_string());
 
+    // clear cached binary path so it re-discovers after upgrade
+    // (the .deb installer updates /usr/lib/freqhole-app/bin/freqhole but
+    // we need to force re-discovery to pick up the new version)
+    config.freqhole_bin_path = None;
+
     // save updated config
     config.save(app_handle)?;
 
