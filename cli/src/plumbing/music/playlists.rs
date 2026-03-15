@@ -69,7 +69,7 @@ pub async fn handle_add_songs(action: MusicAction) -> CommandOutput<serde_json::
             }
         };
 
-        let response = add_songs_to_playlist(&req.playlist_id, &req.song_ids).await;
+        let response = add_songs_to_playlist(&req.playlist_id, &req.song_ids, None).await;
         if !response.success {
             return CommandOutput::failure(response.message, response.errors, ());
         }

@@ -11,6 +11,7 @@ use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::jobs::apply_directory_tags_for_file;
 use crate::media_blobz::get_media_blob;
+use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::entities::{
     albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
     CreateGenreRequest, CreateSongRequest, Genre, Playlist,
@@ -840,6 +841,7 @@ pub async fn find_or_create_album_for_artist(
         ))
     } else {
         // Create new album for this artist
+        let created_by = req.created_by.clone(); // save for feed event
         let create_req = CreateAlbumRequest {
             title: req.title,
             album_type: req.album_type,
@@ -876,6 +878,24 @@ pub async fn find_or_create_album_for_artist(
                 .execute(&pool)
                 .await;
             }
+        }
+
+        // create feed event for new album (async, fire-and-forget)
+        if let Some(ref user_id) = created_by {
+            let aid = album.id.clone();
+            let uid = user_id.clone();
+            tokio::spawn(async move {
+                // lookup username
+                if let Ok(pool) = database::connect().await {
+                    if let Ok(Some(username)) =
+                        sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", uid)
+                            .fetch_optional(&pool)
+                            .await
+                    {
+                        let _ = upsert_album_feed_event(&aid, &uid, &username, 1).await;
+                    }
+                }
+            });
         }
 
         Ok((album, true))

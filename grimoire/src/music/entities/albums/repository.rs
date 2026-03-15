@@ -322,10 +322,13 @@ pub async fn get_album_images(album_id: &str) -> GrimoireResponse<Vec<String>> {
     GrimoireResponse::success("Album images retrieved successfully", image_blob_ids)
 }
 /// add an image to an album
+///
+/// if `created_by` is provided (as (user_id, username)), a feed event will be created
 pub async fn add_album_image(
     album_id: &str,
     media_blob_id: &str,
     is_primary: bool,
+    created_by: Option<(&str, &str)>,
 ) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -363,7 +366,26 @@ pub async fn add_album_image(
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("Image added to album", ()),
+        Ok(_) => {
+            // fire-and-forget: create image feed event (NOT album feed event - images get their own event type)
+            if let Some((user_id, username)) = created_by {
+                let user_id = user_id.to_string();
+                let username = username.to_string();
+                let album_id = album_id.to_string();
+                let media_blob_id = media_blob_id.to_string();
+                tokio::spawn(async move {
+                    let _ = crate::music::analytics::feed_events::create_image_feed_event(
+                        "album",
+                        &album_id,
+                        &media_blob_id,
+                        &user_id,
+                        &username,
+                    )
+                    .await;
+                });
+            }
+            GrimoireResponse::success("Image added to album", ())
+        }
         Err(e) => {
             GrimoireResponse::failure("Failed to add image to album", vec![ErrorDetail::from(e)])
         }

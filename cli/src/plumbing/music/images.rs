@@ -163,7 +163,7 @@ impl ImageAction {
         match self {
             // song image operations
             ImageAction::AddSongImage { song_id, blob_id, is_primary } => {
-                let response = add_song_image(song_id, blob_id, *is_primary).await;
+                let response = add_song_image(song_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
                 } else {
@@ -197,7 +197,7 @@ impl ImageAction {
 
             // album image operations
             ImageAction::AddAlbumImage { album_id, blob_id, is_primary } => {
-                let response = add_album_image(album_id, blob_id, *is_primary).await;
+                let response = add_album_image(album_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
                 } else {
@@ -231,7 +231,7 @@ impl ImageAction {
 
             // artist image operations
             ImageAction::AddArtistImage { artist_id, blob_id, is_primary } => {
-                let response = add_artist_image(artist_id, blob_id, *is_primary).await;
+                let response = add_artist_image(artist_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
                 } else {
@@ -265,7 +265,7 @@ impl ImageAction {
 
             // playlist image operations
             ImageAction::AddPlaylistImage { playlist_id, blob_id, is_primary } => {
-                let response = add_playlist_image(playlist_id, blob_id, *is_primary).await;
+                let response = add_playlist_image(playlist_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
                 } else {

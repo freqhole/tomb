@@ -813,10 +813,18 @@ export const FeedItemSchema = z.object({
   genre_id: z.string().nullable(),
   year: z.number().nullable(),
   song_count: z.number().nullable(),
+  songs_added: z.number().nullable(),
   total_duration_ms: z.number().nullable(),
+  image_count: z.number().nullable(),
+  urls: z.array(z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  url: z.string()
+})).nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean(),
+  is_initial_add: z.boolean(),
   collage_images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -870,10 +878,18 @@ export const FeedResponseSchema = z.object({
   genre_id: z.string().nullable(),
   year: z.number().nullable(),
   song_count: z.number().nullable(),
+  songs_added: z.number().nullable(),
   total_duration_ms: z.number().nullable(),
+  image_count: z.number().nullable(),
+  urls: z.array(z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  url: z.string()
+})).nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()).nullable(),
   is_favorite: z.boolean(),
+  is_initial_add: z.boolean(),
   collage_images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),

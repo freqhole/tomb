@@ -11,6 +11,7 @@ use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::update_blob_local_path;
+use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::entities::albums::add_album_image;
 use crate::music::entities::artists::add_artist_image;
 use crate::music::entities::playlists::add_playlist_image;
@@ -88,6 +89,24 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
         info!("image already converted to webp: blob_id={}", blob_id);
     }
 
+    // generate thumbnails (for pre-generation mode, not on-demand)
+    // this ensures thumbnails exist when on_demand is disabled
+    let thumb_result = blob_data::generate_sized_thumbnails(blob_id, job.created_by.clone()).await;
+    if thumb_result.success {
+        if let Some(thumbnails) = thumb_result.data {
+            info!(
+                "generated {} thumbnails for blob_id={}",
+                thumbnails.len(),
+                blob_id
+            );
+        }
+    } else {
+        warn!(
+            "failed to generate thumbnails for blob_id={}: {}",
+            blob_id, thumb_result.message
+        );
+    }
+
     // handle association if requested
     if let Some(assoc) = association {
         let entity_type =
@@ -103,18 +122,24 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
             })?;
         let is_primary_hint = assoc["is_primary"].as_bool();
 
-        // associate image with entity
-        associate_image_with_entity(entity_type, entity_id, blob_id, is_primary_hint)
-            .await
-            .map_err(|e| {
-                error!(
-                    "failed to associate blob with entity: type={}, id={}, error={}",
-                    entity_type, entity_id, e
-                );
-                JobError::ProcessingFailed {
-                    reason: format!("failed to associate image: {}", e),
-                }
-            })?;
+        // associate image with entity, passing through user who initiated the job
+        associate_image_with_entity(
+            entity_type,
+            entity_id,
+            blob_id,
+            is_primary_hint,
+            job.created_by.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            error!(
+                "failed to associate blob with entity: type={}, id={}, error={}",
+                entity_type, entity_id, e
+            );
+            JobError::ProcessingFailed {
+                reason: format!("failed to associate image: {}", e),
+            }
+        })?;
 
         info!(
             "associated blob with entity: type={}, id={}, blob_id={}",
@@ -138,11 +163,14 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
 /// - first image for entity is ALWAYS primary (regardless of hint)
 /// - subsequent images use is_primary hint (default false)
 /// - if is_primary is true for subsequent images, unset old primary
+/// - if user_id is provided, creates a feed event for the image addition
+/// - also refreshes the entity's existing feed event with updated images
 async fn associate_image_with_entity(
     entity_type: &str,
     entity_id: &str,
     blob_id: &str,
     is_primary_hint: Option<bool>,
+    user_id: Option<&str>,
 ) -> Result<(), GrimoireError> {
     let pool = database::connect().await?;
 
@@ -156,12 +184,25 @@ async fn associate_image_with_entity(
         is_primary_hint.unwrap_or(false) // use hint, default to false
     };
 
-    // use the new image management functions instead of raw SQL
+    // look up username if user_id provided
+    let user_info: Option<(String, String)> = if let Some(uid) = user_id {
+        let username =
+            sqlx::query_scalar!(r#"SELECT username FROM user_accountz WHERE id = ?"#, uid)
+                .fetch_optional(&pool)
+                .await?;
+        username.map(|uname| (uid.to_string(), uname))
+    } else {
+        None
+    };
+
+    // prepare created_by tuple for add_*_image functions
+    let created_by = user_info.as_ref().map(|(u, n)| (u.as_str(), n.as_str()));
+
     let response = match entity_type {
-        "album" => add_album_image(entity_id, blob_id, is_primary).await,
-        "playlist" => add_playlist_image(entity_id, blob_id, is_primary).await,
-        "song" => add_song_image(entity_id, blob_id, is_primary).await,
-        "artist" => add_artist_image(entity_id, blob_id, is_primary).await,
+        "album" => add_album_image(entity_id, blob_id, is_primary, created_by).await,
+        "playlist" => add_playlist_image(entity_id, blob_id, is_primary, created_by).await,
+        "song" => add_song_image(entity_id, blob_id, is_primary, created_by).await,
+        "artist" => add_artist_image(entity_id, blob_id, is_primary, created_by).await,
         _ => {
             return Err(GrimoireError::ProcessingFailed {
                 message: format!("unknown entity type: {}", entity_type),
@@ -174,6 +215,9 @@ async fn associate_image_with_entity(
             message: format!("failed to add image: {}", response.message),
         });
     }
+
+    // note: add_*_image functions already create image feed events via create_image_feed_event
+    // no need to call upsert_*_feed_event here - that would create duplicate "new album" events
 
     Ok(())
 }
@@ -311,6 +355,30 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
         import_result.album_id,
         import_result.metadata_extracted
     );
+
+    // create/update feed event for album (so uploaded music shows in feed)
+    if let Some(album_id) = &import_result.album_id {
+        let aid = album_id.clone();
+        let uid = job.created_by.clone().unwrap_or_default();
+        tokio::spawn(async move {
+            // lookup username if we have a user_id
+            let username = if !uid.is_empty() {
+                if let Ok(pool) = database::connect().await {
+                    sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", uid)
+                        .fetch_optional(&pool)
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            let _ = upsert_album_feed_event(&aid, &uid, &username, 1).await;
+        });
+    }
 
     // record analytics event for import (best-effort)
     let event_data = json!({

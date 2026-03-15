@@ -16,6 +16,7 @@ import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { isTouchDevice } from "../../utils/isMobile";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { getCurrentUser } from "../../music/data";
+import { EntityLinks } from "../media/EntityLinks";
 
 const ROW_HEIGHT = 100;
 const IMAGE_SIZE = ROW_HEIGHT - 12; // 6px padding top + bottom
@@ -258,20 +259,34 @@ function FeedRow(props: {
         return { user, verb: "\u2665", entity: entity || "a song" };
       case "recent_listen":
         return { user, verb: "played", entity: entity || "a song" };
-      case "recent_album":
-        return { user: null, verb: "", entity: "new album" };
+      case "recent_album": {
+        // is_initial_add: true means first add to this album, false means subsequent adds
+        if (item.is_initial_add) {
+          return { user, verb: "added", entity: "a new album" };
+        } else {
+          // show how many songs were added
+          const count = item.songs_added ?? 1;
+          const songWord = count === 1 ? "song" : "songs";
+          return { user, verb: "added", entity: `${count} ${songWord} to an album` };
+        }
+      }
       case "recent_rating":
         return { user, verb: "rated", entity: entity || "a song" };
       case "recent_playlist": {
-        // if entity_created_at differs from created_at by more than 5 seconds, it's an update
-        const isUpdate =
-          item.entity_created_at != null && Math.abs(item.created_at - item.entity_created_at) > 5;
-        return { user, verb: isUpdate ? "updated" : "created", entity: entity || "a playlist" };
+        // playlists use is_initial_add: true = created, false = updated
+        return {
+          user,
+          verb: item.is_initial_add ? "created" : "updated",
+          entity: entity || "a playlist",
+        };
       }
       case "listen_session":
         return { user, verb: "had", entity: "a listening session" };
       case "new_image": {
-        const imageEntity = item.target_type ? `new ${item.target_type} image` : "new image";
+        const count = item.image_count ?? 1;
+        const imageWord = count === 1 ? "image" : "images";
+        const entityType = item.target_type ?? "";
+        const imageEntity = `${count} new ${entityType} ${imageWord}`.replace(/\s+/g, " ").trim();
         return { user, verb: "added", entity: imageEntity };
       }
       default:
@@ -460,13 +475,14 @@ function FeedRow(props: {
           />
         </Show>
 
-        {/* line 4: metadata — genre badge, year, tracks, duration, tags (non-session items only) */}
+        {/* line 4: metadata — genre badge, year, tracks, duration, tags, URLs (non-session items only) */}
         <Show
           when={
             !isSession() &&
             (props.item.genre ||
               metaParts().length > 0 ||
-              (props.item.tags && props.item.tags.length > 0))
+              (props.item.tags && props.item.tags.length > 0) ||
+              (props.item.urls && props.item.urls.length > 0))
           }
         >
           <div class="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] overflow-hidden">
@@ -499,6 +515,12 @@ function FeedRow(props: {
                   </span>
                 )}
               </For>
+            </Show>
+            {/* inline entity URLs - limit to first 2 to save space */}
+            <Show when={props.item.urls && props.item.urls.length > 0}>
+              <div onClick={(e) => e.stopPropagation()} class="flex-shrink-0">
+                <EntityLinks urls={props.item.urls!.slice(0, 2)} />
+              </div>
             </Show>
           </div>
         </Show>

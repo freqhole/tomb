@@ -322,21 +322,30 @@ fn extract_metadata(
         (artist, None)
     };
 
-    // Build title: prefer tag, fallback to filename
+    // Build title: prefer tag, fallback to filename parsing, then original filename
     let title = tag_title
         .or_else(|| filename_data.track.clone())
         .unwrap_or_else(|| {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown Title")
-                .to_string()
+            // prefer original filename over file_path.file_stem() (which is blob_id for uploads)
+            if let Some(orig) = original_filename {
+                // remove extension from original filename
+                orig.rsplit_once('.')
+                    .map(|(name, _)| name.to_string())
+                    .unwrap_or_else(|| orig.to_string())
+            } else {
+                file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown Title")
+                    .to_string()
+            }
         });
 
-    // Build album title: prefer tag, fallback to filename, then folder name
+    // Build album title: prefer tag, fallback to filename parsing
+    // skip folder name fallback for upload paths (date-like folders are not useful)
     let album_title = tag_album
         .or_else(|| filename_data.album.clone())
-        .or_else(|| extract_folder_name_from_path(file_path));
+        .or_else(|| extract_folder_name_if_useful(file_path));
 
     // Build track number: prefer tag, fallback to filename, default to 1
     let track_number = tag_track_number.or(filename_data.track_number).unwrap_or(1);
@@ -538,6 +547,33 @@ fn extract_folder_name_from_path(file_path: &Path) -> Option<String> {
     }
 
     Some(folder_name.to_string())
+}
+
+/// extract folder name if it's a useful album name (not a date-like folder)
+/// returns None for folders like "01", "2026", "03" which are used in upload paths
+fn extract_folder_name_if_useful(file_path: &Path) -> Option<String> {
+    let folder_name = extract_folder_name_from_path(file_path)?;
+
+    // skip if folder name looks like a date component (pure numbers, year-like, month-like)
+    // this handles paths like data/fetch/2026/03/ used for uploads
+    let trimmed = folder_name.trim();
+
+    // skip purely numeric folders (month numbers, year numbers, etc.)
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    // skip "fetch" folder name (common in upload paths)
+    if trimmed.eq_ignore_ascii_case("fetch") || trimmed.eq_ignore_ascii_case("media") {
+        return None;
+    }
+
+    // skip hex-like folder names (e.g., blob id subfolders)
+    if trimmed.len() >= 8 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    Some(folder_name)
 }
 
 /// extract file properties like bitrate, sample rate, channels, format

@@ -8,6 +8,7 @@ use crate::blob_data;
 use crate::config;
 use crate::database;
 use crate::jobs::models::{Job, JobError};
+use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::crud::create_or_update;
 use crate::music::scanner;
 use crate::GrimoireResponse;
@@ -441,6 +442,29 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
             time_db_updates += step_start.elapsed();
             debug!("linked thumbnail/waveform blobs to song {}", sid);
+        }
+    }
+
+    // refresh album feed event if images were collected (updates images in existing feed event)
+    if images_collected {
+        if let (Some(aid), Some(uid)) = (&album_id, &job.created_by) {
+            let aid = aid.clone();
+            let uid = uid.clone();
+            tokio::spawn(async move {
+                let pool = match database::connect().await {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                let username =
+                    sqlx::query_scalar!(r#"SELECT username FROM user_accountz WHERE id = ?"#, uid)
+                        .fetch_optional(&pool)
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                let _ = upsert_album_feed_event(&aid, &uid, &username, 1).await;
+            });
         }
     }
 

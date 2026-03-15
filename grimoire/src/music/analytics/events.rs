@@ -6,6 +6,7 @@
 
 use crate::analytics::{record_event_with_conn, MediaEvent, MediaEventType};
 use crate::database;
+use crate::music::analytics::feed_events::create_listen_feed_event;
 use crate::GrimoireResponse;
 use sqlx::SqliteConnection;
 
@@ -54,6 +55,30 @@ pub async fn record_play_event(
 
     if let Err(e) = tx.commit().await {
         return GrimoireResponse::failure("Failed to commit transaction", vec![e.into()]);
+    }
+
+    // fire-and-forget: create feed event for listen (if user_id is set)
+    if let Some(user_id) = &music_event.user_id {
+        let user_id = user_id.clone();
+        let song_id = music_event.song_id.clone();
+        tokio::spawn(async move {
+            // look up username
+            let pool = match database::connect().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            let username = sqlx::query_scalar!(
+                r#"SELECT username FROM user_accountz WHERE id = ?"#,
+                user_id
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "unknown".to_string());
+
+            let _ = create_listen_feed_event(&song_id, &user_id, &username).await;
+        });
     }
 
     GrimoireResponse::success(

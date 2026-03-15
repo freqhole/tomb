@@ -7,6 +7,9 @@ use super::models::{
 };
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
+use crate::music::analytics::feed_events::{
+    handle_album_feed_reassignment, handle_artist_feed_reassignment,
+};
 use crate::music::crud::create_or_update::{
     find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
     get_current_album_for_song, get_current_artist_for_song,
@@ -377,10 +380,19 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             }
         }
 
-        // cleanup orphaned artists
+        // cleanup orphaned artists and handle feed events
         for old_artist_id in old_artist_ids {
             if old_artist_id != artist.id {
-                let _ = delete_artist_if_unused(&old_artist_id).await;
+                let delete_result = delete_artist_if_unused(&old_artist_id).await;
+                // if artist was soft-deleted (orphaned), handle feed event reassignment
+                if delete_result.data == Some(true) {
+                    let _ = handle_artist_feed_reassignment(
+                        &old_artist_id,
+                        &artist.id,
+                        req.user_id.as_deref(),
+                    )
+                    .await;
+                }
             }
         }
     }
@@ -433,15 +445,36 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             }
         }
 
-        // cleanup orphaned albums
+        // create artist-album relationship BEFORE feed event reassignment
+        // (so the feed event can query the artist name from the new album)
+        if let Some(ref artist) = artist {
+            let _ = sqlx::query!(
+                "INSERT OR IGNORE INTO artist_albumz (artist_id, album_id) VALUES (?, ?)",
+                artist.id,
+                album.id
+            )
+            .execute(&pool)
+            .await;
+        }
+
+        // cleanup orphaned albums and handle feed events
         for old_album_id in old_album_ids {
             if old_album_id != album.id {
-                let _ = delete_album_if_unused(&old_album_id).await;
+                let delete_result = delete_album_if_unused(&old_album_id).await;
+                // if album was soft-deleted (orphaned), handle feed event reassignment
+                if delete_result.data == Some(true) {
+                    let _ = handle_album_feed_reassignment(
+                        &old_album_id,
+                        &album.id,
+                        req.user_id.as_deref(),
+                    )
+                    .await;
+                }
             }
         }
     }
 
-    // create artist-album relationship if both updated
+    // create artist-album relationship if both updated (idempotent - may already exist from above)
     if let (Some(ref artist), Some(ref album)) = (&artist, &album) {
         // use INSERT OR IGNORE to avoid duplicates
         if let Err(err) = sqlx::query!(

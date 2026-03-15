@@ -499,10 +499,14 @@ export interface FeedItem {
   genre_id: string | null;
   year: number | null;
   song_count: number | null;
+  songs_added: number | null;
   total_duration_ms: number | null;
+  image_count: number | null;
+  urls: EntityUrl[] | null;
   description: string | null;
   tags: string[] | null;
   is_favorite: boolean;
+  is_initial_add: boolean;
   // collage images for multi-album listen sessions (up to 4 distinct album covers)
   collage_images: ImageMetadata[] | null;
   // when the entity was originally created (for playlists - to distinguish create vs update)

@@ -4,6 +4,7 @@
 //! Provides operations for setting, getting, and managing ratings with statistics.
 
 use crate::database;
+use crate::music::analytics::feed_events::upsert_rating_feed_event;
 use crate::music::users::models::*;
 use crate::users::models::{AuthError, AuthResult};
 use serde::{Deserialize, Serialize};
@@ -104,6 +105,26 @@ impl RatingsService {
         )
         .fetch_one(&pool)
         .await?;
+
+        // create feed event (async, fire-and-forget)
+        let uid = user_id.clone();
+        let ttype = target_type_str.clone();
+        let tid = request.target_id.clone();
+        let rating = request.rating as i64;
+        tokio::spawn(async move {
+            // lookup username
+            if let Ok(pool) = database::connect().await {
+                if let Ok(Some(username)) = sqlx::query_scalar!(
+                    "SELECT username FROM user_accountz WHERE id = ?",
+                    uid
+                )
+                .fetch_optional(&pool)
+                .await
+                {
+                    let _ = upsert_rating_feed_event(&ttype, &tid, &uid, &username, rating).await;
+                }
+            }
+        });
 
         Ok(UserRating::from(row))
     }

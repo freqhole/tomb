@@ -4,6 +4,7 @@
 //! Provides operations for setting, getting, and managing favorite status.
 
 use crate::database;
+use crate::music::analytics::feed_events::{create_favorite_feed_event, delete_favorite_feed_event};
 use crate::music::users::models::*;
 use crate::response::GrimoireResponse;
 use crate::users::models::AuthResult;
@@ -73,6 +74,25 @@ impl FavoritesService {
             {
                 return GrimoireResponse::failure("Failed to add favorite", vec![err.into()]);
             }
+
+            // create feed event (async, fire-and-forget)
+            let uid = user_id.clone();
+            let ttype = target_type.clone();
+            let tid = request.target_id.clone();
+            tokio::spawn(async move {
+                // lookup username
+                if let Ok(pool) = database::connect().await {
+                    if let Ok(Some(username)) = sqlx::query_scalar!(
+                        "SELECT username FROM user_accountz WHERE id = ?",
+                        uid
+                    )
+                    .fetch_optional(&pool)
+                    .await
+                    {
+                        let _ = create_favorite_feed_event(&ttype, &tid, &uid, &username).await;
+                    }
+                }
+            });
         } else {
             // Remove existing favorite
             let target_type = request.target_type.to_string();
@@ -91,6 +111,14 @@ impl FavoritesService {
             {
                 return GrimoireResponse::failure("Failed to remove favorite", vec![err.into()]);
             }
+
+            // delete feed event (async, fire-and-forget)
+            let uid = user_id.clone();
+            let ttype = target_type.clone();
+            let tid = request.target_id.clone();
+            tokio::spawn(async move {
+                let _ = delete_favorite_feed_event(&ttype, &tid, &uid).await;
+            });
         }
 
         GrimoireResponse::success("Favorite updated successfully", ())

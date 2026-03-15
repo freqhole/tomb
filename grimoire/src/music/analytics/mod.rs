@@ -36,6 +36,7 @@ pub mod admin;
 pub mod api_types;
 pub mod events;
 pub mod feed;
+pub mod feed_events;
 pub mod models;
 pub mod queries;
 pub mod sessions;
@@ -56,6 +57,14 @@ pub use queries::{
 
 // Re-export feed types and functions
 pub use feed::{get_combined_feed, FeedItem, FeedItemType};
+
+// Re-export feed events (denormalized feed table)
+pub use feed_events::{
+    create_favorite_feed_event, delete_favorite_feed_event, get_feed_events,
+    should_skip_feed_event, upsert_album_feed_event, upsert_artist_feed_event,
+    upsert_playlist_feed_event, upsert_rating_feed_event, upsert_session_feed_event, FeedEvent,
+    FeedEventResult, FeedEventType, GenreRef, TagRef,
+};
 
 // Re-export admin types and functions
 pub use admin::{

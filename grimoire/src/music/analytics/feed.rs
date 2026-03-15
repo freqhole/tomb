@@ -1,18 +1,18 @@
 //! feed system for music analytics
 //!
 //! provides a unified feed of recent activity including:
-//! - recent listens (plays from music_play_eventz)
 //! - recent favorites (from user_favoritez)
 //! - recent albums (newly added to library)
 //! - recent ratings (from user_ratingz)
 //! - recent playlists (new or updated)
 //! - listen sessions (from listen_sessionz)
+//!
+//! this module now queries the denormalized feed_eventz table for fast reads.
+//! feed events are created at write time in the respective modules.
 
 use crate::database;
-use crate::media_blobz::BlobType;
-use crate::music::crud::ImageMetadata;
+use crate::music::crud::{EntityUrl, ImageMetadata};
 use crate::GrimoireResponse;
-use sea_query::{Expr, Iden, Order, Query, SqliteQueryBuilder};
 use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
@@ -101,126 +101,82 @@ pub struct FeedItem {
     pub year: Option<i64>,
     /// number of tracks (for albums/playlists)
     pub song_count: Option<i64>,
+    /// delta: how many songs added in this action (vs total)
+    pub songs_added: Option<i64>,
     /// total duration in milliseconds (for albums/playlists/sessions)
     pub total_duration_ms: Option<i64>,
+    /// number of images (for new_image feed events)
+    pub image_count: Option<i64>,
+    /// entity URLs (external links)
+    pub urls: Option<Vec<EntityUrl>>,
     /// description text (for playlists)
     pub description: Option<String>,
     /// tags (for albums)
     pub tags: Option<Vec<String>>,
     /// whether the primary entity is favorited by the viewer
     pub is_favorite: bool,
+    /// true if this is the user's first add to this entity (INSERT vs UPDATE)
+    pub is_initial_add: bool,
     /// collage images for multi-album/artist listen sessions (up to 4 distinct album covers)
     pub collage_images: Option<Vec<ImageMetadata>>,
     /// when the entity was originally created (for playlists, to distinguish create vs update)
     pub entity_created_at: Option<i64>,
 }
 
-/// column identifiers for feed_query_view (type-safe sea_query references)
-#[derive(Iden)]
-enum FeedView {
-    #[iden = "feed_query_view"]
-    Table,
-    #[iden = "id"]
-    Id,
-    #[iden = "feed_type"]
-    FeedType,
-    #[iden = "song_id"]
-    SongId,
-    #[iden = "album_id"]
-    AlbumId,
-    #[iden = "artist_id"]
-    ArtistId,
-    #[iden = "playlist_id"]
-    PlaylistId,
-    #[iden = "title"]
-    Title,
-    #[iden = "subtitle"]
-    Subtitle,
-    #[iden = "images"]
-    Images,
-    #[iden = "created_at"]
-    CreatedAt,
-    #[iden = "user_id"]
-    UserId,
-    #[iden = "username"]
-    Username,
-    #[iden = "play_count"]
-    PlayCount,
-    #[iden = "rating"]
-    Rating,
-    #[iden = "target_type"]
-    TargetType,
-    #[iden = "session_id"]
-    SessionId,
-    #[iden = "session_type"]
-    SessionType,
-    #[iden = "session_status"]
-    SessionStatus,
-    #[iden = "progress_percent"]
-    ProgressPercent,
-    #[iden = "songs_completed"]
-    SongsCompleted,
-    #[iden = "total_songs"]
-    TotalSongs,
-    #[iden = "artist_name"]
-    ArtistName,
-    #[iden = "album_title"]
-    AlbumTitle,
-    #[iden = "genre"]
-    Genre,
-    #[iden = "genre_id"]
-    GenreId,
-    #[iden = "year"]
-    Year,
-    #[iden = "song_count"]
-    SongCount,
-    #[iden = "total_duration_ms"]
-    TotalDurationMs,
-    #[iden = "description"]
-    Description,
-    #[iden = "tags"]
-    Tags,
-    #[iden = "entity_created_at"]
-    EntityCreatedAt,
+/// column identifiers - kept for reference but no longer used with sea_query
+/// the feed_eventz table is now queried directly with plain SQL for simplicity
+
+/// convert feed_eventz feed_type to FeedItemType for API backwards compatibility
+fn map_feed_event_type(feed_type: &str) -> FeedItemType {
+    match feed_type {
+        "album" => FeedItemType::RecentAlbum,
+        "artist" => FeedItemType::RecentAlbum, // treat artist as album-like for now
+        "playlist" => FeedItemType::RecentPlaylist,
+        "session" => FeedItemType::ListenSession,
+        "listen" => FeedItemType::RecentListen,
+        "favorite_song" | "favorite_album" | "favorite_artist" | "favorite_playlist" => {
+            FeedItemType::RecentFavorite
+        }
+        "rating_song" | "rating_album" | "rating_artist" => FeedItemType::RecentRating,
+        "new_image_song" | "new_image_album" | "new_image_artist" | "new_image_playlist" => {
+            FeedItemType::NewImage
+        }
+        _ => FeedItemType::RecentAlbum,
+    }
 }
 
-/// helper to bind sea_query values to a sqlx query
-fn bind_sea_query_values<'a>(
-    mut sqlx_query: sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        RawFeedRow,
-        sqlx::sqlite::SqliteArguments<'a>,
-    >,
-    values: &'a sea_query::Values,
-) -> sqlx::query::QueryAs<'a, sqlx::Sqlite, RawFeedRow, sqlx::sqlite::SqliteArguments<'a>> {
-    for value in &values.0 {
-        match value {
-            sea_query::Value::String(Some(s)) => {
-                sqlx_query = sqlx_query.bind(s.as_ref());
-            }
-            sea_query::Value::Int(Some(i)) => {
-                sqlx_query = sqlx_query.bind(*i);
-            }
-            sea_query::Value::BigInt(Some(i)) => {
-                sqlx_query = sqlx_query.bind(*i);
-            }
-            sea_query::Value::BigUnsigned(Some(u)) => {
-                sqlx_query = sqlx_query.bind(*u as i64);
-            }
-            _ => {}
+/// convert FeedItemType to the list of feed_eventz feed_type strings
+fn feed_item_type_to_event_types(item_type: &FeedItemType) -> Vec<&'static str> {
+    match item_type {
+        FeedItemType::RecentAlbum => vec!["album", "artist"],
+        FeedItemType::RecentPlaylist => vec!["playlist"],
+        FeedItemType::ListenSession => vec!["session"],
+        FeedItemType::RecentListen => vec!["listen"],
+        FeedItemType::RecentFavorite => {
+            vec![
+                "favorite_song",
+                "favorite_album",
+                "favorite_artist",
+                "favorite_playlist",
+            ]
         }
+        FeedItemType::RecentRating => vec!["rating_song", "rating_album", "rating_artist"],
+        FeedItemType::NewImage => vec![
+            "new_image_song",
+            "new_image_album",
+            "new_image_artist",
+            "new_image_playlist",
+        ],
     }
-    sqlx_query
 }
 
 /// get combined activity feed
 ///
-/// queries the feed_query_view which unions all feed sources into a single
-/// view. uses sea_query for type-safe dynamic WHERE clauses when filtering
-/// by feed_type and/or user_id.
+/// queries the feed_eventz table for fast denormalized reads.
+/// feed events are created at write time in their respective modules.
 ///
-/// returns (items, total_count) for pagination.
+/// returns (items, total_count) for pagination. total_count is -1 (unknown)
+/// since counting is expensive - client uses "has more" heuristic.
 pub async fn get_combined_feed(
     limit: i64,
     offset: i64,
@@ -235,171 +191,118 @@ pub async fn get_combined_feed(
         }
     };
 
-    // build dynamic WHERE filters with sea_query
-    let apply_filters = |query: &mut sea_query::SelectStatement| {
-        if let Some(types) = feed_types {
-            if !types.is_empty() {
-                // serialize enum variants to their snake_case string form for SQL
-                let type_values: Vec<sea_query::Value> = types
+    let viewer_id = viewer_user_id.unwrap_or("");
+
+    // build SQL with dynamic filters
+    let mut sql = String::from(
+        r#"
+        SELECT 
+            fe.id,
+            fe.feed_type,
+            fe.song_id,
+            fe.album_id,
+            fe.artist_id,
+            fe.playlist_id,
+            fe.title,
+            fe.subtitle,
+            fe.images,
+            fe.updated_at as created_at,
+            fe.created_by_user_id as user_id,
+            fe.created_by_username as username,
+            NULL as play_count,
+            fe.rating,
+            CASE 
+                WHEN fe.feed_type LIKE 'rating_%' OR fe.feed_type LIKE 'favorite_%' THEN
+                    REPLACE(REPLACE(fe.feed_type, 'rating_', ''), 'favorite_', '')
+                ELSE NULL 
+            END as target_type,
+            fe.session_id,
+            fe.session_type,
+            fe.session_status,
+            fe.progress_percent,
+            fe.songs_completed,
+            fe.total_songs,
+            fe.artist_name,
+            fe.album_title,
+            COALESCE((SELECT g.name FROM json_each(fe.genres) je, genrez g WHERE g.id = json_extract(je.value, '$.id') LIMIT 1), NULL) as genre,
+            COALESCE((SELECT json_extract(je.value, '$.id') FROM json_each(fe.genres) je LIMIT 1), NULL) as genre_id,
+            fe.year,
+            fe.song_count,
+            fe.songs_added,
+            fe.total_duration_ms,
+            fe.image_count,
+            fe.urls,
+            fe.description,
+            (SELECT json_group_array(json_extract(je.value, '$.name')) FROM json_each(fe.tags) je) as tags,
+            COALESCE((
+                SELECT 1 FROM user_favoritez uf 
+                WHERE uf.user_id = ?
+                AND uf.target_id = COALESCE(fe.song_id, fe.album_id, fe.playlist_id, fe.artist_id)
+                LIMIT 1
+            ), 0) as is_favorite,
+            (fe.created_at = fe.updated_at) as is_initial_add,
+            COALESCE(
+                (SELECT p.created_at FROM playlistz p WHERE p.id = fe.playlist_id),
+                (SELECT a.created_at FROM albumz a WHERE a.id = fe.album_id),
+                (SELECT ar.created_at FROM artistz ar WHERE ar.id = fe.artist_id),
+                fe.created_at
+            ) as entity_created_at,
+            fe.collage_images
+        FROM feed_eventz fe
+        WHERE 1=1
+        "#,
+    );
+
+    // build feed type filter
+    if let Some(types) = feed_types {
+        if !types.is_empty() {
+            let event_types: Vec<&str> = types
+                .iter()
+                .flat_map(feed_item_type_to_event_types)
+                .collect();
+            if !event_types.is_empty() {
+                let type_list: String = event_types
                     .iter()
-                    .filter_map(|t| serde_json::to_value(t).ok())
-                    .filter_map(|v| v.as_str().map(|s| s.to_string().into()))
-                    .collect();
-                query.and_where(Expr::col(FeedView::FeedType).is_in(type_values));
+                    .map(|t| format!("'{}'", t))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                sql.push_str(&format!(" AND fe.feed_type IN ({})", type_list));
             }
         }
-        if let Some(uid) = user_id {
-            query.and_where(Expr::col(FeedView::UserId).eq(uid));
-        }
-    };
-
-    // skip expensive COUNT query - client uses "has more" heuristic instead
-    // return -1 to indicate unknown total
-    let total_count: i64 = -1;
-
-    // data query
-    let mut data_query = Query::select();
-    data_query
-        .column(FeedView::Id)
-        .column(FeedView::FeedType)
-        .column(FeedView::SongId)
-        .column(FeedView::AlbumId)
-        .column(FeedView::ArtistId)
-        .column(FeedView::PlaylistId)
-        .column(FeedView::Title)
-        .column(FeedView::Subtitle)
-        .column(FeedView::Images)
-        .column(FeedView::CreatedAt)
-        .column(FeedView::UserId)
-        .column(FeedView::Username)
-        .column(FeedView::PlayCount)
-        .column(FeedView::Rating)
-        .column(FeedView::TargetType)
-        .column(FeedView::SessionId)
-        .column(FeedView::SessionType)
-        .column(FeedView::SessionStatus)
-        .column(FeedView::ProgressPercent)
-        .column(FeedView::SongsCompleted)
-        .column(FeedView::TotalSongs)
-        .column(FeedView::ArtistName)
-        .column(FeedView::AlbumTitle)
-        .column(FeedView::Genre)
-        .column(FeedView::GenreId)
-        .column(FeedView::Year)
-        .column(FeedView::SongCount)
-        .column(FeedView::TotalDurationMs)
-        .column(FeedView::Description)
-        .column(FeedView::Tags)
-        .column(FeedView::EntityCreatedAt)
-        .from(FeedView::Table);
-
-    // add is_favorite correlated subquery if viewer is authenticated
-    if let Some(vid) = viewer_user_id {
-        let vid_val: sea_query::Value = vid.to_string().into();
-        data_query.expr_as(
-            Expr::cust_with_values(
-                "COALESCE((SELECT 1 FROM user_favoritez uf WHERE uf.user_id = ? AND uf.target_id = COALESCE(song_id, album_id, playlist_id, artist_id) AND uf.target_type = CASE WHEN song_id IS NOT NULL THEN 'song' WHEN album_id IS NOT NULL THEN 'album' WHEN playlist_id IS NOT NULL THEN 'playlist' WHEN artist_id IS NOT NULL THEN 'artist' END LIMIT 1), 0)",
-                [vid_val],
-            ),
-            sea_query::Alias::new("is_favorite"),
-        );
-    } else {
-        data_query.expr_as(Expr::cust("0"), sea_query::Alias::new("is_favorite"));
     }
 
-    apply_filters(&mut data_query);
+    // user filter
+    if let Some(uid) = user_id {
+        sql.push_str(&format!(" AND fe.created_by_user_id = '{}'", uid));
+    }
 
-    data_query
-        .order_by(FeedView::CreatedAt, Order::Desc)
-        .limit(limit as u64)
-        .offset(offset as u64);
+    sql.push_str(" ORDER BY fe.updated_at DESC");
+    sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
 
-    let (data_sql, data_values) = data_query.build(SqliteQueryBuilder);
-    tracing::debug!("feed query SQL: {}", data_sql);
+    tracing::debug!("feed query SQL: {}", sql);
 
-    let sqlx_query = sqlx::query_as::<_, RawFeedRow>(&data_sql);
-    let sqlx_query = bind_sea_query_values(sqlx_query, &data_values);
-
-    let rows = match sqlx_query.fetch_all(&pool).await {
+    let rows = match sqlx::query_as::<_, RawFeedRow>(&sql)
+        .bind(viewer_id)
+        .fetch_all(&pool)
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("feed query error: {:?}", e);
-            tracing::error!("feed query SQL was: {}", data_sql);
+            tracing::error!("feed query SQL was: {}", sql);
             return GrimoireResponse::failure("failed to get feed items", vec![e.into()]);
         }
     };
 
-    let mut items: Vec<FeedItem> = rows.into_iter().map(|row| row.into_feed_item()).collect();
+    let items: Vec<FeedItem> = rows.into_iter().map(|row| row.into_feed_item()).collect();
 
-    // enrich listen session items with collage images (distinct album covers from session songs)
-    enrich_session_collage_images(&pool, &mut items).await;
+    // total_count = -1 indicates unknown (skip expensive COUNT)
+    let total_count: i64 = -1;
 
     GrimoireResponse::success("combined feed retrieved", (items, total_count))
 }
 
-/// enrich listen session feed items with collage images
-///
-/// for each listen session in the feed, looks up distinct album cover images
-/// from the session's songs. returns up to 4 distinct album covers per session
-/// (non-waveform, preferring primary images). only sets collage_images when
-/// there are 2+ distinct album covers available.
-async fn enrich_session_collage_images(pool: &sqlx::SqlitePool, items: &mut [FeedItem]) {
-    for item in items.iter_mut() {
-        if item.feed_type != FeedItemType::ListenSession {
-            continue;
-        }
-        let sid = match &item.session_id {
-            Some(s) => s.clone(),
-            None => continue,
-        };
-
-        let rows = sqlx::query!(
-            r#"
-            SELECT
-                ai.media_blob_id as "blob_id!: String",
-                ai.is_primary as "is_primary!: i32",
-                mb.blob_type as "blob_type!: String"
-            FROM listen_sessionz ls,
-                 json_each(ls.song_ids) je
-            JOIN album_songz als ON als.song_id = je.value
-            JOIN album_imagez ai ON ai.album_id = als.album_id
-            JOIN media_blobz mb ON ai.media_blob_id = mb.id
-            WHERE ls.id = ?
-              AND mb.blob_type NOT IN ('waveform')
-            GROUP BY als.album_id
-            ORDER BY ai.is_primary DESC
-            LIMIT 4
-            "#,
-            sid
-        )
-        .fetch_all(pool)
-        .await;
-
-        match rows {
-            Ok(r) if r.len() >= 2 => {
-                item.collage_images = Some(
-                    r.into_iter()
-                        .map(|row| ImageMetadata {
-                            blob_id: row.blob_id,
-                            is_primary: row.is_primary,
-                            blob_type: row.blob_type.parse().unwrap_or(BlobType::Thumbnail),
-                        })
-                        .collect(),
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "failed to fetch collage images for session {}: {:?}",
-                    sid,
-                    e
-                );
-            }
-            _ => {}
-        }
-    }
-}
-
-/// raw row struct for deserializing from feed_query_view
+/// raw row struct for deserializing from feed_eventz
 #[derive(Debug, sqlx::FromRow)]
 struct RawFeedRow {
     id: String,
@@ -429,25 +332,22 @@ struct RawFeedRow {
     genre_id: Option<String>,
     year: Option<i64>,
     song_count: Option<i64>,
+    songs_added: Option<i64>,
     total_duration_ms: Option<i64>,
+    image_count: Option<i64>,
+    urls: Option<String>,
     description: Option<String>,
     tags: Option<String>,
     is_favorite: i32,
+    is_initial_add: i32,
     entity_created_at: Option<i64>,
+    collage_images: Option<String>,
 }
 
 impl RawFeedRow {
     fn into_feed_item(self) -> FeedItem {
-        let feed_type = match self.feed_type.as_str() {
-            "recent_listen" => FeedItemType::RecentListen,
-            "recent_favorite" => FeedItemType::RecentFavorite,
-            "recent_album" => FeedItemType::RecentAlbum,
-            "recent_rating" => FeedItemType::RecentRating,
-            "recent_playlist" => FeedItemType::RecentPlaylist,
-            "listen_session" => FeedItemType::ListenSession,
-            "new_image" => FeedItemType::NewImage,
-            _ => FeedItemType::RecentListen,
-        };
+        // use helper function to map feed_eventz types to FeedItemType
+        let feed_type = map_feed_event_type(&self.feed_type);
 
         let images = self
             .images
@@ -456,6 +356,15 @@ impl RawFeedRow {
         let tags = self
             .tags
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
+            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+
+        let collage_images = self
+            .collage_images
+            .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok());
+
+        let urls = self
+            .urls
+            .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
             .and_then(|v| if v.is_empty() { None } else { Some(v) });
 
         FeedItem {
@@ -486,11 +395,15 @@ impl RawFeedRow {
             genre_id: self.genre_id,
             year: self.year,
             song_count: self.song_count,
+            songs_added: self.songs_added,
             total_duration_ms: self.total_duration_ms,
+            image_count: self.image_count,
+            urls,
             description: self.description,
             tags,
             is_favorite: self.is_favorite != 0,
-            collage_images: None, // populated by post-processing in get_combined_feed
+            is_initial_add: self.is_initial_add != 0,
+            collage_images,
             entity_created_at: self.entity_created_at,
         }
     }

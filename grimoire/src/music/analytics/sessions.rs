@@ -3,6 +3,7 @@
 //! tracks user progress through entities (albums, playlists, artists, genres, songs, shuffles).
 //! each session represents a single "listening to X" that gets updated as songs are played.
 
+use super::feed_events::upsert_session_feed_event;
 use crate::database;
 use crate::error::ErrorDetail;
 use crate::GrimoireResponse;
@@ -242,7 +243,7 @@ pub async fn create_listen_session(
     match result {
         Ok(row) => {
             let session = ListenSession {
-                id: row.id,
+                id: row.id.clone(),
                 user_id: user_id.to_string(),
                 session_type: ListenSessionType::from_str(session_type),
                 entity_id: req.entity_id.clone(),
@@ -260,6 +261,11 @@ pub async fn create_listen_session(
                 username: None,
                 progress_percent: Some(0.0),
             };
+            // create feed event (async, fire-and-forget)
+            let session_id = row.id;
+            tokio::spawn(async move {
+                let _ = upsert_session_feed_event(&session_id).await;
+            });
             GrimoireResponse::success("listen session created", session)
         }
         Err(e) => GrimoireResponse::failure("failed to create listen session", vec![e.into()]),
@@ -302,6 +308,11 @@ pub async fn update_listen_session_progress(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
+            // update feed event (async, fire-and-forget)
+            let sid = session_id.to_string();
+            tokio::spawn(async move {
+                let _ = upsert_session_feed_event(&sid).await;
+            });
             GrimoireResponse::success_unit("session progress updated")
         }
         Ok(_) => GrimoireResponse::failure(
@@ -344,7 +355,14 @@ pub async fn update_listen_session_status(
     .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => GrimoireResponse::success_unit("session status updated"),
+        Ok(r) if r.rows_affected() > 0 => {
+            // update feed event (async, fire-and-forget)
+            let sid = session_id.to_string();
+            tokio::spawn(async move {
+                let _ = upsert_session_feed_event(&sid).await;
+            });
+            GrimoireResponse::success_unit("session status updated")
+        }
         Ok(_) => GrimoireResponse::failure(
             "listen session not found",
             vec![ErrorDetail::new(
@@ -413,7 +431,14 @@ pub async fn update_listen_session_songs(
     .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => GrimoireResponse::success_unit("session songs updated"),
+        Ok(r) if r.rows_affected() > 0 => {
+            // update feed event (async, fire-and-forget)
+            let sid = session_id.to_string();
+            tokio::spawn(async move {
+                let _ = upsert_session_feed_event(&sid).await;
+            });
+            GrimoireResponse::success_unit("session songs updated")
+        }
         Ok(_) => GrimoireResponse::failure(
             "listen session not found or not active",
             vec![ErrorDetail::new(

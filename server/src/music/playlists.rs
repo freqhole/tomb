@@ -252,7 +252,12 @@ pub async fn add_songs_handler(
     // check ownership: owner OR admin can add songs
     check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
 
-    let response = add_songs_to_playlist(&req.playlist_id, &req.song_ids).await;
+    let response = add_songs_to_playlist(
+        &req.playlist_id,
+        &req.song_ids,
+        Some((&user.user_id, &user.username)),
+    )
+    .await;
 
     response
         .data
@@ -284,7 +289,12 @@ pub async fn remove_songs_handler(
     // check ownership: owner OR admin can remove songs
     check_owner_or_admin(&user, playlist.created_by_id.as_deref())?;
 
-    let response = remove_songs_from_playlist(&req.playlist_id, req.song_ids).await;
+    let response = remove_songs_from_playlist(
+        &req.playlist_id,
+        req.song_ids,
+        Some((&user.user_id, &user.username)),
+    )
+    .await;
 
     response
         .data

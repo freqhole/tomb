@@ -517,10 +517,13 @@ pub async fn get_artist_images(artist_id: &str) -> GrimoireResponse<Vec<String>>
     GrimoireResponse::success("Artist images retrieved successfully", image_blob_ids)
 }
 /// add an image to an artist
+///
+/// if `created_by` is provided (as (user_id, username)), a feed event will be created
 pub async fn add_artist_image(
     artist_id: &str,
     media_blob_id: &str,
     is_primary: bool,
+    created_by: Option<(&str, &str)>,
 ) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -558,7 +561,26 @@ pub async fn add_artist_image(
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("Image added to artist", ()),
+        Ok(_) => {
+            // fire-and-forget: create image feed event (don't create separate artist feed event)
+            if let Some((user_id, username)) = created_by {
+                let user_id = user_id.to_string();
+                let username = username.to_string();
+                let artist_id = artist_id.to_string();
+                let media_blob_id = media_blob_id.to_string();
+                tokio::spawn(async move {
+                    let _ = crate::music::analytics::feed_events::create_image_feed_event(
+                        "artist",
+                        &artist_id,
+                        &media_blob_id,
+                        &user_id,
+                        &username,
+                    )
+                    .await;
+                });
+            }
+            GrimoireResponse::success("Image added to artist", ())
+        }
         Err(e) => {
             GrimoireResponse::failure("Failed to add image to artist", vec![ErrorDetail::from(e)])
         }
