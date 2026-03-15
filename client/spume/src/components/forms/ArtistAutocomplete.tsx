@@ -41,6 +41,8 @@ interface ArtistOption {
   images?: ImageMetadata[];
   isFavorite?: boolean;
   isNew?: boolean;
+  /** placeholder items are in options for display but hidden from dropdown */
+  isPlaceholder?: boolean;
 }
 
 export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
@@ -88,16 +90,20 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
       });
     }
 
-    // if we have a current value that's not in the results, add it
-    // but only when not actively searching - once user types, use real results
+    // always add current value to options so Combobox can display it in the input
+    // temp: items are always placeholders - they exist only to display text in the input
+    // (they were created from props.value and have no real metadata)
     const currentVal = localValue();
-    const input = searchInput();
-    if (currentVal && !input && !results.find((r) => r.key === currentVal.key)) {
-      results.unshift(currentVal);
+    if (currentVal && !results.find((r) => r.key === currentVal.key)) {
+      results.push({
+        ...currentVal,
+        isPlaceholder: currentVal.key.startsWith('temp:'),
+      });
     }
 
     // add "create new" option if user has typed something
     // always show it so user can create artists with duplicate names if needed
+    const input = searchInput();
     if (input && input.trim().length > 0) {
       const trimmed = input.trim();
       const exactMatch = items.find((item) => item.name === trimmed);
@@ -139,39 +145,42 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
       disabled={props.disabled}
       itemComponent={(props) => (
         <Combobox.Item item={props.item} class="outline-none">
-          <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors flex items-center gap-3">
-            <MediaImage
-              images={props.item.rawValue.images}
-              imageUrl={props.item.rawValue.thumbnailUrl || null}
-              alt=""
-              class="w-10 h-10 object-cover rounded flex-shrink-0"
-              domainType="artist"
-            />
+          {/* hide placeholder items from dropdown - they're only in options for display purposes */}
+          <Show when={!props.item.rawValue.isPlaceholder}>
+            <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors flex items-center gap-3">
+              <MediaImage
+                images={props.item.rawValue.images}
+                imageUrl={props.item.rawValue.thumbnailUrl || null}
+                alt=""
+                class="w-10 h-10 object-cover rounded flex-shrink-0"
+                domainType="artist"
+              />
 
-            <div class="flex-1 min-w-0">
-              <Show when={props.item.rawValue.isNew}>
-                <div class="text-sm font-medium">
-                  <Combobox.ItemLabel>{props.item.rawValue.label}</Combobox.ItemLabel>
-                </div>
-              </Show>
-              <Show when={!props.item.rawValue.isNew}>
-                <div class="text-sm">
-                  <Combobox.ItemLabel>{props.item.rawValue.name}</Combobox.ItemLabel>
-                </div>
-                <div class="text-xs text-[var(--color-text-tertiary)]">
-                  {props.item.rawValue.songCount || 0} song
-                  {props.item.rawValue.songCount === 1 ? "" : "s"}
-                  {" · "}
-                  {props.item.rawValue.albumCount || 0} album
-                  {props.item.rawValue.albumCount === 1 ? "" : "s"}
-                </div>
+              <div class="flex-1 min-w-0">
+                <Show when={props.item.rawValue.isNew}>
+                  <div class="text-sm font-medium">
+                    <Combobox.ItemLabel>{props.item.rawValue.label}</Combobox.ItemLabel>
+                  </div>
+                </Show>
+                <Show when={!props.item.rawValue.isNew}>
+                  <div class="text-sm">
+                    <Combobox.ItemLabel>{props.item.rawValue.name}</Combobox.ItemLabel>
+                  </div>
+                  <div class="text-xs text-[var(--color-text-tertiary)]">
+                    {props.item.rawValue.songCount || 0} song
+                    {props.item.rawValue.songCount === 1 ? "" : "s"}
+                    {" · "}
+                    {props.item.rawValue.albumCount || 0} album
+                    {props.item.rawValue.albumCount === 1 ? "" : "s"}
+                  </div>
+                </Show>
+              </div>
+
+              <Show when={props.item.rawValue.isFavorite}>
+                <div class="text-[var(--color-accent-500)] flex-shrink-0">♥</div>
               </Show>
             </div>
-
-            <Show when={props.item.rawValue.isFavorite}>
-              <div class="text-[var(--color-accent-500)] flex-shrink-0">♥</div>
-            </Show>
-          </div>
+          </Show>
         </Combobox.Item>
       )}
       class={props.class}
