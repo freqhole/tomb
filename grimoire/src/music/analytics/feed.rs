@@ -133,7 +133,6 @@ fn map_feed_event_type(feed_type: &str) -> FeedItemType {
         "artist" => FeedItemType::RecentAlbum, // treat artist as album-like for now
         "playlist" => FeedItemType::RecentPlaylist,
         "session" => FeedItemType::ListenSession,
-        "listen" => FeedItemType::RecentListen,
         "favorite_song" | "favorite_album" | "favorite_artist" | "favorite_playlist" => {
             FeedItemType::RecentFavorite
         }
@@ -151,7 +150,7 @@ fn feed_item_type_to_event_types(item_type: &FeedItemType) -> Vec<&'static str> 
         FeedItemType::RecentAlbum => vec!["album", "artist"],
         FeedItemType::RecentPlaylist => vec!["playlist"],
         FeedItemType::ListenSession => vec!["session"],
-        FeedItemType::RecentListen => vec!["listen"],
+        FeedItemType::RecentListen => vec![], // individual listens not tracked; use listening sessions
         FeedItemType::RecentFavorite => {
             vec![
                 "favorite_song",

@@ -25,7 +25,6 @@ pub enum FeedEventType {
     Artist,
     Playlist,
     Session,
-    Listen,
     FavoriteSong,
     FavoriteAlbum,
     FavoriteArtist,
@@ -41,7 +40,7 @@ pub enum FeedEventType {
 
 impl ZodSchemaTrait for FeedEventType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("listen"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist")])"#.to_string()
+        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist")])"#.to_string()
     }
 }
 
@@ -52,7 +51,6 @@ impl std::fmt::Display for FeedEventType {
             FeedEventType::Artist => write!(f, "artist"),
             FeedEventType::Playlist => write!(f, "playlist"),
             FeedEventType::Session => write!(f, "session"),
-            FeedEventType::Listen => write!(f, "listen"),
             FeedEventType::FavoriteSong => write!(f, "favorite_song"),
             FeedEventType::FavoriteAlbum => write!(f, "favorite_album"),
             FeedEventType::FavoriteArtist => write!(f, "favorite_artist"),
@@ -77,7 +75,6 @@ impl TryFrom<&str> for FeedEventType {
             "artist" => Ok(FeedEventType::Artist),
             "playlist" => Ok(FeedEventType::Playlist),
             "session" => Ok(FeedEventType::Session),
-            "listen" => Ok(FeedEventType::Listen),
             "favorite_song" => Ok(FeedEventType::FavoriteSong),
             "favorite_album" => Ok(FeedEventType::FavoriteAlbum),
             "favorite_artist" => Ok(FeedEventType::FavoriteArtist),
@@ -1312,86 +1309,6 @@ pub async fn upsert_rating_feed_event(
             FeedEventResult::Created(id.expect("insert should return id")),
         ),
         Err(e) => GrimoireResponse::failure("failed to upsert rating feed event", vec![e.into()]),
-    }
-}
-
-/// create a listen feed event when a song is played
-pub async fn create_listen_feed_event(
-    song_id: &str,
-    user_id: &str,
-    username: &str,
-) -> GrimoireResponse<FeedEventResult> {
-    if should_skip_feed_event(user_id).await {
-        return GrimoireResponse::success(
-            "skipped feed event for service account",
-            FeedEventResult::Skipped,
-        );
-    }
-
-    let pool = match database::connect().await {
-        Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
-        }
-    };
-
-    // gather song data
-    let song_data = sqlx::query!(
-        r#"
-        SELECT 
-            s.title,
-            (SELECT art.name FROM artist_songz asa JOIN artistz art ON art.id = asa.artist_id WHERE asa.song_id = s.id LIMIT 1) as "artist_name?: String",
-            (SELECT art.id FROM artist_songz asa JOIN artistz art ON art.id = asa.artist_id WHERE asa.song_id = s.id LIMIT 1) as "artist_id?: String",
-            (SELECT als.album_id FROM album_songz als WHERE als.song_id = s.id LIMIT 1) as "album_id?: String",
-            (SELECT alb.title FROM album_songz als JOIN albumz alb ON alb.id = als.album_id WHERE als.song_id = s.id LIMIT 1) as "album_title?: String",
-            COALESCE((SELECT json_group_array(json_object('blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
-             FROM song_imagez si JOIN media_blobz mb ON si.media_blob_id = mb.id
-             WHERE si.song_id = s.id AND mb.blob_type NOT IN ('waveform')), '[]') as "images!: String"
-        FROM songz s WHERE s.id = ?
-        "#,
-        song_id
-    )
-    .fetch_optional(&pool)
-    .await;
-
-    let data = match song_data {
-        Ok(Some(d)) => d,
-        _ => return GrimoireResponse::failure("song not found", vec![]),
-    };
-
-    let feed_type = FeedEventType::Listen.to_string();
-
-    // insert new listen event each time (no upsert - each play is unique)
-    let result = sqlx::query_scalar!(
-        r#"
-        INSERT INTO feed_eventz (
-            feed_type, song_id, album_id, artist_id,
-            created_by_user_id, created_by_username,
-            title, subtitle, artist_name, album_title, images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-        "#,
-        feed_type,
-        song_id,
-        data.album_id,
-        data.artist_id,
-        user_id,
-        username,
-        data.title,
-        data.artist_name,
-        data.artist_name,
-        data.album_title,
-        data.images
-    )
-    .fetch_one(&pool)
-    .await;
-
-    match result {
-        Ok(id) => GrimoireResponse::success(
-            "listen feed event created",
-            FeedEventResult::Created(id.expect("insert should return id")),
-        ),
-        Err(e) => GrimoireResponse::failure("failed to create listen feed event", vec![e.into()]),
     }
 }
 
