@@ -100,7 +100,7 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
     if (currentVal && !results.find((r) => r.key === currentVal.key)) {
       results.push({
         ...currentVal,
-        isPlaceholder: currentVal.key.startsWith('temp:'),
+        isPlaceholder: currentVal.key.startsWith("temp:"),
       });
     }
 
