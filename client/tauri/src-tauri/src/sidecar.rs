@@ -6,26 +6,16 @@
 //! - automatic restart with backoff
 //! - log capture
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::app_config::{save_freqhole_bin_path, FreqholeAppConfig};
+use crate::p2p_commands;
 use crate::spume_bridge::notify_config_changed;
-
-/// strip ANSI escape codes from a string
-fn strip_ansi_codes(s: &str) -> String {
-    // matches ANSI escape sequences: ESC[ followed by any params and a final letter
-    lazy_static::lazy_static! {
-        static ref ANSI_RE: Regex = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
-    }
-    ANSI_RE.replace_all(s, "").to_string()
-}
 
 /// default server port
 const DEFAULT_PORT: u16 = 8081;
@@ -324,30 +314,26 @@ pub async fn start_server(
         Err(_) => DEFAULT_PORT,
     };
 
-    // clear previous logs
+    // clear previous logs (keep minimal sidecar messages only)
     guard.logs.clear();
     guard.logs.push_back(format!(
         "[sidecar] starting server with config: {}",
         config_path.display()
     ));
 
-    // spawn the server process
+    // spawn the server process (server writes to log file, no pipe capture)
     let result = Command::new(&binary)
         .arg("server")
         .arg("--config")
         .arg(&config_path)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn();
 
     match result {
-        Ok(mut child) => {
+        Ok(child) => {
             let pid = child.id();
-
-            // take stdout/stderr for log capture
-            let stdout = child.stdout.take();
-            let stderr = child.stderr.take();
 
             guard.process = Some(child);
             guard.config_path = Some(config_path.clone());
@@ -356,49 +342,8 @@ pub async fn start_server(
             guard.restart_count = 0;
             guard.last_restart = None;
 
-            // drop the guard before spawning log readers
+            // drop the guard before checking startup
             drop(guard);
-
-            // spawn stdout reader
-            if let Some(stdout) = stdout {
-                let state_for_stdout = Arc::clone(&state_clone);
-                std::thread::spawn(move || {
-                    let reader = BufReader::new(stdout);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            if let Ok(mut guard) = state_for_stdout.try_lock() {
-                                if guard.logs.len() >= MAX_LOG_LINES {
-                                    guard.logs.pop_front();
-                                }
-                                guard
-                                    .logs
-                                    .push_back(format!("[stdout] {}", strip_ansi_codes(&line)));
-                            }
-                        }
-                    }
-                });
-            }
-
-            // spawn stderr reader
-            if let Some(stderr) = stderr {
-                let state_for_stderr = Arc::clone(&state_clone);
-                std::thread::spawn(move || {
-                    let reader = BufReader::new(stderr);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            let stripped = strip_ansi_codes(&line);
-                            // also print to stderr so it shows in terminal during dev
-                            eprintln!("[server stderr] {}", stripped);
-                            if let Ok(mut guard) = state_for_stderr.try_lock() {
-                                if guard.logs.len() >= MAX_LOG_LINES {
-                                    guard.logs.pop_front();
-                                }
-                                guard.logs.push_back(format!("[stderr] {}", stripped));
-                            }
-                        }
-                    }
-                });
-            }
 
             // wait a moment and check if process exited immediately (crash on startup)
             std::thread::sleep(Duration::from_millis(500));
@@ -409,25 +354,13 @@ pub async fn start_server(
                         Ok(Some(status)) => {
                             // process exited immediately - this is a crash
                             let msg = format!(
-                                "server process exited immediately with status: {}",
+                                "server process exited immediately with status: {} (check log file for details)",
                                 status
                             );
                             eprintln!("[sidecar] {}", msg);
                             guard.process = None;
                             guard.started_at = None;
-                            // get any captured logs for context
-                            let recent_logs: Vec<String> =
-                                guard.logs.iter().rev().take(10).cloned().collect();
-                            drop(guard);
-                            let log_context = if recent_logs.is_empty() {
-                                String::new()
-                            } else {
-                                format!(
-                                    "\nRecent logs:\n{}",
-                                    recent_logs.into_iter().rev().collect::<Vec<_>>().join("\n")
-                                )
-                            };
-                            return ServerResult::err(format!("{}{}", msg, log_context));
+                            return ServerResult::err(msg);
                         }
                         Ok(None) => {
                             // still running - good!
@@ -549,7 +482,16 @@ pub async fn restart_server(
             }
 
             // start again
-            start_server(state, path, app_handle).await
+            let result = start_server(state, path.clone(), app_handle).await;
+
+            // re-initialize P2P client endpoint after successful restart
+            if result.success {
+                if let Err(e) = p2p_commands::init_p2p_client(&path).await {
+                    eprintln!("[sidecar] failed to reinit P2P client after restart: {}", e);
+                }
+            }
+
+            result
         }
         None => ServerResult::err("no config path set - start the server first"),
     }

@@ -7,7 +7,7 @@
 //!
 //! the endpoint must be initialized via `set_federation_endpoint()` before use.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use iroh::{Endpoint, EndpointAddr, PublicKey};
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::transport::{PeerConnection, FREQHOLE_ALPN};
 
 /// global federation endpoint for P2P client operations
-static FEDERATION_ENDPOINT: OnceLock<Arc<Endpoint>> = OnceLock::new();
+static FEDERATION_ENDPOINT: Mutex<Option<Arc<Endpoint>>> = Mutex::new(None);
 
 /// response from a P2P proxy request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,22 +46,35 @@ pub struct P2pUploadResult {
 /// set the federation endpoint for client operations
 ///
 /// call this after creating the federation endpoint in the server.
-/// subsequent calls will be ignored (endpoint is set once).
+/// can be called multiple times (e.g., after restart).
 pub fn set_federation_endpoint(endpoint: &Endpoint) {
-    let _ = FEDERATION_ENDPOINT.set(Arc::new(endpoint.clone()));
+    let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
+    *guard = Some(Arc::new(endpoint.clone()));
     info!("P2P client endpoint initialized");
+}
+
+/// clear the federation endpoint (call before restart)
+///
+/// closes any existing endpoint so a new one can be created.
+/// "takes the value out of the option, leaving a None in its place."
+pub fn clear_federation_endpoint() {
+    let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
+    if guard.take().is_some() {
+        info!("P2P client endpoint cleared");
+    }
 }
 
 /// check if the federation endpoint is available for client operations
 pub fn is_endpoint_available() -> bool {
-    FEDERATION_ENDPOINT.get().is_some()
+    FEDERATION_ENDPOINT.lock().unwrap().is_some()
 }
 
 /// get the endpoint, returning error if not initialized
 fn get_endpoint() -> GrimoireResult<Arc<Endpoint>> {
     FEDERATION_ENDPOINT
-        .get()
-        .cloned()
+        .lock()
+        .unwrap()
+        .clone()
         .ok_or_else(|| GrimoireError::FederationApiError {
             message: "federation endpoint not initialized".to_string(),
         })

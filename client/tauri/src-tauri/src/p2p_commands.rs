@@ -36,7 +36,13 @@ pub struct P2pUploadResponse {
 /// must be called after the server starts and grimoire config is available.
 /// this creates an iroh endpoint in the Tauri app process for making
 /// outbound P2P connections to remote peers.
+///
+/// safe to call multiple times (e.g., after server restart) - clears any
+/// existing endpoint first.
 pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
+    // clear any existing endpoint first (safe to call even if none exists)
+    grimoire::federation::p2p_client::clear_federation_endpoint();
+
     // initialize grimoire config from server config (ignore if already initialized)
     let _ = grimoire::config::init_config(Some(config_path.to_path_buf()));
 

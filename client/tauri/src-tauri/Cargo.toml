@@ -33,8 +33,6 @@ tokio-util = { version = "0.7", features = ["rt"] }
 which = "7"
 urlencoding = "2"
 chrono = "0.4"
-regex = "1"
-lazy_static = "1"
 base64 = "0.22"
 
 # internal dependencies
