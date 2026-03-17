@@ -7,7 +7,6 @@ import { toast } from "../../../components/feedback/Toast";
 import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../queries/playlists";
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
-import { isHttpRemote } from "../../../app/services/storage/types";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import { canUpdatePlaylist, canDeletePlaylist } from "../../data/permissions";
 import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
@@ -94,7 +93,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         // remote upload - always use remote_blob_id + remote_server_id
         // only set remote_url for standard HTTP (not tauri-managed, which uses IPC)
         const remoteUrl =
-          isHttpRemote(remote) && !remote.is_tauri_managed
+          remote.base_url && !remote.is_tauri_managed
             ? getRemoteMediaUrl(remote.base_url, blob_id)
             : undefined;
         newImage = {

@@ -150,187 +150,185 @@ export default function SettingsView() {
 
       <Show when={activeTab() === "settings"}>
         <div style={{ "padding-bottom": "3rem" }}>
-        <div class="settings-section">
-          <h2>
-            server inf<span class="pinky">o</span>
-          </h2>
-
-          <div
-            class="form-fields"
-            style={{
-              display: "flex",
-              "flex-direction": "column",
-              gap: "1rem",
-              "margin-top": "1rem",
-            }}
-          >
-            <div class="form-group">
-              <label
-                for="server-name"
-                style={{
-                  display: "block",
-                  "margin-bottom": "0.25rem",
-                  "font-size": "0.875rem",
-                  color: "var(--color-text-secondary, #888)",
-                }}
-              >
-                name
-              </label>
-              <input
-                id="server-name"
-                type="text"
-                value={editName()}
-                onInput={(e) => setEditName(e.currentTarget.value)}
-                style={{
-                  width: "100%",
-                  "max-width": "300px",
-                }}
-              />
-            </div>
-
-            <div class="form-group">
-              <label
-                for="server-description"
-                style={{
-                  display: "block",
-                  "margin-bottom": "0.25rem",
-                  "font-size": "0.875rem",
-                  color: "var(--color-text-secondary, #888)",
-                }}
-              >
-                description (optional)
-              </label>
-              <textarea
-                id="server-description"
-                value={editDescription()}
-                onInput={(e) => setEditDescription(e.currentTarget.value)}
-                rows={3}
-                style={{
-                  width: "100%",
-                  "max-width": "400px",
-                  resize: "vertical",
-                  background: "var(--color-bg-secondary, #1a1a1a)",
-                  color: "var(--color-text-primary, #fff)",
-                  border: "1px solid var(--color-border, #333)",
-                  "border-radius": "4px",
-                  padding: "0.5rem",
-                }}
-              />
-            </div>
-
-            <div style={{ "margin-bottom": "0.5rem" }}>
-              <button
-                class="button"
-                onClick={handleSaveServerInfo}
-                disabled={isSavingInfo()}
-              >
-                {isSavingInfo() ? "saving..." : "save info"}
-              </button>
-            </div>
-
-            <Show when={infoMessage()}>
-              <div
-                class={`message ${infoIsError() ? "error" : "success"}`}
-              >
-                {infoMessage()}
-              </div>
-            </Show>
-          </div>
-        </div>
-
-        <div class="settings-section" style={{ "margin-top": "2rem" }}>
-          <h2>
-            server imag<span class="pinky">e</span>
-          </h2>
-
-          <div
-            class="server-image-container"
-            style={{
-              display: "flex",
-              "align-items": "center",
-              gap: "1.5rem",
-              "margin-top": "1rem",
-            }}
-          >
-            <div
-              class="image-thumbnail"
-              style={{
-                width: "96px",
-                height: "96px",
-                "aspect-ratio": "1 / 1",
-                border: "2px solid var(--color-border, #333)",
-                "border-radius": "8px",
-                overflow: "hidden",
-                display: "flex",
-                "align-items": "center",
-                "justify-content": "center",
-                background: "var(--color-bg-secondary, #1a1a1a)",
-                "flex-shrink": "0",
-              }}
-            >
-              <Show
-                when={imageThumbnail()}
-                fallback={
-                  <span
-                    style={{
-                      color: "var(--color-text-muted, #666)",
-                      "font-size": "0.875rem",
-                    }}
-                  >
-                    no image
-                  </span>
-                }
-              >
-                <img
-                  src={`data:image/png;base64,${imageThumbnail()}`}
-                  alt="server image"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    "object-fit": "cover",
-                  }}
-                />
-              </Show>
-            </div>
+          <div class="settings-section">
+            <h2>
+              server inf<span class="pinky">o</span>
+            </h2>
 
             <div
-              class="image-controls"
+              class="form-fields"
               style={{
                 display: "flex",
                 "flex-direction": "column",
-                gap: "0.5rem",
+                gap: "1rem",
+                "margin-top": "1rem",
               }}
             >
-              <button
-                class="button"
-                onClick={handleSelectImage}
-                disabled={isUpdating()}
-              >
-                {isUpdating() ? "updating..." : "choose image"}
-              </button>
-
-              <Show when={serverConfig()?.image_path}>
-                <span
+              <div class="form-group">
+                <label
+                  for="server-name"
                   style={{
-                    "font-size": "0.75rem",
-                    color: "var(--color-text-muted, #666)",
+                    display: "block",
+                    "margin-bottom": "0.25rem",
+                    "font-size": "0.875rem",
+                    color: "var(--color-text-secondary, #888)",
                   }}
                 >
-                  {serverConfig()?.image_path}
-                </span>
+                  name
+                </label>
+                <input
+                  id="server-name"
+                  type="text"
+                  value={editName()}
+                  onInput={(e) => setEditName(e.currentTarget.value)}
+                  style={{
+                    width: "100%",
+                    "max-width": "300px",
+                  }}
+                />
+              </div>
+
+              <div class="form-group">
+                <label
+                  for="server-description"
+                  style={{
+                    display: "block",
+                    "margin-bottom": "0.25rem",
+                    "font-size": "0.875rem",
+                    color: "var(--color-text-secondary, #888)",
+                  }}
+                >
+                  description (optional)
+                </label>
+                <textarea
+                  id="server-description"
+                  value={editDescription()}
+                  onInput={(e) => setEditDescription(e.currentTarget.value)}
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    "max-width": "400px",
+                    resize: "vertical",
+                    background: "var(--color-bg-secondary, #1a1a1a)",
+                    color: "var(--color-text-primary, #fff)",
+                    border: "1px solid var(--color-border, #333)",
+                    "border-radius": "4px",
+                    padding: "0.5rem",
+                  }}
+                />
+              </div>
+
+              <div style={{ "margin-bottom": "0.5rem" }}>
+                <button
+                  class="button"
+                  onClick={handleSaveServerInfo}
+                  disabled={isSavingInfo()}
+                >
+                  {isSavingInfo() ? "saving..." : "save info"}
+                </button>
+              </div>
+
+              <Show when={infoMessage()}>
+                <div class={`message ${infoIsError() ? "error" : "success"}`}>
+                  {infoMessage()}
+                </div>
               </Show>
             </div>
           </div>
 
-          <Show when={imageMessage()}>
+          <div class="settings-section" style={{ "margin-top": "2rem" }}>
+            <h2>
+              server imag<span class="pinky">e</span>
+            </h2>
+
             <div
-              class={`message ${imageIsError() ? "error" : "success"}`}
-              style={{ "margin-top": "1rem" }}
+              class="server-image-container"
+              style={{
+                display: "flex",
+                "align-items": "center",
+                gap: "1.5rem",
+                "margin-top": "1rem",
+              }}
             >
-              {imageMessage()}
+              <div
+                class="image-thumbnail"
+                style={{
+                  width: "96px",
+                  height: "96px",
+                  "aspect-ratio": "1 / 1",
+                  border: "2px solid var(--color-border, #333)",
+                  "border-radius": "8px",
+                  overflow: "hidden",
+                  display: "flex",
+                  "align-items": "center",
+                  "justify-content": "center",
+                  background: "var(--color-bg-secondary, #1a1a1a)",
+                  "flex-shrink": "0",
+                }}
+              >
+                <Show
+                  when={imageThumbnail()}
+                  fallback={
+                    <span
+                      style={{
+                        color: "var(--color-text-muted, #666)",
+                        "font-size": "0.875rem",
+                      }}
+                    >
+                      no image
+                    </span>
+                  }
+                >
+                  <img
+                    src={`data:image/png;base64,${imageThumbnail()}`}
+                    alt="server image"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      "object-fit": "cover",
+                    }}
+                  />
+                </Show>
+              </div>
+
+              <div
+                class="image-controls"
+                style={{
+                  display: "flex",
+                  "flex-direction": "column",
+                  gap: "0.5rem",
+                }}
+              >
+                <button
+                  class="button"
+                  onClick={handleSelectImage}
+                  disabled={isUpdating()}
+                >
+                  {isUpdating() ? "updating..." : "choose image"}
+                </button>
+
+                <Show when={serverConfig()?.image_path}>
+                  <span
+                    style={{
+                      "font-size": "0.75rem",
+                      color: "var(--color-text-muted, #666)",
+                    }}
+                  >
+                    {serverConfig()?.image_path}
+                  </span>
+                </Show>
+              </div>
             </div>
-          </Show>
-        </div>
+
+            <Show when={imageMessage()}>
+              <div
+                class={`message ${imageIsError() ? "error" : "success"}`}
+                style={{ "margin-top": "1rem" }}
+              >
+                {imageMessage()}
+              </div>
+            </Show>
+          </div>
         </div>
       </Show>
 

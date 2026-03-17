@@ -3,7 +3,6 @@ import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js"
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
-import { isHttpRemote } from "../../app/services/storage/types";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateArtist, canDeleteArtist } from "../../music/data/permissions";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
@@ -260,7 +259,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
         // remote upload - always use remote_blob_id + remote_server_id
         // only set remote_url for standard HTTP (not tauri-managed, which uses IPC)
         const remoteUrl =
-          isHttpRemote(remote) && !remote.is_tauri_managed
+          remote.base_url && !remote.is_tauri_managed
             ? getRemoteMediaUrl(remote.base_url, blob_id)
             : undefined;
         newImage = {

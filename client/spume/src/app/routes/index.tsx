@@ -50,7 +50,7 @@ function RootRedirect() {
     const currentRemote = getCurrentRemote();
     if (currentRemote) {
       debug("routes", "current remote from init:", currentRemote.name);
-      navigate(`/${currentRemote.remote_id}/songs`, { replace: true });
+      navigate(`/${currentRemote.remote_id}/feed`, { replace: true });
       return;
     }
 
@@ -63,7 +63,7 @@ function RootRedirect() {
       // switch to that remote and navigate to its route
       await useRemoteSource(activeRemote);
       queryClient.invalidateQueries();
-      navigate(`/${activeRemote.remote_id}/songs`, { replace: true });
+      navigate(`/${activeRemote.remote_id}/feed`, { replace: true });
     } else if (!isTauriMode()) {
       // no active remote, use local (skip in tauri mode - wait for server)
       await useLocalSource();
@@ -241,7 +241,7 @@ function RemoteContextHandler(props: { children?: any }) {
         // in tauri mode, try to use tauri-managed remote
         const tauriRemote = await getTauriManagedRemote();
         if (tauriRemote && tauriRemote.remote_id !== remoteId && !tauriRemote.is_offline) {
-          navigate(`/${tauriRemote.remote_id}/songs`, { replace: true });
+          navigate(`/${tauriRemote.remote_id}/feed`, { replace: true });
           return;
         }
       }

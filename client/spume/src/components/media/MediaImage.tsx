@@ -245,7 +245,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     )
   );
 
-  createEffect((prev) => {
+  createEffect((prev: string | null | undefined) => {
     const url = resolvedUrl();
     console.log(
       "[MediaImage] resolvedUrl changed:",

@@ -441,8 +441,7 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
 
     eprintln!(
         "[get_freqhole_config] returning: server_name={}, server_image_path={:?}",
-        server.name,
-        server.image_path
+        server.name, server.image_path
     );
 
     Some(FreqholeConfig {

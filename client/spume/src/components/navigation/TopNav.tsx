@@ -1,6 +1,5 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import {
-  createEffect,
   createResource,
   createSignal,
   For,
@@ -10,7 +9,6 @@ import {
   type JSX,
 } from "solid-js";
 import { Icon } from "../icons/registry";
-import { debug } from "../../utils/logger";
 import { toast } from "../feedback/Toast";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import MediaImage from "../media/MediaImage";
@@ -142,17 +140,6 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
   const [loadError, setLoadError] = createSignal(false);
   const isP2P = () => !!props.remote.peerAddr;
 
-  // DEBUG: log on every render
-  console.log("[RemoteServerImage] render", {
-    id: props.remote.id,
-    name: props.remote.name,
-    imageUrl: props.remote.imageUrl,
-    url: props.remote.url,
-    isTauriManaged: props.remote.isTauriManaged,
-    isP2P: isP2P(),
-    loadError: loadError(),
-  });
-
   // resolve P2P blob URL asynchronously
   const [resolvedP2PUrl] = createResource(
     () =>
@@ -164,7 +151,6 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
       try {
         return await resolveBlobUrl(params.blobId, params.remoteId);
       } catch (e) {
-        debug("RemoteServerImage", `failed to resolve blob: ${e}`);
         return null;
       }
     }
@@ -174,7 +160,6 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
   const httpImageUrl = () => {
     if (isP2P()) return null;
     if (!props.remote.imageUrl) {
-      console.log("[RemoteServerImage] httpImageUrl: no imageUrl");
       return null;
     }
     // if imageUrl is already absolute (asset://, http://, https://), use directly
@@ -186,23 +171,19 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
       const url = props.remote.updatedAt
         ? `${props.remote.imageUrl}?v=${props.remote.updatedAt}`
         : props.remote.imageUrl;
-      console.log("[RemoteServerImage] httpImageUrl: absolute URL", url);
       return url;
     }
     // relative URL - prepend base URL
     if (!props.remote.url) {
-      console.log("[RemoteServerImage] httpImageUrl: relative URL but no base url");
       return null;
     }
     const baseUrl = `${props.remote.url}${props.remote.imageUrl}`;
     const url = props.remote.updatedAt ? `${baseUrl}?v=${props.remote.updatedAt}` : baseUrl;
-    console.log("[RemoteServerImage] httpImageUrl: built URL", url);
     return url;
   };
 
   const imageUrl = () => {
     const url = isP2P() ? resolvedP2PUrl() : httpImageUrl();
-    console.log("[RemoteServerImage] final imageUrl", { isP2P: isP2P(), url, loadError: loadError() });
     return url;
   };
 
@@ -217,10 +198,7 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
   );
 
   return (
-    <Show
-      when={imageUrl() && !loadError()}
-      fallback={<FallbackIcon />}
-    >
+    <Show when={imageUrl() && !loadError()} fallback={<FallbackIcon />}>
       <Show
         when={!resolvedP2PUrl.loading}
         fallback={
@@ -242,18 +220,11 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
           alt={props.alt || ""}
           class={props.class}
           style={{ "min-width": "28px", "min-height": "28px" }}
-          onError={(e) => {
-            console.log("[RemoteServerImage] img onError", {
-              id: props.remote.id,
-              src: e.currentTarget.src,
-            });
+          onError={() => {
             setLoadError(true);
           }}
           onLoad={() => {
-            console.log("[RemoteServerImage] img onLoad success", {
-              id: props.remote.id,
-              src: imageUrl(),
-            });
+            setLoadError(false);
           }}
         />
       </Show>
@@ -323,35 +294,11 @@ export function TopNav(props: TopNavProps) {
   // get current remote for image + url
   const currentRemote = () => {
     if (!props.remotes || !props.currentSourceId) {
-      debug("TopNav", "currentRemote: no remotes or no currentSourceId", {
-        hasRemotes: !!props.remotes,
-        remotesLength: props.remotes?.length,
-        currentSourceId: props.currentSourceId,
-      });
       return null;
     }
     const found = props.remotes.find((r) => r.id === props.currentSourceId) ?? null;
-    debug("TopNav", "currentRemote lookup", {
-      currentSourceId: props.currentSourceId,
-      remoteIds: props.remotes.map((r) => r.id),
-      found: found ? { id: found.id, name: found.name, url: found.url, imageUrl: found.imageUrl, updatedAt: found.updatedAt } : null,
-    });
     return found;
   };
-
-  // debug: log when props change
-  createEffect(() => {
-    debug("TopNav", "remotes prop changed", {
-      remotes: props.remotes?.map((r) => ({
-        id: r.id,
-        name: r.name,
-        imageUrl: r.imageUrl,
-        isOffline: r.isOffline,
-      })),
-      currentSourceId: props.currentSourceId,
-      currentSourceName: props.currentSourceName,
-    });
-  });
 
   // handle remote click - recheck if offline, otherwise switch
   const handleRemoteClick = async (remote: NonNullable<typeof props.remotes>[number]) => {

@@ -440,9 +440,10 @@ async function trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<vo
 // options.userInitiated: true when user explicitly starts playback (play button, double-click, new queue)
 //   - clears userExplicitlyPaused flag and auto-plays when ready
 //   - false/undefined: respects userExplicitlyPaused flag (won't auto-play if user paused)
+// options.initialPosition: seek to this position after load (also sets visual time immediately to avoid flash)
 export async function playSong(
   songOrId: string | Song,
-  options?: { userInitiated?: boolean }
+  options?: { userInitiated?: boolean; initialPosition?: number; initialDuration?: number }
 ): Promise<void> {
   const audio = initAudio();
 
@@ -515,9 +516,9 @@ export async function playSong(
     // set loading state while we load the audio element
     setIsLoading(true);
 
-    // reset time for new song
-    setCurrentTime(0);
-    setDuration(0);
+    // reset time for new song (or use initial position if resuming)
+    setCurrentTime(options?.initialPosition ?? 0);
+    setDuration(options?.initialDuration ?? 0);
 
     // IMPORTANT: explicitly reset MediaSession position state to 0 for new track
     // iOS lock screen caches the position from the previous track and won't update
@@ -618,14 +619,20 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
         const savedDuration = duration(); // save duration too
         const songInQueue = queue.find((s) => s.sha256 === current_sha256);
         if (songInQueue) {
-          await playSong(songInQueue, { userInitiated: true });
+          await playSong(songInQueue, { 
+            userInitiated: true, 
+            initialPosition: savedPosition,
+            initialDuration: savedDuration,
+          });
         } else {
-          await playSong(current_sha256, { userInitiated: true });
+          await playSong(current_sha256, { 
+            userInitiated: true,
+            initialPosition: savedPosition,
+            initialDuration: savedDuration,
+          });
         }
         // seek to the restored position - audio is ready after playSong returns
         if (savedPosition > 0) {
-          setCurrentTime(savedPosition); // restore visual immediately (playSong resets to 0)
-          if (savedDuration > 0) setDuration(savedDuration);
           seek(savedPosition);
         }
         return;

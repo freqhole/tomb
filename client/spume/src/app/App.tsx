@@ -570,8 +570,8 @@ export function App() {
             const source = getDataSource();
             const result = await source.getSongs({ limit: 1 });
             setHasSongs(result.total > 0);
-            // navigate to remote songs view
-            window.location.hash = `/${remote.remote_id}/songs`;
+            // navigate to remote feed view
+            window.location.hash = `/${remote.remote_id}/feed`;
           })();
         }}
       />
