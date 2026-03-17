@@ -92,7 +92,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         );
     }
 
-    let req: UpdateSongsRequest = match serde_json::from_value(body) {
+    let mut req: UpdateSongsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -105,6 +105,13 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
             )
         }
     };
+
+    // inject authenticated user id
+    req.user_id = Some(caller.user_id.clone());
+    req.updated_by = Some(caller.user_id.clone());
+
+    // normalize the request (handles conflicts between different update fields)
+    let req = req.normalize();
 
     let response = grimoire_update_songs(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())

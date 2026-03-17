@@ -21,7 +21,11 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -70,7 +74,11 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -111,15 +119,22 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         );
     }
 
-    let req: UpdateArtistRequest = match serde_json::from_value(body) {
+    let mut req: UpdateArtistRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
+
+    // inject authenticated user id
+    req.updated_by = Some(caller.user_id.clone());
 
     let response = grimoire_update_artist(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())

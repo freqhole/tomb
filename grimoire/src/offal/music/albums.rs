@@ -4,15 +4,15 @@ use crate::error::ErrorDetail;
 use crate::music::crud::{query_albums, QueryParams};
 use crate::music::entities::albums::{
     delete_album as grimoire_delete_album, get_album as grimoire_get_album,
-    get_album_images as grimoire_get_album_images, update_album as grimoire_update_album,
-    remove_album_image, set_primary_album_image, UpdateAlbumRequest,
+    get_album_images as grimoire_get_album_images, remove_album_image, set_primary_album_image,
+    update_album as grimoire_update_album, UpdateAlbumRequest,
 };
 use crate::music::entities::artists::{remove_artist_image, set_primary_artist_image};
 use crate::music::entities::playlists::{remove_playlist_image, set_primary_playlist_image};
 use crate::music::entities::songs::{remove_song_image, set_primary_song_image};
-use crate::upload::{DeleteImageRequest, SetPrimaryImageRequest};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
+use crate::upload::{DeleteImageRequest, SetPrimaryImageRequest};
 use crate::users::UserRole;
 use serde_json::Value as JsonValue;
 
@@ -91,15 +91,22 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         );
     }
 
-    let req: UpdateAlbumRequest = match serde_json::from_value(body) {
+    let mut req: UpdateAlbumRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
+
+    // inject authenticated user id
+    req.updated_by = Some(caller.user_id.clone());
 
     let response = grimoire_update_album(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())
@@ -136,7 +143,11 @@ pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -177,7 +188,11 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
