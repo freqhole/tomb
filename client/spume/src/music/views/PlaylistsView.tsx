@@ -97,6 +97,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
   const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+
+  // pointer-based drag state for Tauri (HTML5 drag doesn't work in WKWebView)
+  const [pointerDragSongId, setPointerDragSongId] = createSignal<string | null>(null);
+  let pendingPointerDrag: {
+    songId: string;
+    startY: number;
+    pointerId: number;
+    target: HTMLElement;
+  } | null = null;
+  const DRAG_THRESHOLD = 8;
   const [syncStatus, setSyncStatus] = createSignal<SyncCheckResult | null>(null);
   const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<string | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
@@ -111,8 +121,89 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       }
     };
     window.addEventListener("resize", handleResize);
+
+    // global dragend cleanup for webkit/tauri compatibility
+    const handleGlobalDragEnd = () => {
+      setDraggedSongId(null);
+      setDropTargetIndex(null);
+    };
+    document.addEventListener("dragend", handleGlobalDragEnd);
+
+    // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!isTauriMode()) return;
+
+      // check if pending drag should activate
+      if (pendingPointerDrag !== null) {
+        const deltaY = Math.abs(e.clientY - pendingPointerDrag.startY);
+        if (deltaY >= DRAG_THRESHOLD) {
+          setPointerDragSongId(pendingPointerDrag.songId);
+          pendingPointerDrag.target.setPointerCapture(pendingPointerDrag.pointerId);
+          pendingPointerDrag = null;
+        }
+        return;
+      }
+
+      const dragId = pointerDragSongId();
+      if (!dragId) return;
+
+      // find target index based on Y position (56px per row)
+      const songs = playlistSongs();
+      const container = document.querySelector("[data-playlist-songs]");
+      const rect = container?.getBoundingClientRect();
+      if (!rect) return;
+
+      const relativeY = e.clientY - rect.top;
+      const targetIndex = Math.floor(relativeY / 56);
+      const clampedTarget = Math.max(0, Math.min(targetIndex, songs.length - 1));
+      const currentIndex = songs.findIndex((s) => s.id === dragId);
+
+      if (clampedTarget !== currentIndex) {
+        setDropTargetIndex(clampedTarget);
+      } else {
+        setDropTargetIndex(null);
+      }
+    };
+
+    const handlePointerUp = async () => {
+      if (!isTauriMode()) return;
+      pendingPointerDrag = null;
+
+      const dragId = pointerDragSongId();
+      const toIndex = dropTargetIndex();
+
+      if (dragId && toIndex !== null) {
+        const songs = playlistSongs();
+        const fromIndex = songs.findIndex((s) => s.id === dragId);
+        if (fromIndex !== -1 && fromIndex !== toIndex) {
+          const playlist = selectedPlaylist();
+          if (playlist) {
+            const newPosition = toIndex + 1;
+            try {
+              await reorderSongsMutation.mutateAsync({
+                playlistId: playlist.playlist_id,
+                songIds: [dragId],
+                newPosition,
+              });
+            } catch {
+              // error handled by mutation
+            }
+          }
+        }
+      }
+
+      setPointerDragSongId(null);
+      setDropTargetIndex(null);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+
     onCleanup(() => {
       window.removeEventListener("resize", handleResize);
+      document.removeEventListener("dragend", handleGlobalDragEnd);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
       clearPageInfo(); // clear page info when leaving view
       clearBackgroundImage(); // clear global background when leaving view
     });
@@ -588,11 +679,30 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     setEditMode(!editMode());
   };
 
+  // combined dragged song id (works for both HTML5 drag and pointer drag)
+  const effectiveDraggedSongId = () => (isTauriMode() ? pointerDragSongId() : draggedSongId());
+
   // handle drag start
   const handleDragStart = (songId: string) => (e: DragEvent) => {
     setDraggedSongId(songId);
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", songId);
+      // Safari has issues with drag images on transformed elements
+      const target = e.currentTarget as HTMLElement;
+      const clone = target.cloneNode(true) as HTMLElement;
+      clone.style.position = "absolute";
+      clone.style.top = "-9999px";
+      clone.style.left = "-9999px";
+      clone.style.transform = "none";
+      clone.style.width = `${target.offsetWidth}px`;
+      document.body.appendChild(clone);
+      e.dataTransfer.setDragImage(
+        clone,
+        e.clientX - target.getBoundingClientRect().left,
+        e.clientY - target.getBoundingClientRect().top
+      );
+      requestAnimationFrame(() => clone.remove());
     }
   };
 
@@ -608,6 +718,24 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // handle drag leave
   const handleDragLeave = () => {
     setDropTargetIndex(null);
+  };
+
+  // handle drag end
+  const handleDragEnd = () => {
+    setDraggedSongId(null);
+    setDropTargetIndex(null);
+  };
+
+  // handle pointer down for Tauri drag
+  const handlePointerDown = (songId: string) => (e: PointerEvent) => {
+    if (isTauriMode() && e.button === 0) {
+      pendingPointerDrag = {
+        songId,
+        startY: e.clientY,
+        pointerId: e.pointerId,
+        target: e.currentTarget as HTMLElement,
+      };
+    }
   };
 
   // handle drop
@@ -1300,7 +1428,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               }
                             >
                               <div class={`${isNarrow() ? "" : "overflow-auto h-full"}`}>
-                                <div class="space-y-1">
+                                <div class="space-y-1" data-playlist-songs>
                                   <For each={playlistSongs()}>
                                     {(song, index) => {
                                       const contextMenuActions = useSongContextMenu(song, {
@@ -1315,20 +1443,25 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                           <DraggableRow
                                             id={song.id}
                                             index={index()}
-                                            isDragging={draggedSongId() === song.id}
+                                            isDragging={effectiveDraggedSongId() === song.id}
                                             isDropTarget={dropTargetIndex() === index()}
                                             isPlaying={appState()?.current_sha256 === song.sha256}
                                             onDragStart={handleDragStart(song.id)}
                                             onDragOver={handleDragOver(index())}
                                             onDragLeave={handleDragLeave}
                                             onDrop={() => handleDrop(index())}
+                                            onDragEnd={handleDragEnd}
+                                            onPointerDown={handlePointerDown(song.id)}
                                             onDoubleClick={() => handleSongDoubleClick(song)}
                                             onPlayClick={() => handleSongDoubleClick(song)}
                                             images={[
                                               ...(song.images || []),
                                               ...(song.album_images || []),
                                             ]}
-                                            disabled={!isEditablePlaylist(selectedPlaylist()!)}
+                                            disabled={
+                                              isTauriMode() ||
+                                              !isEditablePlaylist(selectedPlaylist()!)
+                                            }
                                           >
                                             <DraggableRowSongContent
                                               title={song.title}

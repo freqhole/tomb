@@ -1,10 +1,11 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
+import { isTauriMode } from "../../app/services/tauri";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -110,6 +111,94 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
 
+  // pointer-based drag state for Tauri (HTML5 drag doesn't work in WKWebView)
+  const [pointerDragIndex, setPointerDragIndex] = createSignal<number | null>(null);
+  // pending pointer drag - waiting for movement threshold before activating
+  let pendingPointerDrag: {
+    index: number;
+    startY: number;
+    pointerId: number;
+    target: HTMLElement;
+  } | null = null;
+  const DRAG_THRESHOLD = 8; // pixels of movement before drag activates
+
+  // global dragend cleanup to prevent stuck drag state
+  onMount(() => {
+    const handleGlobalDragEnd = () => {
+      setDraggedIndex(null);
+      setDropTargetIndex(null);
+    };
+    document.addEventListener("dragend", handleGlobalDragEnd);
+    onCleanup(() => {
+      document.removeEventListener("dragend", handleGlobalDragEnd);
+    });
+  });
+
+  // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)
+  onMount(() => {
+    if (!isTauriMode()) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      // check if we have a pending drag that should activate
+      if (pendingPointerDrag !== null) {
+        const deltaY = Math.abs(e.clientY - pendingPointerDrag.startY);
+        if (deltaY >= DRAG_THRESHOLD) {
+          // activate drag
+          setPointerDragIndex(pendingPointerDrag.index);
+          pendingPointerDrag.target.setPointerCapture(pendingPointerDrag.pointerId);
+          pendingPointerDrag = null;
+        }
+        return;
+      }
+
+      const idx = pointerDragIndex();
+      if (idx === null) return;
+
+      // find which row we're over based on Y position
+      const scrollEl = scrollElementRef;
+      if (!scrollEl) return;
+
+      const rect = scrollEl.getBoundingClientRect();
+      const scrollTop = scrollEl.scrollTop;
+      const relativeY = e.clientY - rect.top + scrollTop;
+
+      // calculate target index based on position (68px per row)
+      const targetIndex = Math.floor(relativeY / 68);
+      const clampedTarget = Math.max(0, Math.min(targetIndex, props.songs.length - 1));
+
+      if (clampedTarget !== idx) {
+        setDropTargetIndex(clampedTarget);
+      } else {
+        setDropTargetIndex(null);
+      }
+    };
+
+    const handlePointerUp = () => {
+      // cancel pending drag if not yet activated
+      pendingPointerDrag = null;
+
+      const fromIndex = pointerDragIndex();
+      const toIndex = dropTargetIndex();
+
+      if (fromIndex !== null && toIndex !== null && fromIndex !== toIndex) {
+        props.onReorder?.(fromIndex, toIndex);
+      }
+
+      setPointerDragIndex(null);
+      setDropTargetIndex(null);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    onCleanup(() => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+    });
+  });
+
+  // combined dragged index (works for both HTML5 drag and pointer drag)
+  const effectiveDraggedIndex = () => (isTauriMode() ? pointerDragIndex() : draggedIndex());
+
   const virtualizer = createVirtualizer({
     get count() {
       return props.songs.length;
@@ -167,6 +256,24 @@ export function QueueSidebar(props: QueueSidebarProps) {
     setDraggedIndex(index);
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(index));
+      // Safari has issues with drag images on transformed elements
+      // Create a temporary clone positioned at 0,0 for the drag image
+      const target = e.currentTarget as HTMLElement;
+      const clone = target.cloneNode(true) as HTMLElement;
+      clone.style.position = "absolute";
+      clone.style.top = "-9999px";
+      clone.style.left = "-9999px";
+      clone.style.transform = "none";
+      clone.style.width = `${target.offsetWidth}px`;
+      document.body.appendChild(clone);
+      e.dataTransfer.setDragImage(
+        clone,
+        e.clientX - target.getBoundingClientRect().left,
+        e.clientY - target.getBoundingClientRect().top
+      );
+      // Clean up clone after drag starts
+      requestAnimationFrame(() => clone.remove());
     }
   };
 
@@ -179,6 +286,11 @@ export function QueueSidebar(props: QueueSidebarProps) {
   };
 
   const handleDragLeave = () => {
+    setDropTargetIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
     setDropTargetIndex(null);
   };
 
@@ -333,7 +445,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
                   const isUpNext = () => itemIndex === props.upNextIndex;
 
-                  const isDragging = () => draggedIndex() === itemIndex;
+                  const isDragging = () => effectiveDraggedIndex() === itemIndex;
                   const isDropTarget = () => dropTargetIndex() === itemIndex;
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
 
@@ -374,7 +486,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                   const songRow = (
                     <div
-                      draggable={true}
+                      draggable={!isTauriMode()}
                       class={`absolute top-0 left-0 w-full flex items-center py-2 group transition-all duration-200 cursor-move overflow-hidden ${
                         isDropTarget()
                           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
@@ -394,7 +506,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       onDragStart={handleDragStart(itemIndex)}
                       onDragOver={handleDragOver(itemIndex)}
                       onDragLeave={handleDragLeave}
+                      onDragEnd={handleDragEnd}
                       onDrop={() => handleDrop(itemIndex)}
+                      onPointerDown={(e) => {
+                        // pointer-based drag for Tauri only - set up pending drag
+                        if (isTauriMode() && e.button === 0) {
+                          pendingPointerDrag = {
+                            index: itemIndex,
+                            startY: e.clientY,
+                            pointerId: e.pointerId,
+                            target: e.currentTarget as HTMLElement,
+                          };
+                        }
+                      }}
                       onClick={() => {
                         if (isMobile()) {
                           handleSongDoubleClick(itemIndex);

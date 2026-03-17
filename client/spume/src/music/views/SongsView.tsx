@@ -426,6 +426,7 @@ export function SongsView(props: SongsViewProps) {
               onSelectionClick={isAdmin() ? onSelectionClick : undefined}
               showSelectionHighlight={isAdmin() && selectionCount() > 1}
               onContextMenuOpen={clearSelection}
+              scrollPaddingTop={72}
             />
             <LoadingMoreIndicator isLoading={songsQuery.isFetchingNextPage} />
             {isAdmin() && (

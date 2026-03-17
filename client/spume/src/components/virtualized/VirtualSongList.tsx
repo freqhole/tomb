@@ -63,6 +63,8 @@ export interface VirtualSongListProps {
   showSelectionHighlight?: boolean;
   /** callback when context menu is about to open (use to clear selection) */
   onContextMenuOpen?: () => void;
+  /** extra padding at top of scroll container (for topnav overlap, only on wide viewports) */
+  scrollPaddingTop?: number;
 }
 
 export function VirtualSongList(props: VirtualSongListProps) {
@@ -271,6 +273,12 @@ export function VirtualSongList(props: VirtualSongListProps) {
     return current.direction === "asc" ? "↑" : "↓";
   };
 
+  // only apply scroll padding on wide viewports (narrow has its own fixed nav)
+  const scrollPad = () =>
+    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
+      ? props.scrollPaddingTop
+      : 0;
+
   // get images for a song - tries song images first, then album images
   const getImages = (song: Song) => {
     if (song.images && song.images.length > 0) return song.images;
@@ -291,7 +299,10 @@ export function VirtualSongList(props: VirtualSongListProps) {
       <div
         ref={scrollContainerRef}
         class="overflow-auto"
-        style={{ height: `${isNarrow() ? props.height : props.height - TABLE_ROW_HEIGHT}px` }}
+        style={{
+          height: `${isNarrow() ? props.height : props.height - TABLE_ROW_HEIGHT}px`,
+          "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
+        }}
         onScroll={checkNearEnd}
       >
         {/* narrow layout: compact rows without header */}

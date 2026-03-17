@@ -28,10 +28,14 @@ export interface DraggableRowProps {
   onDragLeave?: (e: DragEvent) => void;
   /** callback when dropped on this row */
   onDrop?: (e: DragEvent) => void;
+  /** callback when drag ends (for cleanup) */
+  onDragEnd?: (e: DragEvent) => void;
   /** callback when row is clicked */
   onClick?: (e: MouseEvent) => void;
   /** callback when row is double-clicked */
   onDoubleClick?: (e: MouseEvent) => void;
+  /** callback when pointer down (for touch/pointer drag) */
+  onPointerDown?: (e: PointerEvent) => void;
   /** callback when row is right-clicked */
   onContextMenu?: (e: MouseEvent) => void;
   /** whether to show drag handle instead of index */
@@ -64,8 +68,10 @@ export function DraggableRow(props: DraggableRowProps) {
     "onDragOver",
     "onDragLeave",
     "onDrop",
+    "onDragEnd",
     "onClick",
     "onDoubleClick",
+    "onPointerDown",
     "onContextMenu",
     "showDragHandle",
     "images",
@@ -116,8 +122,15 @@ export function DraggableRow(props: DraggableRowProps) {
       onDragOver={(e) => local.onDragOver?.(e)}
       onDragLeave={(e) => local.onDragLeave?.(e)}
       onDrop={(e) => local.onDrop?.(e)}
+      onDragEnd={(e) => local.onDragEnd?.(e)}
       onClick={(e) => local.onClick?.(e)}
       onDblClick={(e) => local.onDoubleClick?.(e)}
+      onPointerDown={(e) => {
+        // prevent pointer drag if starting from thumbnail
+        const target = e.target as HTMLElement;
+        if (target.closest("[data-thumbnail]")) return;
+        local.onPointerDown?.(e);
+      }}
       onContextMenu={(e) => local.onContextMenu?.(e)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
