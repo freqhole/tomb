@@ -2,6 +2,8 @@
 import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import { isHttpRemote } from "../../app/services/storage/types";
+import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateSong, canDeleteSong } from "../../music/data/permissions";
 import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/hooks/modals";
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
@@ -294,35 +296,35 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }
   };
 
-  const handleImageSelect = async (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
+  // shared image upload logic for both File and file path
+  const handleImageUpload = async (params: { file?: File; filePath?: string }) => {
+    // for file uploads, validate first
+    if (params.file) {
+      if (!params.file.type.startsWith("image/")) {
+        toast.error("please select an image file");
+        return;
+      }
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("please select an image file");
-      return;
+      // check file size (10MB limit)
+      if (params.file.size > 10 * 1024 * 1024) {
+        toast.error("image must be smaller than 10MB");
+        return;
+      }
+
+      // show preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(params.file);
     }
-
-    // check file size (10MB limit)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("image must be smaller than 10MB");
-      return;
-    }
-
-    // show preview
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setImagePreview(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
 
     setProcessingJob({ status: "uploading", message: "uploading image..." });
 
     try {
       const datasource = await getDataSource();
       const result = await datasource.uploadImage?.({
-        file,
+        ...params,
         entityType: "song",
         entityId: props.songId,
       });
@@ -357,12 +359,31 @@ export function SongEditorModal(props: SongEditorModalProps) {
         }
       }
 
-      // add new image to list (marked as primary if it's the first one)
-      const newImage: ImageMetadata = {
-        local_blob_id: blob_id,
-        is_primary: songImages().length === 0,
-        blob_type: "thumbnail",
-      };
+      // construct proper image metadata based on data source
+      const isPrimary = songImages().length === 0;
+      let newImage: ImageMetadata;
+      if (remote) {
+        // remote upload - always use remote_blob_id + remote_server_id
+        // only set remote_url for standard HTTP (not tauri-managed, which uses IPC)
+        const remoteUrl =
+          isHttpRemote(remote) && !remote.is_tauri_managed
+            ? getRemoteMediaUrl(remote.base_url, blob_id)
+            : undefined;
+        newImage = {
+          remote_blob_id: blob_id,
+          remote_url: remoteUrl,
+          remote_server_id: remote.remote_id,
+          is_primary: isPrimary,
+          blob_type: "thumbnail",
+        };
+      } else {
+        // local upload - use local field
+        newImage = {
+          local_blob_id: blob_id,
+          is_primary: isPrimary,
+          blob_type: "thumbnail",
+        };
+      }
       const updatedImages = [...songImages(), newImage];
       setSongImages(updatedImages);
 
@@ -383,6 +404,10 @@ export function SongEditorModal(props: SongEditorModalProps) {
       setProcessingJob(null);
       setImagePreview(null);
     }
+  };
+
+  const handleImageSelectPath = async (filePath: string) => {
+    await handleImageUpload({ filePath });
   };
 
   const handleTogglePrimary = async (index: number) => {
@@ -799,16 +824,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
             <EntityImages
               title="song images"
               images={songImages()}
-              onUpload={(file) => {
-                const event = new Event("change") as any;
-                const input = document.createElement("input");
-                input.type = "file";
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                input.files = dataTransfer.files;
-                Object.defineProperty(event, "target", { value: input, writable: false });
-                handleImageSelect(event);
-              }}
+              onUpload={(file) => handleImageUpload({ file })}
+              onUploadPath={handleImageSelectPath}
               onDelete={handleRemoveImage}
               onSetPrimary={handleTogglePrimary}
               uploading={!!processingJob()}

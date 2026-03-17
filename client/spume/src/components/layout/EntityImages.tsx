@@ -3,10 +3,22 @@ import { Show, For } from "solid-js";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { isTauriMode } from "../../app/services/tauri/mode";
+import { getCurrentRemote } from "../../music/data";
+
+// type for tauri dialog plugin's open function (dynamically imported when available)
+type TauriDialogOpenFn = (options?: {
+  multiple?: boolean;
+  directory?: boolean;
+  filters?: Array<{ name: string; extensions: string[] }>;
+  title?: string;
+}) => Promise<string | string[] | null>;
 
 export interface EntityImagesProps {
   images: ImageMetadata[];
   onUpload?: (file: File) => void | Promise<void>;
+  /** called when uploading by file path (tauri dialog) - if provided, tauri-managed remotes use dialog picker */
+  onUploadPath?: (filePath: string) => void | Promise<void>;
   onDelete?: (index: number) => void | Promise<void>;
   onSetPrimary?: (index: number) => void | Promise<void>;
   uploading?: boolean;
@@ -17,6 +29,19 @@ export interface EntityImagesProps {
 }
 
 export function EntityImages(props: EntityImagesProps) {
+  // DEBUG: log images passed to EntityImages
+  console.log(
+    "[EntityImages] images:",
+    props.images.map((img) => ({
+      local_blob_id: img.local_blob_id,
+      remote_blob_id: img.remote_blob_id,
+      remote_url: img.remote_url,
+      remote_server_id: img.remote_server_id,
+      is_primary: img.is_primary,
+      blob_type: img.blob_type,
+    }))
+  );
+
   const handleFileSelect = async (e: Event) => {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -25,6 +50,35 @@ export function EntityImages(props: EntityImagesProps) {
     }
     // reset input so same file can be selected again
     input.value = "";
+  };
+
+  // check if we should use tauri dialog picker
+  const useTauriDialog = () => {
+    if (!isTauriMode() || !props.onUploadPath) return false;
+    const remote = getCurrentRemote();
+    return remote?.is_tauri_managed === true;
+  };
+
+  const handleUploadClick = async () => {
+    if (!useTauriDialog()) return; // will use file input instead
+
+    try {
+      // dynamically import dialog plugin (only available in tauri runtime)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dialogModule = (await import("@tauri-apps/plugin-dialog" as any)) as {
+        open: TauriDialogOpenFn;
+      };
+      const selected = await dialogModule.open({
+        multiple: false,
+        filters: [{ name: "images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "avif"] }],
+        title: "select image",
+      });
+      if (selected && typeof selected === "string" && props.onUploadPath) {
+        await props.onUploadPath(selected);
+      }
+    } catch (err) {
+      console.error("failed to open file dialog:", err);
+    }
   };
 
   const imageSize = () => (props.compact ? "w-24 h-24" : "w-32 h-32");
@@ -43,6 +97,8 @@ export function EntityImages(props: EntityImagesProps) {
               <MediaImage
                 blobId={image.local_blob_id}
                 imageUrl={image.remote_url}
+                remoteBlobId={image.remote_blob_id}
+                remoteServerId={image.remote_server_id}
                 alt={`image ${index() + 1}`}
                 class="w-full h-full object-cover rounded"
               />
@@ -83,39 +139,73 @@ export function EntityImages(props: EntityImagesProps) {
           )}
         </For>
 
-        {/* upload button */}
-        <Show when={props.onUpload && !props.disabled}>
-          <label
-            class={`relative flex-shrink-0 ${imageSize()} border-2 border-dashed border-[var(--color-border-default)] rounded flex flex-col items-center justify-center cursor-pointer hover:border-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors ${
-              props.uploading ? "opacity-50 pointer-events-none" : ""
-            }`}
+        {/* upload button - uses tauri dialog when tauri-managed, otherwise file input */}
+        <Show when={(props.onUpload || props.onUploadPath) && !props.disabled}>
+          <Show
+            when={useTauriDialog()}
+            fallback={
+              // standard file input for browser/non-tauri-managed
+              <label
+                class={`relative flex-shrink-0 ${imageSize()} border-2 border-dashed border-[var(--color-border-default)] rounded flex flex-col items-center justify-center cursor-pointer hover:border-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors ${
+                  props.uploading ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
+                <Show
+                  when={!props.uploading}
+                  fallback={
+                    <div class="flex flex-col items-center gap-2">
+                      <div class="w-8 h-8 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full animate-spin" />
+                      <Show when={props.uploadProgress !== undefined}>
+                        <span class="text-xs text-[var(--color-text-secondary)]">
+                          {Math.round(props.uploadProgress!)}%
+                        </span>
+                      </Show>
+                    </div>
+                  }
+                >
+                  <Icon name="upload" className="w-6 h-6 text-[var(--color-text-tertiary)] mb-1" />
+                  <span class="text-xs text-[var(--color-text-tertiary)]">
+                    {props.compact ? "add" : "add image"}
+                  </span>
+                </Show>
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="hidden"
+                  onChange={handleFileSelect}
+                  disabled={props.uploading}
+                />
+              </label>
+            }
           >
-            <Show
-              when={!props.uploading}
-              fallback={
-                <div class="flex flex-col items-center gap-2">
-                  <div class="w-8 h-8 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full animate-spin" />
-                  <Show when={props.uploadProgress !== undefined}>
-                    <span class="text-xs text-[var(--color-text-secondary)]">
-                      {Math.round(props.uploadProgress!)}%
-                    </span>
-                  </Show>
-                </div>
-              }
-            >
-              <Icon name="upload" className="w-6 h-6 text-[var(--color-text-tertiary)] mb-1" />
-              <span class="text-xs text-[var(--color-text-tertiary)]">
-                {props.compact ? "add" : "add image"}
-              </span>
-            </Show>
-            <input
-              type="file"
-              accept="image/*"
-              class="hidden"
-              onChange={handleFileSelect}
+            {/* tauri dialog button for tauri-managed remotes */}
+            <button
+              class={`relative flex-shrink-0 ${imageSize()} border-2 border-dashed border-[var(--color-border-default)] rounded flex flex-col items-center justify-center cursor-pointer hover:border-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors ${
+                props.uploading ? "opacity-50 pointer-events-none" : ""
+              }`}
+              onClick={handleUploadClick}
               disabled={props.uploading}
-            />
-          </label>
+            >
+              <Show
+                when={!props.uploading}
+                fallback={
+                  <div class="flex flex-col items-center gap-2">
+                    <div class="w-8 h-8 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full animate-spin" />
+                    <Show when={props.uploadProgress !== undefined}>
+                      <span class="text-xs text-[var(--color-text-secondary)]">
+                        {Math.round(props.uploadProgress!)}%
+                      </span>
+                    </Show>
+                  </div>
+                }
+              >
+                <Icon name="upload" className="w-6 h-6 text-[var(--color-text-tertiary)] mb-1" />
+                <span class="text-xs text-[var(--color-text-tertiary)]">
+                  {props.compact ? "add" : "add image"}
+                </span>
+              </Show>
+            </button>
+          </Show>
         </Show>
       </div>
 

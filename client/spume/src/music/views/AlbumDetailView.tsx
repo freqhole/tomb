@@ -22,10 +22,12 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
 import { useAlbumContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import type { Song } from "../services/storage/types";
+import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import { EntityLinks } from "../../components/media/EntityLinks";
 import MarqueeText from "../../components/text/MarqueeText";
+import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -175,17 +177,20 @@ export function AlbumDetailView() {
   });
 
   // open image carousel with all album + song images (no waveforms)
-  const handleAlbumImageClick = () => {
-    const imageUrls: string[] = [];
+  const handleAlbumImageClick = async () => {
     const seen = new Set<string>();
+    const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
 
-    const addImage = (img: { remote_url?: string; local_blob_id?: string; blob_type: string }) => {
+    const addImage = (img: ImageMetadata) => {
       if (img.blob_type === "waveform") return;
-      const url = img.remote_url || img.local_blob_id;
-      if (url && !seen.has(url)) {
-        seen.add(url);
-        imageUrls.push(url);
-      }
+      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      imageItems.push({
+        blobId: img.remote_blob_id || img.local_blob_id,
+        url: img.remote_url,
+        serverId: img.remote_server_id,
+      });
     };
 
     // album images from the album entity (same source as edit modal)
@@ -206,6 +211,36 @@ export function AlbumDetailView() {
       if (song.images?.length) {
         for (const img of song.images) addImage(img);
       }
+    }
+
+    if (imageItems.length === 0) return;
+
+    // check if we need blob resolution (P2P or tauri-managed)
+    const firstWithServerId = imageItems.find((item) => item.serverId);
+    const needsResolution = firstWithServerId
+      ? await usesBlobResolver(firstWithServerId.serverId!)
+      : false;
+
+    let imageUrls: string[];
+    if (needsResolution) {
+      // resolve all images via blobResolver
+      imageUrls = (
+        await Promise.all(
+          imageItems.map(async (item) => {
+            if (item.blobId && item.serverId) {
+              try {
+                return await resolveBlobUrl(item.blobId, item.serverId, "image");
+              } catch {
+                return item.url ?? null;
+              }
+            }
+            return item.url ?? null;
+          })
+        )
+      ).filter((u): u is string => u !== null);
+    } else {
+      // standard HTTP - use URLs directly
+      imageUrls = imageItems.map((item) => item.url).filter((u): u is string => !!u);
     }
 
     if (imageUrls.length === 0) return;

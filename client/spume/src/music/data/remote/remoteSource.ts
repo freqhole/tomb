@@ -1099,18 +1099,30 @@ export class RemoteMusicDataSource implements MusicDataSource {
 
   // image operations - delegate to API client
   async uploadImage(params: {
-    file: File;
+    file?: File;
+    filePath?: string;
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }> {
-    const result = await (await this.getClient()).upload.image(params.file, {
+    const client = await this.getClient();
+    const associateOpts = {
       associate: {
         entity_type: params.entityType,
         entity_id: params.entityId,
         is_primary: params.isPrimary ?? false,
       },
-    });
+    };
+
+    // prefer filePath when available (tauri-local: skips base64 encoding)
+    let result;
+    if (params.filePath) {
+      result = await client.upload.imageByPath(params.filePath, associateOpts);
+    } else if (params.file) {
+      result = await client.upload.image(params.file, associateOpts);
+    } else {
+      throw new Error("either file or filePath must be provided");
+    }
     
     if (!result.success) {
       this.checkAuthError(result);

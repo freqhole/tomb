@@ -2,6 +2,7 @@
 //
 // for HTTP remotes: returns direct URLs (browser handles auth via cookies/api key)
 // for P2P remotes: fetches via transport, caches in Cache API, returns blob URL
+// for Tauri-managed remotes: uses IPC to get local file path, returns asset:// URL
 //
 // usage:
 //   const url = await resolveBlobUrl(blobId, remoteId, "audio");
@@ -13,6 +14,7 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import {
   getTransportForRemote,
   isP2PTransportType,
+  isTauriAvailable,
   type Remote,
 } from "../../../app/api/client";
 import { type BlobProgressCallback } from "freqhole-api-client";
@@ -60,25 +62,42 @@ export function getLoadingP2PSongIds(): Set<string> {
 // track in-progress P2P fetches with their promises so callers can await them
 const inProgressP2PFetches = new Map<string, Promise<string>>();
 
-// sync cache of remote transport types - populated on first async lookup
-// allows sync check of whether a remote is P2P (for avoiding flicker)
-const transportTypeCache = new Map<string, "http" | "wasm" | "app">();
+// sync cache of remote transport info - populated on first async lookup
+// allows sync check of whether a remote uses transport-based blob fetching
+interface TransportCacheEntry {
+  transport: "http" | "wasm" | "app";
+  isTauriManaged: boolean;
+}
+const transportTypeCache = new Map<string, TransportCacheEntry>();
 
 /**
- * check if a remote is P2P synchronously (from cache).
- * returns undefined if transport type not yet cached (need async lookup).
+ * check if a remote uses transport-based blob fetching (P2P or tauri-managed).
+ * returns undefined if not yet cached (need async lookup).
  */
 export function isP2PRemoteSync(remoteId: string): boolean | undefined {
   const cached = transportTypeCache.get(remoteId);
   if (cached === undefined) return undefined;
-  return cached === "wasm" || cached === "app";
+  // both P2P (wasm/app) and tauri-managed remotes use transport for blobs
+  return cached.transport === "wasm" || cached.transport === "app" || cached.isTauriManaged;
 }
 
 /**
- * cache a remote's transport type for future sync lookups.
+ * cache a remote's transport info for future sync lookups.
  */
-function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app") {
-  transportTypeCache.set(remoteId, transport);
+function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app", isTauriManaged: boolean = false) {
+  transportTypeCache.set(remoteId, { transport, isTauriManaged });
+}
+
+/**
+ * eagerly cache transport info for a remote.
+ * call this when switching to a remote to ensure sync lookups work immediately.
+ */
+export async function preCacheRemoteTransport(remoteId: string): Promise<void> {
+  const remote = await getRemoteById(remoteId);
+  if (remote) {
+    cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
+    debug("blobResolver", `pre-cached transport for ${remoteId}: ${remote.transport}, tauri-managed: ${remote.is_tauri_managed}`);
+  }
 }
 
 // valid thumbnail sizes (must match server config)
@@ -117,21 +136,22 @@ export async function resolveBlobUrl(
     throw new Error(`remote not found: ${remoteId}`);
   }
 
-  // cache transport type for future sync lookups (reduces flicker)
-  cacheTransportType(remoteId, remote.transport);
+  // cache transport info for future sync lookups (reduces flicker)
+  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
 
-  // check if this is a P2P remote
-  if (isP2PTransportType(remote)) {
+  // check if this is a P2P remote or Tauri-managed remote (both use transport for blobs)
+  if (isP2PTransportType(remote) || (isTauriAvailable() && remote.is_tauri_managed)) {
     // check if there's already a fetch in progress for this blob
     // if so, wait for it instead of starting a duplicate fetch
     const inProgress = inProgressP2PFetches.get(cacheKey);
     if (inProgress) {
-      debug("blobResolver", `waiting for in-progress P2P fetch: ${blobId.slice(0, 8)}...`);
+      debug("blobResolver", `waiting for in-progress fetch: ${blobId.slice(0, 8)}...`);
       return inProgress;
     }
     
     // only log when we're actually starting a new fetch
-    debug("blobResolver", `starting P2P fetch for ${blobId.slice(0, 8)}...`);
+    const transportType = remote.is_tauri_managed ? "tauri" : "P2P";
+    debug("blobResolver", `starting ${transportType} fetch for ${blobId.slice(0, 8)}...`);
     
     // start the fetch and track it
     // note: P2P thumbnail support requires proxy_request - use original blob for now
@@ -153,8 +173,9 @@ export async function resolveBlobUrl(
 }
 
 /**
- * resolve a blob via P2P transport.
- * checks Cache API first, then fetches from peer if not cached.
+ * resolve a blob via transport (P2P or Tauri local).
+ * for P2P: checks Cache API first, then fetches from peer if not cached.
+ * for Tauri: uses IPC to get local file path, returns asset:// URL.
  * @param onProgress - optional callback for download progress (received, total)
  */
 async function resolveP2PBlob(
@@ -164,7 +185,17 @@ async function resolveP2PBlob(
   type: "audio" | "image",
   onProgress?: BlobProgressCallback,
 ): Promise<string> {
-  // check Cache API first - blob might be cached from a previous session
+  // Tauri-managed remotes don't need Cache API - files are local
+  if (isTauriAvailable() && remote.is_tauri_managed) {
+    debug("blobResolver", `resolving local blob via Tauri IPC: ${blobId.slice(0, 8)}...`);
+    const transport = await getTransportForRemote(remote);
+    const url = await transport.getBlobUrl(blobId);
+    addActiveBlobUrl(cacheKey, url);
+    debug("blobResolver", `resolved local blob: ${blobId.slice(0, 8)}... -> ${url.slice(0, 30)}...`);
+    return url;
+  }
+  
+  // P2P remotes - check Cache API first, blob might be cached from a previous session
   try {
     const cacheName = getRemoteCacheName(remote.remote_id);
     const cache = await caches.open(cacheName);
@@ -343,8 +374,19 @@ export async function evictP2PBlob(blobId: string, remoteId: string): Promise<vo
 export async function isP2PRemote(remoteId: string): Promise<boolean> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return false;
-  cacheTransportType(remoteId, remote.transport);
+  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
   return isP2PTransportType(remote);
+}
+
+/**
+ * check if a remote should use the blobResolver for audio/image access.
+ * returns true for P2P remotes (wasm/app) and Tauri-managed remotes.
+ */
+export async function usesBlobResolver(remoteId: string): Promise<boolean> {
+  const remote = await getRemoteById(remoteId);
+  if (!remote) return false;
+  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
+  return isP2PTransportType(remote) || (isTauriAvailable() && !!remote.is_tauri_managed);
 }
 
 /**
@@ -356,7 +398,7 @@ export async function getRemoteTransportType(
 ): Promise<"http" | "wasm" | "app" | null> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return null;
-  cacheTransportType(remoteId, remote.transport);
+  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
   return remote.transport;
 }
 

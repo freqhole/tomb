@@ -6,6 +6,7 @@ import type { Transport } from "../transport.js";
 import type { SafeParseResult } from "./types.js";
 import {
   MusicUploadResponseSchema,
+  MusicImportResponseSchema,
   ImageUploadResponseSchema,
 } from "../codegen/schema.js";
 import type * as s from "../codegen/schema.js";
@@ -87,6 +88,56 @@ export function createUploadMethods(transport: Transport) {
 
       const response = await transport.upload("/api/upload/image", formData);
       return parseResponse(response.body, response.status, ImageUploadResponseSchema);
+    },
+
+    /**
+     * upload an image by filesystem path (tauri-local only)
+     * bypasses base64 encoding by passing path directly to backend
+     * requires transport.uploadByPath to be implemented
+     */
+    imageByPath: async (
+      filePath: string,
+      options?: UploadImageOptions,
+    ): Promise<SafeParseResult<s.ImageUploadResponse>> => {
+      if (!transport.uploadByPath) {
+        return {
+          success: false,
+          error: new z.ZodError([
+            { code: "custom", path: [], message: "uploadByPath not supported by this transport" },
+          ]),
+        };
+      }
+
+      const metadata: Record<string, unknown> = {};
+      if (options?.associate) {
+        metadata.associate_with = options.associate;
+      }
+
+      const response = await transport.uploadByPath("/api/upload/image", filePath, metadata);
+      return parseResponse(response.body, response.status, ImageUploadResponseSchema);
+    },
+
+    /**
+     * import music files by filesystem paths (tauri-local only)
+     * accepts file paths or directory paths (directories are scanned recursively)
+     * bypasses file transfer since files are already local
+     * requires transport.request to be implemented (uses POST with JSON body)
+     *
+     * @param paths - array of file or directory paths to import
+     * @param options - optional settings
+     * @param options.waitForCompletion - if true, wait for all jobs to complete (up to 5 min)
+     */
+    musicByPaths: async (
+      paths: string[],
+      options?: { waitForCompletion?: boolean },
+    ): Promise<SafeParseResult<s.MusicImportResponse>> => {
+      const body = {
+        paths,
+        wait_for_completion: options?.waitForCompletion ?? false,
+      };
+
+      const response = await transport.request("POST", "/api/upload/music-paths", JSON.stringify(body));
+      return parseResponse(response.body, response.status, MusicImportResponseSchema);
     },
   };
 }

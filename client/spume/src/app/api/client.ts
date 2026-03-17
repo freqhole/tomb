@@ -17,6 +17,7 @@ import {
   WasmTransport,
   createTauriTransport,
   getTauriNodeId,
+  createTauriLocalTransport,
   type MiddenNodeLike,
   type Transport,
 } from "freqhole-api-client";
@@ -239,6 +240,12 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
       if (!baseUrl) {
         throw new Error('base_url required for http transport');
       }
+      // use TauriLocalTransport for tauri-managed remotes (local server)
+      // tries dispatch first, falls back to HTTP for routes not yet in dispatch
+      if (isTauriMode() && remote.is_tauri_managed) {
+        console.log('[client] using TauriLocalTransport for tauri-managed remote');
+        return new FreqholeClient(createTauriLocalTransport(baseUrl));
+      }
       return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
   }
 }
@@ -251,6 +258,9 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
  * get a transport for a remote (async).
  * use this when you need direct transport access for blob operations.
  * the Transport interface abstracts away wasm/app/http differences.
+ * 
+ * NOTE: dispatch transport doesn't support blobs yet, so we still use
+ * HttpTransport for blob operations even in Tauri mode.
  */
 export async function getTransportForRemote(remote: RemoteLike): Promise<Transport> {
   const transportType = resolveTransport(remote);
@@ -276,6 +286,10 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
     default:
       if (!baseUrl) {
         throw new Error('base_url required for http transport');
+      }
+      // use TauriLocalTransport for tauri-managed remotes - supports blobs via IPC
+      if (isTauriMode() && remote.is_tauri_managed) {
+        return createTauriLocalTransport(baseUrl);
       }
       return new HttpTransport(baseUrl, remote.api_key);
   }

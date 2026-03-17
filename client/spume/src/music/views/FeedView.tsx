@@ -35,6 +35,7 @@ import { showPlaylistSelector } from "../hooks/playlistSelectorState";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { useQueryClient } from "@tanstack/solid-query";
 import { queryKeys } from "../queries/queryKeys";
+import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 
 export function FeedView() {
   const navigate = useNavigate();
@@ -372,16 +373,46 @@ export function FeedView() {
   const handleImageCarousel = async (item: FeedItem) => {
     const images = item.images;
     if (images && images.length > 0) {
-      const urls = images
-        .filter((img) => img.blob_type !== "waveform" && img.remote_url)
-        .map((img) => img.remote_url!);
+      // filter out waveforms, keep images that have blob_id or remote_url
+      const displayableImages = images.filter(
+        (img) => img.blob_type !== "waveform" && (img.remote_blob_id || img.remote_url)
+      );
 
-      if (urls.length > 0) {
-        showImageCarousel({
-          images: urls,
-          title: item.title ?? undefined,
-        });
-        return;
+      if (displayableImages.length > 0) {
+        // check if we need blob resolution (tauri-managed or P2P)
+        const firstWithServerId = displayableImages.find((img) => img.remote_server_id);
+        const needsResolution = firstWithServerId
+          ? await usesBlobResolver(firstWithServerId.remote_server_id!)
+          : false;
+
+        let urls: string[];
+        if (needsResolution) {
+          // resolve all image URLs via blobResolver
+          urls = await Promise.all(
+            displayableImages.map(async (img) => {
+              if (img.remote_blob_id && img.remote_server_id) {
+                try {
+                  return await resolveBlobUrl(img.remote_blob_id, img.remote_server_id, "image");
+                } catch {
+                  return img.remote_url ?? "";
+                }
+              }
+              return img.remote_url ?? "";
+            })
+          );
+          urls = urls.filter((u) => u); // remove empty strings
+        } else {
+          // standard HTTP - use remote_url directly
+          urls = displayableImages.filter((img) => img.remote_url).map((img) => img.remote_url!);
+        }
+
+        if (urls.length > 0) {
+          showImageCarousel({
+            images: urls,
+            title: item.title ?? undefined,
+          });
+          return;
+        }
       }
     }
   };
@@ -400,7 +431,9 @@ export function FeedView() {
       !(
         item.images &&
         item.images.length > 0 &&
-        item.images.some((img) => img.blob_type !== "waveform" && img.remote_url)
+        item.images.some(
+          (img) => img.blob_type !== "waveform" && (img.remote_blob_id || img.remote_url)
+        )
       )
     ) {
       await handlePlayItem(item);

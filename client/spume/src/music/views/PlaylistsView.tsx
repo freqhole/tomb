@@ -1,16 +1,7 @@
 // playlists view - displays playlists in two-column layout with detail panel
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-  untrack,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
@@ -41,6 +32,7 @@ import {
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
+import { resolveBlobUrl } from "../services/storage/blobResolver";
 import {
   checkIfPlaylistNeedsSync,
   downloadPlaylist,
@@ -107,7 +99,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncCheckResult | null>(null);
   const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<string | null>(null);
-  const [localThumbnailUrl, setLocalThumbnailUrl] = createSignal<string | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
 
   onMount(() => {
@@ -174,17 +165,10 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // query client for invalidation
   const queryClient = useQueryClient();
 
-  // cleanup on unmount - revoke any object URLs
-  onCleanup(() => {
-    const url = localThumbnailUrl();
-    if (url) {
-      URL.revokeObjectURL(url);
-    }
-    const bgUrl = backgroundImageUrl();
-    if (bgUrl) {
-      URL.revokeObjectURL(bgUrl);
-    }
-  });
+  // NOTE: don't revoke blob URLs on unmount - the blob URL cache systems
+  // (BLOB_URL_CACHE and blobResolver's activeBlobUrls) manage URL lifecycles.
+  // manually revoking causes "WebKitBlobResource error 1" when cached URLs
+  // are reused when the component remounts.
 
   // check if viewing remote playlists
   const isViewingRemote = createMemo(() => getCurrentRemote() !== null);
@@ -264,22 +248,13 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // get selected playlist metadata
   // for local playlists, fetch full record from db to get sync fields
-  const [fullPlaylist, setFullPlaylist] = createSignal<Playlist | null>(null);
+  const [_fullPlaylist, setFullPlaylist] = createSignal<Playlist | null>(null);
 
   // fetch full playlist when viewing local and selection changes
   // #TODO: yank this duplicate effect.
   createEffect(() => {
     const id = selectedPlaylistId();
     const viewingRemote = isViewingRemote();
-
-    // always revoke old object URL when switching playlists (use untrack to avoid dependency)
-    untrack(() => {
-      const oldUrl = localThumbnailUrl();
-      if (oldUrl) {
-        URL.revokeObjectURL(oldUrl);
-        setLocalThumbnailUrl(null);
-      }
-    });
 
     // if viewing remote or no selection, clear local state
     if (!id || viewingRemote) {
@@ -385,41 +360,54 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   };
 
+  // get the primary image metadata for selected playlist
+  const primaryImageMeta = createMemo(() => {
+    const playlist = selectedPlaylist();
+    if (!playlist?.images?.length) return null;
+    return playlist.images.find((img) => img.is_primary) || playlist.images[0];
+  });
+
   // construct thumbnail URL for selected playlist
   const thumbnailUrl = createMemo(() => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return null;
-
-    // use images array if available
-    if (playlist.images?.length) {
-      const primaryImage = playlist.images.find((img) => img.is_primary) || playlist.images[0];
-      return primaryImage.remote_url || primaryImage.local_blob_id || null;
+    const imageMeta = primaryImageMeta();
+    if (imageMeta) {
+      return imageMeta.remote_url || imageMeta.local_blob_id || null;
     }
-
-    // fallback: use local thumbnail URL if available for THIS playlist
-    const localUrl = localThumbnailUrl();
-    const localPlaylist = fullPlaylist();
-    if (localUrl && localPlaylist?.playlist_id === playlist.playlist_id) {
-      return localUrl;
-    }
-
     return null;
   });
 
   // resolve blob URLs for background image (convert blob IDs to actual URLs)
   createEffect(() => {
+    const imageMeta = primaryImageMeta();
     const url = thumbnailUrl();
+    const remote = getCurrentRemote();
 
-    // revoke old background URL
-    untrack(() => {
-      const oldBgUrl = backgroundImageUrl();
-      if (oldBgUrl && oldBgUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(oldBgUrl);
-      }
-    });
+    // NOTE: don't manually revoke blob URLs - the blob URL cache systems
+    // (BLOB_URL_CACHE and blobResolver's activeBlobUrls) manage URL lifecycles.
+    // manually revoking causes "WebKitBlobResource error 1" when cached URLs
+    // are reused elsewhere in the app.
 
     if (!url) {
       setBackgroundImageUrl(null);
+      return;
+    }
+
+    // check if this is a tauri-managed or P2P remote (needs blob resolution)
+    const isTransportBased =
+      remote &&
+      (remote.transport_type === "wasm" ||
+        remote.transport_type === "app" ||
+        remote.is_tauri_managed);
+
+    // for transport-based remotes, always use resolveBlobUrl with blob ID
+    if (isTransportBased && imageMeta?.remote_blob_id) {
+      resolveBlobUrl(imageMeta.remote_blob_id, remote.remote_id, "image")
+        .then((objectUrl) => {
+          setBackgroundImageUrl(objectUrl);
+        })
+        .catch(() => {
+          setBackgroundImageUrl(null);
+        });
       return;
     }
 
@@ -430,14 +418,29 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
 
     // otherwise it's a blob ID, need to resolve it to a blob URL
-    getBlobObjectURL(url).then((objectUrl) => {
-      if (objectUrl) {
-        // getBlobObjectURL already returns an object URL string
-        setBackgroundImageUrl(objectUrl);
-      } else {
-        setBackgroundImageUrl(null);
-      }
-    });
+    if (!remote) {
+      setBackgroundImageUrl(null);
+      return;
+    }
+
+    // use resolveBlobUrl for P2P/Tauri remotes, getBlobObjectURL for HTTP
+    if (isTransportBased) {
+      resolveBlobUrl(url, remote.remote_id, "image")
+        .then((objectUrl) => {
+          setBackgroundImageUrl(objectUrl);
+        })
+        .catch(() => {
+          setBackgroundImageUrl(null);
+        });
+    } else {
+      getBlobObjectURL(url).then((objectUrl) => {
+        if (objectUrl) {
+          setBackgroundImageUrl(objectUrl);
+        } else {
+          setBackgroundImageUrl(null);
+        }
+      });
+    }
   });
 
   // sync local background URL to global background service
@@ -457,45 +460,85 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   });
 
   // open image carousel with all playlist and song images
-  const handleOpenImageCarousel = () => {
+  const handleOpenImageCarousel = async () => {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
+    const remote = getCurrentRemote();
     const songs = playlistSongs();
-    const imageMap = new Map<string, string>();
+
+    // check if this remote needs blob resolution (P2P or tauri-managed)
+    const isTransportBased =
+      remote &&
+      (remote.transport_type === "wasm" ||
+        remote.transport_type === "app" ||
+        remote.is_tauri_managed);
+
+    // collect all images: Map<blobId, ImageMetadata>
+    const imageMap = new Map<string, { blobId: string; url?: string }>();
 
     // add all playlist images (except waveforms), deduplicate by blob_id
     if (playlist.images?.length) {
       for (const img of playlist.images) {
         if (img.blob_type !== "waveform") {
           const blobId = img.remote_blob_id || img.local_blob_id;
-          const url = img.remote_url || img.local_blob_id;
-          if (blobId && url) imageMap.set(blobId, url);
+          const url = img.remote_url;
+          if (blobId) imageMap.set(blobId, { blobId, url });
         }
       }
     }
 
-    // collect all song and album images (except waveforms), deduplicate by blob_id
+    // collect all song images (except waveforms), deduplicate by blob_id
     for (const song of songs) {
       if (song.images?.length) {
         for (const img of song.images) {
           if (img.blob_type !== "waveform") {
             const blobId = img.remote_blob_id || img.local_blob_id;
-            const url = img.remote_url || img.local_blob_id;
-            if (blobId && url) imageMap.set(blobId, url);
+            const url = img.remote_url;
+            if (blobId) imageMap.set(blobId, { blobId, url });
           }
         }
       }
     }
 
-    const images = Array.from(imageMap.values());
-
-    if (images.length === 0) {
+    if (imageMap.size === 0) {
       toast.info("no images available for this playlist");
       return;
     }
 
-    setCarouselImages(images);
+    // resolve images to URLs
+    let resolvedUrls: string[];
+
+    if (isTransportBased && remote) {
+      // transport-based remote: resolve blob IDs through transport
+      const resolvePromises = Array.from(imageMap.values()).map(async ({ blobId }) => {
+        try {
+          return await resolveBlobUrl(blobId, remote.remote_id, "image");
+        } catch {
+          return null;
+        }
+      });
+      const results = await Promise.all(resolvePromises);
+      resolvedUrls = results.filter((url): url is string => url !== null);
+    } else {
+      // HTTP remote or local: use URLs directly, or resolve local blob IDs
+      const resolvePromises = Array.from(imageMap.values()).map(async ({ blobId, url }) => {
+        // prefer URL if available (http remote)
+        if (url) return url;
+        // otherwise resolve from OPFS
+        const resolved = await getBlobObjectURL(blobId);
+        return resolved ?? null;
+      });
+      const results = await Promise.all(resolvePromises);
+      resolvedUrls = results.filter((url): url is string => url !== null);
+    }
+
+    if (resolvedUrls.length === 0) {
+      toast.info("no images available for this playlist");
+      return;
+    }
+
+    setCarouselImages(resolvedUrls);
     setCarouselInitialIndex(0);
     setShowImageCarousel(true);
   };

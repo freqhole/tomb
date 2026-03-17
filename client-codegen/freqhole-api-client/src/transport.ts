@@ -69,6 +69,20 @@ export interface Transport {
    * only implemented by P2P transports (WasmTransport)
    */
   fetchHelloImage?(): Promise<BlobData | null>;
+
+  /**
+   * upload a file by filesystem path (optional).
+   * only implemented by transports with direct filesystem access (TauriLocalTransport).
+   * skips base64 encoding by passing the path to the backend.
+   * @param path - API path (e.g., /api/upload/image)
+   * @param filePath - local filesystem path to the file
+   * @param metadata - optional metadata to include (e.g., associate_with)
+   */
+  uploadByPath?(
+    path: string,
+    filePath: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<TransportResponse>;
 }
 
 /**

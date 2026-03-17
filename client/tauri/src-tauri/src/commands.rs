@@ -2198,3 +2198,55 @@ pub async fn reject_all_knocks(app_handle: tauri::AppHandle) -> Result<u32, Stri
 
     Ok(rejected)
 }
+
+// =============================================================================
+// unified API dispatch (spike)
+// =============================================================================
+
+/// call grimoire API directly via dispatch
+///
+/// this bypasses HTTP entirely - tauri calls grimoire directly.
+/// path: API path (e.g., "/api/music/playlists/list")
+/// body: JSON request body (can be null/empty object)
+///
+/// returns the dispatch response as JSON string
+#[tauri::command]
+pub async fn api_call(
+    app_handle: tauri::AppHandle,
+    path: String,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    ensure_initialized(&app_handle).await?;
+
+    // get caller from app config admin user
+    let caller = get_caller_from_app_config(&app_handle)?;
+
+    let response = grimoire::offal::dispatch(&path, &caller, body).await;
+
+    // return the full response as JSON
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
+/// get caller identity from app config admin user
+fn get_caller_from_app_config(
+    app_handle: &tauri::AppHandle,
+) -> Result<grimoire::offal::Caller, String> {
+    let app_config = FreqholeAppConfig::load(app_handle)
+        .ok_or_else(|| "app config not found - run setup first".to_string())?;
+
+    let user_id = app_config
+        .admin_user
+        .user_id
+        .ok_or_else(|| "admin user not configured - run setup first".to_string())?;
+
+    let username = app_config
+        .admin_user
+        .username
+        .ok_or_else(|| "admin username not configured - run setup first".to_string())?;
+
+    Ok(grimoire::offal::Caller::new(
+        user_id,
+        username,
+        grimoire::users::UserRole::Admin,
+    ))
+}

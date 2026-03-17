@@ -12,12 +12,16 @@ export interface AddMusicModalProps {
   isOpen: boolean;
   /** callback when close button clicked */
   onClose: () => void;
-  /** callback when files are selected */
+  /** callback when files are selected (standard browser file input) */
   onFilesSelected?: (files: FileList) => void;
+  /** callback when paths are selected (tauri dialog - files or directories) */
+  onPathsSelected?: (paths: string[]) => void;
   /** callback when urls are submitted */
   onUrlsSubmitted?: (urls: string[]) => void;
   /** name of the remote server (shows in header when set) */
   remoteName?: string;
+  /** whether to use tauri dialog (for tauri-managed remotes) */
+  useTauriDialog?: boolean;
   /** tracked upload/fetch jobs to display */
   uploadJobs?: UploadJob[];
   /** local import progress */
@@ -31,8 +35,75 @@ export function AddMusicModal(props: AddMusicModalProps) {
   const [urlText, setUrlText] = createSignal("");
   let fileInputRef: HTMLInputElement | undefined;
 
+  // tauri dialog open function type
+  type TauriDialogOpenFn = (options: {
+    multiple?: boolean;
+    directory?: boolean;
+    filters?: { name: string; extensions: string[] }[];
+    title?: string;
+  }) => Promise<string | string[] | null>;
+
   const handleSelectFiles = () => {
+    // for tauri dialog mode, trigger the tauri dialog picker
+    if (props.useTauriDialog && props.onPathsSelected) {
+      handleTauriFilesPick();
+      return;
+    }
+    // fall back to standard file input
     fileInputRef?.click();
+  };
+
+  const handleSelectDirectory = async () => {
+    if (!props.useTauriDialog || !props.onPathsSelected) return;
+
+    try {
+      // dynamically import dialog plugin (only available in tauri runtime)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dialogModule = (await import("@tauri-apps/plugin-dialog" as any)) as {
+        open: TauriDialogOpenFn;
+      };
+
+      const selected = await dialogModule.open({
+        multiple: false,
+        directory: true,
+        title: "select music folder",
+      });
+
+      if (selected && typeof selected === "string") {
+        props.onPathsSelected([selected]);
+      }
+    } catch (err) {
+      console.error("failed to open directory dialog:", err);
+    }
+  };
+
+  const handleTauriFilesPick = async () => {
+    if (!props.onPathsSelected) return;
+
+    try {
+      // dynamically import dialog plugin (only available in tauri runtime)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dialogModule = (await import("@tauri-apps/plugin-dialog" as any)) as {
+        open: TauriDialogOpenFn;
+      };
+
+      const selected = await dialogModule.open({
+        multiple: true,
+        filters: [
+          { name: "audio", extensions: ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"] },
+        ],
+        title: "select music files",
+      });
+
+      if (selected) {
+        const paths = Array.isArray(selected) ? selected : [selected];
+        if (paths.length > 0) {
+          props.onPathsSelected(paths);
+        }
+      }
+    } catch (err) {
+      console.error("failed to open file dialog:", err);
+    }
   };
 
   const handleFileChange = (e: Event) => {
@@ -144,26 +215,37 @@ export function AddMusicModal(props: AddMusicModalProps) {
                     </div>
                     <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add music files</h3>
                     <p class="body-small text-[var(--color-text-secondary)] mb-2">
-                      {props.remoteName
-                        ? `files will be uploaded to ${props.remoteName}`
-                        : "drag audio files here or click to select"}
+                      {props.useTauriDialog
+                        ? "select files or an entire folder"
+                        : props.remoteName
+                          ? `files will be uploaded to ${props.remoteName}`
+                          : "drag audio files here or click to select"}
                     </p>
                     <p class="body-xs text-[var(--color-text-tertiary)] mb-4">
                       supports mp3, flac, wav, m4a, ogg
                     </p>
-                    <Button variant="primary" onClick={handleSelectFiles}>
-                      select files
-                    </Button>
+                    <div class="flex gap-2">
+                      <Button variant="primary" onClick={handleSelectFiles}>
+                        select files
+                      </Button>
+                      <Show when={props.useTauriDialog}>
+                        <Button variant="secondary" onClick={handleSelectDirectory}>
+                          select folder
+                        </Button>
+                      </Show>
+                    </div>
 
-                    {/* hidden file input */}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="audio/*,.mp3,.flac,.wav,.m4a,.ogg"
-                      multiple
-                      class="hidden"
-                      onChange={handleFileChange}
-                    />
+                    {/* hidden file input - fallback for non-tauri mode */}
+                    <Show when={!props.useTauriDialog}>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="audio/*,.mp3,.flac,.wav,.m4a,.ogg"
+                        multiple
+                        class="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </Show>
                   </div>
                 </TabPanel>
 

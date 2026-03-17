@@ -103,3 +103,18 @@ pub struct SetPrimaryImageRequest {
     /// Blob ID to set as primary
     pub blob_id: String,
 }
+
+/// response for music import by paths (tauri-local)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct MusicImportResponse {
+    /// job session ID for tracking batch progress
+    pub session_id: String,
+    /// number of jobs created (files to process)
+    pub jobs_created: i32,
+    /// number of paths that were directories (scanned recursively)
+    pub directories_scanned: i32,
+    /// number of files skipped (not audio or already processed)
+    pub files_skipped: i32,
+    /// success message
+    pub message: String,
+}

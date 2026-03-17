@@ -17,6 +17,7 @@ import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import {
   getDataSource,
   getCurrentRemote,
+  getRemoteClient,
   initializeDataSource,
   useLocalSource,
   useRemoteSource,
@@ -473,6 +474,50 @@ export function App() {
     await fetchUrlsOnRemote(urls, onRemoteJobComplete);
   };
 
+  // handle paths selected via tauri dialog (tauri-managed remotes only)
+  const handlePathsSelected = async (paths: string[]) => {
+    const remote = getCurrentRemote();
+
+    if (!remote?.is_tauri_managed) {
+      toast.warning("path-based import is only available for local library", {
+        title: "not supported",
+      });
+      return;
+    }
+
+    try {
+      const client = await getRemoteClient();
+      if (!client) {
+        toast.error("no remote client available", { title: "import error" });
+        return;
+      }
+
+      // use musicByPaths to import files/directories
+      const result = await client.upload.musicByPaths(paths, { waitForCompletion: false });
+      if (result.success && result.data) {
+        const data = result.data;
+        if (data.jobs_created > 0) {
+          toast.success(data.message, { title: "import started" });
+          // invalidate queries after import starts
+          onRemoteJobComplete();
+        } else if (data.files_skipped > 0) {
+          toast.info(`skipped ${data.files_skipped} files (no supported audio found)`, {
+            title: "nothing to import",
+          });
+        } else {
+          toast.info("no audio files found", { title: "nothing to import" });
+        }
+      } else {
+        const errMsg =
+          (!result.success && result.error?.issues?.[0]?.message) || "failed to start import";
+        toast.error(errMsg, { title: "import error" });
+      }
+    } catch (error) {
+      console.error("failed to import paths:", error);
+      toast.error("failed to start import", { title: "import error" });
+    }
+  };
+
   const handleCloseAddMusic = () => {
     clearCompletedJobs();
     clearLocalImportProgress();
@@ -520,8 +565,10 @@ export function App() {
         isOpen={isAddMusicOpen()}
         onClose={handleCloseAddMusic}
         onFilesSelected={handleFilesSelected}
+        onPathsSelected={handlePathsSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
+        useTauriDialog={isTauriMode() && getCurrentRemote()?.is_tauri_managed === true}
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
       />

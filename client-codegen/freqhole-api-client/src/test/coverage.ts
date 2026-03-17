@@ -16,6 +16,7 @@ const client = createHttpClient("http://localhost:8080");
 
 // map of domain -> client namespace
 const clientDomains = {
+  admin: client.admin,
   app: client.app,
   auth: client.auth,
   music: client.music,

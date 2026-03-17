@@ -195,7 +195,7 @@ pub mod type_registry {
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
         AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
-        MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
+        MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
     };
 
     // analytics types
@@ -655,6 +655,9 @@ pub mod type_registry {
 
         gen.add_schema::<MusicUploadResponse>("MusicUploadResponse");
         registered.insert("MusicUploadResponse".to_string());
+
+        gen.add_schema::<MusicImportResponse>("MusicImportResponse");
+        registered.insert("MusicImportResponse".to_string());
 
         gen.add_schema::<DeleteImageRequest>("DeleteImageRequest");
         registered.insert("DeleteImageRequest".to_string());

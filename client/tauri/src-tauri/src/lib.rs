@@ -124,6 +124,23 @@ pub fn run() {
                     }
                 });
 
+                // spawn job runner in tauri process for tauri-local transport (api_call)
+                // this ensures jobs are processed even before the server sidecar starts
+                // or if the server is slow. SQLite handles concurrent access safely.
+                let job_runner_token = app.state::<ShutdownToken>().inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    eprintln!("[tauri] starting job runner...");
+                    let result = grimoire::jobs::run_job_processor_with_token(
+                        job_runner_token.0.as_ref().clone(),
+                    )
+                    .await;
+                    if result.success {
+                        eprintln!("[tauri] job runner stopped gracefully");
+                    } else {
+                        eprintln!("[tauri] job runner error: {}", result.message);
+                    }
+                });
+
                 let state = app.state::<sidecar::ServerManager>().inner().clone();
                 let app_handle = app.handle().clone();
                 let app_handle_for_server = app_handle.clone();
@@ -245,6 +262,8 @@ pub fn run() {
             commands::reject_all_knocks,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
+            // unified API dispatch (spike)
+            commands::api_call,
             sidecar::server_status,
             sidecar::server_start,
             sidecar::server_stop,

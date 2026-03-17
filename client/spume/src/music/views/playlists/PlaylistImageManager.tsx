@@ -4,6 +4,8 @@ import { Icon, IconNames } from "../../../components/icons/registry";
 import MediaImage from "../../../components/media/MediaImage";
 import { toast } from "../../../components/feedback/Toast";
 import { getDataSource, getCurrentRemote } from "../../data";
+import { isHttpRemote } from "../../../app/services/storage/types";
+import { getRemoteMediaUrl } from "../../../utils/urls";
 import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
 import type { ImageMetadata } from "../../services/storage/types";
 import { useQueryClient } from "@tanstack/solid-query";
@@ -68,11 +70,31 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
         }
       }
 
-      const newImage: ImageMetadata = {
-        local_blob_id: blob_id,
-        is_primary: props.images.length === 0,
-        blob_type: "thumbnail",
-      };
+      // construct proper image metadata based on data source
+      const isPrimary = props.images.length === 0;
+      let newImage: ImageMetadata;
+      if (remote) {
+        // remote upload - always use remote_blob_id + remote_server_id
+        // only set remote_url for standard HTTP (not tauri-managed, which uses IPC)
+        const remoteUrl =
+          isHttpRemote(remote) && !remote.is_tauri_managed
+            ? getRemoteMediaUrl(remote.base_url, blob_id)
+            : undefined;
+        newImage = {
+          remote_blob_id: blob_id,
+          remote_url: remoteUrl,
+          remote_server_id: remote.remote_id,
+          is_primary: isPrimary,
+          blob_type: "thumbnail",
+        };
+      } else {
+        // local upload - use local field
+        newImage = {
+          local_blob_id: blob_id,
+          is_primary: isPrimary,
+          blob_type: "thumbnail",
+        };
+      }
       const updatedImages = [...props.images, newImage];
       props.onImagesChange(updatedImages);
 

@@ -3,7 +3,7 @@ import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import {
   resolveBlobUrl,
-  isP2PRemote,
+  usesBlobResolver,
   isP2PRemoteSync,
   getCachedP2PBlobUrl,
   type ThumbnailSize,
@@ -42,9 +42,9 @@ async function resolveImageUrl(
   // priority 2: remote with server ID - check transport type
   if (image?.remote_blob_id && image?.remote_server_id) {
     try {
-      const isP2P = await isP2PRemote(image.remote_server_id);
-      if (isP2P) {
-        // P2P remote - use P2P resolution
+      const needsBlobResolver = await usesBlobResolver(image.remote_server_id);
+      if (needsBlobResolver) {
+        // P2P or tauri-managed remote - use blob resolution
         return await resolveBlobUrl(
           image.remote_blob_id,
           image.remote_server_id,
@@ -53,7 +53,7 @@ async function resolveImageUrl(
           thumbnailSize
         );
       } else {
-        // HTTP remote - use URL directly
+        // standard HTTP remote - use URL directly
         if (image.remote_url) {
           return thumbnailSize ? `${image.remote_url}/thumb/${thumbnailSize}` : image.remote_url;
         }

@@ -801,6 +801,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // for blob thumbnails - returns binary image data
+    getBlobThumbnail: (params: { id: string; size: string }) => {
+      return call(
+        "music", "get_blob_thumbnail",
+        routes.music.get_blob_thumbnail.resp,
+        routes.music.get_blob_thumbnail.req,
+        routes.music.get_blob_thumbnail.method,
+        routes.music.get_blob_thumbnail.path,
+        params,
+      );
+    },
+
     // for image uploads, use utils.uploadImage() which handles FormData properly
     uploadImage: () => {
       return call(

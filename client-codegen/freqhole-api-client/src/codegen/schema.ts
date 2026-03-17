@@ -1444,6 +1444,15 @@ export const MediaBlobSchema = z.object({
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
+export const MusicImportResponseSchema = z.object({
+  session_id: z.string(),
+  jobs_created: z.number(),
+  directories_scanned: z.number(),
+  files_skipped: z.number(),
+  message: z.string()
+});
+export type MusicImportResponse = z.infer<typeof MusicImportResponseSchema>;
+
 export const MusicMetadataHintsSchema = z.object({
   artist: z.string().nullable(),
   album: z.string().nullable(),

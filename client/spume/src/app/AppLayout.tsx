@@ -44,7 +44,12 @@ import {
   volume,
 } from "../music/services/audio/player";
 import { getLoadingSongIds } from "../music/services/cache/blobCache";
-import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
+import {
+  getLoadingP2PSongIds,
+  preCacheRemoteTransport,
+  resolveBlobUrl,
+  usesBlobResolver,
+} from "../music/services/storage/blobResolver";
 import {
   canGoNext,
   canGoPrevious,
@@ -245,6 +250,9 @@ export function AppLayout(props: AppLayoutProps) {
         return;
       }
 
+      // pre-cache transport type for blob resolution (avoids flicker on image load)
+      await preCacheRemoteTransport(remoteId);
+
       // check if remote is online before switching
       const isOnline = await checkRemoteHealth(remote);
       if (!isOnline) {
@@ -372,35 +380,73 @@ export function AppLayout(props: AppLayoutProps) {
   };
 
   // handle player bar image click - show song + album images in carousel
-  const handlePlayerImageClick = () => {
+  const handlePlayerImageClick = async () => {
     const song = currentSongData();
     if (!song) return;
 
-    const imageMap = new Map<string, string>();
+    type ImageItem = { blobId?: string; url?: string; serverId?: string };
+    const seen = new Set<string>();
+    const imageItems: ImageItem[] = [];
+
+    const addImage = (img: {
+      remote_blob_id?: string;
+      local_blob_id?: string;
+      remote_url?: string;
+      remote_server_id?: string;
+      blob_type: string;
+    }) => {
+      if (img.blob_type === "waveform") return;
+      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      imageItems.push({
+        blobId: img.remote_blob_id || img.local_blob_id,
+        url: img.remote_url || img.local_blob_id,
+        serverId: img.remote_server_id,
+      });
+    };
 
     // add song images (except waveforms), deduplicate by blob_id
     if (song.images?.length) {
-      for (const img of song.images) {
-        if (img.blob_type !== "waveform") {
-          const blobId = img.remote_blob_id || img.local_blob_id;
-          const url = img.remote_url || img.local_blob_id;
-          if (blobId && url) imageMap.set(blobId, url);
-        }
-      }
+      for (const img of song.images) addImage(img);
     }
 
     // add album images (except waveforms), deduplicate by blob_id
     if (song.album_images?.length) {
-      for (const img of song.album_images) {
-        if (img.blob_type !== "waveform") {
-          const blobId = img.remote_blob_id || img.local_blob_id;
-          const url = img.remote_url || img.local_blob_id;
-          if (blobId && url) imageMap.set(blobId, url);
-        }
-      }
+      for (const img of song.album_images) addImage(img);
     }
 
-    const imageUrls = Array.from(imageMap.values());
+    if (imageItems.length === 0) {
+      return;
+    }
+
+    // check if we need blob resolution (P2P or tauri-managed)
+    const firstWithServerId = imageItems.find((item) => item.serverId);
+    const needsResolution = firstWithServerId
+      ? await usesBlobResolver(firstWithServerId.serverId!)
+      : false;
+
+    let imageUrls: string[];
+    if (needsResolution) {
+      // resolve all images via blobResolver
+      imageUrls = (
+        await Promise.all(
+          imageItems.map(async (item) => {
+            if (item.blobId && item.serverId) {
+              try {
+                return await resolveBlobUrl(item.blobId, item.serverId, "image");
+              } catch {
+                return item.url ?? null;
+              }
+            }
+            return item.url ?? null;
+          })
+        )
+      ).filter((u): u is string => u !== null);
+    } else {
+      // standard HTTP - use URLs directly
+      imageUrls = imageItems.map((item) => item.url).filter((u): u is string => !!u);
+    }
 
     if (imageUrls.length === 0) {
       return;

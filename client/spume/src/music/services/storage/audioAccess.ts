@@ -4,7 +4,7 @@ import { getCachedBlob, preCacheBlob, addToLoadingSet, updateLoadingProgress, re
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 import { debug } from "../../../utils/logger";
-import { resolveBlobUrl, isP2PRemote, revokeBlobUrl } from "./blobResolver";
+import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
 import type { BlobProgressCallback } from "freqhole-api-client";
 
 // cache of active blob urls to prevent memory leaks
@@ -76,16 +76,16 @@ export async function getAudioURL(song: Song): Promise<string> {
 
   // remote files: check cache first, then fall back to direct streaming URL
   if (song.source_type === "remote") {
-    // check if this is a P2P remote - needs special handling
-    if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
-      debug("audioAccess", `using P2P transport for remote song: ${song.sha256}`);
+    // check if this remote uses blobResolver (P2P or Tauri-managed)
+    if (song.remote_server_id && await usesBlobResolver(song.remote_server_id)) {
+      debug("audioAccess", `using blobResolver for remote song: ${song.sha256}`);
       
       // track loading state for UI feedback
       addToLoadingSet(song.sha256);
       updateLoadingProgress(song.sha256, null); // indeterminate until we get total size
       
       try {
-        // P2P: use blobResolver which fetches via WasmTransport and caches
+        // use blobResolver which handles P2P/Tauri transports and caching
         // pass progress callback for 0-100% loading indicator
         const onProgress: BlobProgressCallback = (received, total) => {
           if (total > 0) {
@@ -96,8 +96,8 @@ export async function getAudioURL(song: Song): Promise<string> {
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
         return url;
       } catch (error) {
-        console.error(`failed to fetch P2P audio:`, error);
-        throw new Error(`failed to fetch audio from P2P peer`);
+        console.error(`failed to fetch audio via blobResolver:`, error);
+        throw new Error(`failed to fetch audio from remote`);
       } finally {
         removeFromLoadingSet(song.sha256);
       }

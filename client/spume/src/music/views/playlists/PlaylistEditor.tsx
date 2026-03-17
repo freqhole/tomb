@@ -7,6 +7,8 @@ import { toast } from "../../../components/feedback/Toast";
 import { useDeletePlaylistMutation, useUpdatePlaylistMutation } from "../../queries/playlists";
 import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
+import { isHttpRemote } from "../../../app/services/storage/types";
+import { getRemoteMediaUrl } from "../../../utils/urls";
 import { canUpdatePlaylist, canDeletePlaylist } from "../../data/permissions";
 import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
 import type { Playlist, ImageMetadata } from "../../services/storage/types";
@@ -84,13 +86,32 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         }
       }
 
+      // construct proper image metadata based on data source
       const currentImages = playlistImages();
-      const newImage: ImageMetadata = {
-        local_blob_id: blob_id,
-        remote_url: undefined,
-        is_primary: currentImages.length === 0,
-        blob_type: "thumbnail",
-      };
+      const isPrimary = currentImages.length === 0;
+      let newImage: ImageMetadata;
+      if (remote) {
+        // remote upload - always use remote_blob_id + remote_server_id
+        // only set remote_url for standard HTTP (not tauri-managed, which uses IPC)
+        const remoteUrl =
+          isHttpRemote(remote) && !remote.is_tauri_managed
+            ? getRemoteMediaUrl(remote.base_url, blob_id)
+            : undefined;
+        newImage = {
+          remote_blob_id: blob_id,
+          remote_url: remoteUrl,
+          remote_server_id: remote.remote_id,
+          is_primary: isPrimary,
+          blob_type: "thumbnail",
+        };
+      } else {
+        // local upload - use local field
+        newImage = {
+          local_blob_id: blob_id,
+          is_primary: isPrimary,
+          blob_type: "thumbnail",
+        };
+      }
       const updatedImages = [...currentImages, newImage];
       setPlaylistImages(updatedImages);
 

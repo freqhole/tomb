@@ -164,6 +164,19 @@ pub enum GrimoireError {
 
     #[error("knock already processed: {id}")]
     KnockAlreadyProcessed { id: String },
+
+    // dispatch/auth errors (used by offal layer)
+    #[error("unauthorized: authentication required")]
+    Unauthorized,
+
+    #[error("forbidden: {message}")]
+    Forbidden { message: String },
+
+    #[error("bad request: {message}")]
+    BadRequest { message: String },
+
+    #[error("route not found: {path}")]
+    RouteNotFound { path: String },
 }
 
 /// result type alias for grimoire operations
@@ -236,6 +249,37 @@ impl GrimoireError {
             // knock errors
             GrimoireError::KnockNotFound { .. } => false,
             GrimoireError::KnockAlreadyProcessed { .. } => false,
+            // dispatch/auth errors
+            GrimoireError::Unauthorized => false,
+            GrimoireError::Forbidden { .. } => false,
+            GrimoireError::BadRequest { .. } => false,
+            GrimoireError::RouteNotFound { .. } => false,
+        }
+    }
+
+    /// get HTTP status code for this error (used by transports)
+    pub fn status_code(&self) -> u16 {
+        match self {
+            GrimoireError::Unauthorized => 401,
+            GrimoireError::Forbidden { .. } => 403,
+            GrimoireError::RouteNotFound { .. } => 404,
+            GrimoireError::BadRequest { .. } => 400,
+            GrimoireError::Validation { .. } => 400,
+            GrimoireError::InvalidFormat { .. } => 400,
+            GrimoireError::Serialization(_) => 400,
+            // not found errors
+            GrimoireError::SongNotFound { .. }
+            | GrimoireError::AlbumNotFound { .. }
+            | GrimoireError::ArtistNotFound { .. }
+            | GrimoireError::PlaylistNotFound { .. }
+            | GrimoireError::GenreNotFound { .. }
+            | GrimoireError::SubGenreNotFound { .. }
+            | GrimoireError::TagNotFound { .. }
+            | GrimoireError::MediaBlobNotFound { .. }
+            | GrimoireError::KnockNotFound { .. }
+            | GrimoireError::FileNotFound { .. } => 404,
+            // everything else is internal error
+            _ => 500,
         }
     }
 }

@@ -14,6 +14,7 @@ import { LocalMusicDataSource, localDataSource } from "./local/localSource";
 import { RemoteMusicDataSource, RemoteOfflineError } from "./remote/remoteSource";
 import type { MusicDataSource } from "./types";
 import { debug, warn, error as errorLog } from "../../utils/logger";
+import { preCacheRemoteTransport } from "../services/storage/blobResolver";
 
 // active data source (default to local)
 const [activeSource, setActiveSource] =
@@ -27,6 +28,7 @@ const [currentRemote, setCurrentRemote] = createSignal<{
   api_key?: string;
   transport_type?: TransportType;
   peer_addr?: string; // for P2P remotes
+  is_tauri_managed?: boolean; // true if managed by tauri (use IPC dispatch)
 } | null>(null);
 
 // current authenticated user info (per remote)
@@ -82,6 +84,10 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
   if (!remoteId) {
     throw new Error("remote_id required to switch remote source");
   }
+  
+  // pre-cache transport info for blob resolution (prevents flicker on image load)
+  await preCacheRemoteTransport(remoteId);
+  
   const resolvedName = remote.name ?? remote.base_url ?? `p2p-${remoteId.slice(0, 8)}`;
   const resolvedAddress = remote.base_url || remote.peer_addr;
   debug(`switching to remote data source: ${resolvedName} (${resolvedAddress})`);
@@ -94,6 +100,7 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
     api_key: remote.api_key,
     transport_type: remote.transport ?? remote.transport_type,
     peer_addr: remote.peer_addr,
+    is_tauri_managed: remote.is_tauri_managed,
   });
 
   // fetch current user info from whoami (uses session cookies)

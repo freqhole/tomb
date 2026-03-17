@@ -25,6 +25,7 @@ import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 
 export interface ArtistsViewProps {
   onAddMusic: () => void;
@@ -476,14 +477,19 @@ export function ArtistsView(props: ArtistsViewProps) {
     if (!artist) return;
 
     const songs = artistSongs();
-    const imageMap = new Map<string, string>();
+    const seenKeys = new Set<string>();
+    const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
 
     const addImage = (img: ImageMetadata) => {
       if (img.blob_type === "waveform") return;
-      const url = img.remote_url || img.local_blob_id;
-      if (!url) return;
-      const key = img.remote_blob_id || img.local_blob_id || url;
-      imageMap.set(key, url);
+      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
+      if (!key || seenKeys.has(key)) return;
+      seenKeys.add(key);
+      imageItems.push({
+        blobId: img.remote_blob_id || img.local_blob_id,
+        url: img.remote_url,
+        serverId: img.remote_server_id,
+      });
     };
 
     // artist images
@@ -500,10 +506,42 @@ export function ArtistsView(props: ArtistsViewProps) {
         for (const img of song.album_images) addImage(img);
       }
     }
-    const imageUrls = Array.from(imageMap.values());
+
+    if (imageItems.length === 0) {
+      warn("no images found for artist");
+      return;
+    }
+
+    // check if we need blob resolution (P2P or tauri-managed)
+    const firstWithServerId = imageItems.find((item) => item.serverId);
+    const needsResolution = firstWithServerId
+      ? await usesBlobResolver(firstWithServerId.serverId!)
+      : false;
+
+    let imageUrls: string[];
+    if (needsResolution) {
+      // resolve all images via blobResolver
+      imageUrls = (
+        await Promise.all(
+          imageItems.map(async (item) => {
+            if (item.blobId && item.serverId) {
+              try {
+                return await resolveBlobUrl(item.blobId, item.serverId, "image");
+              } catch {
+                return item.url ?? null;
+              }
+            }
+            return item.url ?? null;
+          })
+        )
+      ).filter((u): u is string => u !== null);
+    } else {
+      // standard HTTP - use URLs directly
+      imageUrls = imageItems.map((item) => item.url).filter((u): u is string => !!u);
+    }
 
     if (imageUrls.length === 0) {
-      warn("no images found for artist");
+      warn("no resolvable images found for artist");
       return;
     }
 

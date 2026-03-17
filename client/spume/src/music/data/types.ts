@@ -407,7 +407,8 @@ export interface MusicDataSource {
 
   // image operations
   uploadImage?(params: {
-    file: File;
+    file?: File;
+    filePath?: string;
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     isPrimary?: boolean;

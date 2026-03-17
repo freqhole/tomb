@@ -8,6 +8,7 @@ export type { SafeParseResult } from "./FreqholeClient.js";
 export { HttpTransport } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
 export { TauriTransport, createTauriTransport, getTauriTransport, getTauriNodeId, isTauriAvailable, isTauriP2PAvailable } from "./TauriTransport.js";
+export { TauriLocalTransport, createTauriLocalTransport } from "./TauriLocalTransport.js";
 export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 

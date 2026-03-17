@@ -1085,11 +1085,17 @@ export class LocalMusicDataSource implements MusicDataSource {
 
   // image operations - local storage using OPFS
   async uploadImage(params: {
-    file: File;
+    file?: File;
+    filePath?: string;
     entityType: 'song' | 'artist' | 'album' | 'playlist';
     entityId: string;
     isPrimary?: boolean;
   }): Promise<{ blob_id: string; job_id: string }> {
+    // localSource only supports file uploads, not filePath
+    if (!params.file) {
+      throw new Error("localSource.uploadImage requires a file");
+    }
+
     // store blob in OPFS/Cache
     const blobId = await storeBlob(params.file, params.file.type);
 

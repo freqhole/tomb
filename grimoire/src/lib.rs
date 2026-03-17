@@ -19,6 +19,7 @@ pub mod maintenance;
 pub mod media_blobz;
 pub mod metadata;
 pub mod music;
+pub mod offal;
 pub mod response;
 pub mod search;
 pub mod sessions;
