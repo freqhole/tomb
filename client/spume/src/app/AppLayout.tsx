@@ -648,6 +648,7 @@ export function AppLayout(props: AppLayoutProps) {
             lastChecked: r.last_checked,
             isTauriManaged: r.is_tauri_managed,
             isLocal,
+            updatedAt: r.updated_at,
           };
         })}
         onSwitchToLocal={handleSwitchToLocal}

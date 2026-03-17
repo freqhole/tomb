@@ -1,70 +1,15 @@
 //! shared server control logic for menu and tray
 //!
-//! centralizes start/stop/restart handling so both app menu and tray
-//! can use the same code
+//! centralizes quit and navigation handling
 
 use tauri::{AppHandle, Manager, Wry};
 
-use crate::app_config::get_server_config_path_resolved;
-use crate::sidecar::{self, ServerManager};
-use crate::spume_bridge::notify_config_changed;
 use crate::wizard::open_setup_wizard_at_route;
 
-/// server control action
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServerAction {
-    Start,
-    Stop,
-    Restart,
-}
-
-/// execute a server control action
-pub fn execute_server_action(app: &AppHandle<Wry>, action: ServerAction) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let state: tauri::State<'_, ServerManager> = app.state();
-
-        match action {
-            ServerAction::Start => {
-                let config_path = {
-                    let guard = state.lock().unwrap();
-                    guard
-                        .config_path
-                        .clone()
-                        .or_else(|| get_server_config_path_resolved(&app))
-                        .unwrap_or_default()
-                };
-
-                if config_path.exists() {
-                    let result = sidecar::start_server(&state, config_path, Some(&app)).await;
-                    if result.success {
-                        // notify spume that config changed (server started)
-                        let _ = notify_config_changed(&app, "server started");
-                    }
-                }
-            }
-            ServerAction::Stop => {
-                let _ = sidecar::stop_server(&state).await;
-            }
-            ServerAction::Restart => {
-                let result = sidecar::restart_server(&state, Some(&app)).await;
-                if result.success {
-                    // notify spume that config changed (server restarted)
-                    let _ = notify_config_changed(&app, "server restarted");
-                }
-            }
-        }
-    });
-}
-
-/// quit the app (stop server first, cleanup tray)
+/// quit the app (cleanup tray)
 pub fn quit_app(app: &AppHandle<Wry>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        // stop the server
-        let state: tauri::State<'_, ServerManager> = app.state();
-        let _ = sidecar::stop_server(&state).await;
-
         // explicitly remove tray icon before exit (prevents panel crashes on linux)
         if let Some(tray) = app.tray_by_id("main") {
             // clear menu and icon before removal

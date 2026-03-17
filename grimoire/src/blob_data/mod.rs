@@ -20,6 +20,6 @@ pub use service::{blob_data_exists, delete_blob_data, get_blob_data, store_blob_
 pub use thumbnails::{
     backfill_thumbnails, count_blobs_needing_thumbnails, find_existing_thumbnail,
     generate_sized_thumbnails, get_or_generate_thumbnail, get_thumbnail_sizes,
-    is_on_demand_enabled, is_valid_size, BackfillResult, GeneratedThumbnail, ResizeMode,
-    DEFAULT_THUMBNAIL_SIZES,
+    is_on_demand_enabled, is_valid_size, resize_to_square_webp, BackfillResult, GeneratedThumbnail,
+    ResizeMode, DEFAULT_THUMBNAIL_SIZES,
 };

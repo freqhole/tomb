@@ -11,8 +11,9 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
-use crate::spume_bridge::{notify_config_changed, notify_scan_complete, notify_scan_progress};
-use crate::PendingInviteCode;
+use crate::spume_bridge::{
+    notify_config_changed, notify_scan_complete, notify_scan_progress, notify_server_image_updated,
+};
 use crate::ShutdownToken;
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
@@ -224,14 +225,10 @@ pub struct CreateAdminResult {
     pub success: bool,
     pub user_id: Option<String>,
     pub username: Option<String>,
-    pub invite_code: Option<String>,
     pub error: Option<String>,
 }
 
-/// create admin user with account-link invite code (call after run_setup_core)
-///
-/// the invite code can be used to authenticate the main window by calling
-/// the /api/auth/invite endpoint
+/// create admin user (call after run_setup_core)
 #[tauri::command]
 pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> CreateAdminResult {
     let service = grimoire::users::UserService::new();
@@ -247,7 +244,7 @@ pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> Creat
 
     match response.data {
         Some(user) => {
-            // save admin user info to app config for future invite code generation
+            // save admin user info to app config
             if let Err(e) = save_admin_user(&app, &user.id, &user.username) {
                 eprintln!(
                     "[create_admin_user] failed to save admin user to app config: {}",
@@ -255,15 +252,10 @@ pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> Creat
                 );
             }
 
-            // generate account-link invite code for the new user
-            let invite_response = service.create_account_link_code_internal(&user.id).await;
-            let invite_code = invite_response.data.map(|c| c.code);
-
             CreateAdminResult {
                 success: true,
                 user_id: Some(user.id),
                 username: Some(user.username),
-                invite_code,
                 error: None,
             }
         }
@@ -277,7 +269,6 @@ pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> Creat
                 success: false,
                 user_id: None,
                 username: None,
-                invite_code: None,
                 error: Some(error),
             }
         }
@@ -415,26 +406,17 @@ pub struct FreqholeConfig {
     pub server_name: String,
     /// server URL (e.g. http://localhost:8686)
     pub server_url: String,
-    /// invite code for authentication (if available, used for initial login)
-    pub invite_code: Option<String>,
-    /// admin username (used with invite code for authentication)
-    pub admin_username: Option<String>,
+    /// server image file path (absolute path for convertFileSrc)
+    pub server_image_path: Option<String>,
     /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
     #[serde(default)]
     pub disable_backdrop_blur: bool,
 }
 
-/// store invite code in memory (used during setup to pass to main window)
-pub fn store_invite_code(app_handle: &tauri::AppHandle, invite_code: &str) {
-    let state = app_handle.state::<PendingInviteCode>();
-    state.set(invite_code.to_string());
-    eprintln!("[store_invite_code] stored invite code in memory");
-}
-
 /// get freqhole server config (for bridge communication with spume)
 ///
 /// returns server_name, server_url from the loaded config
-/// returns None if config is not initialized
+/// reads fresh from disk each time to get latest values (e.g. after name change in settings)
 #[tauri::command]
 pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfig> {
     eprintln!("[get_freqhole_config] called");
@@ -444,54 +426,30 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
         config_path.display()
     );
 
-    // try to initialize config if needed
-    if !grimoire::is_config_initialized() {
-        eprintln!("[get_freqhole_config] config not initialized, initializing...");
-        if !config_path.exists() {
-            eprintln!("[get_freqhole_config] config file does not exist");
-            return None;
-        }
-        if grimoire::config::init_config(Some(config_path)).is_err() {
-            eprintln!("[get_freqhole_config] failed to init config");
-            return None;
-        }
+    if !config_path.exists() {
+        eprintln!("[get_freqhole_config] config file does not exist");
+        return None;
     }
 
-    let config = grimoire::config::get_config();
+    // read fresh from disk to get latest values (don't use cached grimoire singleton)
+    let config = grimoire::read_config_from_file(&config_path).ok()?;
     let server = config.server.as_ref()?;
 
-    // take the invite code from state (one-time use, clears after reading)
-    let state = app_handle.state::<PendingInviteCode>();
-    let invite_code = state.take();
-    eprintln!(
-        "[get_freqhole_config] invite code from state: {}",
-        if invite_code.is_some() {
-            "found"
-        } else {
-            "none"
-        }
-    );
-
-    // get app config for username and display settings
+    // get app config for display settings
     let app_config = FreqholeAppConfig::load(&app_handle);
-    let admin_username = app_config
-        .as_ref()
-        .and_then(|c| c.admin_user.username.clone());
     let disable_backdrop_blur = app_config.map(|c| c.disable_backdrop_blur).unwrap_or(false);
 
     eprintln!(
-        "[get_freqhole_config] returning: server_name={}, has_invite_code={}, has_admin_username={}",
+        "[get_freqhole_config] returning: server_name={}, server_image_path={:?}",
         server.name,
-        invite_code.is_some(),
-        admin_username.is_some()
+        server.image_path
     );
 
     Some(FreqholeConfig {
         server_name: server.name.clone(),
         // always use localhost for the client URL (not the bind address like 0.0.0.0)
         server_url: format!("http://localhost:{}", server.port),
-        invite_code,
-        admin_username,
+        server_image_path: server.image_path.as_ref().map(|p| p.display().to_string()),
         disable_backdrop_blur,
     })
 }
@@ -987,51 +945,6 @@ pub async fn generate_account_link_code(
     match result.data {
         Some(codes) if !codes.is_empty() => Ok(codes[0].code.clone()),
         _ => Err(result.message),
-    }
-}
-
-/// generate an invite code for auto-auth using the stored admin user
-///
-/// this is used by the spume client in tauri mode to automatically re-authenticate
-/// when a 401 error is received, without requiring user interaction.
-#[tauri::command]
-pub async fn generate_auto_auth_invite(app_handle: tauri::AppHandle) -> Result<String, String> {
-    eprintln!("[generate_auto_auth_invite] called");
-    ensure_initialized(&app_handle).await?;
-    eprintln!("[generate_auto_auth_invite] ensure_initialized passed");
-    ensure_wordlist()?;
-    eprintln!("[generate_auto_auth_invite] ensure_wordlist passed");
-
-    // load app config to get stored admin user id
-    let app_config =
-        FreqholeAppConfig::load(&app_handle).ok_or_else(|| "app config not found".to_string())?;
-    eprintln!("[generate_auto_auth_invite] app config loaded");
-
-    let admin_user_id = app_config
-        .admin_user
-        .user_id
-        .ok_or_else(|| "admin user not configured".to_string())?;
-    eprintln!(
-        "[generate_auto_auth_invite] admin_user_id={}",
-        admin_user_id
-    );
-
-    let service = grimoire::users::UserService::new();
-
-    // use internal method that bypasses admin role check (we're the app itself)
-    let result = service
-        .create_account_link_code_internal(&admin_user_id)
-        .await;
-
-    match result.data {
-        Some(code) => {
-            eprintln!("[generate_auto_auth_invite] success, code generated");
-            Ok(code.code)
-        }
-        None => {
-            eprintln!("[generate_auto_auth_invite] failed: {}", result.message);
-            Err(result.message)
-        }
     }
 }
 
@@ -2249,4 +2162,202 @@ fn get_caller_from_app_config(
         username,
         grimoire::users::UserRole::Admin,
     ))
+}
+
+// ============================================================================
+// server config / image management
+// ============================================================================
+
+/// server config info returned to UI
+#[derive(Debug, Serialize)]
+pub struct ServerConfigInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub image_path: Option<String>,
+    pub image_blob_id: Option<String>,
+}
+
+/// get server config info (name, image_path, image_blob_id)
+#[tauri::command]
+pub fn get_server_config(app_handle: tauri::AppHandle) -> Result<ServerConfigInfo, String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found - run setup first".to_string())?;
+
+    let config = grimoire::read_config_from_file(&config_path)
+        .map_err(|e| format!("failed to read config: {}", e))?;
+
+    let server = config.server.as_ref();
+
+    Ok(ServerConfigInfo {
+        name: server
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| "freqhole".to_string()),
+        description: server.and_then(|s| s.description.clone()),
+        image_path: server
+            .and_then(|s| s.image_path.as_ref())
+            .map(|p| p.display().to_string()),
+        image_blob_id: server.and_then(|s| s.image_blob_id.clone()),
+    })
+}
+
+/// get server image thumbnail as base64 encoded string
+#[tauri::command]
+pub async fn get_server_image_thumbnail(app_handle: tauri::AppHandle) -> Result<String, String> {
+    // get server config to find image_blob_id or image_path
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    let config = grimoire::read_config_from_file(&config_path)
+        .map_err(|e| format!("failed to read config: {}", e))?;
+
+    let server = config
+        .server
+        .as_ref()
+        .ok_or_else(|| "no server config".to_string())?;
+
+    // try blob_id first (preferred - has thumbnails)
+    if let Some(blob_id) = &server.image_blob_id {
+        // ensure database is ready
+        grimoire::database::initialize()
+            .await
+            .map_err(|e| format!("database error: {}", e))?;
+
+        // try to find a 128px thumbnail, or fall back to original blob
+        let thumb = grimoire::blob_data::find_existing_thumbnail(blob_id, 128).await;
+
+        let path = match thumb {
+            Some(t) => t.local_path,
+            None => {
+                // fall back to original blob
+                grimoire::media_blobz::get_media_blob(blob_id)
+                    .await
+                    .ok()
+                    .and_then(|b| b.local_path)
+            }
+        };
+
+        if let Some(path) = path {
+            let data = std::fs::read(&path).map_err(|e| format!("failed to read image: {}", e))?;
+            use base64::{engine::general_purpose, Engine as _};
+            return Ok(general_purpose::STANDARD.encode(&data));
+        }
+    }
+
+    // fall back to image_path (no blob created yet)
+    if let Some(image_path) = &server.image_path {
+        // resolve path (relative to data_dir or absolute)
+        let full_path = if image_path.is_absolute() {
+            image_path.clone()
+        } else {
+            config.data_dir.join(image_path)
+        };
+
+        if full_path.exists() {
+            let data =
+                std::fs::read(&full_path).map_err(|e| format!("failed to read image: {}", e))?;
+            use base64::{engine::general_purpose, Engine as _};
+            return Ok(general_purpose::STANDARD.encode(&data));
+        }
+    }
+
+    Err("no server image configured".to_string())
+}
+
+/// result of updating server image
+#[derive(Debug, Serialize)]
+pub struct UpdateServerImageResult {
+    pub success: bool,
+    pub message: String,
+    pub image_path: String,
+    pub image_blob_id: String,
+}
+
+/// update server image - resize to 200x200 square, convert to webp, save to app data dir, create blob, update config
+#[tauri::command]
+pub async fn update_server_image(
+    app_handle: tauri::AppHandle,
+    image_path: String,
+) -> Result<UpdateServerImageResult, String> {
+    // get config path and load config
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found - run setup first".to_string())?;
+
+    // get app data dir for saving the icon
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("failed to get app data dir: {}", e))?;
+
+    // ensure database is ready
+    grimoire::database::initialize()
+        .await
+        .map_err(|e| format!("database error: {}", e))?;
+
+    // read the source image
+    let source_path = std::path::PathBuf::from(&image_path);
+    if !source_path.exists() {
+        return Err(format!("source file not found: {}", image_path));
+    }
+
+    let image_data =
+        std::fs::read(&source_path).map_err(|e| format!("failed to read image: {}", e))?;
+
+    // resize to 200x200 square webp using grimoire's thumbnail helper
+    let webp_data = grimoire::blob_data::resize_to_square_webp(&image_data, 200)
+        .map_err(|e| format!("failed to resize image: {}", e))?;
+
+    // save as freqhole-icon.webp in app data dir (absolute path)
+    let dest_path = app_data_dir.join("freqhole-icon.webp");
+    std::fs::write(&dest_path, &webp_data).map_err(|e| format!("failed to write image: {}", e))?;
+
+    let dest_path_str = dest_path.display().to_string();
+
+    // update config with absolute image_path
+    grimoire::set_config_values(
+        &config_path,
+        &[("server.image_path", dest_path_str.clone().into())],
+    )
+    .map_err(|e| format!("failed to update config: {}", e))?;
+
+    // call ensure_server_image_blob to create blob and set image_blob_id
+    let blob_id = grimoire::config::ensure_server_image_blob(&config_path)
+        .await
+        .map_err(|e| format!("failed to create image blob: {}", e))?;
+
+    // notify spume to silently refresh server image
+    let _ = notify_server_image_updated(&app_handle);
+
+    Ok(UpdateServerImageResult {
+        success: true,
+        message: "server image updated".to_string(),
+        image_path: dest_path_str,
+        image_blob_id: blob_id,
+    })
+}
+
+/// update server info (name and description)
+#[tauri::command]
+pub fn update_server_info(
+    app_handle: tauri::AppHandle,
+    name: Option<String>,
+    description: Option<String>,
+) -> Result<(), String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found - run setup first".to_string())?;
+
+    // build updates based on what changed
+    if let Some(n) = &name {
+        grimoire::set_config_values(&config_path, &[("server.name", n.clone().into())])
+            .map_err(|e| format!("failed to update server name: {}", e))?;
+    }
+
+    if let Some(d) = &description {
+        grimoire::set_config_values(&config_path, &[("server.description", d.clone().into())])
+            .map_err(|e| format!("failed to update server description: {}", e))?;
+    }
+
+    // notify spume to refresh server info
+    let _ = notify_server_image_updated(&app_handle);
+
+    Ok(())
 }

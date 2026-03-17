@@ -19,6 +19,10 @@ pub enum SpumeEvent {
     #[serde(rename = "config-changed")]
     ConfigChanged { message: String },
 
+    /// server image was updated - spume should refresh remote icon silently
+    #[serde(rename = "server-image-updated")]
+    ServerImageUpdated {},
+
     /// scan progress update - sent during scan to allow UI refresh
     #[serde(rename = "scan-progress")]
     ScanProgress {
@@ -53,6 +57,11 @@ pub fn notify_config_changed(app: &AppHandle<Wry>, message: &str) -> Result<(), 
             message: message.to_string(),
         },
     )
+}
+
+/// notify spume that server image was updated (silent refresh)
+pub fn notify_server_image_updated(app: &AppHandle<Wry>) -> Result<(), String> {
+    emit_event(app, SpumeEvent::ServerImageUpdated {})
 }
 
 /// notify spume of scan progress (called during scan)

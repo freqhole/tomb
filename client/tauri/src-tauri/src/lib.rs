@@ -4,40 +4,22 @@ mod app_config;
 mod commands;
 mod menu;
 mod p2p_commands;
+mod p2p_state;
 mod server_controls;
-mod sidecar;
 mod spume_bridge;
 mod tray;
 mod wizard;
 
-use app_config::{get_server_config_path_resolved, is_setup_complete};
+use std::sync::Arc;
+
+use app_config::{get_server_config_path_resolved, is_setup_complete, FreqholeAppConfig};
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tauri::webview::Color;
 use tauri::{Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 
-/// in-memory storage for invite code generated during setup
-/// this avoids writing temporary files to disk
-#[derive(Default)]
-pub struct PendingInviteCode(pub Mutex<Option<String>>);
-
-impl PendingInviteCode {
-    pub fn new() -> Self {
-        Self(Mutex::new(None))
-    }
-
-    /// store an invite code (overwrites any existing)
-    pub fn set(&self, code: String) {
-        *self.0.lock().unwrap() = Some(code);
-    }
-
-    /// take the invite code (removes it from storage)
-    pub fn take(&self) -> Option<String> {
-        self.0.lock().unwrap().take()
-    }
-}
+use p2p_state::P2pState;
 
 /// shutdown token for cancelling background tasks on app exit
 #[derive(Clone)]
@@ -63,11 +45,15 @@ impl ShutdownToken {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let p2p_state = Arc::new(P2pState::new());
+
     tauri::Builder::default()
-        .manage(sidecar::new_server_manager())
         .manage(ShutdownToken::new())
-        .manage(PendingInviteCode::new())
+        .manage(p2p_state.clone())
         .setup(|app| {
+            // load app config
+            let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
+
             // check if setup wizard should run
             let needs_setup = !is_setup_complete(app.handle());
 
@@ -125,8 +111,7 @@ pub fn run() {
                 });
 
                 // spawn job runner in tauri process for tauri-local transport (api_call)
-                // this ensures jobs are processed even before the server sidecar starts
-                // or if the server is slow. SQLite handles concurrent access safely.
+                // SQLite handles concurrent access safely.
                 let job_runner_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     eprintln!("[tauri] starting job runner...");
@@ -141,29 +126,36 @@ pub fn run() {
                     }
                 });
 
-                let state = app.state::<sidecar::ServerManager>().inner().clone();
-                let app_handle = app.handle().clone();
-                let app_handle_for_server = app_handle.clone();
-                let config_path_for_p2p = config_path.clone();
-                let shutdown_token = app.state::<ShutdownToken>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    let result =
-                        sidecar::start_server(&state, config_path, Some(&app_handle_for_server))
-                            .await;
-                    if !result.success {
-                        eprintln!("[tauri] failed to start server: {}", result.message);
-                    } else {
-                        eprintln!("[tauri] server started successfully");
+                // check federation config to decide whether to init P2P
+                let federation_enabled_for_p2p = grimoire::config::get_config()
+                    .federation
+                    .as_ref()
+                    .map(|f| f.enabled)
+                    .unwrap_or(false);
 
-                        // initialize P2P client endpoint for outbound connections
-                        // (runs in Tauri process, separate from server's endpoint)
-                        if let Err(e) = p2p_commands::init_p2p_client(&config_path_for_p2p).await {
+                // initialize P2P client endpoint for outbound connections (only if federation enabled)
+                let app_handle = app.handle().clone();
+                let shutdown_token = app.state::<ShutdownToken>().inner().clone();
+
+                if federation_enabled_for_p2p {
+                    let config_path_for_p2p = config_path.clone();
+                    let p2p_state_clone = app.state::<Arc<P2pState>>().inner().clone();
+                    p2p_state_clone.set_config_path(config_path_for_p2p.clone());
+
+                    tauri::async_runtime::spawn(async move {
+                        // start P2P endpoint via state manager
+                        if let Err(e) = p2p_state_clone.start().await {
                             eprintln!("[tauri] failed to init P2P client: {}", e);
                         }
+                    });
 
-                        // server started - check for pending jobs and resume polling
-                        commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
-                    }
+                    // start status watcher for tray/menu updates
+                    P2pState::start_status_watcher(app.state::<Arc<P2pState>>().inner().clone());
+                }
+
+                // check for pending jobs and resume polling (always, regardless of federation)
+                tauri::async_runtime::spawn(async move {
+                    commands::resume_pending_jobs_polling(app_handle, shutdown_token).await;
                 });
 
                 // show main window (spume will call getConfig on startup)
@@ -195,15 +187,24 @@ pub fn run() {
                 }
             }
 
-            // setup system tray (non-fatal on linux - may fail without appindicator)
-            #[cfg(target_os = "linux")]
-            if let Err(e) = tray::setup_tray(app.handle()) {
-                eprintln!(
-                    "warning: system tray setup failed (install libayatana-appindicator3-dev): {e}"
-                );
+            // setup system tray if enabled in config AND federation is enabled
+            // (tray is purely for P2P controls, so only show if federation is on)
+            let federation_enabled = grimoire::config::get_config()
+                .federation
+                .as_ref()
+                .map(|f| f.enabled)
+                .unwrap_or(false);
+
+            if app_config.tray_enabled && federation_enabled {
+                #[cfg(target_os = "linux")]
+                if let Err(e) = tray::setup_tray(app.handle()) {
+                    eprintln!(
+                        "warning: system tray setup failed (install libayatana-appindicator3-dev): {e}"
+                    );
+                }
+                #[cfg(not(target_os = "linux"))]
+                tray::setup_tray(app.handle())?;
             }
-            #[cfg(not(target_os = "linux"))]
-            tray::setup_tray(app.handle())?;
 
             // setup application menu
             menu::setup_app_menu(app.handle())?;
@@ -239,7 +240,6 @@ pub fn run() {
             commands::list_invites,
             commands::generate_invites,
             commands::generate_account_link_code,
-            commands::generate_auto_auth_invite,
             commands::deactivate_invite,
             commands::deactivate_all_invites,
             commands::update_invite_role,
@@ -262,16 +262,13 @@ pub fn run() {
             commands::reject_all_knocks,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
+            // server config / image management
+            commands::get_server_config,
+            commands::get_server_image_thumbnail,
+            commands::update_server_image,
+            commands::update_server_info,
             // unified API dispatch (spike)
             commands::api_call,
-            sidecar::server_status,
-            sidecar::server_start,
-            sidecar::server_stop,
-            sidecar::server_restart,
-            sidecar::server_health_check,
-            sidecar::get_server_logs,
-            sidecar::clear_server_logs,
-            sidecar::read_log_file,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
             // P2P native transport commands
@@ -283,6 +280,11 @@ pub fn run() {
             p2p_commands::p2p_upload_blob,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
+            // P2P state control commands
+            p2p_state::p2p_get_status,
+            p2p_state::p2p_start,
+            p2p_state::p2p_stop,
+            p2p_state::p2p_restart,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -301,16 +303,6 @@ pub fn run() {
 
                 // brief pause to let poll tasks exit
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                eprintln!("[shutdown] poll tasks should be stopped");
-
-                // stop server on app exit
-                eprintln!("[shutdown] about to call stop_server...");
-                let state = app.state::<sidecar::ServerManager>().inner().clone();
-                tauri::async_runtime::block_on(async move {
-                    eprintln!("[shutdown] inside block_on, calling stop_server");
-                    let result = sidecar::stop_server(&state).await;
-                    eprintln!("[shutdown] stop_server returned: {}", result.message);
-                });
                 eprintln!("[shutdown] cleanup complete");
             }
         });

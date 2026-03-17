@@ -4,7 +4,6 @@
 //! this config stores:
 //! - path to the server config file
 //! - admin user info (for auto-generating invite codes)
-//! - path to the freqhole binary (for sidecar)
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -27,13 +26,13 @@ pub struct FreqholeAppConfig {
     #[serde(default)]
     pub admin_user: AdminUserConfig,
 
-    /// path to the freqhole binary (discovered or configured)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub freqhole_bin_path: Option<String>,
-
     /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
     #[serde(default)]
     pub disable_backdrop_blur: bool,
+
+    /// show system tray icon (default: false)
+    #[serde(default)]
+    pub tray_enabled: bool,
 }
 
 /// admin user configuration
@@ -94,19 +93,9 @@ impl FreqholeAppConfig {
         };
     }
 
-    /// set the freqhole binary path
-    pub fn set_freqhole_bin_path(&mut self, path: &str) {
-        self.freqhole_bin_path = Some(path.to_string());
-    }
-
     /// get the server config path as PathBuf
     pub fn get_server_config_path(&self) -> Option<PathBuf> {
         self.server_config_path.as_ref().map(PathBuf::from)
-    }
-
-    /// get the freqhole binary path as PathBuf
-    pub fn get_freqhole_bin_path(&self) -> Option<PathBuf> {
-        self.freqhole_bin_path.as_ref().map(PathBuf::from)
     }
 }
 
@@ -142,13 +131,6 @@ pub fn save_server_config_path(app_handle: &tauri::AppHandle, path: &str) -> Res
     config.set_server_config_path(path);
     // also set version when saving config path (means setup is complete or being updated)
     config.version = Some(get_binary_version().to_string());
-    config.save(app_handle)
-}
-
-/// save freqhole binary path to app config
-pub fn save_freqhole_bin_path(app_handle: &tauri::AppHandle, path: &str) -> Result<(), String> {
-    let mut config = load_or_create(app_handle);
-    config.set_freqhole_bin_path(path);
     config.save(app_handle)
 }
 
@@ -253,11 +235,6 @@ pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgr
 
     // update version
     config.version = Some(get_binary_version().to_string());
-
-    // clear cached binary path so it re-discovers after upgrade
-    // (the .deb installer updates /usr/lib/freqhole-app/bin/freqhole but
-    // we need to force re-discovery to pick up the new version)
-    config.freqhole_bin_path = None;
 
     // save updated config
     config.save(app_handle)?;

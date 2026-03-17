@@ -18,22 +18,13 @@ export const FreqholeConfigSchema = z.object({
   server_name: z.string(),
   /** server URL (e.g. http://localhost:8686) */
   server_url: z.string(),
-  /** invite code for authentication (used for initial login after setup) */
-  invite_code: z.string().nullish(),
-  /** admin username (used with invite code for authentication) */
-  admin_username: z.string().nullish(),
+  /** absolute file path of server image (for convertFileSrc) */
+  server_image_path: z.string().optional(),
   /** whether to disable backdrop blur (performance setting) */
   disable_backdrop_blur: z.boolean().optional(),
 });
 
 export type FreqholeConfig = z.infer<typeof FreqholeConfigSchema>;
-
-/**
- * auth invite result from generate_auto_auth_invite command
- */
-export const AuthInviteSchema = z.string();
-
-export type AuthInvite = z.infer<typeof AuthInviteSchema>;
 
 /**
  * config upgrade status from check_config_needs_upgrade command
@@ -61,6 +52,14 @@ export const ConfigChangedEventSchema = z.object({
   data: z.object({
     message: z.string(),
   }),
+});
+
+/**
+ * server image updated event - refresh remote icon silently
+ */
+export const ServerImageUpdatedEventSchema = z.object({
+  type: z.literal("server-image-updated"),
+  data: z.object({}),
 });
 
 /**
@@ -94,11 +93,13 @@ export const ScanCompleteEventSchema = z.object({
  */
 export const TauriEventSchema = z.discriminatedUnion("type", [
   ConfigChangedEventSchema,
+  ServerImageUpdatedEventSchema,
   ScanProgressEventSchema,
   ScanCompleteEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
 export type ConfigChangedEvent = z.infer<typeof ConfigChangedEventSchema>;
+export type ServerImageUpdatedEvent = z.infer<typeof ServerImageUpdatedEventSchema>;
 export type ScanProgressEvent = z.infer<typeof ScanProgressEventSchema>;
 export type ScanCompleteEvent = z.infer<typeof ScanCompleteEventSchema>;

@@ -7,7 +7,6 @@
 
 import { 
   FreqholeConfigSchema, 
-  AuthInviteSchema, 
   ConfigUpgradeStatusSchema,
   type FreqholeConfig, 
   type ConfigUpgradeStatus,
@@ -22,8 +21,7 @@ async function getInvoke() {
 /**
  * get freqhole server config from tauri backend
  *
- * call this on startup to get server info (id, name, url)
- * and optionally an invite code for first-time auth.
+ * call this on startup to get server info (id, name, url).
  */
 export async function getConfig(): Promise<FreqholeConfig | null> {
   try {
@@ -37,24 +35,6 @@ export async function getConfig(): Promise<FreqholeConfig | null> {
     return FreqholeConfigSchema.parse(result);
   } catch (error) {
     console.error("[tauri/commands] failed to get config:", error);
-    return null;
-  }
-}
-
-/**
- * generate an auth invite code for automatic re-authentication
- *
- * use this when a session expires and we need to silently re-authenticate.
- * the invite code is linked to the admin user configured during setup.
- */
-export async function generateAuthInvite(): Promise<string | null> {
-  try {
-    const invoke = await getInvoke();
-    const result = await invoke("generate_auto_auth_invite");
-    
-    return AuthInviteSchema.parse(result);
-  } catch (error) {
-    console.error("[tauri/commands] failed to generate auth invite:", error);
     return null;
   }
 }

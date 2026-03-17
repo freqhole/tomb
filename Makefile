@@ -200,14 +200,6 @@ TAURI_DIR := client/tauri
 
 # macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
-	@echo "building freqhole CLI for bundling..."
-	cargo build --package cli --release --target aarch64-apple-darwin
-	@mkdir -p $(TAURI_DIR)/src-tauri/bin
-	cp target/aarch64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
-	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
-		echo "signing bundled CLI binary..."; \
-		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(TAURI_DIR)/src-tauri/bin/freqhole; \
-	fi
 	@echo "building spume client..."
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS arm64..."
@@ -231,14 +223,6 @@ build-tauri-mac-arm:
 
 # macOS x86_64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-intel:
-	@echo "building freqhole CLI for bundling (x86_64, vendored OpenSSL)..."
-	OPENSSL_STATIC=1 cargo build --package cli --release --target x86_64-apple-darwin --features grimoire/vendored-openssl
-	@mkdir -p $(TAURI_DIR)/src-tauri/bin
-	cp target/x86_64-apple-darwin/release/freqhole $(TAURI_DIR)/src-tauri/bin/freqhole
-	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
-		echo "signing bundled CLI binary..."; \
-		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(TAURI_DIR)/src-tauri/bin/freqhole; \
-	fi
 	@echo "building spume client..."
 	FREQHOLE_GIT_SHA=$(GIT_SHA) cd client/spume && npm run build
 	@echo "building Tauri app for macOS x86_64..."

@@ -7,7 +7,13 @@ import LogsView from "./views/LogsView";
 import LibraryView from "./views/LibraryView";
 import UsersView from "./views/UsersView";
 import SettingsView from "./views/SettingsView";
+import ConfigView from "./views/ConfigView";
 import FederationView from "./views/FederationView";
+
+// wrapper component to use ConfigView as a route
+function ConfigViewRoute() {
+  return <ConfigView embedded={false} />;
+}
 
 render(
   () => (
@@ -18,6 +24,7 @@ render(
       <Route path="/library" component={LibraryView} />
       <Route path="/users" component={UsersView} />
       <Route path="/settings" component={SettingsView} />
+      <Route path="/config" component={ConfigViewRoute} />
       <Route path="/federation" component={FederationView} />
     </HashRouter>
   ),

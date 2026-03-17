@@ -43,13 +43,6 @@ RUN cd client/tauri && npm ci
 # build spume frontend
 RUN FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cd client/spume && npm run build
 
-# build freqhole CLI first (needed as bundled resource)
-RUN SQLX_OFFLINE="true" cargo build --package cli --release --target ${TARGET_ARCH}
-
-# copy CLI binary to where Tauri can bundle it
-RUN mkdir -p client/tauri/src-tauri/bin && \
-    cp target/${TARGET_ARCH}/release/freqhole client/tauri/src-tauri/bin/freqhole
-
 # build tauri app - deb + rpm
 RUN cd client/tauri && SQLX_OFFLINE="true" npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
 

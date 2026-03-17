@@ -2,13 +2,10 @@
 //!
 //! commands for opening/closing the setup wizard window
 
-use std::path::PathBuf;
 use tauri::webview::Color;
 use tauri::{AppHandle, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
 
 use crate::app_config::save_server_config_path;
-use crate::commands::store_invite_code;
-use crate::sidecar::{start_server, ServerManager};
 
 /// tauri command to open setup wizard at specified route (defaults to /setup)
 #[tauri::command]
@@ -62,21 +59,12 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
 #[tauri::command]
 pub async fn close_setup_wizard(
     app: AppHandle<Wry>,
-    invite_code: Option<String>,
     config_path: Option<String>,
-    _server_port: Option<u16>,
 ) -> Result<(), String> {
     eprintln!(
-        "[close_setup_wizard] called with invite_code={}, config_path={:?}",
-        invite_code.is_some(),
+        "[close_setup_wizard] called with config_path={:?}",
         config_path
     );
-
-    // store invite code in memory (used by get_freqhole_config on main window startup)
-    if let Some(code) = &invite_code {
-        eprintln!("[close_setup_wizard] storing invite code in memory...");
-        store_invite_code(&app, code);
-    }
 
     // save config path to app config for later use
     if let Some(path) = &config_path {
@@ -87,12 +75,6 @@ pub async fn close_setup_wizard(
                 e
             );
         }
-    }
-
-    // start server if config path provided
-    if let Some(ref path) = config_path {
-        let state = app.state::<ServerManager>();
-        start_server(&state, PathBuf::from(path), Some(&app)).await;
     }
 
     if let Some(wizard) = app.get_webview_window("setup-wizard") {

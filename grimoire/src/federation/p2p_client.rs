@@ -69,8 +69,10 @@ pub fn is_endpoint_available() -> bool {
     FEDERATION_ENDPOINT.lock().unwrap().is_some()
 }
 
-/// get the endpoint, returning error if not initialized
-fn get_endpoint() -> GrimoireResult<Arc<Endpoint>> {
+/// get the endpoint arc for external use (status monitoring, etc)
+///
+/// returns error if not initialized
+pub fn get_endpoint_arc() -> GrimoireResult<Arc<Endpoint>> {
     FEDERATION_ENDPOINT
         .lock()
         .unwrap()
@@ -78,6 +80,11 @@ fn get_endpoint() -> GrimoireResult<Arc<Endpoint>> {
         .ok_or_else(|| GrimoireError::FederationApiError {
             message: "federation endpoint not initialized".to_string(),
         })
+}
+
+/// get the endpoint, returning error if not initialized
+fn get_endpoint() -> GrimoireResult<Arc<Endpoint>> {
+    get_endpoint_arc()
 }
 
 /// parse peer address string to get PublicKey

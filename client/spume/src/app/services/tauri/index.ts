@@ -19,13 +19,11 @@ export { isTauriMode } from "./mode";
 // re-export schemas and types
 export {
   FreqholeConfigSchema,
-  AuthInviteSchema,
   TauriEventSchema,
   ConfigChangedEventSchema,
   ScanProgressEventSchema,
   ScanCompleteEventSchema,
   type FreqholeConfig,
-  type AuthInvite,
   type TauriEvent,
   type ConfigChangedEvent,
   type ScanProgressEvent,
@@ -33,7 +31,7 @@ export {
 } from "./schema";
 
 // re-export commands
-export { getConfig, generateAuthInvite, setWindowTitle } from "./commands";
+export { getConfig, setWindowTitle } from "./commands";
 
 // re-export event listeners
 export {

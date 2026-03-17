@@ -21,6 +21,22 @@ type RemoteStatusChangeListener = (remoteId: string, isOffline: boolean) => void
 // listeners for remote status changes (offline/online)
 const statusChangeListeners = new Set<RemoteStatusChangeListener>();
 
+// tauri convertFileSrc - dynamically loaded
+let convertFileSrc: ((path: string) => string) | null = null;
+
+// ensure convertFileSrc is loaded (for tauri file:// to asset:// conversion)
+async function ensureConvertFileSrc(): Promise<((path: string) => string) | null> {
+  if (convertFileSrc) return convertFileSrc;
+  if (!isTauriAvailable()) return null;
+  try {
+    const tauri = await import("@tauri-apps/api/core");
+    convertFileSrc = tauri.convertFileSrc;
+    return convertFileSrc;
+  } catch {
+    return null;
+  }
+}
+
 // register a listener for remote status changes
 // returns unsubscribe function
 export function onRemoteStatusChange(listener: RemoteStatusChangeListener): () => void {
@@ -59,23 +75,51 @@ export async function getTauriManagedRemote(): Promise<Remote | null> {
 export async function upsertTauriRemote(config: {
   name: string;
   base_url: string;
+  server_image_path?: string;
 }): Promise<Remote> {
+  console.log("[upsertTauriRemote] called with config:", {
+    name: config.name,
+    base_url: config.base_url,
+    server_image_path: config.server_image_path,
+  });
+
   const db = await initAppDB();
   const existing = await getTauriManagedRemote();
+
+  // convert file path to asset:// URL if available
+  let imageUrl: string | null = null;
+  if (config.server_image_path) {
+    const convert = await ensureConvertFileSrc();
+    if (convert) {
+      imageUrl = convert(config.server_image_path);
+      console.log("[upsertTauriRemote] converted server_image_path to asset URL:", imageUrl);
+    } else {
+      console.log("[upsertTauriRemote] convertFileSrc not available");
+    }
+  } else {
+    console.log("[upsertTauriRemote] no server_image_path provided");
+  }
 
   if (existing) {
     // update existing remote with new config (keep transport type)
     const updated: Remote = {
       ...existing,
       name: config.name,
-      // always set image_url for tauri remotes (server serves at /api/hello/image)
-      image_url: "/api/hello/image",
+      // for tauri-managed: ONLY use asset:// URL from server_image_path, never HTTP
+      // if no image path provided, clear the image_url (don't keep old HTTP path)
+      image_url: imageUrl,
       updated_at: Date.now(),
       // update base_url only for HTTP remotes
       ...(isHttpRemote(existing) ? { base_url: config.base_url.replace(/\/$/, "") } : {}),
     };
     await db.put(STORE_REMOTES, updated);
-    debug(`updated tauri remote: ${updated.name}`);
+    console.log("[upsertTauriRemote] updated existing remote:", {
+      name: updated.name,
+      image_url: updated.image_url,
+      updated_at: updated.updated_at,
+    });
+    // notify listeners so UI updates
+    notifyStatusChange(updated.remote_id, updated.is_offline ?? false);
     return updated;
   }
 
@@ -91,8 +135,8 @@ export async function upsertTauriRemote(config: {
     created_at: Date.now(),
     updated_at: Date.now(),
     description: null,
-    // server image is served at /api/hello/image
-    image_url: "/api/hello/image",
+    // use asset:// URL if we have a file path
+    image_url: imageUrl,
     image_blob_id: null,
     version: null,
     last_info_check: null,
@@ -110,6 +154,26 @@ export async function getRemoteById(
   const db = await initAppDB();
   const raw = await db.get(STORE_REMOTES, remoteId);
   return safeParseRemote(raw);
+}
+
+// refresh tauri-managed remote's timestamp (for cache-busting server image)
+export async function refreshTauriRemoteTimestamp(): Promise<void> {
+  const existing = await getTauriManagedRemote();
+  if (!existing) {
+    debug("refreshTauriRemoteTimestamp: no tauri-managed remote found");
+    return;
+  }
+
+  const db = await initAppDB();
+  const updated: Remote = {
+    ...existing,
+    updated_at: Date.now(),
+  };
+  await db.put(STORE_REMOTES, updated);
+  debug(`refreshTauriRemoteTimestamp: updated to ${updated.updated_at}`);
+
+  // notify listeners of the update (will trigger remotes refresh in AppLayout)
+  notifyStatusChange(existing.remote_id, existing.is_offline ?? false);
 }
 
 // get remote by url
@@ -449,9 +513,12 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
       updated.last_connected_at = now;
       
       // also update server info if we got it (self-heals missing image_url, etc.)
+      // but don't overwrite local image_url for tauri-managed remotes (they use asset:// URLs)
       if (result.data) {
         updated.description = result.data.description ?? updated.description;
-        updated.image_url = result.data.image_url ?? updated.image_url;
+        if (!freshRemote.is_tauri_managed) {
+          updated.image_url = result.data.image_url ?? updated.image_url;
+        }
         updated.version = result.data.version ?? updated.version;
         updated.last_info_check = now;
       }

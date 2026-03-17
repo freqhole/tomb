@@ -99,6 +99,25 @@ fn image_to_webp(img: &DynamicImage) -> GrimoireResult<Vec<u8>> {
     Ok(webp_data)
 }
 
+/// resize image data to a square webp of the specified size
+///
+/// uses center-crop to preserve the most important part of the image
+/// (cuts edges rather than distorting aspect ratio)
+///
+/// # arguments
+/// * `image_data` - raw image bytes (any format supported by `image` crate)
+/// * `size` - target width and height in pixels
+///
+/// # returns
+/// webp-encoded bytes of the resized square image
+pub fn resize_to_square_webp(image_data: &[u8], size: u32) -> GrimoireResult<Vec<u8>> {
+    let img = image::load_from_memory(image_data).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("failed to decode image: {}", e),
+    })?;
+    let resized = resize_to_square(&img, size, ResizeMode::CenterCrop);
+    image_to_webp(&resized)
+}
+
 /// generate sized thumbnails for a parent blob
 ///
 /// creates thumbnails for each size in THUMBNAIL_SIZES (50, 200)

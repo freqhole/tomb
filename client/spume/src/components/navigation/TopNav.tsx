@@ -104,6 +104,7 @@ export interface TopNavProps {
     lastChecked?: number | null;
     isTauriManaged?: boolean;
     isLocal?: boolean;
+    updatedAt?: number;
   }>;
   /** callback to switch to local source */
   onSwitchToLocal?: () => void;
@@ -138,7 +139,19 @@ type RemoteItem = NonNullable<TopNavProps["remotes"]>[number];
 
 // component to render remote server images (handles P2P blob resolution)
 function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: string }) {
+  const [loadError, setLoadError] = createSignal(false);
   const isP2P = () => !!props.remote.peerAddr;
+
+  // DEBUG: log on every render
+  console.log("[RemoteServerImage] render", {
+    id: props.remote.id,
+    name: props.remote.name,
+    imageUrl: props.remote.imageUrl,
+    url: props.remote.url,
+    isTauriManaged: props.remote.isTauriManaged,
+    isP2P: isP2P(),
+    loadError: loadError(),
+  });
 
   // resolve P2P blob URL asynchronously
   const [resolvedP2PUrl] = createResource(
@@ -157,28 +170,63 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
     }
   );
 
-  // for HTTP remotes, use direct URL
-  const httpImageUrl = () =>
-    !isP2P() && props.remote.imageUrl ? `${props.remote.url}${props.remote.imageUrl}` : null;
+  // for HTTP remotes, use direct URL with cache-busting based on updatedAt
+  const httpImageUrl = () => {
+    if (isP2P()) return null;
+    if (!props.remote.imageUrl) {
+      console.log("[RemoteServerImage] httpImageUrl: no imageUrl");
+      return null;
+    }
+    // if imageUrl is already absolute (asset://, http://, https://), use directly
+    if (
+      props.remote.imageUrl.startsWith("asset://") ||
+      props.remote.imageUrl.startsWith("http://") ||
+      props.remote.imageUrl.startsWith("https://")
+    ) {
+      const url = props.remote.updatedAt
+        ? `${props.remote.imageUrl}?v=${props.remote.updatedAt}`
+        : props.remote.imageUrl;
+      console.log("[RemoteServerImage] httpImageUrl: absolute URL", url);
+      return url;
+    }
+    // relative URL - prepend base URL
+    if (!props.remote.url) {
+      console.log("[RemoteServerImage] httpImageUrl: relative URL but no base url");
+      return null;
+    }
+    const baseUrl = `${props.remote.url}${props.remote.imageUrl}`;
+    const url = props.remote.updatedAt ? `${baseUrl}?v=${props.remote.updatedAt}` : baseUrl;
+    console.log("[RemoteServerImage] httpImageUrl: built URL", url);
+    return url;
+  };
 
-  const imageUrl = () => (isP2P() ? resolvedP2PUrl() : httpImageUrl());
+  const imageUrl = () => {
+    const url = isP2P() ? resolvedP2PUrl() : httpImageUrl();
+    console.log("[RemoteServerImage] final imageUrl", { isP2P: isP2P(), url, loadError: loadError() });
+    return url;
+  };
+
+  // fallback icon component
+  const FallbackIcon = () => (
+    <div
+      class={`bg-[var(--color-bg-tertiary)] flex items-center justify-center ${props.class || ""}`}
+      style={{ "min-width": "28px", "min-height": "28px" }}
+    >
+      <Icon name="freqhole" size={16} color="var(--color-accent-500)" />
+    </div>
+  );
 
   return (
     <Show
-      when={imageUrl() || (isP2P() && props.remote.imageBlobId && resolvedP2PUrl.loading)}
-      fallback={
-        <div
-          class={`bg-[var(--color-bg-tertiary)] flex items-center justify-center ${props.class || ""}`}
-        >
-          <Icon name="freqhole" size={16} color="var(--color-accent-500)" />
-        </div>
-      }
+      when={imageUrl() && !loadError()}
+      fallback={<FallbackIcon />}
     >
       <Show
         when={!resolvedP2PUrl.loading}
         fallback={
           <div
             class={`bg-[var(--color-bg-tertiary)] flex items-center justify-center animate-pulse ${props.class || ""}`}
+            style={{ "min-width": "28px", "min-height": "28px" }}
           >
             <Icon
               name="freqhole"
@@ -193,8 +241,19 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
           src={imageUrl()!}
           alt={props.alt || ""}
           class={props.class}
+          style={{ "min-width": "28px", "min-height": "28px" }}
           onError={(e) => {
-            e.currentTarget.style.display = "none";
+            console.log("[RemoteServerImage] img onError", {
+              id: props.remote.id,
+              src: e.currentTarget.src,
+            });
+            setLoadError(true);
+          }}
+          onLoad={() => {
+            console.log("[RemoteServerImage] img onLoad success", {
+              id: props.remote.id,
+              src: imageUrl(),
+            });
           }}
         />
       </Show>
@@ -275,7 +334,7 @@ export function TopNav(props: TopNavProps) {
     debug("TopNav", "currentRemote lookup", {
       currentSourceId: props.currentSourceId,
       remoteIds: props.remotes.map((r) => r.id),
-      found: found ? { id: found.id, name: found.name, imageUrl: found.imageUrl } : null,
+      found: found ? { id: found.id, name: found.name, url: found.url, imageUrl: found.imageUrl, updatedAt: found.updatedAt } : null,
     });
     return found;
   };
@@ -344,7 +403,8 @@ export function TopNav(props: TopNavProps) {
           <KobalteNav>
             <KobalteNav.Menu>
               <KobalteNav.Trigger
-                class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer"
+                class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
+                style={{ "min-width": "36px", "min-height": "36px" }}
                 aria-label="menu"
               >
                 <Show
@@ -516,23 +576,19 @@ export function TopNav(props: TopNavProps) {
                                           color="var(--color-accent-500)"
                                         />
                                       </Show>
-                                      <Show
-                                        when={remote.isTauriManaged}
-                                        fallback={
-                                          <RemoteServerImage
-                                            remote={remote}
-                                            class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
-                                          />
-                                        }
-                                      >
+                                      <RemoteServerImage
+                                        remote={remote}
+                                        class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
+                                      />
+                                      <span class="truncate">{remote.name}</span>
+                                      <Show when={remote.isTauriManaged}>
                                         <Icon
                                           name="home"
-                                          size={16}
-                                          color="var(--color-accent-500)"
-                                          className="flex-shrink-0"
+                                          size={14}
+                                          color="var(--color-text-muted)"
+                                          className="flex-shrink-0 ml-1"
                                         />
                                       </Show>
-                                      <span class="truncate">{remote.name}</span>
                                       <Show when={remote.peerAddr}>
                                         <span class="px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 rounded">
                                           p2p

@@ -61,8 +61,8 @@ import {
   findFirstOnlineRemote,
   setActiveRemote,
   getActiveRemote,
+  refreshTauriRemoteTimestamp,
 } from "./services/remotes/remoteManager";
-import { getClientForRemote, httpRemote } from "./api/client";
 import {
   registerServiceWorker,
   updateAvailable,
@@ -81,7 +81,6 @@ import {
   onEvent,
   type TauriEvent,
 } from "./services/tauri";
-import { clearRemoteNeedsAuth, setAuthRefreshHandler } from "../music/data/remote/authState";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -91,34 +90,6 @@ export function App() {
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
-
-  // register auth refresh handler immediately (before any queries can run)
-  // this must happen synchronously at component init, not in async functions
-  if (isTauriMode()) {
-    setAuthRefreshHandler(async (inviteCode, remoteId) => {
-      debug(`tauri: auth refresh for ${remoteId}, redeeming invite...`);
-      const currentRemote = getCurrentRemote();
-      if (!currentRemote) {
-        console.warn("no current remote to refresh auth for");
-        return;
-      }
-
-      const client = await getClientForRemote(currentRemote);
-      const redeemResult = await client.auth.redeemInvite({
-        invite_code: inviteCode,
-        username: null,
-        node_id: null,
-      });
-
-      if (redeemResult.success) {
-        debug("tauri: auth refresh successful");
-        clearRemoteNeedsAuth(remoteId);
-        queryClient.invalidateQueries();
-      } else {
-        console.warn("tauri: auth refresh failed:", redeemResult);
-      }
-    });
-  }
 
   // track current hash reactively (allows settings in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
@@ -165,6 +136,29 @@ export function App() {
             onReload={() => window.location.reload()}
           />
         ));
+        break;
+
+      case "server-image-updated":
+        // refetch config to get new server_image_path and update remote
+        console.log("[handleTauriEvent] server-image-updated event received");
+        void (async () => {
+          const newConfig = await getConfig();
+          console.log("[handleTauriEvent] server-image-updated: got config", {
+            server_name: newConfig?.server_name,
+            server_image_path: newConfig?.server_image_path,
+          });
+          if (newConfig) {
+            await upsertTauriRemote({
+              name: newConfig.server_name,
+              base_url: newConfig.server_url,
+              server_image_path: newConfig.server_image_path,
+            });
+            console.log("[handleTauriEvent] server-image-updated: refreshed remote");
+          } else {
+            // fallback: just update timestamp for cache-busting
+            void refreshTauriRemoteTimestamp();
+          }
+        })();
         break;
 
       case "scan-progress":
@@ -220,33 +214,19 @@ export function App() {
       return;
     }
 
-    debug(`got config from tauri: ${config.server_name} @ ${config.server_url}`);
+    console.log("[autoSetupRemoteFromTauriBridge] got config from tauri:", {
+      server_name: config.server_name,
+      server_url: config.server_url,
+      server_image_path: config.server_image_path,
+      disable_backdrop_blur: config.disable_backdrop_blur,
+    });
 
     try {
-      // if we have an invite code, use it to authenticate first
-      if (config.invite_code) {
-        debug("invite code found, authenticating via invite redemption...");
-        debug(`using admin_username: ${config.admin_username}`);
-        const client = await getClientForRemote(httpRemote(config.server_url));
-        const redeemResult = await client.auth.redeemInvite({
-          invite_code: config.invite_code,
-          username: config.admin_username ?? null,
-          node_id: null,
-        });
-        if (redeemResult.success) {
-          debug("invite code authentication successful");
-          // note: the server sets a session cookie, which will be used for subsequent requests
-          // the invite code is one-time use, so we don't need to store it
-        } else {
-          console.warn("invite code authentication failed:", redeemResult);
-          // continue anyway - user may need to re-authenticate via the UI
-        }
-      }
-
-      // upsert creates or updates the tauri-managed remote (no api_key needed now)
+      // upsert creates or updates the tauri-managed remote
       const remote = await upsertTauriRemote({
         name: config.server_name,
         base_url: config.server_url,
+        server_image_path: config.server_image_path,
       });
       // use useRemoteSource to properly switch data source AND set active_remote_id
       await useRemoteSource(remote);
@@ -260,6 +240,7 @@ export function App() {
           const updatedRemote = await upsertTauriRemote({
             name: newConfig.server_name,
             base_url: newConfig.server_url,
+            server_image_path: newConfig.server_image_path,
           });
           await useRemoteSource(updatedRemote);
           queryClient.invalidateQueries();

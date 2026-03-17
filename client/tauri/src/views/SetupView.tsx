@@ -32,7 +32,6 @@ interface CreateAdminResult {
   success: boolean;
   user_id: string | null;
   username: string | null;
-  invite_code: string | null;
   error: string | null;
 }
 
@@ -66,11 +65,9 @@ export default function SetupView() {
   // fetchMusicDir is where fetched/uploaded music files are stored
   const [fetchMusicDir, setFetchMusicDir] = createSignal("");
   const [serverName, setServerName] = createSignal("my music server");
-  const [serverPort, setServerPort] = createSignal(8081);
   const [serverImage, setServerImage] = createSignal<string | null>(null);
   const [username, setUsername] = createSignal("");
   // setup results
-  const [inviteCode, setInviteCode] = createSignal("");
   const [error, setError] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   // music step state
@@ -180,7 +177,7 @@ export default function SetupView() {
         configPath,
         dataDir: dataDir(),
         serverName: serverName(),
-        serverPort: serverPort(),
+        serverPort: 8081,
         imagePath: serverImage(),
         fetchMusicDir: fetchMusicDir() || null,
       });
@@ -201,7 +198,7 @@ export default function SetupView() {
     }
   }
 
-  // create admin user with API key
+  // create admin user
   async function createAdmin() {
     setLoading(true);
     setError("");
@@ -212,9 +209,6 @@ export default function SetupView() {
       });
 
       if (result.success) {
-        if (result.invite_code) {
-          setInviteCode(result.invite_code);
-        }
         setStep("music");
       } else {
         throw new Error(result.error || "failed to create admin user");
@@ -286,13 +280,11 @@ export default function SetupView() {
 
   async function finishSetup() {
     try {
-      // close wizard and open main window with invite code and port
-      // server will be started by the Tauri command
+      // close wizard and open main window
       const configPath = `${dataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
-        inviteCode: inviteCode(),
         configPath,
-        serverPort: serverPort(),
+        serverPort: 8081,
       });
     } catch (e) {
       console.error("finish error:", e);
@@ -555,23 +547,6 @@ export default function SetupView() {
 
           <Show when={showAdvanced()}>
             <div class="advanced-options">
-              <div class="form-group">
-                <label for="server-port">server port</label>
-                <input
-                  type="number"
-                  id="server-port"
-                  value={serverPort()}
-                  onInput={(e) =>
-                    setServerPort(parseInt(e.currentTarget.value) || 8081)
-                  }
-                  min="1024"
-                  max="65535"
-                />
-                <p class="hint">
-                  port for the server to listen on (1024-65535)
-                </p>
-              </div>
-
               <div class="form-group">
                 <label for="data-dir">data directory</label>
                 <div class="input-with-button">

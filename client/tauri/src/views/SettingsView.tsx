@@ -1,359 +1,342 @@
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import * as monaco from "monaco-editor";
+import { open } from "@tauri-apps/plugin-dialog";
+import ConfigView from "./ConfigView";
 
-interface SaveConfigResult {
+interface ServerConfig {
+  name: string;
+  description: string | null;
+  image_path: string | null;
+  image_blob_id: string | null;
+}
+
+interface UpdateServerImageResult {
   success: boolean;
   message: string;
-  validation_errors: string[];
-}
-
-interface ConfigUpgradeStatus {
-  needs_upgrade: boolean;
-  config_version: string;
-  binary_version: string;
-}
-
-interface ConfigUpgradeResult {
-  backup_path: string;
-  old_version: string;
-  new_version: string;
-  spume_updated: boolean;
-  spume_files: number;
+  image_path: string;
+  image_blob_id: string;
 }
 
 export default function SettingsView() {
-  const [configPath, setConfigPath] = createSignal("");
-  const [isSaving, setIsSaving] = createSignal(false);
-  const [saveMessage, setSaveMessage] = createSignal("");
-  const [saveErrors, setSaveErrors] = createSignal<string[]>([]);
-  const [isError, setIsError] = createSignal(false);
-  const [editorLoading, setEditorLoading] = createSignal(true);
-  const [wordWrap, setWordWrap] = createSignal(false);
+  const [activeTab, setActiveTab] = createSignal<"settings" | "config">(
+    "settings",
+  );
+  const [serverConfig, setServerConfig] = createSignal<ServerConfig | null>(
+    null,
+  );
+  const [imageThumbnail, setImageThumbnail] = createSignal<string | null>(null);
+  const [isUpdating, setIsUpdating] = createSignal(false);
+  const [imageMessage, setImageMessage] = createSignal("");
+  const [imageIsError, setImageIsError] = createSignal(false);
 
-  // config upgrade state
-  const [upgradeStatus, setUpgradeStatus] =
-    createSignal<ConfigUpgradeStatus | null>(null);
-  const [isUpgrading, setIsUpgrading] = createSignal(false);
-
-  // "show in finder" button copy state
-  const [pathCopied, setPathCopied] = createSignal(false);
-
-  let editorContainer: HTMLDivElement | undefined;
-  let editor: monaco.editor.IStandaloneCodeEditor | undefined;
-
-  // helper to relayout monaco after DOM changes
-  function relayoutEditor() {
-    // use setTimeout to let the DOM update first
-    setTimeout(() => editor?.layout(), 0);
-  }
-
-  // dismiss save message and relayout
-  function dismissMessage() {
-    setSaveMessage("");
-    setSaveErrors([]);
-    relayoutEditor();
-  }
+  // editable fields
+  const [editName, setEditName] = createSignal("");
+  const [editDescription, setEditDescription] = createSignal("");
+  const [isSavingInfo, setIsSavingInfo] = createSignal(false);
+  const [infoMessage, setInfoMessage] = createSignal("");
+  const [infoIsError, setInfoIsError] = createSignal(false);
 
   onMount(async () => {
-    await loadConfigPath();
-    await loadConfigContent();
-    await checkConfigUpgrade();
+    await loadServerConfig();
   });
 
-  onCleanup(() => {
-    editor?.dispose();
-  });
-
-  async function loadConfigPath() {
+  async function loadServerConfig() {
     try {
-      const path = await invoke<string>("get_config_path");
-      setConfigPath(path);
-    } catch (e) {
-      console.error("failed to load config path:", e);
-    }
-  }
+      const config = await invoke<ServerConfig>("get_server_config");
+      setServerConfig(config);
+      setEditName(config.name);
+      setEditDescription(config.description || "");
 
-  async function loadConfigContent() {
-    try {
-      const content = await invoke<string>("read_config_file");
-      initEditor(content);
-    } catch (e) {
-      console.error("failed to load config content:", e);
-      setSaveMessage(`failed to load config: ${e}`);
-      setIsError(true);
-      setEditorLoading(false);
-      relayoutEditor();
-    }
-  }
-
-  async function checkConfigUpgrade() {
-    try {
-      const status = await invoke<ConfigUpgradeStatus>(
-        "check_config_needs_upgrade",
-      );
-      setUpgradeStatus(status);
-      relayoutEditor();
-    } catch (e) {
-      console.error("failed to check config upgrade status:", e);
-    }
-  }
-
-  async function performUpgrade() {
-    setIsUpgrading(true);
-    setSaveMessage("");
-    setSaveErrors([]);
-    setIsError(false);
-
-    try {
-      const result = await invoke<ConfigUpgradeResult>("upgrade_config");
-
-      // build message parts
-      const versionMsg = `${result.old_version} → ${result.new_version}`;
-      const spumeMsg = result.spume_updated
-        ? `, web client updated (${result.spume_files} files)`
-        : "";
-
-      // success - reload config and restart server
-      setSaveMessage(
-        `config upgraded: ${versionMsg}${spumeMsg} (backup: ${result.backup_path})`,
-      );
-      setIsError(false);
-
-      // reload editor with new config
-      await reloadConfig();
-
-      // restart server
-      try {
-        await invoke("server_restart");
-        setSaveMessage(
-          `config upgraded: ${versionMsg}${spumeMsg} - server restarted (backup: ${result.backup_path})`,
-        );
-      } catch (e) {
-        setSaveMessage(
-          `config upgraded but failed to restart server: ${e} (backup: ${result.backup_path})`,
-        );
-        setIsError(true);
+      // load thumbnail if we have an image (blob_id or image_path)
+      if (config.image_blob_id || config.image_path) {
+        try {
+          const thumbnail = await invoke<string>("get_server_image_thumbnail");
+          setImageThumbnail(thumbnail);
+        } catch (e) {
+          console.error("failed to load thumbnail:", e);
+        }
       }
-
-      // re-check upgrade status (should now be false)
-      await checkConfigUpgrade();
     } catch (e) {
-      setSaveMessage(`failed to upgrade config: ${e}`);
-      setIsError(true);
+      console.error("failed to load server config:", e);
+    }
+  }
+
+  async function handleSaveServerInfo() {
+    const config = serverConfig();
+    if (!config) return;
+
+    // check if anything changed
+    const nameChanged = editName() !== config.name;
+    const descChanged = editDescription() !== (config.description || "");
+    if (!nameChanged && !descChanged) return;
+
+    setIsSavingInfo(true);
+    setInfoMessage("");
+    setInfoIsError(false);
+
+    try {
+      await invoke("update_server_info", {
+        name: nameChanged ? editName() : null,
+        description: descChanged ? editDescription() : null,
+      });
+      setInfoMessage("server info updated");
+      setInfoIsError(false);
+      await loadServerConfig();
+    } catch (e) {
+      setInfoMessage(`failed to update server info: ${e}`);
+      setInfoIsError(true);
     } finally {
-      setIsUpgrading(false);
-      relayoutEditor();
+      setIsSavingInfo(false);
     }
   }
 
-  function initEditor(content: string) {
-    if (!editorContainer) return;
-
-    editor = monaco.editor.create(editorContainer, {
-      value: content,
-      language: "ini", // TOML is close to ini syntax
-      theme: "vs-dark",
-      minimap: { enabled: false },
-      lineNumbers: "on",
-      scrollBeyondLastLine: false,
-      automaticLayout: true,
-      fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      tabSize: 2,
-      wordWrap: "off",
-    });
-
-    setEditorLoading(false);
-  }
-
-  async function openConfigDir() {
+  async function handleSelectImage() {
     try {
-      await invoke("open_config_dir");
-      // also copy path to clipboard
-      const path = configPath();
-      if (path) {
-        await navigator.clipboard.writeText(path);
-        setPathCopied(true);
-        setTimeout(() => setPathCopied(false), 5000);
-      }
-    } catch (e) {
-      console.error("failed to open config dir:", e);
-    }
-  }
-
-  async function saveConfig() {
-    if (!editor) return;
-
-    setIsSaving(true);
-    setSaveMessage("");
-    setSaveErrors([]);
-    setIsError(false);
-
-    const content = editor.getValue();
-
-    try {
-      const result = await invoke<SaveConfigResult>("save_config_file", {
-        content,
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "images",
+            extensions: ["png", "jpg", "jpeg", "gif", "webp"],
+          },
+        ],
       });
 
-      if (result.success) {
-        setSaveMessage(result.message);
-        setIsError(false);
+      if (selected) {
+        setIsUpdating(true);
+        setImageMessage("");
+        setImageIsError(false);
 
-        // restart the server after successful save
         try {
-          await invoke("server_restart");
-          setSaveMessage(`${result.message} - server restarted`);
+          const result = await invoke<UpdateServerImageResult>(
+            "update_server_image",
+            {
+              imagePath: selected,
+            },
+          );
+
+          if (result.success) {
+            setImageMessage("server image updated successfully");
+            setImageIsError(false);
+            // reload config and thumbnail
+            await loadServerConfig();
+          } else {
+            setImageMessage(result.message);
+            setImageIsError(true);
+          }
         } catch (e) {
-          setSaveMessage(`${result.message} - failed to restart server: ${e}`);
-          setIsError(true);
+          setImageMessage(`failed to update image: ${e}`);
+          setImageIsError(true);
+        } finally {
+          setIsUpdating(false);
         }
-      } else {
-        setSaveMessage(result.message);
-        setSaveErrors(result.validation_errors);
-        setIsError(true);
       }
     } catch (e) {
-      setSaveMessage(`failed to save config: ${e}`);
-      setIsError(true);
-    } finally {
-      setIsSaving(false);
-      relayoutEditor();
+      console.error("failed to open file dialog:", e);
     }
-  }
-
-  async function reloadConfig() {
-    if (!editor) return;
-
-    try {
-      const content = await invoke<string>("read_config_file");
-      editor.setValue(content);
-      setSaveMessage("config reloaded from disk");
-      setSaveErrors([]);
-      setIsError(false);
-    } catch (e) {
-      setSaveMessage(`failed to reload config: ${e}`);
-      setIsError(true);
-    } finally {
-      relayoutEditor();
-    }
-  }
-
-  function toggleWordWrap() {
-    if (!editor) return;
-    const newValue = !wordWrap();
-    setWordWrap(newValue);
-    editor.updateOptions({ wordWrap: newValue ? "on" : "off" });
   }
 
   return (
     <div class="view-content settings-view">
       <div class="view-header">
-        <h1 class="active">
+        <h1
+          class={activeTab() === "settings" ? "active" : ""}
+          onClick={() => setActiveTab("settings")}
+          style={{ cursor: "pointer" }}
+        >
           setting<span class="pinky">z</span>
         </h1>
       </div>
 
-      <div class="editor-section">
-        <Show when={upgradeStatus()?.needs_upgrade}>
-          <div class="upgrade-banner">
-            <button
-              class="warning"
-              onClick={performUpgrade}
-              disabled={isUpgrading() || isSaving()}
-              title={`upgrade config: ${upgradeStatus()?.config_version} → ${upgradeStatus()?.binary_version}`}
-            >
-              {isUpgrading() ? "upgrading..." : `update config`}
-            </button>
-            <span class="upgrade-hint">
-              new config template available! ({upgradeStatus()?.config_version}{" "}
-              → {upgradeStatus()?.binary_version})
-            </span>
-            <span class="upgrade-hint">
-              please upgrade your config file to the latest version. a backup of
-              your old config will be created.
-            </span>
-          </div>
-        </Show>
+      <Show when={activeTab() === "settings"}>
+        <div style={{ "padding-bottom": "3rem" }}>
+        <div class="settings-section">
+          <h2>
+            server inf<span class="pinky">o</span>
+          </h2>
 
-        <div class="editor-toolbar">
-          <button
-            class="primary small"
-            onClick={saveConfig}
-            disabled={isSaving() || isUpgrading()}
+          <div
+            class="form-fields"
+            style={{
+              display: "flex",
+              "flex-direction": "column",
+              gap: "1rem",
+              "margin-top": "1rem",
+            }}
           >
-            {isSaving() ? "saving..." : "save & restart"}
-          </button>
-          <button
-            class="secondary small"
-            onClick={reloadConfig}
-            disabled={isSaving() || isUpgrading()}
-          >
-            reload
-          </button>
-          <Show when={configPath()}>
-            <button
-              class="secondary small"
-              onClick={openConfigDir}
-              title={configPath()}
-            >
-              {pathCopied() ? "copied path!" : "show in finder"}
-            </button>
-          </Show>
-          <div class="flex-spacer" />
-          <button
-            class={`small ${wordWrap() ? "active" : "secondary"}`}
-            onClick={toggleWordWrap}
-            title="toggle word wrap"
-          >
-            wrap
-          </button>
-        </div>
-
-        <Show when={saveMessage()}>
-          <div class={`save-message ${isError() ? "error" : "success"}`}>
-            <span class="message-text">{saveMessage()}</span>
-            <button
-              class="dismiss-btn"
-              onClick={dismissMessage}
-              title="dismiss"
-            >
-              ×
-            </button>
-          </div>
-        </Show>
-
-        <Show when={saveErrors().length > 0}>
-          <div class="validation-errors">
-            <div class="errors-header">
-              <strong>validation errors:</strong>
-              <button
-                class="dismiss-btn"
-                onClick={dismissMessage}
-                title="dismiss"
+            <div class="form-group">
+              <label
+                for="server-name"
+                style={{
+                  display: "block",
+                  "margin-bottom": "0.25rem",
+                  "font-size": "0.875rem",
+                  color: "var(--color-text-secondary, #888)",
+                }}
               >
-                ×
+                name
+              </label>
+              <input
+                id="server-name"
+                type="text"
+                value={editName()}
+                onInput={(e) => setEditName(e.currentTarget.value)}
+                style={{
+                  width: "100%",
+                  "max-width": "300px",
+                }}
+              />
+            </div>
+
+            <div class="form-group">
+              <label
+                for="server-description"
+                style={{
+                  display: "block",
+                  "margin-bottom": "0.25rem",
+                  "font-size": "0.875rem",
+                  color: "var(--color-text-secondary, #888)",
+                }}
+              >
+                description (optional)
+              </label>
+              <textarea
+                id="server-description"
+                value={editDescription()}
+                onInput={(e) => setEditDescription(e.currentTarget.value)}
+                rows={3}
+                style={{
+                  width: "100%",
+                  "max-width": "400px",
+                  resize: "vertical",
+                  background: "var(--color-bg-secondary, #1a1a1a)",
+                  color: "var(--color-text-primary, #fff)",
+                  border: "1px solid var(--color-border, #333)",
+                  "border-radius": "4px",
+                  padding: "0.5rem",
+                }}
+              />
+            </div>
+
+            <div style={{ "margin-bottom": "0.5rem" }}>
+              <button
+                class="button"
+                onClick={handleSaveServerInfo}
+                disabled={isSavingInfo()}
+              >
+                {isSavingInfo() ? "saving..." : "save info"}
               </button>
             </div>
-            <ul>
-              {saveErrors().map((err) => (
-                <li>{err}</li>
-              ))}
-            </ul>
+
+            <Show when={infoMessage()}>
+              <div
+                class={`message ${infoIsError() ? "error" : "success"}`}
+              >
+                {infoMessage()}
+              </div>
+            </Show>
           </div>
-        </Show>
+        </div>
 
-        <Show when={editorLoading()}>
-          <div class="editor-loading">loading editor...</div>
-        </Show>
+        <div class="settings-section" style={{ "margin-top": "2rem" }}>
+          <h2>
+            server imag<span class="pinky">e</span>
+          </h2>
 
-        <div
-          ref={editorContainer}
-          class="monaco-editor-container"
-          style={{ display: editorLoading() ? "none" : "block" }}
-        />
-      </div>
+          <div
+            class="server-image-container"
+            style={{
+              display: "flex",
+              "align-items": "center",
+              gap: "1.5rem",
+              "margin-top": "1rem",
+            }}
+          >
+            <div
+              class="image-thumbnail"
+              style={{
+                width: "96px",
+                height: "96px",
+                "aspect-ratio": "1 / 1",
+                border: "2px solid var(--color-border, #333)",
+                "border-radius": "8px",
+                overflow: "hidden",
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "center",
+                background: "var(--color-bg-secondary, #1a1a1a)",
+                "flex-shrink": "0",
+              }}
+            >
+              <Show
+                when={imageThumbnail()}
+                fallback={
+                  <span
+                    style={{
+                      color: "var(--color-text-muted, #666)",
+                      "font-size": "0.875rem",
+                    }}
+                  >
+                    no image
+                  </span>
+                }
+              >
+                <img
+                  src={`data:image/png;base64,${imageThumbnail()}`}
+                  alt="server image"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    "object-fit": "cover",
+                  }}
+                />
+              </Show>
+            </div>
+
+            <div
+              class="image-controls"
+              style={{
+                display: "flex",
+                "flex-direction": "column",
+                gap: "0.5rem",
+              }}
+            >
+              <button
+                class="button"
+                onClick={handleSelectImage}
+                disabled={isUpdating()}
+              >
+                {isUpdating() ? "updating..." : "choose image"}
+              </button>
+
+              <Show when={serverConfig()?.image_path}>
+                <span
+                  style={{
+                    "font-size": "0.75rem",
+                    color: "var(--color-text-muted, #666)",
+                  }}
+                >
+                  {serverConfig()?.image_path}
+                </span>
+              </Show>
+            </div>
+          </div>
+
+          <Show when={imageMessage()}>
+            <div
+              class={`message ${imageIsError() ? "error" : "success"}`}
+              style={{ "margin-top": "1rem" }}
+            >
+              {imageMessage()}
+            </div>
+          </Show>
+        </div>
+        </div>
+      </Show>
+
+      <Show when={activeTab() === "config"}>
+        <ConfigView embedded />
+      </Show>
     </div>
   );
 }
