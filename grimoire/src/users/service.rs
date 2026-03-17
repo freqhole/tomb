@@ -640,10 +640,9 @@ impl UserService {
         }
 
         match self.repository.deactivate_all_active_invites().await {
-            Ok(count) => GrimoireResponse::success(
-                format!("{} invite code(s) deactivated", count),
-                count,
-            ),
+            Ok(count) => {
+                GrimoireResponse::success(format!("{} invite code(s) deactivated", count), count)
+            }
             Err(err) => {
                 GrimoireResponse::failure("Failed to deactivate invite codes", vec![err.into()])
             }
@@ -936,6 +935,11 @@ impl UserService {
             Ok(nodes) => GrimoireResponse::success("Peer nodes retrieved", nodes),
             Err(err) => GrimoireResponse::failure("Failed to get peer nodes", vec![err.into()]),
         }
+    }
+
+    /// Check if any peer nodes exist
+    pub async fn has_peer_nodes(&self) -> bool {
+        self.repository.has_peer_nodes().await.unwrap_or(false)
     }
 
     /// Get user by haruspex_user_id

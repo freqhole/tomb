@@ -34,6 +34,48 @@ const MENU_QUIT: &str = "quit";
 
 /// create and set application menu
 pub fn setup_app_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
+    build_and_set_menu(app)?;
+
+    // handle menu events
+    app.on_menu_event(move |app_handle, event| {
+        handle_menu_event(app_handle, event.id.as_ref());
+    });
+
+    // start status watcher to update menu on P2P status changes (only if federation enabled)
+    start_p2p_status_watcher(app);
+
+    Ok(())
+}
+
+/// start watching P2P status to update menu (only if federation enabled)
+fn start_p2p_status_watcher(app: &AppHandle<Wry>) {
+    if is_federation_enabled() {
+        let app_handle = app.clone();
+        let state_clone = app.state::<Arc<P2pState>>().inner().clone();
+        tauri::async_runtime::spawn(async move {
+            let mut rx = state_clone.subscribe();
+            loop {
+                if rx.changed().await.is_err() {
+                    break;
+                }
+                let status = *rx.borrow();
+                update_menu_for_status(&app_handle, status);
+            }
+        });
+    }
+}
+
+/// rebuild and set the app menu (call when federation config changes)
+pub fn refresh_app_menu(app: &AppHandle<Wry>) {
+    if let Err(e) = build_and_set_menu(app) {
+        eprintln!("[menu] failed to refresh menu: {}", e);
+    }
+    // restart status watcher if federation is now enabled
+    start_p2p_status_watcher(app);
+}
+
+/// internal: build all menus and set on app
+fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
     // build app submenu
     let app_submenu = build_app_submenu(app)?;
 
@@ -77,27 +119,6 @@ pub fn setup_app_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
 
     // set as app menu
     app.set_menu(menu)?;
-
-    // handle menu events
-    app.on_menu_event(move |app_handle, event| {
-        handle_menu_event(app_handle, event.id.as_ref());
-    });
-
-    // start status watcher to update menu on P2P status changes (only if federation enabled)
-    if is_federation_enabled() {
-        let app_handle = app.clone();
-        let state_clone = app.state::<Arc<P2pState>>().inner().clone();
-        tauri::async_runtime::spawn(async move {
-            let mut rx = state_clone.subscribe();
-            loop {
-                if rx.changed().await.is_err() {
-                    break;
-                }
-                let status = *rx.borrow();
-                update_menu_for_status(&app_handle, status);
-            }
-        });
-    }
 
     Ok(())
 }

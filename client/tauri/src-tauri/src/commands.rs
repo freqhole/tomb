@@ -1682,8 +1682,12 @@ fn get_federation_config_from_file(
 }
 
 /// toggle federation enabled in config file (preserves comments)
+/// also starts/stops the P2P endpoint accordingly
 #[tauri::command]
-pub fn toggle_federation_enabled(app_handle: tauri::AppHandle) -> Result<bool, String> {
+pub async fn toggle_federation_enabled(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Arc<crate::p2p_state::P2pState>>,
+) -> Result<bool, String> {
     let config_path = get_server_config_path_resolved(&app_handle)
         .ok_or_else(|| "config file not found".to_string())?;
 
@@ -1699,11 +1703,30 @@ pub fn toggle_federation_enabled(app_handle: tauri::AppHandle) -> Result<bool, S
     grimoire::set_config_values(&config_path, &[("federation.enabled", new_value.into())])
         .map_err(|e| format!("failed to update config: {}", e))?;
 
-    // notify that config changed (restart needed for full effect)
+    // reload grimoire config to pick up the change
+    let _ = grimoire::config::init_config(Some(config_path.clone()));
+
+    // start or stop P2P based on new value
+    if new_value {
+        // ensure config path is set (may not be if federation was disabled at startup)
+        state.set_config_path(config_path);
+        // start P2P
+        if let Err(e) = state.start().await {
+            eprintln!("[toggle_federation_enabled] failed to start P2P: {}", e);
+        }
+    } else {
+        // stop P2P
+        state.stop().await;
+    }
+
+    // refresh the app menu to show/hide P2P controls
+    crate::menu::refresh_app_menu(&app_handle);
+
+    // notify that config changed
     let _ = notify_config_changed(
         &app_handle,
         &format!(
-            "federation {} - restart server to apply",
+            "federation {}",
             if new_value { "enabled" } else { "disabled" }
         ),
     );

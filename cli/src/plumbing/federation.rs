@@ -1,13 +1,15 @@
 //! Federation CLI commands
 //!
 //! Commands for managing P2P federation - syncing users from haruspex,
-//! managing peer nodes, etc.
+//! managing peer nodes, and running the P2P server.
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use dialoguer::{Input, Password};
 use grimoire::error::ErrorDetail;
 use serde::Serialize;
+use tokio::signal;
+use tracing::info;
 
 #[derive(Subcommand)]
 pub enum FederationAction {
@@ -78,6 +80,12 @@ pub enum FederationAction {
         /// ID of the knock request to delete
         id: String,
     },
+
+    /// Start P2P server to accept incoming connections
+    ///
+    /// Runs the iroh endpoint with the offal handler, serving the freqhole API
+    /// directly without requiring an HTTP server. Use Ctrl+C to stop.
+    Serve,
 }
 
 // Response types for JSON serialization
@@ -173,14 +181,15 @@ pub async fn handle_command(action: FederationAction) -> CommandOutput<serde_jso
         }
         FederationAction::RejectKnock { id } => reject_knock(id).await,
         FederationAction::DeleteKnock { id } => delete_knock(id).await,
+        FederationAction::Serve => serve_p2p().await,
     }
 }
 
 /// Get federation config or return error
 fn get_federation_config(
-) -> Result<&'static grimoire::config::FederationConfig, CommandOutput<serde_json::Value>> {
+) -> Result<grimoire::config::FederationConfig, CommandOutput<serde_json::Value>> {
     let config = grimoire::config::get_config();
-    match &config.federation {
+    match config.federation {
         Some(fed) if fed.enabled => Ok(fed),
         Some(_) => Err(CommandOutput::failure(
             "federation is disabled in config - set [federation].enabled = true",
@@ -230,7 +239,7 @@ async fn setup_federation() -> CommandOutput<serde_json::Value> {
 
     eprintln!("authenticating...");
 
-    match grimoire::federation::setup_federation(federation_config, &email, &password).await {
+    match grimoire::federation::setup_federation(&federation_config, &email, &password).await {
         Ok(result) => {
             let data = SetupResponse {
                 haruspex_user_id: result.haruspex_user_id,
@@ -260,7 +269,8 @@ async fn sync_users() -> CommandOutput<serde_json::Value> {
 
     eprintln!("signing in...");
 
-    match grimoire::federation::sync_users_from_haruspex(federation_config, &email, &password).await
+    match grimoire::federation::sync_users_from_haruspex(&federation_config, &email, &password)
+        .await
     {
         Ok(result) => {
             let data = SyncResponse {
@@ -555,4 +565,53 @@ async fn delete_knock(knock_id: String) -> CommandOutput<serde_json::Value> {
             (),
         ),
     }
+}
+
+async fn serve_p2p() -> CommandOutput<serde_json::Value> {
+    let _federation_config = match get_federation_config() {
+        Ok(cfg) => cfg,
+        Err(e) => return e,
+    };
+
+    info!("starting P2P server...");
+    eprintln!("starting P2P server...");
+
+    // start the federation endpoint
+    let endpoint = match grimoire::federation::transport::start_federation_endpoint().await {
+        Ok(ep) => ep,
+        Err(e) => {
+            return CommandOutput::failure(
+                format!("failed to start P2P endpoint: {}", e),
+                vec![ErrorDetail::from(e)],
+                (),
+            );
+        }
+    };
+
+    let node_id = endpoint.node_id().to_string();
+    info!("P2P server ready, node_id: {}", node_id);
+    eprintln!("P2P server ready");
+    eprintln!("node_id: {}", node_id);
+    eprintln!();
+    eprintln!("press Ctrl+C to stop");
+
+    // wait for shutdown signal
+    match signal::ctrl_c().await {
+        Ok(()) => {
+            info!("received shutdown signal");
+            eprintln!("\nshutting down...");
+        }
+        Err(e) => {
+            eprintln!("error waiting for shutdown signal: {}", e);
+        }
+    }
+
+    // graceful shutdown
+    endpoint.close().await;
+    info!("P2P server stopped");
+
+    CommandOutput::success(
+        "P2P server stopped",
+        serde_json::json!({ "node_id": node_id }),
+    )
 }

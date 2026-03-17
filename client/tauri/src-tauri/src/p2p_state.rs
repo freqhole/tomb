@@ -5,6 +5,7 @@
 //! - monitor online status via iroh's .online() and watch_addr()
 //! - notify tray/menu of status changes
 
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -234,10 +235,27 @@ impl P2pState {
     }
 }
 
+/// P2P status response for the frontend
+#[derive(Debug, Clone, Serialize)]
+pub struct P2pStatusResponse {
+    /// status string: "stopped", "starting...", "online", "offline", "connecting..."
+    pub status: String,
+    /// whether federation is enabled in config
+    pub federation_enabled: bool,
+}
+
 /// tauri command to get P2P status
 #[tauri::command]
-pub fn p2p_get_status(state: tauri::State<'_, Arc<P2pState>>) -> String {
-    state.status().as_str().to_string()
+pub fn p2p_get_status(state: tauri::State<'_, Arc<P2pState>>) -> P2pStatusResponse {
+    let federation_enabled = grimoire::config::get_config()
+        .federation
+        .map(|f| f.enabled)
+        .unwrap_or(false);
+
+    P2pStatusResponse {
+        status: state.status().as_str().to_string(),
+        federation_enabled,
+    }
 }
 
 /// tauri command to start P2P endpoint

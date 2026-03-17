@@ -815,6 +815,25 @@ impl UserRepository {
 
         Ok(rows.into_iter().map(PeerNodeWithUser::from).collect())
     }
+
+    /// Check if any peer nodes exist (efficient existence check)
+    pub async fn has_peer_nodes(&self) -> AuthResult<bool> {
+        let pool = database::connect().await?;
+
+        let result: (i32,) = sqlx::query_as(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM user_peer_nodez p
+                INNER JOIN user_accountz u ON p.user_id = u.id
+                WHERE u.deleted_at IS NULL
+            ) as has_peers
+            "#,
+        )
+        .fetch_one(&pool)
+        .await?;
+
+        Ok(result.0 != 0)
+    }
 }
 
 impl Default for UserRepository {

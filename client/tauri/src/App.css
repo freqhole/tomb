@@ -153,8 +153,16 @@ body {
   background: #22c55e;
 }
 
+.status-dot.connecting {
+  background: #eab308;
+}
+
 .status-dot.stopped {
   background: #ef4444;
+}
+
+.p2p-status-row {
+  margin-top: 4px;
 }
 
 /* main content */

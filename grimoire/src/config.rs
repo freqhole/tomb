@@ -3,14 +3,14 @@
 //! Provides configuration loading, validation, and global storage.
 //! Config files use TOML format (supports comments).
 
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 use thiserror::Error;
 use toml_edit::{value, Array, DocumentMut};
 
-// Global config - initialized once at startup
-static CONFIG: OnceCell<GrimoireConfig> = OnceCell::new();
+// Global config - can be reloaded at runtime
+static CONFIG: OnceLock<RwLock<GrimoireConfig>> = OnceLock::new();
 
 /// Main grimoire configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -538,13 +538,24 @@ impl GrimoireConfig {
     }
 }
 
-/// Initialize global config from file path (call once at app startup)
+/// Initialize or reload global config from file path
+///
+/// First call initializes the config. Subsequent calls reload from disk,
+/// allowing runtime config changes (e.g., toggling federation).
 pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
     let config_path = find_config(path)?;
     let config = GrimoireConfig::load(config_path)?;
-    CONFIG
-        .set(config)
-        .map_err(|_| ConfigError::AlreadyInitialized)?;
+
+    match CONFIG.get() {
+        Some(lock) => {
+            // reload existing config
+            *lock.write().unwrap() = config;
+        }
+        None => {
+            // first init
+            let _ = CONFIG.set(RwLock::new(config));
+        }
+    }
     Ok(())
 }
 
@@ -553,11 +564,17 @@ pub fn is_config_initialized() -> bool {
     CONFIG.get().is_some()
 }
 
-/// Get global config reference (available after init_config)
-pub fn get_config() -> &'static GrimoireConfig {
+/// Get a clone of the global config (available after init_config)
+///
+/// Returns a cloned GrimoireConfig. This allows the config to be
+/// used across await points without Send issues.
+pub fn get_config() -> GrimoireConfig {
     CONFIG
         .get()
         .expect("Config not initialized - call init_config first")
+        .read()
+        .unwrap()
+        .clone()
 }
 
 /// try to find a config file

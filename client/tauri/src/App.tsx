@@ -21,6 +21,11 @@ interface ServerStatus {
   server_url: string | null;
 }
 
+interface P2pStatus {
+  status: string; // "stopped", "starting...", "online", "offline", "connecting..."
+  federation_enabled: boolean;
+}
+
 interface SetupStatus {
   needs_setup: boolean;
   config_exists: boolean;
@@ -49,6 +54,7 @@ function App(props: ParentProps) {
   const [serverStatus, setServerStatus] = createSignal<ServerStatus | null>(
     null,
   );
+  const [p2pStatus, setP2pStatus] = createSignal<P2pStatus | null>(null);
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
 
@@ -107,7 +113,9 @@ function App(props: ParentProps) {
 
     // poll server status
     updateServerStatus();
+    updateP2pStatus();
     setInterval(updateServerStatus, 5000);
+    setInterval(updateP2pStatus, 3000);
   });
 
   async function updateServerStatus() {
@@ -128,6 +136,15 @@ function App(props: ParentProps) {
       lastRestartCount = status.restart_count;
     } catch (e) {
       console.error("failed to get status:", e);
+    }
+  }
+
+  async function updateP2pStatus() {
+    try {
+      const status = await invoke<P2pStatus>("p2p_get_status");
+      setP2pStatus(status);
+    } catch (e) {
+      console.error("failed to get P2P status:", e);
     }
   }
 
@@ -226,11 +243,11 @@ function App(props: ParentProps) {
                           class={`status-dot ${status().running ? "running" : "stopped"}`}
                         />
                         <span class="status-text">
-                          {status().running ? "running" : "stopped"}
+                          http {status().running ? "running" : "stopped"}
                         </span>
                         <Show when={status().running && status().uptime_secs}>
                           <span class="uptime">
-                            ({Math.floor(status().uptime_secs! / 60)}m uptime)
+                            ({Math.floor(status().uptime_secs! / 60)}m)
                           </span>
                         </Show>
                       </div>
@@ -248,6 +265,18 @@ function App(props: ParentProps) {
                       </Show>
                     </div>
                   )}
+                </Show>
+
+                {/* P2P status - independent of HTTP server, only show if federation enabled */}
+                <Show when={p2pStatus()?.federation_enabled}>
+                  <div class="server-status">
+                    <div class="p2p-status-row">
+                      <span
+                        class={`status-dot ${p2pStatus()?.status === "online" ? "running" : p2pStatus()?.status === "connecting..." || p2pStatus()?.status === "starting..." ? "connecting" : "stopped"}`}
+                      />
+                      <span class="status-text">p2p {p2pStatus()?.status}</span>
+                    </div>
+                  </div>
                 </Show>
 
                 <div class="section">

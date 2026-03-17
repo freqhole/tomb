@@ -168,12 +168,12 @@ async fn main() -> Result<()> {
     // Initialize tracing (use config log level if available, else default to "info")
     // Note: file logging is handled by server::run_server() for the server command
     let log_level = if needs_init {
-        grimoire::config::get_config().logging.level.as_str()
+        grimoire::config::get_config().logging.level.clone()
     } else {
-        "info"
+        "info".to_string()
     };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
 
     tracing_subscriber::registry()
         .with(env_filter)

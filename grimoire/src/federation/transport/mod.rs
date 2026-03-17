@@ -3,8 +3,8 @@
 //! this module handles the actual peer-to-peer networking using iroh.
 //! it's entirely optional - only active when federation.enabled = true.
 //!
-//! uses a proxy pattern - incoming requests are HTTP-like messages
-//! that get forwarded to the local freqhole server via reqwest.
+//! incoming P2P requests are handled by dispatching directly to offal,
+//! which means no HTTP server is required for P2P functionality.
 
 mod connection;
 mod endpoint;
@@ -16,23 +16,60 @@ pub use endpoint::FederationEndpoint;
 pub use handler::handle_incoming;
 pub use protocol::{PeerMessage, FREQHOLE_ALPN};
 
+use crate::config::get_config;
 use crate::error::GrimoireResult;
+use crate::users::UserService;
+use tracing::info;
 
-/// start the federation endpoint with the handler already wired up
+/// check to allow incoming P2P connections
 ///
-/// this is the main entry point for the server to start P2P networking.
-/// it creates the endpoint, generates/loads the keypair, and starts
-/// accepting incoming connections.
+/// returns true if:
+/// - knocking_enabled is true (unknown peers can knock), OR
+/// - there are registered peer nodes (known peers can connect)
+///
+/// returns false only when both conditions are false, meaning
+/// no other peerz can connect anyway so save some resourcez by skipping.
+async fn should_accept_incoming() -> bool {
+    let config = get_config();
+
+    // check if knocking is enabled
+    let knocking_enabled = config
+        .federation
+        .as_ref()
+        .map(|f| f.knocking_enabled)
+        .unwrap_or(false);
+
+    if knocking_enabled {
+        return true;
+    }
+
+    // check if any peer nodes exist
+    let service = UserService::new();
+    service.has_peer_nodes().await
+}
+
+/// start the federation endpoint and begin accepting P2P connections
+///
+/// this is the main entry point for P2P networking. it creates the
+/// endpoint, generates/loads the keypair, and starts accepting
+/// incoming connections. requests are dispatched directly to offal.
+///
+/// optimization: if knocking is disabled AND no peer nodes exist,
+/// skips the accept loop since no one can connect anyway.
 pub async fn start_federation_endpoint() -> GrimoireResult<FederationEndpoint> {
     let mut endpoint = FederationEndpoint::new().await?;
 
-    // start accepting connections with our handler
-    endpoint.start_accept_loop(|peer_id, conn| {
-        // spawn handler for each connection
-        tokio::spawn(async move {
-            handle_incoming(peer_id, conn).await;
+    // check if should accept incoming connections
+    if should_accept_incoming().await {
+        info!("starting P2P accept loop (knocking enabled or peers registered)");
+        endpoint.start_accept_loop(|peer_id, conn| {
+            tokio::spawn(async move {
+                handle_incoming(peer_id, conn).await;
+            });
         });
-    });
+    } else {
+        info!("skipping P2P accept loop (no knocking, no peers - outbound only)");
+    }
 
     Ok(endpoint)
 }
