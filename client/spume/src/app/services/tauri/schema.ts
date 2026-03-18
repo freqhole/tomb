@@ -89,6 +89,19 @@ export const ScanCompleteEventSchema = z.object({
 });
 
 /**
+ * knock created event - new federation knock request received
+ */
+export const KnockCreatedEventSchema = z.object({
+  type: z.literal("knock-created"),
+  data: z.object({
+    id: z.string(),
+    username: z.string(),
+    node_id: z.string(),
+    message: z.string().optional(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const TauriEventSchema = z.discriminatedUnion("type", [
@@ -96,6 +109,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   ServerImageUpdatedEventSchema,
   ScanProgressEventSchema,
   ScanCompleteEventSchema,
+  KnockCreatedEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -103,3 +117,4 @@ export type ConfigChangedEvent = z.infer<typeof ConfigChangedEventSchema>;
 export type ServerImageUpdatedEvent = z.infer<typeof ServerImageUpdatedEventSchema>;
 export type ScanProgressEvent = z.infer<typeof ScanProgressEventSchema>;
 export type ScanCompleteEvent = z.infer<typeof ScanCompleteEventSchema>;
+export type KnockCreatedEvent = z.infer<typeof KnockCreatedEventSchema>;

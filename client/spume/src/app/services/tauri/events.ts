@@ -11,6 +11,7 @@ import {
   type ConfigChangedEvent,
   type ScanProgressEvent,
   type ScanCompleteEvent,
+  type KnockCreatedEvent,
 } from "./schema";
 
 // event name used for all freqhole events (single channel, discriminated by type)
@@ -87,6 +88,21 @@ export async function onScanComplete(
 ): Promise<UnlistenFn> {
   return onEvent((event) => {
     if (event.type === "scan-complete") {
+      callback(event);
+    }
+  });
+}
+
+/**
+ * listen specifically for knock-created events
+ *
+ * fired when a federation knock request is received.
+ */
+export async function onKnockCreated(
+  callback: (event: KnockCreatedEvent) => void
+): Promise<UnlistenFn> {
+  return onEvent((event) => {
+    if (event.type === "knock-created") {
       callback(event);
     }
   });

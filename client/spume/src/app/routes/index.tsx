@@ -313,13 +313,16 @@ function RemoteContextHandler(props: { children?: any }) {
 
     // confirmed auth expiry — show persistent toast
     if (authToastId === null) {
-      authToastId = toast.custom((toastProps) => (
-        <AuthExpiredToast
-          toastId={toastProps.toastId}
-          remoteName={info.name}
-          onSignIn={() => setShowReauthModal(true)}
-        />
-      ));
+      authToastId = toast.custom(
+        (toastProps) => (
+          <AuthExpiredToast
+            toastId={toastProps.toastId}
+            remoteName={info.name}
+            onSignIn={() => setShowReauthModal(true)}
+          />
+        ),
+        { key: "auth-expired", message: "" }
+      );
     }
   });
 

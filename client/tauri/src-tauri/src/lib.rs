@@ -16,7 +16,7 @@ use app_config::{get_server_config_path_resolved, is_setup_complete, FreqholeApp
 #[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 use tauri::webview::Color;
-use tauri::{Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 
 use p2p_state::P2pState;
@@ -123,6 +123,43 @@ pub fn run() {
                         eprintln!("[tauri] job runner stopped gracefully");
                     } else {
                         eprintln!("[tauri] job runner error: {}", result.message);
+                    }
+                });
+
+                // spawn grimoire event listener for real-time UI updates
+                let event_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut rx = grimoire::events::subscribe();
+                    eprintln!("[tauri] grimoire event listener started");
+                    while let Ok(event) = rx.recv().await {
+                        // transform grimoire event to spume's expected format
+                        let spume_event = match &event {
+                            grimoire::events::GrimoireEvent::KnockCreated { id, username, node_id, message } => {
+                                serde_json::json!({
+                                    "type": "knock-created",
+                                    "data": {
+                                        "id": id,
+                                        "username": username,
+                                        "node_id": node_id,
+                                        "message": if message.is_empty() { None } else { Some(message) }
+                                    }
+                                })
+                            }
+                            grimoire::events::GrimoireEvent::KnockProcessed { id, status, username } => {
+                                serde_json::json!({
+                                    "type": "knock-processed",
+                                    "data": {
+                                        "id": id,
+                                        "status": status,
+                                        "username": username
+                                    }
+                                })
+                            }
+                        };
+                        // emit to frontend as tauri event (matching spume's event channel)
+                        if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
+                            eprintln!("[tauri] failed to emit freqhole event: {}", e);
+                        }
                     }
                 });
 

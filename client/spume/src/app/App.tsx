@@ -203,6 +203,13 @@ export function App() {
           `scan complete: ${event.data.songs_added} songs, ${event.data.albums_added} albums, ${event.data.artists_added} artists added`
         );
         break;
+
+      case "knock-created":
+        // show toast for federation knock request
+        toast.info(
+          `federation request from ${event.data.username}${event.data.message ? `: ${event.data.message}` : ""}`
+        );
+        break;
     }
   }
 
@@ -304,7 +311,7 @@ export function App() {
               }}
             />
           ),
-          "update-available"
+          { key: "update-available", message: "" }
         );
       }
     })

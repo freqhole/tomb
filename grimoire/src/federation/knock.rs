@@ -5,6 +5,7 @@
 
 use crate::database;
 use crate::error::GrimoireResult;
+use crate::events::{emit, GrimoireEvent};
 use crate::response::GrimoireResponse;
 use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema;
@@ -187,7 +188,17 @@ pub async fn create_knock(
             .await
             .expect("just inserted");
 
-            GrimoireResponse::success("knock request created", KnockRequest::from(row))
+            let knock = KnockRequest::from(row);
+
+            // emit event for real-time notifications
+            emit(GrimoireEvent::KnockCreated {
+                id: knock.id.clone(),
+                username: knock.username.clone(),
+                node_id: knock.node_id.clone(),
+                message: knock.message.clone(),
+            });
+
+            GrimoireResponse::success("knock request created", knock)
         }
         Err(e) => GrimoireResponse::failure(&format!("failed to create knock: {}", e), vec![]),
     }
