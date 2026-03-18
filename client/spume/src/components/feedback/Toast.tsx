@@ -169,11 +169,8 @@ function showToast(variant: ToastVariant, message: string, options?: ToastOption
   const key = `${variant}:${options?.title ?? ""}`;
   const existing = activeToasts.get(key);
 
-  console.log(`[showToast] key="${key}" existing=${existing ? existing.id : "none"}`);
-
   // if toast with same variant+title exists, just update its message
   if (existing) {
-    console.log(`[showToast] updating existing toast ${existing.id} with message: ${message}`);
     existing.setMessage(message);
     return existing.id;
   }
@@ -196,8 +193,6 @@ function showToast(variant: ToastVariant, message: string, options?: ToastOption
       }}
     />
   ));
-
-  console.log(`[showToast] created new toast id=${id}`);
 
   // update placeholder with real id
   placeholder.id = id;
@@ -263,7 +258,6 @@ export const toast = {
 
     // if toast already exists, just update its message
     if (existing) {
-      console.log(`[toast.custom] key="${key}" updating message: ${message}`);
       existing.setMessage(message);
       return existing.id;
     }
@@ -272,7 +266,6 @@ export const toast = {
     const [getMessage, setMessage] = createSignal(message);
 
     const id = toaster.show((props) => component({ ...props, message: getMessage }));
-    console.log(`[toast.custom] created toast key="${key}" id=${id}`);
 
     customToasts.set(key, { id, setMessage });
 
