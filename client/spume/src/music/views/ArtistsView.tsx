@@ -657,7 +657,7 @@ export function ArtistsView(props: ArtistsViewProps) {
               </div>
             }
           >
-          <Show
+            <Show
               when={artistListItems().length > 0}
               fallback={
                 <Show
@@ -665,7 +665,9 @@ export function ArtistsView(props: ArtistsViewProps) {
                   fallback={
                     <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                       <div class="text-center max-w-md">
-                        <p class="text-lg text-[var(--color-text-secondary)] mb-2">no artists found!</p>
+                        <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                          no artists found!
+                        </p>
                         <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
                           add music to import local audio files or download from urls
                         </p>
