@@ -211,6 +211,41 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       const controller = new AbortController();
       setAbortController(controller);
 
+      // create pending remote IMMEDIATELY with "testing" stage
+      // this persists the attempt so user can resume if modal closes
+      let pendingId: string | null = null;
+      try {
+        const existingPending = await getPendingRemoteByPeerAddr(parsed.peer_addr);
+        if (existingPending) {
+          // update existing record to testing stage
+          await updatePendingRemote(existingPending.id, {
+            stage: "testing",
+            error_message: null,
+          });
+          pendingId = existingPending.id;
+        } else {
+          const newPending = await createPendingRemote({
+            peer_addr: parsed.peer_addr,
+            transport: isTauriAvailable() ? "app" : "wasm",
+            stage: "testing",
+            server_name: null,
+            server_description: null,
+            server_version: null,
+            server_image_data: null,
+            server_image_type: null,
+            knock_username: null,
+            knock_message: null,
+            error_message: null,
+          });
+          pendingId = newPending.id;
+        }
+        // refresh the list to show testing state
+        const remotes = await getAllPendingRemotes();
+        setPendingRemotes(remotes);
+      } catch (err) {
+        console.warn("failed to create pending remote (will continue anyway):", err);
+      }
+
       try {
         // first, try to get server info via P2P to verify connection
         const client = await getClientForRemote({
@@ -228,18 +263,25 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
         if (!infoResult.success || !infoResult.data) {
           // server is reachable but didn't return valid info
-          // this might be a permission issue - offer registration
+          // DON'T go to auth step - we can't authenticate without valid connection
           const errorMsg =
             infoResult.success === false && "error" in infoResult
               ? formatErrorMessage(infoResult.error)
               : "server did not return valid info";
 
-          setError(
-            `connection succeeded but: ${errorMsg}. you may need to register with an invite code.`
-          );
-          // still move to auth step to offer registration
+          // mark pending remote as failed
+          if (pendingId) {
+            await updatePendingRemote(pendingId, {
+              stage: "failed",
+              error_message: errorMsg,
+            });
+            const remotes = await getAllPendingRemotes();
+            setPendingRemotes(remotes);
+          }
+
+          setError(`connection succeeded but: ${errorMsg}. the peer may not be a freqhole server.`);
           setServerInfo(null);
-          setStep("auth");
+          setStep("url");
           return;
         }
 
@@ -345,6 +387,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             server_image_type: imageData?.type ?? null,
             knock_username: null,
             knock_message: null,
+            error_message: null,
           });
         }
         // refresh the list
@@ -455,6 +498,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   server_image_type: imageData?.type ?? null,
                   knock_username: null,
                   knock_message: null,
+                  error_message: null,
                 });
               }
               // refresh the list
@@ -473,13 +517,31 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           }
         }
 
+        // determine error message
+        let errorMessage: string;
         if (errMsg.includes("timeout") || errMsg.includes("Timeout")) {
-          setError("P2P connection timed out - peer may be offline or unreachable");
+          errorMessage = "P2P connection timed out - peer may be offline or unreachable";
         } else if (errMsg.includes("not found") || errMsg.includes("NotFound")) {
-          setError("P2P peer not found - check the peer ID and try again");
+          errorMessage = "P2P peer not found - check the peer ID and try again";
         } else {
-          setError(`P2P connection failed: ${errMsg}`);
+          errorMessage = `P2P connection failed: ${errMsg}`;
         }
+
+        // update pending remote to failed state
+        if (pendingId) {
+          try {
+            await updatePendingRemote(pendingId, {
+              stage: "failed",
+              error_message: errorMessage,
+            });
+            const remotes = await getAllPendingRemotes();
+            setPendingRemotes(remotes);
+          } catch {
+            // ignore update failure
+          }
+        }
+
+        setError(errorMessage);
         setStep("url");
       } finally {
         setIsLoading(false);
@@ -528,6 +590,41 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     // create abort controller for cancellation
     const controller = new AbortController();
     setAbortController(controller);
+
+    // create pending remote IMMEDIATELY with "testing" stage
+    // this persists the attempt so user can resume if modal closes
+    let httpPendingId: string | null = null;
+    try {
+      const existingPending = await getPendingRemoteByPeerAddr(remoteUrl);
+      if (existingPending) {
+        // update existing record to testing stage
+        await updatePendingRemote(existingPending.id, {
+          stage: "testing",
+          error_message: null,
+        });
+        httpPendingId = existingPending.id;
+      } else {
+        const newPending = await createPendingRemote({
+          peer_addr: remoteUrl, // for HTTP, use URL as peer_addr
+          transport: "http",
+          stage: "testing",
+          server_name: null,
+          server_description: null,
+          server_version: null,
+          server_image_data: null,
+          server_image_type: null,
+          knock_username: null,
+          knock_message: null,
+          error_message: null,
+        });
+        httpPendingId = newPending.id;
+      }
+      // refresh the list to show testing state
+      const remotes = await getAllPendingRemotes();
+      setPendingRemotes(remotes);
+    } catch (err) {
+      console.warn("failed to create HTTP pending remote (will continue anyway):", err);
+    }
 
     try {
       // fetch server info from /api/hello (public endpoint)
@@ -593,6 +690,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           server_image_type: null,
           knock_username: null,
           knock_message: null,
+          error_message: null,
         });
       }
       // refresh the list
@@ -606,11 +704,26 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       if (controller.signal.aborted) return;
 
       console.error("failed to connect to remote:", err);
-      setError(
+      const errorMessage =
         err instanceof Error
           ? `connection failed: ${err.message}`
-          : "failed to connect to remote server"
-      );
+          : "failed to connect to remote server";
+
+      // update pending remote to failed state
+      if (httpPendingId) {
+        try {
+          await updatePendingRemote(httpPendingId, {
+            stage: "failed",
+            error_message: errorMessage,
+          });
+          const remotes = await getAllPendingRemotes();
+          setPendingRemotes(remotes);
+        } catch {
+          // ignore update failure
+        }
+      }
+
+      setError(errorMessage);
       setStep("url");
     } finally {
       setIsLoading(false);
@@ -785,6 +898,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           server_image_type: imageData?.type ?? null,
           knock_username: username,
           knock_message: message,
+          error_message: null,
         });
       }
 
@@ -802,12 +916,25 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
-  // retry a pending remote to see if knock was accepted
+  // retry a pending remote - either check knock status or retry connection
   const handleRetryKnock = async (pending: PendingRemote) => {
     setInputValue(pending.peer_addr);
     setPeerAddr(pending.peer_addr);
     setError(null);
     setShowKnockOption(false);
+
+    // if this wasn't a knock request, just retry the normal connection flow
+    if (
+      pending.stage !== "knock_pending" &&
+      pending.stage !== "knock_accepted" &&
+      pending.stage !== "knock_rejected"
+    ) {
+      // use normal test connection flow
+      handleTestConnection();
+      return;
+    }
+
+    // knock-related stages: check the knock status
     setIsLoading(true);
     setTestingStatus(null); // reset status
     setStep("testing");
@@ -1263,11 +1390,25 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                   {pending.server_name || pending.peer_addr.slice(0, 16) + "..."}
                                 </p>
                                 <p class="text-xs text-[var(--color-text-tertiary)]">
+                                  {pending.stage === "testing" && "testing connection..."}
                                   {pending.stage === "connected" && "ready to connect"}
+                                  {pending.stage === "failed" && (
+                                    <span class="text-[var(--color-status-error)]">
+                                      connection failed
+                                    </span>
+                                  )}
                                   {pending.stage === "knock_pending" && "waiting for approval"}
                                   {pending.stage === "knock_accepted" && "access granted"}
                                   {pending.stage === "knock_rejected" && "request rejected"}
                                 </p>
+                                <Show when={pending.stage === "failed" && pending.error_message}>
+                                  <p
+                                    class="text-xs text-[var(--color-status-error)] mt-0.5 truncate"
+                                    title={pending.error_message ?? undefined}
+                                  >
+                                    {pending.error_message}
+                                  </p>
+                                </Show>
                               </div>
                               <div class="flex gap-1">
                                 <button
@@ -1277,9 +1418,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                                   title={
                                     pending.stage === "connected"
                                       ? "continue setup"
-                                      : "check status"
+                                      : pending.stage === "failed" || pending.stage === "testing"
+                                        ? "retry connection"
+                                        : "check status"
                                   }
-                                  disabled={isLoading()}
+                                  disabled={isLoading() || pending.stage === "testing"}
                                 >
                                   <svg
                                     class="w-4 h-4"

@@ -81,6 +81,77 @@ export async function dismissNotice(noticeId: string): Promise<void> {
 
 export const NOTICE_CONFIG_UPGRADE = "config-upgrade";
 export const NOTICE_KNOCK_REQUESTS = "knock-requests";
+export const NOTICE_KNOCK_CREATED = "knock-created";
+
+// ============================================================================
+// knock created toast (shows username + message with federation button)
+// ============================================================================
+
+/**
+ * show a toast for a single knock request with username and message.
+ * includes button to open federation view.
+ * uses de-duplication to avoid multiple toasts stacking.
+ *
+ * @param username the username of the requester
+ * @param message optional message from the requester
+ */
+export function showKnockCreatedToast(username: string, message?: string): void {
+  // de-duplicate: if already showing a knock created toast, skip
+  if (isNoticeShowing(NOTICE_KNOCK_CREATED)) {
+    return;
+  }
+
+  markNoticeShowing(NOTICE_KNOCK_CREATED);
+
+  const title = `federation request from ${username}`;
+  const description = message || "someone is requesting access to your library";
+
+  toaster.show((props) => (
+    <KobalteToast toastId={props.toastId} persistent={true} class="toast pointer-events-auto">
+      <div
+        class="flex items-start gap-3 p-4 rounded-lg shadow-lg border min-w-[320px] max-w-[420px]"
+        style={{
+          "background-color": solidColors.info.bg,
+          "border-color": solidColors.info.border,
+          color: solidColors.info.text,
+        }}
+      >
+        {/* icon */}
+        <div class="flex-shrink-0 pt-0.5">
+          <Icon name="user" size={20} color={solidColors.info.text} />
+        </div>
+
+        {/* content */}
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold text-sm mb-1">{title}</div>
+          <div class="text-sm mb-3 opacity-80">{description}</div>
+          <div class="flex gap-2">
+            <button
+              class="px-3 py-1 text-xs font-medium rounded bg-[var(--color-bg-secondary)] text-white hover:bg-[var(--color-bg-tertiary)] cursor-pointer"
+              onClick={() => {
+                toaster.dismiss(props.toastId);
+                markNoticeHidden(NOTICE_KNOCK_CREATED);
+                void openSetupWizard("/federation");
+              }}
+            >
+              view request
+            </button>
+          </div>
+        </div>
+
+        {/* close button */}
+        <KobalteToast.CloseButton
+          class="flex-shrink-0 hover:opacity-70 transition-opacity p-1 -mt-1 -mr-1 cursor-pointer"
+          onClick={() => {
+            markNoticeHidden(NOTICE_KNOCK_CREATED);
+          }}
+        >
+          <Icon name="close" size={16} color={solidColors.info.text} />
+        </KobalteToast.CloseButton>
+      </div>
+    </KobalteToast>
+  ));
+}
 
 // ============================================================================
 // config upgrade toast
@@ -134,10 +205,10 @@ export async function checkAndShowConfigUpgradeToast(): Promise<void> {
                 onClick={async () => {
                   toaster.dismiss(props.toastId);
                   markNoticeHidden(NOTICE_CONFIG_UPGRADE);
-                  await openSetupWizard("/settings");
+                  await openSetupWizard("/config");
                 }}
               >
-                open settings
+                open config
               </button>
               <button
                 class="px-3 py-1 text-xs font-medium rounded hover:bg-black/20 cursor-pointer opacity-70"

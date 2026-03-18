@@ -66,7 +66,7 @@ import {
   applyServiceWorkerUpdate,
   dismissUpdate,
 } from "./services/serviceWorker";
-import { checkPendingKnocks } from "./services/toastNotices";
+import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
@@ -203,10 +203,8 @@ export function App() {
         break;
 
       case "knock-created":
-        // show toast for federation knock request
-        toast.info(
-          `federation request from ${event.data.username}${event.data.message ? `: ${event.data.message}` : ""}`
-        );
+        // show toast for federation knock request with federation view button
+        showKnockCreatedToast(event.data.username, event.data.message);
         break;
 
       case "peer-offline":

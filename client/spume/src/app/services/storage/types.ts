@@ -120,7 +120,9 @@ export const STORE_PENDING_REMOTES = "pending_remotes";
 
 // pending remote stage - tracks progress of adding a new remote
 export type PendingRemoteStage =
+  | "testing"         // connection test in progress
   | "connected"       // test connection succeeded, have server info
+  | "failed"          // connection failed (timeout, unreachable, etc.)
   | "knock_pending"   // knock request was sent, awaiting response
   | "knock_accepted"  // knock was accepted, can complete setup
   | "knock_rejected"; // knock was rejected
@@ -143,4 +145,6 @@ export interface PendingRemote {
   // knock info (optional, only if knock was sent)
   knock_username: string | null;
   knock_message: string | null;
+  // error info (optional, only if stage is "failed")
+  error_message: string | null;
 }
