@@ -21,7 +21,8 @@ pub enum KnockStatus {
 
 impl ZodSchema for KnockStatus {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")])"#.to_string()
+        r#"z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")])"#
+            .to_string()
     }
 }
 
@@ -211,12 +212,18 @@ pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResp
         Some(r) => {
             let status = KnockStatus::from(r.status);
             let processed = status != KnockStatus::Pending;
-            GrimoireResponse::success("knock status found", KnockStatusResponse { status, processed })
+            GrimoireResponse::success(
+                "knock status found",
+                KnockStatusResponse { status, processed },
+            )
         }
-        None => GrimoireResponse::success("no knock found", KnockStatusResponse {
-            status: KnockStatus::Pending,
-            processed: false,
-        }),
+        None => GrimoireResponse::success(
+            "no knock found",
+            KnockStatusResponse {
+                status: KnockStatus::Pending,
+                processed: false,
+            },
+        ),
     }
 }
 
@@ -317,11 +324,17 @@ pub async fn accept_knock(
 
     let row = match row {
         Some(r) => r,
-        None => return Err(crate::error::GrimoireError::KnockNotFound { id: knock_id.to_string() }),
+        None => {
+            return Err(crate::error::GrimoireError::KnockNotFound {
+                id: knock_id.to_string(),
+            })
+        }
     };
 
     if row.status != "pending" {
-        return Err(crate::error::GrimoireError::KnockAlreadyProcessed { id: knock_id.to_string() });
+        return Err(crate::error::GrimoireError::KnockAlreadyProcessed {
+            id: knock_id.to_string(),
+        });
     }
 
     let username = request.username.unwrap_or(row.username.clone());
@@ -340,9 +353,11 @@ pub async fn accept_knock(
     let user = if let Some(user_id) = request.user_id {
         // use existing user
         let user_result = user_service.get_user(&user_id).await;
-        user_result.data.ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-            message: format!("user not found: {}", user_id),
-        })?
+        user_result
+            .data
+            .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+                message: format!("user not found: {}", user_id),
+            })?
     } else {
         // create new user
         let create_request = CreateUserRequest {
@@ -359,13 +374,17 @@ pub async fn accept_knock(
             });
         }
 
-        user_result.data.ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-            message: "user creation returned no data".to_string(),
-        })?
+        user_result
+            .data
+            .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+                message: "user creation returned no data".to_string(),
+            })?
     };
 
     // link peer node to user
-    let peer_result = user_service.add_peer_node(&user.id, &row.node_id, None).await;
+    let peer_result = user_service
+        .add_peer_node(&user.id, &row.node_id, None)
+        .await;
     if !peer_result.success {
         return Err(crate::error::GrimoireError::ProcessingFailed {
             message: peer_result.message,
@@ -406,11 +425,17 @@ pub async fn reject_knock(knock_id: &str, admin_user_id: &str) -> GrimoireResult
 
     let row = match row {
         Some(r) => r,
-        None => return Err(crate::error::GrimoireError::KnockNotFound { id: knock_id.to_string() }),
+        None => {
+            return Err(crate::error::GrimoireError::KnockNotFound {
+                id: knock_id.to_string(),
+            })
+        }
     };
 
     if row.status != "pending" {
-        return Err(crate::error::GrimoireError::KnockAlreadyProcessed { id: knock_id.to_string() });
+        return Err(crate::error::GrimoireError::KnockAlreadyProcessed {
+            id: knock_id.to_string(),
+        });
     }
 
     // update knock status and fetch in one query
@@ -437,15 +462,14 @@ pub async fn reject_knock(knock_id: &str, admin_user_id: &str) -> GrimoireResult
 pub async fn delete_knock(knock_id: &str) -> GrimoireResult<()> {
     let pool = database::connect().await?;
 
-    let result = sqlx::query!(
-        r#"DELETE FROM knock_requestz WHERE id = ?"#,
-        knock_id
-    )
-    .execute(&pool)
-    .await?;
+    let result = sqlx::query!(r#"DELETE FROM knock_requestz WHERE id = ?"#, knock_id)
+        .execute(&pool)
+        .await?;
 
     if result.rows_affected() == 0 {
-        return Err(crate::error::GrimoireError::KnockNotFound { id: knock_id.to_string() });
+        return Err(crate::error::GrimoireError::KnockNotFound {
+            id: knock_id.to_string(),
+        });
     }
 
     Ok(())

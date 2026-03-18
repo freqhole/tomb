@@ -1,7 +1,14 @@
 // user autocomplete component for federation view
 // allows selecting existing users or creating new ones
 
-import { createSignal, createMemo, For, Show, onCleanup, createEffect } from "solid-js";
+import {
+  createSignal,
+  createMemo,
+  For,
+  Show,
+  onCleanup,
+  createEffect,
+} from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 
 interface UserInfo {
@@ -50,7 +57,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
       setInputValue(initial);
       // check if this matches an existing user
       const match = users().find(
-        (u) => u.username.toLowerCase() === initial.toLowerCase()
+        (u) => u.username.toLowerCase() === initial.toLowerCase(),
       );
       if (match) {
         setSelectedUser(match);
@@ -76,9 +83,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
   const filteredUsers = createMemo(() => {
     const search = inputValue().toLowerCase().trim();
     if (!search) return users();
-    return users().filter((u) =>
-      u.username.toLowerCase().includes(search)
-    );
+    return users().filter((u) => u.username.toLowerCase().includes(search));
   });
 
   // check if input matches an existing user exactly
@@ -99,12 +104,12 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
   function handleInputChange(value: string) {
     setInputValue(value);
     setIsOpen(true);
-    
+
     // check for exact match
     const match = users().find(
-      (u) => u.username.toLowerCase() === value.toLowerCase().trim()
+      (u) => u.username.toLowerCase() === value.toLowerCase().trim(),
     );
-    
+
     if (match) {
       setSelectedUser(match);
       props.onSelect({
@@ -186,22 +191,29 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
           <span class="user-role-badge">{selectedUser()!.role}</span>
         </Show>
       </div>
-      
-      <Show when={isOpen() && !props.disabled && (filteredUsers().length > 0 || showCreateNew())}>
+
+      <Show
+        when={
+          isOpen() &&
+          !props.disabled &&
+          (filteredUsers().length > 0 || showCreateNew())
+        }
+      >
         <div class="user-autocomplete-dropdown">
           <Show when={showCreateNew()}>
             <div
               class="user-autocomplete-option create-new"
               onClick={handleSelectCreateNew}
             >
-              <span class="create-new-label">create new:</span> {inputValue().trim()}
+              <span class="create-new-label">create new:</span>{" "}
+              {inputValue().trim()}
             </div>
           </Show>
-          
+
           <Show when={loading()}>
             <div class="user-autocomplete-loading">loading...</div>
           </Show>
-          
+
           <For each={filteredUsers()}>
             {(user) => (
               <div

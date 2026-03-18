@@ -72,7 +72,11 @@ struct AcceptKnockBody {
     user_id: Option<String>,
 }
 
-pub async fn accept_by_id(caller: &Caller, id: &str, body: JsonValue) -> GrimoireResponse<JsonValue> {
+pub async fn accept_by_id(
+    caller: &Caller,
+    id: &str,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
