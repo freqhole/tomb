@@ -191,8 +191,22 @@ export function isAuthError<T>(result: SafeParseResult<T>): boolean {
 export function isNetworkError<T>(result: SafeParseResult<T>): boolean {
   if (result.success) return false;
   return result.error.issues.some(
-    (issue) =>
-      issue.code === "custom" &&
-      (issue.message === "Failed to fetch" || issue.message === "network error"),
+    (issue) => {
+      if (issue.code !== "custom") return false;
+      const msg = issue.message.toLowerCase();
+      
+      // HTTP fetch errors
+      if (msg === "failed to fetch" || msg === "network error") return true;
+      
+      // P2P/iroh connection errors - be generous with matching
+      if (msg.includes("connection")) return true; // connection failed, closed, refused, etc
+      if (msg.includes("timeout") || msg.includes("unreachable")) return true;
+      if (msg.includes("closed")) return true; // ClosedPath, stream closed, etc
+      if (msg.includes("no route") || msg.includes("endpoint")) return true;
+      if (msg.includes("stream") && (msg.includes("error") || msg.includes("failed"))) return true;
+      if (msg.includes("read") && msg.includes("error")) return true;
+      
+      return false;
+    }
   );
 }

@@ -6,6 +6,21 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use crate::spume_bridge::notify_peer_offline;
+
+/// check if an error message indicates a connection failure (peer likely offline)
+fn is_connection_error(error_msg: &str) -> bool {
+    let lower = error_msg.to_lowercase();
+    lower.contains("failed to connect")
+        || lower.contains("connection refused")
+        || lower.contains("connection reset")
+        || lower.contains("connection closed")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("unreachable")
+        || lower.contains("no route")
+}
+
 /// response from p2p_proxy_request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pResponse {
@@ -42,7 +57,7 @@ pub struct P2pUploadResponse {
 /// existing endpoint first.
 pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // clear any existing endpoint first (safe to call even if none exists)
-    grimoire::federation::p2p_client::clear_federation_endpoint();
+    grimoire::federation::p2p_client::clear_federation_endpoint().await;
 
     // initialize grimoire config from server config (ignore if already initialized)
     let _ = grimoire::config::init_config(Some(config_path.to_path_buf()));
@@ -123,6 +138,7 @@ pub fn p2p_get_node_id() -> Result<String, String> {
 /// body: optional JSON body for POST/PUT requests
 #[tauri::command]
 pub async fn p2p_proxy_request(
+    app_handle: tauri::AppHandle,
     peer_addr: String,
     method: String,
     path: String,
@@ -131,7 +147,14 @@ pub async fn p2p_proxy_request(
     let response =
         grimoire::federation::p2p_client::proxy_request(&peer_addr, &method, &path, body)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                // emit peer-offline event for connection failures
+                if is_connection_error(&error_msg) {
+                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+                }
+                error_msg
+            })?;
 
     Ok(P2pResponse {
         status: response.status,
@@ -143,12 +166,22 @@ pub async fn p2p_proxy_request(
 ///
 /// returns base64-encoded data (since tauri can't easily pass raw bytes)
 #[tauri::command]
-pub async fn p2p_fetch_blob(peer_addr: String, blob_id: String) -> Result<P2pBlobResponse, String> {
+pub async fn p2p_fetch_blob(
+    app_handle: tauri::AppHandle,
+    peer_addr: String,
+    blob_id: String,
+) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
     let blob = grimoire::federation::p2p_client::fetch_blob(&peer_addr, &blob_id)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let error_msg = e.to_string();
+            if is_connection_error(&error_msg) {
+                let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+            }
+            error_msg
+        })?;
 
     Ok(P2pBlobResponse {
         data: STANDARD.encode(&blob.data),
@@ -162,12 +195,21 @@ pub async fn p2p_fetch_blob(peer_addr: String, blob_id: String) -> Result<P2pBlo
 /// used during "add remote" flow before user is authenticated.
 /// returns base64-encoded data (since tauri can't easily pass raw bytes)
 #[tauri::command]
-pub async fn p2p_fetch_hello_image(peer_addr: String) -> Result<P2pBlobResponse, String> {
+pub async fn p2p_fetch_hello_image(
+    app_handle: tauri::AppHandle,
+    peer_addr: String,
+) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
     let blob = grimoire::federation::p2p_client::fetch_hello_image(&peer_addr)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let error_msg = e.to_string();
+            if is_connection_error(&error_msg) {
+                let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+            }
+            error_msg
+        })?;
 
     Ok(P2pBlobResponse {
         data: STANDARD.encode(&blob.data),
@@ -193,6 +235,7 @@ pub fn p2p_close_all_connections() {
 /// data: base64-encoded blob data (since tauri can't easily pass raw bytes)
 #[tauri::command]
 pub async fn p2p_upload_blob(
+    app_handle: tauri::AppHandle,
     peer_addr: String,
     filename: String,
     content_type: String,
@@ -208,7 +251,13 @@ pub async fn p2p_upload_blob(
     let result =
         grimoire::federation::p2p_client::upload_blob(&peer_addr, &filename, &content_type, &bytes)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if is_connection_error(&error_msg) {
+                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+                }
+                error_msg
+            })?;
 
     Ok(P2pUploadResponse {
         blob_id: result.blob_id,

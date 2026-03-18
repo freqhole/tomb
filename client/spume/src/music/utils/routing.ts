@@ -1,6 +1,23 @@
 // routing utilities for context-aware navigation
 
 import { getCurrentRemote } from "../data";
+import { isTauriMode } from "../../app/services/tauri";
+
+/**
+ * check if the current context supports feed view.
+ * - browser "local" source does NOT have feed (no server backend)
+ * - tauri "local" (is_tauri_managed) DOES have feed
+ * - all remotes have feed
+ */
+export function hasFeedView(): boolean {
+  const remote = getCurrentRemote();
+  if (remote) {
+    // all remotes have feed view
+    return true;
+  }
+  // local source: only Tauri has feed (it has a local server backend)
+  return isTauriMode();
+}
 
 /**
  * get the current route prefix based on active data source
@@ -51,6 +68,29 @@ export const routes = {
   remotes: () => buildRoute("/remotes"),
   favorites: () => buildRoute("/favorites"),
 };
+
+/**
+ * get the default route for a given remote or local source.
+ * 
+ * @param remoteId - remote ID, "local", or undefined for current context
+ *   - undefined: uses current context (getCurrentRemote)
+ *   - "local": returns local default (/local/feed for Tauri, /local/songs for browser)
+ *   - string: returns remote default (/{remoteId}/feed)
+ */
+export function getDefaultRoute(remoteId?: string): string {
+  // explicit "local"
+  if (remoteId === "local") {
+    return isTauriMode() ? "/local/feed" : "/local/songs";
+  }
+  
+  // explicit remote ID
+  if (remoteId) {
+    return `/${remoteId}/feed`;
+  }
+  
+  // use current context
+  return hasFeedView() ? routes.feed() : routes.songs();
+}
 
 /** parameterless view route keys */
 const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings"] as const;

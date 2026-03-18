@@ -2,14 +2,14 @@ import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { whoami } from "../../app/services/remotes/authService";
-import { useLocalSource, useRemoteSource, getCurrentRemote } from "../../music/data";
+import { useLocalSource, getCurrentRemote } from "../../music/data";
 import {
   getActiveRemote,
   getRemoteById,
   getTauriManagedRemote,
-  checkRemoteHealth,
   isP2PTransport,
 } from "../../app/services/remotes/remoteManager";
+import { connectToRemote } from "../../app/services/remotes/connectionProgress";
 import { isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
@@ -31,6 +31,7 @@ import {
   FederationSettingsView,
 } from "../../settings";
 import { isTauriMode } from "../services/tauri";
+import { getDefaultRoute } from "../../music/utils/routing";
 import { debug } from "../../utils/logger";
 
 interface RoutesProps {
@@ -40,37 +41,34 @@ interface RoutesProps {
 
 function RootRedirect() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   onMount(async () => {
-    // tauri remote setup is now done in App.tsx before initializeDataSource()
-    // here we just need to redirect to the appropriate route
-
-    // if already have an active remote from initialization, navigate to it
-    const currentRemote = getCurrentRemote();
-    if (currentRemote) {
-      debug("routes", "current remote from init:", currentRemote.name);
-      navigate(`/${currentRemote.remote_id}/feed`, { replace: true });
+    // in tauri mode, always start with the tauri-managed remote
+    // (don't try to reconnect to a stored P2P remote that might be offline)
+    if (isTauriMode()) {
+      const tauriRemote = await getTauriManagedRemote();
+      if (tauriRemote) {
+        debug("routes", "tauri mode: navigating to tauri-managed remote");
+        navigate(getDefaultRoute(tauriRemote.remote_id), { replace: true });
+        return;
+      }
+      // no tauri remote yet - stay on root (App.tsx will handle setup)
+      debug("routes", "tauri mode: no tauri remote yet, waiting...");
       return;
     }
 
-    // fallback: check if there's an active remote in IndexedDB
+    // non-tauri mode: check if there's an active remote in IndexedDB
     const activeRemote = await getActiveRemote();
-    // allow P2P remotes to try even if marked offline
-    const canTryActive = activeRemote && (!activeRemote.is_offline || isP2PTransport(activeRemote));
 
-    if (canTryActive) {
-      // switch to that remote and navigate to its route
-      await useRemoteSource(activeRemote);
-      queryClient.invalidateQueries();
-      navigate(`/${activeRemote.remote_id}/feed`, { replace: true });
-    } else if (!isTauriMode()) {
-      // no active remote, use local (skip in tauri mode - wait for server)
-      await useLocalSource();
-      queryClient.invalidateQueries();
-      navigate("/local/songs", { replace: true });
+    if (activeRemote) {
+      // navigate to that remote's route - RemoteContextHandler will handle connection
+      debug("routes", `navigating to stored active remote: ${activeRemote.name}`);
+      navigate(getDefaultRoute(activeRemote.remote_id), { replace: true });
+    } else {
+      // no active remote, go to local
+      debug("routes", "no active remote, navigating to local");
+      navigate(getDefaultRoute("local"), { replace: true });
     }
-    // in tauri mode with no active remote, stay on root and wait for server
   });
 
   return null;
@@ -205,6 +203,9 @@ function RemoteContextHandler(props: { children?: any }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  // track connection state - only render children when connected
+  const [isConnected, setIsConnected] = createSignal(false);
+
   // track the resolved remote info for auth flow
   const [remoteInfo, setRemoteInfo] = createSignal<{
     remote_id: string;
@@ -219,6 +220,29 @@ function RemoteContextHandler(props: { children?: any }) {
   // track the toast id so we can dismiss it after re-auth
   let authToastId: number | null = null;
 
+  // navigate to fallback: stay on current remote if available, otherwise local
+  const goToFallback = async (targetRemoteId: string) => {
+    const current = getCurrentRemote();
+    if (current && current.remote_id !== targetRemoteId) {
+      // stay where we were (different remote that's already active)
+      debug("routes", `fallback: staying on current remote ${current.name}`);
+      navigate(getDefaultRoute(current.remote_id), { replace: true });
+    } else if (isTauriMode()) {
+      // in tauri, try tauri-managed remote
+      const tauriRemote = await getTauriManagedRemote();
+      if (tauriRemote && tauriRemote.remote_id !== targetRemoteId) {
+        debug("routes", `fallback: going to tauri remote ${tauriRemote.name}`);
+        navigate(getDefaultRoute(tauriRemote.remote_id), { replace: true });
+      }
+      // else stay on current route (tauri will eventually set up remote)
+    } else {
+      // web mode: fall back to local
+      debug("routes", "fallback: going to local");
+      await useLocalSource();
+      navigate(getDefaultRoute("local"), { replace: true });
+    }
+  };
+
   onMount(async () => {
     const remoteId = params.remoteId;
     if (!remoteId) return;
@@ -226,47 +250,36 @@ function RemoteContextHandler(props: { children?: any }) {
     const remote = await getRemoteById(remoteId);
     if (!remote) {
       console.warn(`remote not found: ${remoteId}`);
+      await goToFallback(remoteId);
       return;
     }
 
-    // for P2P remotes, always try to connect (even if marked offline)
-    // because the midden node may not have been initialized when offline was set
-    const shouldTryConnect = isP2PTransport(remote) || !remote.is_offline;
-
-    if (!shouldTryConnect) {
+    // for HTTP remotes that are offline, redirect immediately
+    if (!isP2PTransport(remote) && remote.is_offline) {
       debug("routes", `remote ${remote.name} is offline, redirecting to fallback`);
       toast.error(`${remote.name} is offline`);
-
-      if (isTauriMode()) {
-        // in tauri mode, try to use tauri-managed remote
-        const tauriRemote = await getTauriManagedRemote();
-        if (tauriRemote && tauriRemote.remote_id !== remoteId && !tauriRemote.is_offline) {
-          navigate(`/${tauriRemote.remote_id}/feed`, { replace: true });
-          return;
-        }
-      }
-      // fallback to local
-      await useLocalSource();
-      navigate("/local/songs", { replace: true });
+      await goToFallback(remoteId);
       return;
     }
 
-    // for P2P remotes that were offline, do a fresh health check first
-    if (isP2PTransport(remote) && remote.is_offline) {
-      debug("routes", `P2P remote ${remote.name} was offline, trying fresh connection...`);
-      const isOnline = await checkRemoteHealth(remote);
-      if (!isOnline) {
-        debug("routes", `P2P remote ${remote.name} still not reachable`);
-        toast.error(`cannot reach ${remote.name}`);
-        if (!isTauriMode()) {
-          await useLocalSource();
-          navigate("/local/songs", { replace: true });
-        }
-        return;
-      }
-      debug("routes", `P2P remote ${remote.name} is now online`);
+    // attempt connection with progress modal support
+    // this handles health check, data source switching, and cancellation
+    const result = await connectToRemote(remoteId);
+
+    if (result.cancelled) {
+      debug("routes", `connection to ${remote.name} cancelled by user`);
+      await goToFallback(remoteId);
+      return;
     }
 
+    if (!result.success) {
+      debug("routes", `failed to connect to ${remote.name}`);
+      toast.error(`cannot reach ${remote.name}`);
+      await goToFallback(remoteId);
+      return;
+    }
+
+    // connection successful - set remote info for auth flow
     setRemoteInfo({
       remote_id: remote.remote_id,
       name: remote.name,
@@ -274,7 +287,7 @@ function RemoteContextHandler(props: { children?: any }) {
       peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
       is_tauri_managed: remote.is_tauri_managed,
     });
-    await useRemoteSource(remote);
+    setIsConnected(true);
     queryClient.invalidateQueries();
   });
 
@@ -345,7 +358,8 @@ function RemoteContextHandler(props: { children?: any }) {
 
   return (
     <>
-      {props.children}
+      {/* only render children when connected - prevents showing stale data */}
+      <Show when={isConnected()}>{props.children}</Show>
       <Show when={remoteInfo()}>
         {(info) => (
           <ReauthModal

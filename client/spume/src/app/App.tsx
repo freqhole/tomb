@@ -17,7 +17,6 @@ import {
   getDataSource,
   getCurrentRemote,
   getRemoteClient,
-  initializeDataSource,
   useLocalSource,
   useRemoteSource,
 } from "../music/data";
@@ -57,10 +56,9 @@ import {
   getAllRemotes,
   upsertTauriRemote,
   checkRemoteHealth,
-  findFirstOnlineRemote,
-  setActiveRemote,
-  getActiveRemote,
   refreshTauriRemoteTimestamp,
+  getRemoteByPeerAddr,
+  markRemoteOffline,
 } from "./services/remotes/remoteManager";
 import {
   registerServiceWorker,
@@ -210,6 +208,23 @@ export function App() {
           `federation request from ${event.data.username}${event.data.message ? `: ${event.data.message}` : ""}`
         );
         break;
+
+      case "peer-offline":
+        // P2P connection failure - mark remote offline immediately
+        void (async () => {
+          const remote = await getRemoteByPeerAddr(event.data.peer_addr);
+          if (remote) {
+            debug(`peer-offline event: marking ${remote.name} as offline (${event.data.reason})`);
+            await markRemoteOffline(remote.remote_id);
+            // toast is shown by remoteSource when the request fails
+            // this just ensures offline status is set before the timeout
+          } else {
+            debug(
+              `peer-offline event: no remote found for peer_addr ${event.data.peer_addr.slice(0, 16)}...`
+            );
+          }
+        })();
+        break;
     }
   }
 
@@ -329,47 +344,13 @@ export function App() {
       await initMusicDB();
 
       // auto-setup remote from tauri bridge (for desktop app)
+      // this is fast since it's local IPC
       await autoSetupRemoteFromTauriBridge();
 
-      // initialize data source (switches to active remote if configured)
-      await initializeDataSource();
-
-      // check health of active remote and auto-switch if offline
-      const activeRemote = await getActiveRemote();
-      debug("App", "startup health check", {
-        hasActiveRemote: !!activeRemote,
-        activeRemoteName: activeRemote?.name,
-        activeRemoteId: activeRemote?.remote_id,
-        isOffline: activeRemote?.is_offline,
-      });
-      if (activeRemote) {
-        debug("App", `checking health of active remote: ${activeRemote.name}`);
-        const isOnline = await checkRemoteHealth(activeRemote);
-        debug(
-          "App",
-          `health check result for ${activeRemote.name}: ${isOnline ? "online" : "offline"}`
-        );
-        if (!isOnline) {
-          debug(
-            "App",
-            `active remote "${activeRemote.name}" is offline, looking for online remote...`
-          );
-          // try to find another online remote
-          const allRemotes = await getAllRemotes();
-          const otherRemotes = allRemotes.filter((r) => r.remote_id !== activeRemote.remote_id);
-          const onlineRemote = await findFirstOnlineRemote(otherRemotes);
-          if (onlineRemote) {
-            debug("App", `switching to online remote: ${onlineRemote.name}`);
-            await setActiveRemote(onlineRemote.remote_id);
-            await useRemoteSource(onlineRemote);
-            toast.warning(`"${activeRemote.name}" is offline, switched to "${onlineRemote.name}"`);
-          } else {
-            debug("App", "no online remotes found, falling back to local");
-            toast.warning(`"${activeRemote.name}" is offline`);
-            // actually switch to local if no online remotes found
-            await useLocalSource();
-          }
-        }
+      // for non-tauri, use local source immediately (no blocking remote connection)
+      // RemoteContextHandler will handle connecting to remotes when navigating
+      if (!isTauriMode()) {
+        await useLocalSource();
       }
 
       // background health check of ALL remotes (non-blocking)
@@ -399,7 +380,7 @@ export function App() {
       const remotes = await getAllRemotes();
       setHasRemotes(remotes.length > 0);
 
-      // check if we have any songs
+      // check if we have any songs (use local source for quick check)
       const source = getDataSource();
       const result = await source.getSongs({ limit: 1 });
       setHasSongs(result.total > 0);

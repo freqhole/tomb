@@ -15,21 +15,18 @@ import { ConfirmDialog } from "../components/dialogs/ConfirmDialog";
 import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorModal";
 import { ToastRegion } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
+import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
-  ConnectionProgressModal,
-  type ConnectionProgressState,
-} from "../components/modals/ConnectionProgressModal";
+  getConnectionProgress,
+  cancelAndNavigate,
+  connectToRemote,
+  recheckRemote,
+} from "./services/remotes/connectionProgress";
 import { TopNav } from "../components/navigation/TopNav";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import {
-  getCurrentRemote,
-  getCurrentUser,
-  getDataSource,
-  useLocalSource,
-  useRemoteSource,
-} from "../music/data";
+import { getCurrentRemote, getCurrentUser, getDataSource, useLocalSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
@@ -64,9 +61,8 @@ import {
 import { useSongContextMenu } from "../music/hooks/contextMenu";
 import {
   getAllRemotes,
-  getRemoteById,
-  checkRemoteHealth,
   onRemoteStatusChange,
+  onSwitchToLocal,
 } from "./services/remotes/remoteManager";
 import type { Song } from "../music/services/storage/types";
 import {
@@ -77,7 +73,7 @@ import {
 } from "./services/storage/types";
 import type { MenuAction } from "../components/overlays/ContextMenu";
 import { IconNames, type IconName } from "../components/icons/registry";
-import { routes, matchRoute } from "../music/utils/routing";
+import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import { showImageCarousel, openAddMusic } from "../music/hooks/modals";
@@ -121,13 +117,8 @@ export function AppLayout(props: AppLayoutProps) {
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
-  // connection progress state (for slow remote connections)
-  const [connectionProgress, setConnectionProgress] = createSignal<ConnectionProgressState>({
-    isConnecting: false,
-    remoteName: "",
-    showAfterDelay: false,
-  });
-  let connectionTimerRef: ReturnType<typeof setTimeout> | null = null;
+  // connection progress state (shared module)
+  const connectionProgress = getConnectionProgress();
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
@@ -213,6 +204,11 @@ export function AppLayout(props: AppLayoutProps) {
       }
     });
 
+    // listen for "switch to local" action from toast
+    const unsubscribeSwitchToLocal = onSwitchToLocal(() => {
+      handleSwitchToLocal();
+    });
+
     // update storage usage
     const updateStorage = async () => {
       if (navigator.storage?.estimate) {
@@ -232,6 +228,7 @@ export function AppLayout(props: AppLayoutProps) {
     return () => {
       clearInterval(interval);
       unsubscribeStatusChange();
+      unsubscribeSwitchToLocal();
     };
   });
 
@@ -242,7 +239,7 @@ export function AppLayout(props: AppLayoutProps) {
       // switch data source first
       await useLocalSource();
       // navigate to local route
-      navigate("/local/songs");
+      navigate(getDefaultRoute("local"));
       // invalidate all queries to refetch from local source
       queryClient.invalidateQueries();
       debug("AppLayout", "switched to local source");
@@ -251,71 +248,32 @@ export function AppLayout(props: AppLayoutProps) {
     }
   };
 
-  // handle switching to remote source
+  // handle switching to remote source (from TopNav)
   const handleSwitchToRemote = async (remoteId: string) => {
-    // helper to clear connection progress state
-    const clearConnectionProgress = () => {
-      if (connectionTimerRef) {
-        clearTimeout(connectionTimerRef);
-        connectionTimerRef = null;
-      }
-      setConnectionProgress({
-        isConnecting: false,
-        remoteName: "",
-        showAfterDelay: false,
-      });
-    };
-
     try {
       debug("AppLayout", `switching to remote: ${remoteId}...`);
-      // get remote info to switch data source
-      const remote = await getRemoteById(remoteId);
-      if (!remote) {
-        console.error("remote not found:", remoteId);
-        return;
-      }
-
-      // start connection progress tracking
-      const remoteUrl = isHttpRemote(remote)
-        ? remote.base_url
-        : isP2PRemote(remote)
-          ? remote.peer_addr
-          : undefined;
-      setConnectionProgress({
-        isConnecting: true,
-        remoteName: remote.name,
-        remoteUrl,
-        showAfterDelay: false,
-      });
-
-      // show modal after 1 second delay if still connecting
-      connectionTimerRef = setTimeout(() => {
-        setConnectionProgress((prev) => ({
-          ...prev,
-          showAfterDelay: true,
-        }));
-      }, 1000);
 
       // pre-cache transport type for blob resolution (avoids flicker on image load)
       await preCacheRemoteTransport(remoteId);
 
-      // check if remote is online before switching
-      const isOnline = await checkRemoteHealth(remote);
-      if (!isOnline) {
-        debug("AppLayout", `remote ${remote.name} is offline, not switching`);
-        clearConnectionProgress();
+      // connect with progress modal support
+      const result = await connectToRemote(remoteId);
+
+      if (result.cancelled) {
+        debug("AppLayout", "connection cancelled by user");
+        return;
+      }
+
+      if (!result.success) {
+        debug("AppLayout", `remote ${remoteId} is offline, not switching`);
         // refresh remotes list to show updated status
         const allRemotes = await getAllRemotes();
         setRemotes(allRemotes);
         return;
       }
 
-      // switch data source first
-      await useRemoteSource(remote);
-      clearConnectionProgress();
-
       // navigate to remote route
-      navigate(`/${remoteId}/feed`);
+      navigate(getDefaultRoute(remoteId));
       // invalidate all queries to refetch from remote source
       queryClient.invalidateQueries();
 
@@ -323,71 +281,26 @@ export function AppLayout(props: AppLayoutProps) {
       const allRemotes = await getAllRemotes();
       setRemotes(allRemotes);
 
-      debug("AppLayout", `switched to remote: ${remote.name}`);
+      debug("AppLayout", `switched to remote: ${remoteId}`);
     } catch (error) {
-      clearConnectionProgress();
       console.error("failed to switch to remote:", error);
     }
   };
 
-  // handle rechecking a remote's status and switch if it comes back online
+  // handle rechecking a remote's status (with progress modal)
   const handleRecheckRemote = async (remoteId: string): Promise<boolean> => {
-    // helper to clear connection progress state
-    const clearConnectionProgress = () => {
-      if (connectionTimerRef) {
-        clearTimeout(connectionTimerRef);
-        connectionTimerRef = null;
-      }
-      setConnectionProgress({
-        isConnecting: false,
-        remoteName: "",
-        showAfterDelay: false,
-      });
-    };
-
     try {
       debug("AppLayout", `rechecking remote: ${remoteId}...`);
-      const remote = await getRemoteById(remoteId);
-      if (!remote) {
-        console.error("remote not found:", remoteId);
-        return false;
-      }
 
-      // start connection progress tracking
-      const remoteUrl = isHttpRemote(remote)
-        ? remote.base_url
-        : isP2PRemote(remote)
-          ? remote.peer_addr
-          : undefined;
-      setConnectionProgress({
-        isConnecting: true,
-        remoteName: remote.name,
-        remoteUrl,
-        showAfterDelay: false,
-      });
-
-      // show modal after 1 second delay if still connecting
-      connectionTimerRef = setTimeout(() => {
-        setConnectionProgress((prev) => ({
-          ...prev,
-          showAfterDelay: true,
-        }));
-      }, 1000);
-
-      const isOnline = await checkRemoteHealth(remote);
-      clearConnectionProgress();
+      const isOnline = await recheckRemote(remoteId);
 
       // refresh remotes list to update UI
       const allRemotes = await getAllRemotes();
       setRemotes(allRemotes);
 
-      debug(
-        "AppLayout",
-        `remote ${remote.name} recheck result: ${isOnline ? "online" : "offline"}`
-      );
+      debug("AppLayout", `remote ${remoteId} recheck result: ${isOnline ? "online" : "offline"}`);
       return isOnline;
     } catch (error) {
-      clearConnectionProgress();
       console.error("failed to recheck remote:", error);
       return false;
     }
@@ -761,14 +674,13 @@ export function AppLayout(props: AppLayoutProps) {
         mainNavSections={[
           {
             items: [
-              // feed is only available for remote sources
-              ...(!routeContext.isLocal()
+              // feed is only available when hasFeedView() is true (remotes + Tauri local)
+              ...(hasFeedView()
                 ? [
                     {
                       label: "feed",
                       onClick: () => {
-                        const prefix = `/${routeContext.remoteId()}`;
-                        navigate(`${prefix}/feed`);
+                        navigate(routes.feed());
                       },
                     },
                   ]
@@ -991,19 +903,7 @@ export function AppLayout(props: AppLayoutProps) {
       {/* connection progress modal (appears when connecting takes >1s) */}
       <ConnectionProgressModal
         state={connectionProgress()}
-        onCancel={() => {
-          // clear timer and hide modal (note: actual connection cannot be aborted,
-          // but we hide the modal so user can navigate away)
-          if (connectionTimerRef) {
-            clearTimeout(connectionTimerRef);
-            connectionTimerRef = null;
-          }
-          setConnectionProgress({
-            isConnecting: false,
-            remoteName: "",
-            showAfterDelay: false,
-          });
-        }}
+        onCancel={() => cancelAndNavigate(navigate)}
       />
 
       {/* global confirm dialog */}

@@ -21,6 +21,23 @@ type RemoteStatusChangeListener = (remoteId: string, isOffline: boolean) => void
 // listeners for remote status changes (offline/online)
 const statusChangeListeners = new Set<RemoteStatusChangeListener>();
 
+// callback for "switch to local" action triggered from toast
+type SwitchToLocalListener = () => void;
+let switchToLocalListener: SwitchToLocalListener | null = null;
+
+// register a handler for "switch to local" action (only one handler at a time)
+export function onSwitchToLocal(listener: SwitchToLocalListener): () => void {
+  switchToLocalListener = listener;
+  return () => { switchToLocalListener = null; };
+}
+
+// trigger the "switch to local" action (called from toast action button)
+export function triggerSwitchToLocal(): void {
+  if (switchToLocalListener) {
+    switchToLocalListener();
+  }
+}
+
 // tauri convertFileSrc - dynamically loaded
 let convertFileSrc: ((path: string) => string) | null = null;
 
@@ -156,6 +173,40 @@ export async function getRemoteById(
   return safeParseRemote(raw);
 }
 
+// find a P2P remote by its peer address (node_id or endpoint JSON containing node_id).
+// used to map peer-offline events to the correct remote.
+export async function getRemoteByPeerAddr(
+  peerAddr: string,
+): Promise<Remote | undefined> {
+  const db = await initAppDB();
+  const tx = db.transaction(STORE_REMOTES, "readonly");
+  const store = tx.objectStore(STORE_REMOTES);
+  const all = await store.getAll();
+  
+  for (const raw of all) {
+    const remote = safeParseRemote(raw);
+    if (!remote || !isP2PRemote(remote)) continue;
+    
+    // check for exact match first
+    if (remote.peer_addr === peerAddr) {
+      return remote;
+    }
+    
+    // if peerAddr looks like plain node_id (64 hex chars), check if it's contained
+    // in the remote's peer_addr (which might be JSON endpoint)
+    if (/^[a-f0-9]{64}$/i.test(peerAddr) && remote.peer_addr.includes(peerAddr)) {
+      return remote;
+    }
+    
+    // if remote's peer_addr is plain node_id and peerAddr is JSON containing it
+    if (/^[a-f0-9]{64}$/i.test(remote.peer_addr) && peerAddr.includes(remote.peer_addr)) {
+      return remote;
+    }
+  }
+  
+  return undefined;
+}
+
 // refresh tauri-managed remote's timestamp (for cache-busting server image)
 export async function refreshTauriRemoteTimestamp(): Promise<void> {
   const existing = await getTauriManagedRemote();
@@ -224,14 +275,6 @@ async function generateUniqueRemoteId(baseName: string): Promise<string> {
     counter++;
   }
   return `${baseSlug}-${counter}`;
-}
-
-/**
- * get remote by peer address (for P2P duplicate detection).
- */
-export async function getRemoteByPeerAddr(peerAddr: string): Promise<Remote | undefined> {
-  const remotes = await getAllRemotes();
-  return remotes.find((r) => isP2PRemote(r) && r.peer_addr === peerAddr);
 }
 
 // create a new remote

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { MusicIcon } from "../../components/icons/registry";
+import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
@@ -656,25 +657,32 @@ export function ArtistsView(props: ArtistsViewProps) {
               </div>
             }
           >
-            <Show
-              when={
-                artistListItems().length > 0 || artistsQuery.isLoading || artistsQuery.isFetching
-              }
+          <Show
+              when={artistListItems().length > 0}
               fallback={
-                <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-                  <div class="text-center max-w-md">
-                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">no artists found!</p>
-                    <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                      add music to import local audio files or download from urls
-                    </p>
-                    <Button variant="primary" onClick={props.onAddMusic}>
-                      add music
-                    </Button>
+                <Show
+                  when={artistsQuery.isLoading || artistsQuery.isFetching}
+                  fallback={
+                    <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                      <div class="text-center max-w-md">
+                        <p class="text-lg text-[var(--color-text-secondary)] mb-2">no artists found!</p>
+                        <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                          add music to import local audio files or download from urls
+                        </p>
+                        <Button variant="primary" onClick={props.onAddMusic}>
+                          add music
+                        </Button>
+                      </div>
+                    </div>
+                  }
+                >
+                  <div class="flex items-center justify-center h-full">
+                    <LoadingState text="loading artists..." />
                   </div>
-                </div>
+                </Show>
               }
             >
-              <Show when={artistListItems().length > 0}>
+              <>
                 <VirtualItemList
                   items={artistListItems()}
                   selectedId={selectedArtistId()}
@@ -703,7 +711,8 @@ export function ArtistsView(props: ArtistsViewProps) {
                   getContextMenuActions={getContextMenuActions}
                   height={listHeight()}
                 />
-              </Show>
+                <LoadingMoreIndicator isLoading={artistsQuery.isFetchingNextPage} />
+              </>
             </Show>
           </Show>
         </div>

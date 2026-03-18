@@ -28,7 +28,7 @@ import type {
 } from "../types";
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
-import { markRemoteOffline, getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { markRemoteOffline, markRemoteOnline, getRemoteById, triggerSwitchToLocal } from "../../../app/services/remotes/remoteManager";
 import { getCurrentUser } from "../index";
 import { debug, error } from "../../../utils/logger";
 import { getRemoteMediaUrl } from "../../../utils/urls";
@@ -55,6 +55,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
   private _client: ApiClient | null = null;
   // track if we've already shown the offline toast this session
   private hasShownOfflineToast = false;
+  // track if this remote was ever marked offline (to avoid IDB checks on every request)
+  private wasMarkedOffline = false;
 
   constructor(remote: RemoteRef) {
     if (!remote.remote_id) {
@@ -96,25 +98,79 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
+  // toast key for offline notifications (used for dismissing)
+  private static OFFLINE_TOAST_KEY = "warning:remote-offline";
+
   // check a failed result for network errors (server unreachable).
   // marks the remote as offline and throws RemoteOfflineError.
   private async checkNetworkError(result: SafeParseResult<unknown>): Promise<void> {
+    // debug: log failed results to help diagnose P2P error detection
+    if (!result.success) {
+      const issues = result.error.issues.map(i => ({ code: i.code, message: i.message, path: i.path }));
+      debug("remoteSource", `checkNetworkError: failed result`, { issues });
+    }
+    
     if (!isNetworkError(result)) return;
+    
+    debug("remoteSource", `detected network error for remote ${this.remoteId}`);
 
     // mark remote as offline in IDB
     await markRemoteOffline(this.remoteId);
+    this.wasMarkedOffline = true;
 
     // get remote name for the error/toast
     const remote = await getRemoteById(this.remoteId);
     const remoteName = remote?.name ?? this.remoteId;
 
     // only show toast once per session to avoid spam
+    debug("remoteSource", `hasShownOfflineToast=${this.hasShownOfflineToast}, remoteName=${remoteName}`);
     if (!this.hasShownOfflineToast) {
       this.hasShownOfflineToast = true;
-      toast.warning(`${remoteName} is offline`);
+      debug("remoteSource", `showing offline toast for ${remoteName}`);
+      toast.warning(`${remoteName} is offline`, {
+        title: "remote-offline",
+        persistent: true,
+        action: {
+          label: "switch to local",
+          onClick: triggerSwitchToLocal,
+        },
+      });
     }
 
     throw new RemoteOfflineError(this.remoteId, remoteName);
+  }
+
+  // combined check for failed requests - handles both network and auth errors.
+  // call this before throwing on any API failure.
+  // order: network error check first (may throw), then auth error check (just flags)
+  private async handleFailedRequest(result: SafeParseResult<unknown>): Promise<void> {
+    await this.checkNetworkError(result);
+    this.checkAuthError(result);
+  }
+
+  // handle a successful request - clears offline status if needed.
+  // call this after any successful API response.
+  // only checks IDB if we previously marked offline (to avoid overhead on every request)
+  //
+  // TODO: this is called manually from a few key methods (getSongs, getAlbums, etc.)
+  // which is awkward. better approach would be to handle this at the transport layer
+  // (TauriTransport, WasmTransport, HttpTransport) so all successful requests
+  // automatically clear offline status without needing per-method calls.
+  private async handleSuccessfulRequest(): Promise<void> {
+    // skip check if we never marked this remote offline
+    if (!this.wasMarkedOffline) return;
+    
+    // check if this remote is still marked offline
+    const remote = await getRemoteById(this.remoteId);
+    if (remote?.is_offline) {
+      debug("remoteSource", `remote ${this.remoteId} is back online`);
+      await markRemoteOnline(this.remoteId);
+      // dismiss the persistent offline toast
+      toast.dismissByKey(RemoteMusicDataSource.OFFLINE_TOAST_KEY);
+      // reset flags so we can show toast again if it goes offline
+      this.hasShownOfflineToast = false;
+      this.wasMarkedOffline = false;
+    }
   }
 
   // helper to convert our QueryParams to API QueryParams
@@ -154,10 +210,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
-      await this.checkNetworkError(result);
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query songs");
     }
+
+    // clear offline status on successful request
+    await this.handleSuccessfulRequest();
 
     // adapt API response to our interface
     return {
@@ -189,7 +247,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success || result.data.items.length === 0) {
-      if (!result.success) this.checkAuthError(result);
+      if (!result.success) await this.handleFailedRequest(result);
       return null;
     }
 
@@ -215,7 +273,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       return [];
     }
 
@@ -238,10 +296,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.queryAlbums(apiParams);
 
     if (!result.success) {
-      await this.checkNetworkError(result);
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query albums");
     }
+
+    // clear offline status on successful request
+    await this.handleSuccessfulRequest();
 
     // adapt API response to our interface
     return {
@@ -290,7 +350,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query album songs");
     }
 
@@ -313,10 +373,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.queryArtists(apiParams);
 
     if (!result.success) {
-      await this.checkNetworkError(result);
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query artists");
     }
+
+    // clear offline status on successful request
+    await this.handleSuccessfulRequest();
 
     // adapt API response to our interface
     return {
@@ -355,7 +417,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query artist songs");
     }
 
@@ -380,9 +442,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.queryGenres(apiParams);
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query genres");
     }
+
+    // clear offline status on successful request
+    await this.handleSuccessfulRequest();
 
     // adapt API response to our interface
     return {
@@ -411,7 +476,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.querySongs(apiParams);
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query genre songs");
     }
 
@@ -434,10 +499,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.listPlaylists(apiParams);
 
     if (!result.success) {
-      await this.checkNetworkError(result);
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query playlists");
     }
+
+    // clear offline status on successful request
+    await this.handleSuccessfulRequest();
 
     // adapt API response to our interface
     return {
@@ -477,7 +544,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to query playlist songs");
     }
 
@@ -507,7 +574,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       console.error("create playlist failed:", result);
       throw new Error("failed to create playlist - check console for details");
     }
@@ -542,7 +609,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to update playlist");
     }
 
@@ -563,7 +630,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to delete playlist");
     }
   }
@@ -575,7 +642,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to delete song");
     }
   }
@@ -589,7 +656,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to bulk delete songs");
     }
 
@@ -611,7 +678,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to clear song artwork");
     }
 
@@ -632,7 +699,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to delete album");
     }
   }
@@ -644,7 +711,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to delete artist");
     }
   }
@@ -659,7 +726,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       console.error("add songs to playlist failed:", result);
       throw new Error(
         "failed to add songs to playlist - check console for details",
@@ -677,7 +744,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to remove songs from playlist");
     }
   }
@@ -694,7 +761,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to reorder playlist songs");
     }
   }
@@ -715,7 +782,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to get search suggestions");
     }
 
@@ -738,9 +805,12 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to search");
     }
+
+    // clear offline status on successful request
+    await this.handleSuccessfulRequest();
 
     return result.data;
   }
@@ -757,7 +827,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success || !result.data) {
-      if (!result.success) this.checkAuthError(result);
+      if (!result.success) await this.handleFailedRequest(result);
       const errorMsg = result.success === false && 'error' in result 
         ? JSON.stringify(result.error) 
         : 'unknown error';
@@ -879,7 +949,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
       throw new Error(`failed to set favorite: ${errorMsg}`);
     }
@@ -907,7 +977,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       const errorMsg = 'error' in result ? JSON.stringify(result.error) : 'unknown error';
       throw new Error(`failed to set rating: ${errorMsg}`);
     }
@@ -932,7 +1002,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to update artist");
     }
   }
@@ -967,7 +1037,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to update album");
     }
   }
@@ -1017,7 +1087,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.updateSongs(apiParams);
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       // #TODO: should be able to remove the `as any` cast after turning strict mode on!
       const err = result.error;
       console.error("updateSongs failed:", err);
@@ -1029,7 +1099,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).music.listTags();
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to get tags");
     }
 
@@ -1060,7 +1130,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     const result = await (await this.getClient()).auth.whoami();
 
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to get source info");
     }
 
@@ -1075,7 +1145,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async getAlbumTags(albumId: string): Promise<string[]> {
     const result = await (await this.getClient()).music.getAlbumsTags({ album_ids: [albumId] });
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to get album tags");
     }
     return result.data.map((t: any) => t.tag.name);
@@ -1084,7 +1154,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {
     const result = await (await this.getClient()).music.addAlbumsTags({ album_ids: [albumId], tag_ids: [], tag_names: tagNames });
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to add tags to album");
     }
   }
@@ -1092,7 +1162,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async removeTagsFromAlbum(albumId: string, tagIds: string[]): Promise<void> {
     const result = await (await this.getClient()).music.removeAlbumsTags({ album_ids: [albumId], tag_ids: tagIds });
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to remove tags from album");
     }
   }
@@ -1125,7 +1195,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
     
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to upload image");
     }
     
@@ -1141,7 +1211,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       case 'artist': {
         const result = await (await this.getClient()).music.getArtistImages({ id: params.entityId });
         if (!result.success) {
-          this.checkAuthError(result);
+          await this.handleFailedRequest(result);
           throw new Error("failed to get artist images");
         }
         return result.data.map((blobId: string) => getRemoteMediaUrl(this.baseUrl, blobId));
@@ -1172,7 +1242,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     debug("remoteSource", 'deleteImage result:', result);
     
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       error("remoteSource", 'deleteImage failed:', result);
       throw new Error("failed to remove image");
     }
@@ -1190,7 +1260,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     });
     
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to set primary image");
     }
   }
@@ -1230,7 +1300,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async getListenSession(sessionId: string): Promise<import("../types").ListenSession | null> {
     const result = await (await this.getClient()).music.getListenSession(sessionId);
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       return null;
     }
     const data = result.data;
@@ -1257,7 +1327,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async deleteListenSession(sessionId: string): Promise<void> {
     const result = await (await this.getClient()).music.deleteListenSession(sessionId);
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       throw new Error("failed to delete listen session");
     }
   }
@@ -1271,7 +1341,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }): Promise<import("../types").MbSearchReleasesResponse | null> {
     const result = await (await this.getClient()).music.searchMusicbrainzReleases(params);
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       return null;
     }
     return result.data;
@@ -1280,7 +1350,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async getMusicbrainzRelease(mbid: string): Promise<import("../types").MbReleaseDetail | null> {
     const result = await (await this.getClient()).music.getMusicbrainzRelease({ mbid });
     if (!result.success) {
-      this.checkAuthError(result);
+      await this.handleFailedRequest(result);
       return null;
     }
     return result.data;

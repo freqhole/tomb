@@ -11,6 +11,13 @@ const activeToasts = new Map<string, { id: number; setMessage: (m: string) => vo
 
 const DEFAULT_DURATION = 5000;
 
+export interface ToastAction {
+  /** button label text */
+  label: string;
+  /** callback when button is clicked (toast auto-dismisses after) */
+  onClick: () => void;
+}
+
 export interface ToastOptions {
   /** title shown above the message */
   title?: string;
@@ -18,6 +25,8 @@ export interface ToastOptions {
   duration?: number;
   /** whether the toast should not auto-dismiss */
   persistent?: boolean;
+  /** optional action button */
+  action?: ToastAction;
 }
 
 interface ToastItemProps {
@@ -27,7 +36,10 @@ interface ToastItemProps {
   title?: string;
   duration?: number;
   persistent?: boolean;
+  action?: ToastAction;
   onMessageChange?: (setter: (m: string) => void) => void;
+  /** key for tracking, cleaned up when toast closes */
+  trackingKey?: string;
 }
 
 /**
@@ -51,6 +63,19 @@ function ToastItem(props: ToastItemProps) {
         return { icon: "info" as const, colors: solidColors.info };
     }
   };
+
+  // helper to clean up tracking
+  const cleanup = () => {
+    if (props.trackingKey) {
+      activeToasts.delete(props.trackingKey);
+    }
+  };
+
+  // schedule cleanup for non-persistent toasts (after timeout dismisses them)
+  // add small buffer to ensure toast is gone
+  if (!props.persistent && props.trackingKey) {
+    setTimeout(cleanup, (props.duration ?? DEFAULT_DURATION) + 100);
+  }
 
   return (
     <KobalteToast
@@ -80,10 +105,25 @@ function ToastItem(props: ToastItemProps) {
             </KobalteToast.Title>
           </Show>
           <KobalteToast.Description class="text-sm">{message()}</KobalteToast.Description>
+          <Show when={props.action}>
+            <button
+              class="mt-2 text-sm font-medium underline hover:no-underline cursor-pointer"
+              onClick={() => {
+                props.action?.onClick();
+                cleanup();
+                toaster.dismiss(props.toastId);
+              }}
+            >
+              {props.action?.label}
+            </button>
+          </Show>
         </div>
 
         {/* close button */}
-        <KobalteToast.CloseButton class="flex-shrink-0 hover:opacity-70 transition-opacity p-1 -mt-1 -mr-1 cursor-pointer">
+        <KobalteToast.CloseButton
+          class="flex-shrink-0 hover:opacity-70 transition-opacity p-1 -mt-1 -mr-1 cursor-pointer"
+          onClick={cleanup}
+        >
           <Icon name="close" size={16} color={variantConfig().colors.text} />
         </KobalteToast.CloseButton>
       </div>
@@ -187,24 +227,17 @@ function showToast(variant: ToastVariant, message: string, options?: ToastOption
       title={options?.title}
       duration={options?.duration ?? DEFAULT_DURATION}
       persistent={options?.persistent}
+      action={options?.action}
+      trackingKey={key}
       onMessageChange={(setter) => {
-        // update with real setter
-        activeToasts.set(key, { id, setMessage: setter });
+        // update with real setter - use props.toastId since id isn't assigned yet
+        activeToasts.set(key, { id: props.toastId, setMessage: setter });
       }}
     />
   ));
 
   // update placeholder with real id
   placeholder.id = id;
-
-  // cleanup tracking when toast is dismissed
-  const checkInterval = setInterval(() => {
-    const el = document.querySelector(`[data-kb-toast-id="${id}"]`);
-    if (!el) {
-      activeToasts.delete(key);
-      clearInterval(checkInterval);
-    }
-  }, 500);
 
   return id;
 }
@@ -236,6 +269,21 @@ export const toast = {
   /** dismiss a specific toast by id */
   dismiss(id: number) {
     return toaster.dismiss(id);
+  },
+
+  /** dismiss a toast by its key (variant:title) */
+  dismissByKey(key: string) {
+    const existing = activeToasts.get(key);
+    if (existing && existing.id !== -1) {
+      activeToasts.delete(key);
+      return toaster.dismiss(existing.id);
+    }
+    // also check custom toasts
+    const customExisting = customToasts.get(key);
+    if (customExisting) {
+      customToasts.delete(key);
+      return toaster.dismiss(customExisting.id);
+    }
   },
 
   /** clear all toasts */

@@ -12,6 +12,7 @@ import { IconButton } from "../../components/buttons/IconButton";
 import { Badge } from "../../components/badges/Badge";
 import { ImageCarouselModal } from "../../components/modals/ImageCarouselModal";
 import { toast } from "../../components/feedback/Toast";
+import { LoadingState } from "../../components/feedback";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MarqueeText } from "../../components/text/MarqueeText";
@@ -1001,7 +1002,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
           when={!playlistsQuery.isLoading}
           fallback={
             <div class="flex items-center justify-center h-full">
-              <div class="text-[var(--color-text-secondary)]">loading playlists...</div>
+              <LoadingState text="loading playlists..." />
             </div>
           }
         >

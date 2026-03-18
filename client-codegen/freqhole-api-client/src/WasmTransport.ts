@@ -109,16 +109,23 @@ export class WasmTransport implements Transport {
     path: string,
     body?: string,
   ): Promise<TransportResponse> {
-    const result = await this.node.proxy_request(
-      this.peerAddr,
-      method,
-      path,
-      body ?? null,
-    );
-    return {
-      status: result.status,
-      body: result.body,
-    };
+    try {
+      const result = await this.node.proxy_request(
+        this.peerAddr,
+        method,
+        path,
+        body ?? null,
+      );
+      return {
+        status: result.status,
+        body: result.body,
+      };
+    } catch (e) {
+      // P2P connection errors - rethrow with message that isNetworkError will catch
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(`[WasmTransport] P2P request failed: ${errorMessage}`);
+      throw new Error(`connection failed: ${errorMessage}`);
+    }
   }
 
   async upload(_path: string, formData: FormData): Promise<TransportResponse> {
@@ -192,18 +199,24 @@ export class WasmTransport implements Transport {
     }
 
     // fetch from peer
-    const result = await this.node.fetch_blob(this.peerAddr, blobId);
-    const data = result.data();
-    const contentType = result.content_type() ?? "application/octet-stream";
+    try {
+      const result = await this.node.fetch_blob(this.peerAddr, blobId);
+      const data = result.data();
+      const contentType = result.content_type() ?? "application/octet-stream";
 
-    // cache for future use
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-    const response = new Response(arrayBuffer, {
-      headers: { "Content-Type": contentType },
-    });
-    await cache.put(blobId, response);
+      // cache for future use
+      const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      const response = new Response(arrayBuffer, {
+        headers: { "Content-Type": contentType },
+      });
+      await cache.put(blobId, response);
 
-    return { data, contentType };
+      return { data, contentType };
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
+      throw new Error(`connection failed: ${errorMessage}`);
+    }
   }
 
   /**
@@ -230,28 +243,34 @@ export class WasmTransport implements Transport {
     }
 
     // fetch from peer - use progress-enabled method if available
-    let result: BlobResultLike;
-    if (this.node.fetch_blob_with_progress) {
-      result = await this.node.fetch_blob_with_progress(
-        this.peerAddr,
-        blobId,
-        onProgress,
-      );
-    } else {
-      // fallback to non-progress fetch
-      result = await this.node.fetch_blob(this.peerAddr, blobId);
+    try {
+      let result: BlobResultLike;
+      if (this.node.fetch_blob_with_progress) {
+        result = await this.node.fetch_blob_with_progress(
+          this.peerAddr,
+          blobId,
+          onProgress,
+        );
+      } else {
+        // fallback to non-progress fetch
+        result = await this.node.fetch_blob(this.peerAddr, blobId);
+      }
+      const data = result.data();
+      const contentType = result.content_type() ?? "application/octet-stream";
+
+      // cache for future use
+      const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      const response = new Response(arrayBuffer, {
+        headers: { "Content-Type": contentType },
+      });
+      await cache.put(blobId, response);
+
+      return { data, contentType };
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
+      throw new Error(`connection failed: ${errorMessage}`);
     }
-    const data = result.data();
-    const contentType = result.content_type() ?? "application/octet-stream";
-
-    // cache for future use
-    const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
-    const response = new Response(arrayBuffer, {
-      headers: { "Content-Type": contentType },
-    });
-    await cache.put(blobId, response);
-
-    return { data, contentType };
   }
 
   async getBlobUrl(blobId: string): Promise<string> {

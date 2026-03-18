@@ -12,6 +12,7 @@ import {
   type ScanProgressEvent,
   type ScanCompleteEvent,
   type KnockCreatedEvent,
+  type PeerOfflineEvent,
 } from "./schema";
 
 // event name used for all freqhole events (single channel, discriminated by type)
@@ -103,6 +104,22 @@ export async function onKnockCreated(
 ): Promise<UnlistenFn> {
   return onEvent((event) => {
     if (event.type === "knock-created") {
+      callback(event);
+    }
+  });
+}
+
+/**
+ * listen specifically for peer-offline events
+ *
+ * fired when a P2P connection to a remote peer fails.
+ * allows early detection of offline remotes before request timeout.
+ */
+export async function onPeerOffline(
+  callback: (event: PeerOfflineEvent) => void
+): Promise<UnlistenFn> {
+  return onEvent((event) => {
+    if (event.type === "peer-offline") {
       callback(event);
     }
   });

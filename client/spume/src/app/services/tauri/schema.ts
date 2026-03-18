@@ -102,6 +102,17 @@ export const KnockCreatedEventSchema = z.object({
 });
 
 /**
+ * peer offline event - P2P connection to a peer failed
+ */
+export const PeerOfflineEventSchema = z.object({
+  type: z.literal("peer-offline"),
+  data: z.object({
+    peer_addr: z.string(),
+    reason: z.string(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const TauriEventSchema = z.discriminatedUnion("type", [
@@ -110,6 +121,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   ScanProgressEventSchema,
   ScanCompleteEventSchema,
   KnockCreatedEventSchema,
+  PeerOfflineEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -118,3 +130,4 @@ export type ServerImageUpdatedEvent = z.infer<typeof ServerImageUpdatedEventSche
 export type ScanProgressEvent = z.infer<typeof ScanProgressEventSchema>;
 export type ScanCompleteEvent = z.infer<typeof ScanCompleteEventSchema>;
 export type KnockCreatedEvent = z.infer<typeof KnockCreatedEventSchema>;
+export type PeerOfflineEvent = z.infer<typeof PeerOfflineEventSchema>;

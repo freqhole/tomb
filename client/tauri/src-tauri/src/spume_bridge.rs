@@ -40,6 +40,15 @@ pub enum SpumeEvent {
         albums_added: u32,
         artists_added: u32,
     },
+
+    /// a P2P peer connection failed - remote may be offline
+    #[serde(rename = "peer-offline")]
+    PeerOffline {
+        /// the peer address (node_id) that failed
+        peer_addr: String,
+        /// error message describing the failure
+        reason: String,
+    },
 }
 
 /// emit an event to spume via tauri's event system
@@ -98,6 +107,23 @@ pub fn notify_scan_complete(
             songs_added,
             albums_added,
             artists_added,
+        },
+    )
+}
+
+/// notify spume that a P2P peer connection failed
+///
+/// allows early detection of offline remotes before request timeout
+pub fn notify_peer_offline(
+    app: &AppHandle<Wry>,
+    peer_addr: &str,
+    reason: &str,
+) -> Result<(), String> {
+    emit_event(
+        app,
+        SpumeEvent::PeerOffline {
+            peer_addr: peer_addr.to_string(),
+            reason: reason.to_string(),
         },
     )
 }

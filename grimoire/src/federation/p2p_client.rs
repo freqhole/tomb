@@ -53,14 +53,22 @@ pub fn set_federation_endpoint(endpoint: &Endpoint) {
     info!("P2P client endpoint initialized");
 }
 
-/// clear the federation endpoint (call before restart)
+/// clear and close the federation endpoint
 ///
-/// closes any existing endpoint so a new one can be created.
-/// "takes the value out of the option, leaving a None in its place."
-pub fn clear_federation_endpoint() {
-    let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
-    if guard.take().is_some() {
-        info!("P2P client endpoint cleared");
+/// actually closes the iroh endpoint (which stops the accept loop),
+/// then clears the global so a new one can be created.
+pub async fn clear_federation_endpoint() {
+    // take the endpoint out of the global while holding the lock briefly
+    let endpoint = {
+        let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
+        guard.take()
+    };
+
+    // close the endpoint outside the lock (close is async)
+    if let Some(ep) = endpoint {
+        info!("closing P2P endpoint...");
+        ep.close().await;
+        info!("P2P endpoint closed");
     }
 }
 

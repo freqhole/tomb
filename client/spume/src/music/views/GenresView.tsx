@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { CheckCircleIcon } from "../../components/icons/registry";
+import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
@@ -353,23 +354,32 @@ export function GenresView(props: GenresViewProps) {
               </div>
             }
           >
-            <Show
-              when={genreListItems().length > 0 || genresQuery.isLoading || genresQuery.isFetching}
+          <Show
+              when={genreListItems().length > 0}
               fallback={
-                <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-                  <div class="text-center max-w-md">
-                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">no genres found!</p>
-                    <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                      add music to import local audio files or download from urls
-                    </p>
-                    <Button variant="primary" onClick={props.onAddMusic}>
-                      add music
-                    </Button>
+                <Show
+                  when={genresQuery.isLoading || genresQuery.isFetching}
+                  fallback={
+                    <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                      <div class="text-center max-w-md">
+                        <p class="text-lg text-[var(--color-text-secondary)] mb-2">no genres found!</p>
+                        <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                          add music to import local audio files or download from urls
+                        </p>
+                        <Button variant="primary" onClick={props.onAddMusic}>
+                          add music
+                        </Button>
+                      </div>
+                    </div>
+                  }
+                >
+                  <div class="flex items-center justify-center h-full">
+                    <LoadingState text="loading genres..." />
                   </div>
-                </div>
+                </Show>
               }
             >
-              <Show when={genreListItems().length > 0}>
+              <>
                 <VirtualItemList
                   items={genreListItems()}
                   selectedId={selectedGenreId()}
@@ -447,7 +457,8 @@ export function GenresView(props: GenresViewProps) {
                   }}
                   height={listHeight()}
                 />
-              </Show>
+                <LoadingMoreIndicator isLoading={genresQuery.isFetchingNextPage} />
+              </>
             </Show>
           </Show>
         </div>
