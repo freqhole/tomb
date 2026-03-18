@@ -99,6 +99,8 @@ pub struct ProcessKnockRequest {
     pub username: Option<String>,
     /// role to assign: "viewer", "member", "admin"
     pub role: String,
+    /// optional existing user_id to link instead of creating new user
+    pub user_id: Option<String>,
 }
 
 /// response for knock status check
@@ -332,25 +334,35 @@ pub async fn accept_knock(
         _ => UserRole::Member,
     };
 
-    // create user
     let user_service = UserService::new();
-    let create_request = CreateUserRequest {
-        username: username.clone(),
-        role: Some(role),
-        invite_code: None, // admin is approving directly
+
+    // get existing user or create new one
+    let user = if let Some(user_id) = request.user_id {
+        // use existing user
+        let user_result = user_service.get_user(&user_id).await;
+        user_result.data.ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+            message: format!("user not found: {}", user_id),
+        })?
+    } else {
+        // create new user
+        let create_request = CreateUserRequest {
+            username: username.clone(),
+            role: Some(role),
+            invite_code: None, // admin is approving directly
+        };
+
+        // register user (bypassing invite code since admin is approving)
+        let user_result = user_service.register_user(&create_request).await;
+        if !user_result.success {
+            return Err(crate::error::GrimoireError::ProcessingFailed {
+                message: user_result.message,
+            });
+        }
+
+        user_result.data.ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+            message: "user creation returned no data".to_string(),
+        })?
     };
-
-    // register user (bypassing invite code since admin is approving)
-    let user_result = user_service.register_user(&create_request).await;
-    if !user_result.success {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
-            message: user_result.message,
-        });
-    }
-
-    let user = user_result.data.ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-        message: "user creation returned no data".to_string(),
-    })?;
 
     // link peer node to user
     let peer_result = user_service.add_peer_node(&user.id, &row.node_id, None).await;

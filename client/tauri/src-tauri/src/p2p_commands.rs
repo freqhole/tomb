@@ -56,7 +56,7 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
         .unwrap_or(false);
 
     if !federation_enabled {
-        eprintln!("[p2p] federation not enabled in config, skipping P2P init");
+        // eprintln!("[p2p] federation not enabled in config, skipping P2P init");
         return Ok(());
     }
 
@@ -79,23 +79,27 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // start accept loop for incoming connections if knocking enabled or peers exist
     let service = grimoire::users::UserService::new();
     let has_peers = service.has_peer_nodes().await;
-    
+
     if knocking_enabled || has_peers {
-        eprintln!("[p2p] starting accept loop (knocking={}, has_peers={})", knocking_enabled, has_peers);
+        eprintln!(
+            "[p2p] starting accept loop (knocking={}, has_peers={})",
+            knocking_enabled, has_peers
+        );
         endpoint.start_accept_loop(|peer_id, conn| {
-            eprintln!("[p2p] incoming connection from: {}", &peer_id.to_string()[..16]);
+            // eprintln!(
+            //     "[p2p] incoming connection from: {}",
+            //     &peer_id.to_string()[..16]
+            // );
             tokio::spawn(async move {
                 grimoire::federation::transport::handle_incoming(peer_id, conn).await;
             });
         });
-    } else {
-        eprintln!("[p2p] skipping accept loop (outbound-only mode)");
     }
 
     // register endpoint for P2P client operations
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
 
-    eprintln!("[p2p] P2P endpoint initialized successfully");
+    // eprintln!("[p2p] P2P endpoint initialized successfully");
     Ok(())
 }
 

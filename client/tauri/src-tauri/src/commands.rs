@@ -1790,6 +1790,7 @@ pub async fn allow_peer(
     node_id: String,
     username: Option<String>,
     role: Option<String>,
+    user_id: Option<String>,
 ) -> Result<AllowPeerResult, String> {
     ensure_initialized(&app_handle).await?;
 
@@ -1813,11 +1814,19 @@ pub async fn allow_peer(
         }
     };
 
-    // determine username - use provided or generate from node_id prefix
-    let username = username.unwrap_or_else(|| format!("peer_{}", &node_id[..8]));
+    // get existing user by id, find by username, or create new
+    let (user, created_user) = if let Some(uid) = user_id {
+        // use existing user by id
+        let find_result = service.get_user(&uid).await;
+        match find_result.data {
+            Some(user) => (user, false),
+            None => return Err(format!("user not found: {}", uid)),
+        }
+    } else {
+        // determine username - use provided or generate from node_id prefix
+        let username = username.unwrap_or_else(|| format!("peer_{}", &node_id[..8]));
 
-    // try to find existing user by username
-    let (user, created_user) = {
+        // try to find existing user by username
         let find_result = service.get_user_by_username(&username).await;
         if let Some(existing) = find_result.data {
             (existing, false)
@@ -2084,6 +2093,7 @@ pub async fn accept_knock(
     knock_id: String,
     username: Option<String>,
     role: String,
+    user_id: Option<String>,
 ) -> Result<AcceptKnockResult, String> {
     ensure_initialized(&app_handle).await?;
 
@@ -2098,6 +2108,7 @@ pub async fn accept_knock(
     let request = grimoire::federation::knock::ProcessKnockRequest {
         username,
         role: role.clone(),
+        user_id: user_id.clone(),
     };
 
     let result =
@@ -2109,7 +2120,7 @@ pub async fn accept_knock(
             username: knock.username,
             node_id: knock.node_id,
             role,
-            created_user: true,
+            created_user: user_id.is_none(),
         }),
         Err(e) => Err(format!("failed to accept knock: {}", e)),
     }

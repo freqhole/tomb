@@ -1677,3 +1677,91 @@ button.danger:hover {
   gap: 0.5rem;
   align-items: center;
 }
+
+/* user autocomplete */
+.user-autocomplete {
+  position: relative;
+  flex: 1;
+}
+
+.user-autocomplete-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.user-autocomplete-input-wrapper input {
+  flex: 1;
+  padding-right: 4.5rem;
+}
+
+.user-autocomplete-input-wrapper .user-role-badge {
+  position: absolute;
+  right: 0.75rem;
+  font-size: 0.75rem;
+  color: #71717a;
+  background: #27272a;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.user-autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.25rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.user-autocomplete-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.user-autocomplete-option:hover {
+  background: #27272a;
+}
+
+.user-autocomplete-option.selected {
+  background: #27272a;
+}
+
+.user-autocomplete-option.create-new {
+  border-bottom: 1px solid #27272a;
+  color: #ff1a9e;
+}
+
+.user-autocomplete-option.create-new .create-new-label {
+  color: #71717a;
+  margin-right: 0.25rem;
+}
+
+.user-autocomplete-option .username {
+  flex: 1;
+}
+
+.user-autocomplete-option .role-badge {
+  font-size: 0.75rem;
+  color: #71717a;
+  background: #27272a;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+}
+
+.user-autocomplete-loading {
+  padding: 0.625rem 0.75rem;
+  color: #71717a;
+  font-size: 0.875rem;
+}

@@ -1,5 +1,6 @@
 import { createSignal, onMount, Show, For, createEffect, on } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { UserAutocomplete, type UserSelection } from "../components/UserAutocomplete";
 
 interface FederationConfigStatus {
   enabled: boolean;
@@ -104,6 +105,7 @@ export default function FederationView() {
   const [peerNodeId, setPeerNodeId] = createSignal("");
   const [peerUsername, setPeerUsername] = createSignal("");
   const [peerRole, setPeerRole] = createSignal("viewer");
+  const [peerUserSelection, setPeerUserSelection] = createSignal<UserSelection | null>(null);
   const [allowPeerLoading, setAllowPeerLoading] = createSignal(false);
 
   // peer list
@@ -119,6 +121,7 @@ export default function FederationView() {
   );
   const [acceptKnockUsername, setAcceptKnockUsername] = createSignal("");
   const [acceptKnockRole, setAcceptKnockRole] = createSignal("viewer");
+  const [acceptKnockUserSelection, setAcceptKnockUserSelection] = createSignal<UserSelection | null>(null);
   const [expandedKnockId, setExpandedKnockId] = createSignal<string | null>(
     null,
   );
@@ -259,10 +262,12 @@ export default function FederationView() {
     setSuccess("");
 
     try {
+      const selection = peerUserSelection();
       const result = await invoke<AllowPeerResult>("allow_peer", {
         nodeId: peerNodeId(),
-        username: peerUsername() || undefined,
-        role: peerRole(),
+        username: selection?.username || peerUsername() || undefined,
+        role: selection?.isExisting ? selection.role : peerRole(),
+        userId: selection?.isExisting ? selection.id : undefined,
       });
       setSuccess(
         result.created_user
@@ -272,6 +277,7 @@ export default function FederationView() {
       // clear form and refresh peer list
       setPeerNodeId("");
       setPeerUsername("");
+      setPeerUserSelection(null);
       await loadPeers();
     } catch (e) {
       setError(String(e));
@@ -328,19 +334,25 @@ export default function FederationView() {
     setSuccess("");
 
     try {
-      const username = acceptKnockUsername() || knock.username || undefined;
+      const selection = acceptKnockUserSelection();
+      const username = selection?.username || acceptKnockUsername() || knock.username || undefined;
+      const role = selection?.isExisting ? selection.role : acceptKnockRole();
+      const userId = selection?.isExisting ? selection.id : undefined;
+      
       await invoke("accept_knock", {
         knockId: knock.id,
         username,
-        role: acceptKnockRole(),
+        role,
+        userId,
       });
       setSuccess(
-        `accepted knock from "${username || knock.username}" as ${acceptKnockRole()}`,
+        `accepted knock from "${username || knock.username}" as ${role}`,
       );
       // clear form state
       setExpandedKnockId(null);
       setAcceptKnockUsername("");
       setAcceptKnockRole("viewer");
+      setAcceptKnockUserSelection(null);
       // refresh lists
       await loadKnocks();
       await loadPeers();
@@ -604,20 +616,30 @@ export default function FederationView() {
                 <div class="form-row">
                   <div class="form-group flex-1">
                     <label for="peer-username">username (optional)</label>
-                    <input
-                      id="peer-username"
-                      type="text"
-                      value={peerUsername()}
-                      onInput={(e) => setPeerUsername(e.currentTarget.value)}
-                      placeholder="auto-generated if empty"
+                    <UserAutocomplete
+                      initialValue={peerUsername()}
+                      placeholder="search or enter username..."
+                      defaultRole={peerRole()}
+                      onSelect={(selection) => {
+                        setPeerUserSelection(selection);
+                        if (selection) {
+                          setPeerUsername(selection.username);
+                          if (selection.isExisting) {
+                            setPeerRole(selection.role);
+                          }
+                        } else {
+                          setPeerUsername("");
+                        }
+                      }}
                     />
                   </div>
                   <div class="form-group">
                     <label for="peer-role">role</label>
                     <select
                       id="peer-role"
-                      value={peerRole()}
+                      value={peerUserSelection()?.isExisting ? peerUserSelection()!.role : peerRole()}
                       onChange={(e) => setPeerRole(e.currentTarget.value)}
+                      disabled={peerUserSelection()?.isExisting}
                     >
                       <option value="viewer">viewer</option>
                       <option value="member">member</option>
@@ -671,22 +693,29 @@ export default function FederationView() {
                           <div class="form-row">
                             <div class="form-group flex-1">
                               <label>username</label>
-                              <input
-                                type="text"
-                                value={acceptKnockUsername() || knock.username}
-                                onInput={(e) =>
-                                  setAcceptKnockUsername(e.currentTarget.value)
-                                }
-                                placeholder={knock.username || "enter username"}
+                              <UserAutocomplete
+                                initialValue={knock.username || ""}
+                                placeholder={knock.username || "search or enter username..."}
+                                defaultRole={acceptKnockRole()}
+                                onSelect={(selection) => {
+                                  setAcceptKnockUserSelection(selection);
+                                  if (selection) {
+                                    setAcceptKnockUsername(selection.username);
+                                    if (selection.isExisting) {
+                                      setAcceptKnockRole(selection.role);
+                                    }
+                                  }
+                                }}
                               />
                             </div>
                             <div class="form-group">
                               <label>role</label>
                               <select
-                                value={acceptKnockRole()}
+                                value={acceptKnockUserSelection()?.isExisting ? acceptKnockUserSelection()!.role : acceptKnockRole()}
                                 onChange={(e) =>
                                   setAcceptKnockRole(e.currentTarget.value)
                                 }
+                                disabled={acceptKnockUserSelection()?.isExisting}
                               >
                                 <option value="viewer">viewer</option>
                                 <option value="member">member</option>
@@ -713,6 +742,7 @@ export default function FederationView() {
                               setExpandedKnockId(null);
                               setAcceptKnockUsername("");
                               setAcceptKnockRole("viewer");
+                              setAcceptKnockUserSelection(null);
                             }}
                           >
                             cancel

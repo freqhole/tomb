@@ -69,6 +69,7 @@ pub async fn get_by_id(caller: &Caller, id: &str) -> GrimoireResponse<JsonValue>
 struct AcceptKnockBody {
     username: Option<String>,
     role: Option<String>,
+    user_id: Option<String>,
 }
 
 pub async fn accept_by_id(caller: &Caller, id: &str, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -83,6 +84,7 @@ pub async fn accept_by_id(caller: &Caller, id: &str, body: JsonValue) -> Grimoir
     let process_req = ProcessKnockRequest {
         username: req.username,
         role: req.role.unwrap_or_else(|| "member".to_string()),
+        user_id: req.user_id,
     };
 
     match accept_knock(id, process_req, &caller.user_id).await {
@@ -169,6 +171,7 @@ struct AcceptKnockRequest {
     knock_id: String,
     username: Option<String>,
     role: Option<String>,
+    user_id: Option<String>,
 }
 
 pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -196,6 +199,7 @@ pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     let process_req = ProcessKnockRequest {
         username: req.username,
         role: req.role.unwrap_or_else(|| "member".to_string()),
+        user_id: req.user_id,
     };
 
     match accept_knock(&req.knock_id, process_req, &caller.user_id).await {

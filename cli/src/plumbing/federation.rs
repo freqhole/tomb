@@ -485,7 +485,7 @@ async fn accept_knock(
     use grimoire::federation::knock::ProcessKnockRequest;
     use grimoire::users::UserService;
 
-    let request = ProcessKnockRequest { username, role };
+    let request = ProcessKnockRequest { username, role, user_id: None };
 
     // get root user for admin_user_id
     let service = UserService::new();
