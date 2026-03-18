@@ -51,6 +51,19 @@ pub async fn resolve_peer(node_id: &str) -> ResolvedPeer {
         }
     };
 
+    // check if haruspex is configured - if not, can't do lookup
+    if !is_haruspex_configured() {
+        return ResolvedPeer {
+            node_id: node_id.to_string(),
+            user: None,
+            haruspex_info: None,
+            user_created: false,
+            error: Some(
+                "haruspex not configured (missing haruspex_url or haruspex_anon_key)".to_string(),
+            ),
+        };
+    }
+
     // get authenticated client (this will refresh token if needed)
     let (client, _creds) = match get_authenticated_client().await {
         Ok(c) => c,
@@ -222,4 +235,22 @@ pub async fn get_local_user_by_node_id(node_id: &str) -> Option<User> {
         } => Some(user),
         _ => None,
     }
+}
+
+/// check if haruspex is configured (has url and anon_key)
+pub(crate) fn is_haruspex_configured() -> bool {
+    let config = get_config();
+    let Some(f) = config.federation.as_ref().filter(|f| f.enabled) else {
+        return false;
+    };
+    !f.haruspex_url.is_empty() && !f.haruspex_anon_key.is_empty()
+}
+
+/// check if knocking is enabled in config
+pub(crate) fn is_knocking_enabled() -> bool {
+    let config = get_config();
+    config
+        .federation
+        .as_ref()
+        .is_some_and(|f| f.enabled && f.knocking_enabled)
 }

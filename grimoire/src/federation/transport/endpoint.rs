@@ -77,27 +77,34 @@ impl FederationEndpoint {
         let endpoint = self.endpoint.clone();
         let handler = Arc::new(handler);
 
+        info!("[p2p-endpoint] starting accept loop");
+
         let handle = tokio::spawn(async move {
             loop {
+                info!("[p2p-endpoint] waiting for incoming connection...");
                 match endpoint.accept().await {
                     Some(incoming) => {
+                        info!("[p2p-endpoint] got incoming connection, awaiting handshake...");
                         let handler = handler.clone();
 
                         tokio::spawn(async move {
                             match incoming.await {
                                 Ok(conn) => {
                                     let peer_id = conn.remote_id();
-                                    info!("accepted connection from peer: {}", peer_id);
+                                    info!(
+                                        "[p2p-endpoint] accepted connection from peer: {}",
+                                        peer_id
+                                    );
                                     handler(peer_id, conn);
                                 }
                                 Err(e) => {
-                                    warn!("failed to accept connection: {}", e);
+                                    warn!("[p2p-endpoint] failed to accept connection: {}", e);
                                 }
                             }
                         });
                     }
                     None => {
-                        info!("endpoint closed, stopping accept loop");
+                        info!("[p2p-endpoint] endpoint closed, stopping accept loop");
                         break;
                     }
                 }

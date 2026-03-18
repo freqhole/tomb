@@ -31,11 +31,12 @@ pub struct P2pUploadResponse {
     pub body: Option<String>,
 }
 
-/// initialize P2P client endpoint for outbound connections
+/// initialize P2P endpoint for both inbound and outbound connections
 ///
 /// must be called after the server starts and grimoire config is available.
-/// this creates an iroh endpoint in the Tauri app process for making
-/// outbound P2P connections to remote peers.
+/// this creates an iroh endpoint in the Tauri app process for:
+/// - making outbound P2P connections to remote peers
+/// - accepting incoming P2P connections (dispatched to offal)
 ///
 /// safe to call multiple times (e.g., after server restart) - clears any
 /// existing endpoint first.
@@ -55,25 +56,46 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
         .unwrap_or(false);
 
     if !federation_enabled {
-        eprintln!("[p2p] federation not enabled in config, skipping P2P client init");
+        eprintln!("[p2p] federation not enabled in config, skipping P2P init");
         return Ok(());
     }
 
-    // create endpoint for outbound P2P connections
-    // (we don't need the accept loop since we're client-only)
-    eprintln!("[p2p] initializing P2P client endpoint...");
+    // check if knocking is enabled or peers exist (determines if we accept incoming)
+    let knocking_enabled = config
+        .federation
+        .as_ref()
+        .map(|f| f.knocking_enabled)
+        .unwrap_or(false);
 
-    let endpoint = grimoire::federation::transport::FederationEndpoint::new()
+    eprintln!("[p2p] initializing P2P endpoint...");
+
+    let mut endpoint = grimoire::federation::transport::FederationEndpoint::new()
         .await
         .map_err(|e| format!("failed to create P2P endpoint: {}", e))?;
 
     let node_id = endpoint.node_id();
-    eprintln!("[p2p] P2P client endpoint ready, node_id: {}", node_id);
+    eprintln!("[p2p] P2P endpoint ready, node_id: {}", node_id);
+
+    // start accept loop for incoming connections if knocking enabled or peers exist
+    let service = grimoire::users::UserService::new();
+    let has_peers = service.has_peer_nodes().await;
+    
+    if knocking_enabled || has_peers {
+        eprintln!("[p2p] starting accept loop (knocking={}, has_peers={})", knocking_enabled, has_peers);
+        endpoint.start_accept_loop(|peer_id, conn| {
+            eprintln!("[p2p] incoming connection from: {}", &peer_id.to_string()[..16]);
+            tokio::spawn(async move {
+                grimoire::federation::transport::handle_incoming(peer_id, conn).await;
+            });
+        });
+    } else {
+        eprintln!("[p2p] skipping accept loop (outbound-only mode)");
+    }
 
     // register endpoint for P2P client operations
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
 
-    eprintln!("[p2p] P2P client initialized successfully");
+    eprintln!("[p2p] P2P endpoint initialized successfully");
     Ok(())
 }
 

@@ -18,6 +18,7 @@ pub async fn dispatch(
     match path {
         // health and discovery
         "/api/hello" => Some(health::server_info().await),
+        "/api/hello/image" => Some(health::server_image_info().await),
         "/health" => Some(health::health_check().await),
 
         // knock system (P2P access requests)

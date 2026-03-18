@@ -55,6 +55,32 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())
 }
 
+/// server image info endpoint (returns blob_id for P2P streaming)
+///
+/// path: GET /api/hello/image
+pub async fn server_image_info() -> GrimoireResponse<JsonValue> {
+    let config = get_config();
+
+    let blob_id = config
+        .server
+        .as_ref()
+        .and_then(|s| s.image_blob_id.clone());
+
+    match blob_id {
+        Some(id) => {
+            GrimoireResponse::success("ok", serde_json::json!({ "blob_id": id }))
+        }
+        None => GrimoireResponse::failure(
+            "server image not configured",
+            vec![ErrorDetail::new(
+                "not_found",
+                "not found",
+                "server image blob_id not configured",
+            )],
+        ),
+    }
+}
+
 /// health check endpoint
 ///
 /// path: GET /health
