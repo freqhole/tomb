@@ -29,7 +29,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["bin/freqhole"],
     "linux": {
       "deb": {
         "depends": ["libayatana-appindicator3-1", "ffmpeg"],
