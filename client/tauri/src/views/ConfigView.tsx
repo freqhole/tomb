@@ -119,7 +119,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
         ? `, web client updated (${result.spume_files} files)`
         : "";
 
-      // success - reload config and restart server
+      // success - reload config
       setSaveMessage(
         `config upgraded: ${versionMsg}${spumeMsg} (backup: ${result.backup_path})`,
       );
@@ -128,15 +128,15 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       // reload editor with new config
       await reloadConfig();
 
-      // restart server
+      // reload config and restart P2P endpoint
       try {
-        await invoke("server_restart");
+        await invoke("reload_config");
         setSaveMessage(
-          `config upgraded: ${versionMsg}${spumeMsg} - server restarted (backup: ${result.backup_path})`,
+          `config upgraded: ${versionMsg}${spumeMsg} - config reloaded (backup: ${result.backup_path})`,
         );
       } catch (e) {
         setSaveMessage(
-          `config upgraded but failed to restart server: ${e} (backup: ${result.backup_path})`,
+          `config upgraded but failed to reload: ${e} (backup: ${result.backup_path})`,
         );
         setIsError(true);
       }
@@ -206,12 +206,12 @@ export default function ConfigView(props: ConfigViewProps = {}) {
         setSaveMessage(result.message);
         setIsError(false);
 
-        // restart the server after successful save
+        // reload config and restart P2P endpoint after successful save
         try {
-          await invoke("server_restart");
-          setSaveMessage(`${result.message} - server restarted`);
+          await invoke("reload_config");
+          setSaveMessage(`${result.message} - config reloaded`);
         } catch (e) {
-          setSaveMessage(`${result.message} - failed to restart server: ${e}`);
+          setSaveMessage(`${result.message} - failed to reload config: ${e}`);
           setIsError(true);
         }
       } else {

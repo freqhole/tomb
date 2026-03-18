@@ -1,6 +1,5 @@
 // main app entry point with routing
 import { HashRouter } from "@solidjs/router";
-import { toaster } from "@kobalte/core/toast";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
@@ -69,6 +68,7 @@ import {
   applyServiceWorkerUpdate,
   dismissUpdate,
 } from "./services/serviceWorker";
+import { checkPendingKnocks } from "./services/toastNotices";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
@@ -90,6 +90,9 @@ export function App() {
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
+
+  // track unlisten functions for cleanup
+  let tauriUnlisteners: (() => void)[] = [];
 
   // track current hash reactively (allows settings in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
@@ -129,13 +132,17 @@ export function App() {
     switch (event.type) {
       case "config-changed":
         // show persistent toast with reload button
-        toaster.show((props) => (
-          <ConfigChangedToast
-            toastId={props.toastId}
-            message={event.data.message}
-            onReload={() => window.location.reload()}
-          />
-        ));
+        // key ensures deduplication, message updates if toast already showing
+        toast.custom(
+          (props) => (
+            <ConfigChangedToast
+              toastId={props.toastId}
+              message={props.message}
+              onReload={() => window.location.reload()}
+            />
+          ),
+          { key: "config-changed", message: event.data.message }
+        );
         break;
 
       case "server-image-updated":
@@ -233,7 +240,7 @@ export function App() {
       debug(`activated tauri remote: ${remote.name} (${remote.base_url})`);
 
       // subscribe to config changes (server restarts) - refetch config when notified
-      await onConfigChanged(async () => {
+      const unlistenConfigChanged = await onConfigChanged(async () => {
         debug("tauri: config changed event received, refetching...");
         const newConfig = await getConfig();
         if (newConfig) {
@@ -247,9 +254,11 @@ export function App() {
           debug(`tauri remote updated: ${updatedRemote.name} (${updatedRemote.base_url})`);
         }
       });
+      tauriUnlisteners.push(unlistenConfigChanged);
 
       // subscribe to all tauri events (scan progress, etc.)
-      await onEvent((event: TauriEvent) => handleTauriEvent(event));
+      const unlistenEvent = await onEvent((event: TauriEvent) => handleTauriEvent(event));
+      tauriUnlisteners.push(unlistenEvent);
     } catch (error) {
       console.error("failed to setup tauri remote:", error);
     }
@@ -281,19 +290,22 @@ export function App() {
   createEffect(
     on(updateAvailable, (available) => {
       if (available) {
-        toaster.show((props) => (
-          <UpdateAvailableToast
-            toastId={props.toastId}
-            onUpgrade={() => {
-              toaster.dismiss(props.toastId);
-              applyServiceWorkerUpdate();
-            }}
-            onDismiss={() => {
-              toaster.dismiss(props.toastId);
-              dismissUpdate();
-            }}
-          />
-        ));
+        toast.custom(
+          (props) => (
+            <UpdateAvailableToast
+              toastId={props.toastId}
+              onUpgrade={() => {
+                toast.dismiss(props.toastId);
+                applyServiceWorkerUpdate();
+              }}
+              onDismiss={() => {
+                toast.dismiss(props.toastId);
+                dismissUpdate();
+              }}
+            />
+          ),
+          "update-available"
+        );
       }
     })
   );
@@ -384,6 +396,10 @@ export function App() {
       const source = getDataSource();
       const result = await source.getSongs({ limit: 1 });
       setHasSongs(result.total > 0);
+
+      // check for pending knock requests (tauri only, non-blocking)
+      // shows persistent toast if there are access requests waiting
+      void checkPendingKnocks();
     } finally {
       clearTimeout(loadingTimer);
       setIsInitializing(false);
@@ -391,9 +407,12 @@ export function App() {
     }
   });
 
-  // cleanup cache network handlers on unmount
+  // cleanup cache network handlers and tauri listeners on unmount
   onCleanup(() => {
     cleanupCacheNetworkHandlers();
+    // cleanup tauri event listeners to prevent accumulation on HMR
+    tauriUnlisteners.forEach((unlisten) => unlisten());
+    tauriUnlisteners = [];
   });
 
   // callback for when any remote job completes — invalidate queries for new music

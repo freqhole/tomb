@@ -1,57 +1,54 @@
 import { Toast as KobalteToast, toaster } from "@kobalte/core/toast";
-import { Show, type JSX } from "solid-js";
+import { createSignal, Show, type JSX } from "solid-js";
 import { solidColors } from "../../design-system/colors";
 import { Icon } from "../icons/registry";
 
 export type ToastVariant = "success" | "error" | "warning" | "info";
 
+// track active toasts by title to consolidate duplicates
+// key = "variant:title", value = { id, setMessage }
+const activeToasts = new Map<string, { id: number; setMessage: (m: string) => void }>();
+
+const DEFAULT_DURATION = 5000;
+
 export interface ToastOptions {
+  /** title shown above the message */
+  title?: string;
   /** duration in milliseconds before auto-dismiss (default: 5000) */
   duration?: number;
   /** whether the toast should not auto-dismiss */
   persistent?: boolean;
 }
 
-interface ToastProps {
+interface ToastItemProps {
   toastId: number;
   variant: ToastVariant;
   message: string;
   title?: string;
   duration?: number;
   persistent?: boolean;
+  onMessageChange?: (setter: (m: string) => void) => void;
 }
 
 /**
  * individual toast component
- *
- * - renders with appropriate color and icon for variant
- * - progress bar shows remaining time
- * - close button
- * - swipe to dismiss
  */
-function ToastItem(props: ToastProps) {
+function ToastItem(props: ToastItemProps) {
+  const [message, setMessage] = createSignal(props.message);
+
+  // register the message setter so we can update this toast's message
+  props.onMessageChange?.(setMessage);
+
   const variantConfig = () => {
     switch (props.variant) {
       case "success":
-        return {
-          icon: "check" as const,
-          colors: solidColors.success,
-        };
+        return { icon: "check" as const, colors: solidColors.success };
       case "error":
-        return {
-          icon: "alertTriangle" as const,
-          colors: solidColors.error,
-        };
+        return { icon: "alertTriangle" as const, colors: solidColors.error };
       case "warning":
-        return {
-          icon: "alertTriangle" as const,
-          colors: solidColors.warning,
-        };
+        return { icon: "alertTriangle" as const, colors: solidColors.warning };
       case "info":
-        return {
-          icon: "info" as const,
-          colors: solidColors.info,
-        };
+        return { icon: "info" as const, colors: solidColors.info };
     }
   };
 
@@ -82,7 +79,7 @@ function ToastItem(props: ToastProps) {
               {props.title}
             </KobalteToast.Title>
           </Show>
-          <KobalteToast.Description class="text-sm">{props.message}</KobalteToast.Description>
+          <KobalteToast.Description class="text-sm">{message()}</KobalteToast.Description>
         </div>
 
         {/* close button */}
@@ -147,6 +144,9 @@ export function ToastRegion() {
 /**
  * toast API for showing notifications
  *
+ * toasts with the same title consolidate automatically - if you show a toast
+ * with a title that's already visible, the message updates instead of stacking.
+ *
  * usage:
  * ```tsx
  * import { toast } from "./Toast";
@@ -154,99 +154,128 @@ export function ToastRegion() {
  * // simple success message
  * toast.success("song added to queue");
  *
- * // error with title
- * toast.error("failed to save playlist", { title: "error" });
+ * // with title (title is used for deduplication)
+ * toast.error("connection lost", { title: "error" });
  *
- * // custom duration
- * toast.info("processing...", { duration: 10000 });
- *
- * // persistent (no auto-dismiss)
- * toast.warning("important message", { persistent: true });
+ * // these will consolidate into one toast, updating the message:
+ * toast.info("syncing 1/3...", { title: "sync" });
+ * toast.info("syncing 2/3...", { title: "sync" });
+ * toast.info("syncing 3/3...", { title: "sync" });
  * ```
  */
+
+// helper to show a toast, consolidating with existing if same title
+function showToast(variant: ToastVariant, message: string, options?: ToastOptions): number {
+  const key = `${variant}:${options?.title ?? ""}`;
+  const existing = activeToasts.get(key);
+
+  console.log(`[showToast] key="${key}" existing=${existing ? existing.id : "none"}`);
+
+  // if toast with same variant+title exists, just update its message
+  if (existing) {
+    console.log(`[showToast] updating existing toast ${existing.id} with message: ${message}`);
+    existing.setMessage(message);
+    return existing.id;
+  }
+
+  // reserve the key immediately to prevent race conditions
+  const placeholder = { id: -1, setMessage: () => {} };
+  activeToasts.set(key, placeholder);
+
+  const id = toaster.show((props) => (
+    <ToastItem
+      toastId={props.toastId}
+      variant={variant}
+      message={message}
+      title={options?.title}
+      duration={options?.duration ?? DEFAULT_DURATION}
+      persistent={options?.persistent}
+      onMessageChange={(setter) => {
+        // update with real setter
+        activeToasts.set(key, { id, setMessage: setter });
+      }}
+    />
+  ));
+
+  console.log(`[showToast] created new toast id=${id}`);
+
+  // update placeholder with real id
+  placeholder.id = id;
+
+  // cleanup tracking when toast is dismissed
+  const checkInterval = setInterval(() => {
+    const el = document.querySelector(`[data-kb-toast-id="${id}"]`);
+    if (!el) {
+      activeToasts.delete(key);
+      clearInterval(checkInterval);
+    }
+  }, 500);
+
+  return id;
+}
+
+// track custom toasts by key for consolidation (id + message setter)
+const customToasts = new Map<string, { id: number; setMessage: (m: string) => void }>();
+
 export const toast = {
-  /**
-   * show a success toast (green)
-   */
-  success(message: string, options?: ToastOptions & { title?: string }) {
-    return toaster.show((props) => (
-      <ToastItem
-        toastId={props.toastId}
-        variant="success"
-        message={message}
-        title={options?.title}
-        duration={options?.duration}
-        persistent={options?.persistent}
-      />
-    ));
+  /** show a success toast (green) */
+  success(message: string, options?: ToastOptions) {
+    return showToast("success", message, options);
   },
 
-  /**
-   * show an error toast (red)
-   */
-  error(message: string, options?: ToastOptions & { title?: string }) {
-    return toaster.show((props) => (
-      <ToastItem
-        toastId={props.toastId}
-        variant="error"
-        message={message}
-        title={options?.title}
-        duration={options?.duration}
-        persistent={options?.persistent}
-      />
-    ));
+  /** show an error toast (red) */
+  error(message: string, options?: ToastOptions) {
+    return showToast("error", message, options);
   },
 
-  /**
-   * show a warning toast (yellow)
-   */
-  warning(message: string, options?: ToastOptions & { title?: string }) {
-    return toaster.show((props) => (
-      <ToastItem
-        toastId={props.toastId}
-        variant="warning"
-        message={message}
-        title={options?.title}
-        duration={options?.duration}
-        persistent={options?.persistent}
-      />
-    ));
+  /** show a warning toast (yellow) */
+  warning(message: string, options?: ToastOptions) {
+    return showToast("warning", message, options);
   },
 
-  /**
-   * show an info toast (blue)
-   */
-  info(message: string, options?: ToastOptions & { title?: string }) {
-    return toaster.show((props) => (
-      <ToastItem
-        toastId={props.toastId}
-        variant="info"
-        message={message}
-        title={options?.title}
-        duration={options?.duration}
-        persistent={options?.persistent}
-      />
-    ));
+  /** show an info toast (blue) */
+  info(message: string, options?: ToastOptions) {
+    return showToast("info", message, options);
   },
 
-  /**
-   * dismiss a specific toast by id
-   */
+  /** dismiss a specific toast by id */
   dismiss(id: number) {
     return toaster.dismiss(id);
   },
 
-  /**
-   * clear all toasts
-   */
+  /** clear all toasts */
   clear() {
+    activeToasts.clear();
+    customToasts.clear();
     return toaster.clear();
   },
 
   /**
-   * show a custom toast component
+   * show a custom toast component with message updates
+   * if key already exists, updates the message instead of creating new toast
    */
-  custom(component: (props: { toastId: number }) => JSX.Element) {
-    return toaster.show(component);
+  custom(
+    component: (props: { toastId: number; message: () => string }) => JSX.Element,
+    options: { key: string; message: string }
+  ) {
+    const { key, message } = options;
+    const existing = customToasts.get(key);
+
+    // if toast already exists, just update its message
+    if (existing) {
+      console.log(`[toast.custom] key="${key}" updating message: ${message}`);
+      existing.setMessage(message);
+      return existing.id;
+    }
+
+    // create signal for reactive message updates
+    const [getMessage, setMessage] = createSignal(message);
+
+    const id = toaster.show((props) => component({ ...props, message: getMessage }));
+    console.log(`[toast.custom] created toast key="${key}" id=${id}`);
+
+    customToasts.set(key, { id, setMessage });
+
+    return id;
   },
 };

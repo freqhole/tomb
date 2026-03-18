@@ -7,7 +7,7 @@ import { Icon } from "../icons/registry";
 
 interface ConfigChangedToastProps {
   toastId: number;
-  message: string;
+  message: () => string; // signal accessor for reactive updates
   onReload: () => void;
 }
 
@@ -31,7 +31,9 @@ export function ConfigChangedToast(props: ConfigChangedToastProps) {
         {/* content */}
         <div class="flex-1 min-w-0">
           <KobalteToast.Title class="font-semibold text-sm mb-1">config updated</KobalteToast.Title>
-          <KobalteToast.Description class="text-sm mb-3">{props.message}</KobalteToast.Description>
+          <KobalteToast.Description class="text-sm mb-3">
+            {props.message()}
+          </KobalteToast.Description>
 
           {/* reload button */}
           <button

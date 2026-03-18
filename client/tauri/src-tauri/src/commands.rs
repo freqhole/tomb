@@ -1722,16 +1722,56 @@ pub async fn toggle_federation_enabled(
     // refresh the app menu to show/hide P2P controls
     crate::menu::refresh_app_menu(&app_handle);
 
-    // notify that config changed
-    let _ = notify_config_changed(
-        &app_handle,
-        &format!(
-            "federation {}",
-            if new_value { "enabled" } else { "disabled" }
-        ),
-    );
+    // notify UI of the federation state change (uses same event as config save)
+    let message = if new_value {
+        "federation enabled"
+    } else {
+        "federation disabled"
+    };
+    let _ = notify_config_changed(&app_handle, message);
 
     Ok(new_value)
+}
+
+/// reload config from disk and restart P2P endpoint if federation is enabled
+///
+/// this replaces the old server_restart command since there's no longer
+/// a separate server process - instead we reload the RwLock config
+/// and restart the P2P endpoint.
+#[tauri::command]
+pub async fn reload_config(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Arc<crate::p2p_state::P2pState>>,
+) -> Result<(), String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found".to_string())?;
+
+    // reload grimoire config from disk
+    grimoire::config::init_config(Some(config_path.clone()))
+        .map_err(|e| format!("failed to reload config: {}", e))?;
+
+    // check if federation is enabled after reload
+    let federation_enabled = grimoire::config::get_config()
+        .federation
+        .map(|f| f.enabled)
+        .unwrap_or(false);
+
+    // restart P2P endpoint if federation is enabled
+    if federation_enabled {
+        state.set_config_path(config_path);
+        state.restart().await?;
+    } else {
+        // stop P2P if federation was disabled
+        state.stop().await;
+    }
+
+    // refresh the app menu
+    crate::menu::refresh_app_menu(&app_handle);
+
+    // notify that config was reloaded
+    let _ = notify_config_changed(&app_handle, "config reloaded");
+
+    Ok(())
 }
 
 /// result for allow_peer command

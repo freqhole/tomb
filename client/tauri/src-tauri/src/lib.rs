@@ -252,6 +252,7 @@ pub fn run() {
             commands::federation_sync,
             commands::federation_logout,
             commands::toggle_federation_enabled,
+            commands::reload_config,
             commands::allow_peer,
             commands::list_peer_nodes,
             commands::remove_peer_node,

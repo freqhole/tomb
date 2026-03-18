@@ -66,9 +66,9 @@ commands in `commands.rs` are called from JS via `invoke()`. they access grimoir
 - `create_root_user` - create initial admin with API key
 - `list_users`, `list_invites`, etc. - admin operations
 - `scan_directory` - create import jobs for music files
+- `reload_config` - reload config from disk and restart P2P endpoint
 
-sidecar commands in `sidecar.rs`:
+P2P state commands in `p2p_state.rs`:
 
-- `server_status` - check if server running, get pid/uptime/url
-- `server_start`, `server_stop`, `server_restart` - process control
-- `get_server_logs` - retrieve captured log lines
+- `p2p_get_status` - get P2P endpoint status
+- `p2p_start`, `p2p_stop`, `p2p_restart` - P2P endpoint control
