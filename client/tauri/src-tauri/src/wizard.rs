@@ -2,6 +2,8 @@
 //!
 //! commands for opening/closing the setup wizard window
 
+use std::path::PathBuf;
+
 use tauri::webview::Color;
 use tauri::{AppHandle, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry};
 
