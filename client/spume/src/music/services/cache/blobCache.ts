@@ -153,6 +153,7 @@ export function removeFromLoadingSet(sha256: string): void {
 
 // seed the reactive set from existing cache metadata on startup
 // validates that blobs actually exist in Cache API before marking as cached
+// also purges incomplete "pending" entries from previous sessions (crash recovery)
 export async function initCachedAudioURLs(): Promise<void> {
   try {
     const allMetadata = await getAllMetadata();
@@ -161,6 +162,7 @@ export async function initCachedAudioURLs(): Promise<void> {
     // validate each entry actually exists in Cache API
     const validatedKeys: Record<string, boolean> = {};
     const staleEntries: string[] = [];
+    const pendingEntries: string[] = []; // incomplete downloads from previous session
     
     // group by remote for efficient cache access
     const byRemote = new Map<string, typeof audioMetadata>();
@@ -177,6 +179,14 @@ export async function initCachedAudioURLs(): Promise<void> {
         const cache = await caches.open(cacheName);
         
         for (const entry of entries) {
+          // purge incomplete downloads from previous session
+          if (entry.status === "pending" || entry.status === "failed") {
+            pendingEntries.push(entry.url);
+            // also remove from Cache API if it exists (partial data)
+            await cache.delete(entry.blobId).catch(() => {});
+            continue;
+          }
+          
           const response = await cache.match(entry.blobId);
           if (response) {
             validatedKeys[entry.url] = true;
@@ -199,6 +209,14 @@ export async function initCachedAudioURLs(): Promise<void> {
     if (staleEntries.length > 0) {
       debug(`cleaning up ${staleEntries.length} stale metadata entries`);
       for (const url of staleEntries) {
+        void deleteMetadata(url);
+      }
+    }
+    
+    // clean up pending/incomplete entries (crash recovery)
+    if (pendingEntries.length > 0) {
+      debug(`purging ${pendingEntries.length} incomplete downloads from previous session`);
+      for (const url of pendingEntries) {
         void deleteMetadata(url);
       }
     }
@@ -231,6 +249,9 @@ const MIN_HEADROOM_MB = 100; // always leave at least 100MB free
 const TOTAL_QUOTA_WARNING = 0.85; // warn if total storage >85% full
 const TOTAL_QUOTA_CRITICAL = 0.95; // critical if total storage >95% full
 
+// cache entry status for tracking download completion
+export type CacheStatus = "pending" | "complete" | "failed";
+
 interface CacheMetadata {
   url: string;
   remoteId: string; // which remote this blob belongs to
@@ -239,6 +260,9 @@ interface CacheMetadata {
   lastAccessedAt: number;
   size: number;
   type: "audio" | "image";
+  // v4 fields: status tracking for validation
+  status?: CacheStatus; // undefined treated as "complete" for backwards compat
+  expectedSize?: number; // expected size from Content-Length, for validation
 }
 
 // metadata store (in indexeddb for persistence)
@@ -246,7 +270,7 @@ const METADATA_DB_NAME = "freqhole_cache_metadata";
 const METADATA_STORE_NAME = "blob_metadata";
 
 let metadataDB: IDBDatabase | null = null;
-const METADATA_DB_VERSION = 3; // bumped for remoteId field + index
+const METADATA_DB_VERSION = 4; // v4: added status and expectedSize fields
 
 // close metadata database connection (required before deletion in Safari)
 export function closeMetadataDB(): void {
@@ -353,6 +377,56 @@ async function deleteMetadata(url: string): Promise<void> {
   });
 }
 
+// create a "pending" cache entry before download starts
+// this allows crash recovery - pending entries are purged on init
+export async function createPendingCacheEntry(
+  remoteId: string,
+  blobId: string,
+  type: "audio" | "image",
+  expectedSize?: number,
+): Promise<void> {
+  try {
+    const metadataKey = `${remoteId}/${blobId}`;
+    const existing = await getMetadata(metadataKey);
+    
+    // don't overwrite a complete entry
+    if (existing?.status === "complete") {
+      return;
+    }
+    
+    const metadata: CacheMetadata = {
+      url: metadataKey,
+      remoteId,
+      blobId,
+      cachedAt: Date.now(),
+      lastAccessedAt: Date.now(),
+      size: 0, // unknown until download completes
+      type,
+      status: "pending",
+      expectedSize,
+    };
+    await saveMetadata(metadata);
+    debug(`created pending cache entry: ${blobId.slice(0, 8)}... (expected: ${expectedSize ?? "unknown"})`);
+  } catch (error) {
+    // don't fail the download if metadata creation fails
+    warn("failed to create pending cache entry:", error);
+  }
+}
+
+// mark a cache entry as failed (for cleanup on next init)
+async function markCacheFailed(metadataKey: string): Promise<void> {
+  try {
+    const existing = await getMetadata(metadataKey);
+    if (existing) {
+      existing.status = "failed";
+      existing.lastAccessedAt = Date.now();
+      await saveMetadata(existing);
+    }
+  } catch (error) {
+    warn("failed to mark cache entry as failed:", error);
+  }
+}
+
 // get cache size (only our blob cache, not total storage)
 async function getCacheSize(): Promise<number> {
   try {
@@ -415,13 +489,17 @@ async function getStorageInfo(): Promise<{
 
 // cache a blob (audio or image) for a specific remote
 // skips caching for localhost/tauri-managed remotes
+// validates size against expectedSize if provided
 export async function cacheBlob(
   _url: string, // original fetch URL (kept for future debugging/metadata)
   response: Response,
   type: "audio" | "image",
   remoteId: string,
   blobId: string,
+  expectedSize?: number, // expected size from Content-Length for validation
 ): Promise<void> {
+  const metadataKey = `${remoteId}/${blobId}`;
+  
   try {
     // skip caching for localhost/tauri remotes
     if (await shouldSkipCaching(remoteId)) {
@@ -437,6 +515,8 @@ export async function cacheBlob(
       warn(
         `total storage critical (${(storageInfo.totalPercentUsed * 100).toFixed(1)}%), skipping cache`,
       );
+      // mark as failed if we had pending metadata
+      void markCacheFailed(metadataKey);
       return;
     }
 
@@ -448,11 +528,20 @@ export async function cacheBlob(
     const blob = await clonedResponse.blob();
     const size = blob.size;
 
+    // validate size if expected size was provided
+    if (expectedSize !== undefined && size !== expectedSize) {
+      warn(
+        `blob size mismatch for ${blobId.slice(0, 8)}...: expected ${expectedSize}, got ${size} (truncated download?)`,
+      );
+      // mark as failed - don't cache incomplete data
+      void markCacheFailed(metadataKey);
+      return;
+    }
+
     // cache the response using blobId as key
     await cache.put(blobId, response);
 
     // save metadata - use remoteId/blobId as composite key
-    const metadataKey = `${remoteId}/${blobId}`;
     const metadata: CacheMetadata = {
       url: metadataKey, // composite key for uniqueness
       remoteId,
@@ -461,6 +550,8 @@ export async function cacheBlob(
       lastAccessedAt: Date.now(),
       size,
       type,
+      status: "complete",
+      expectedSize,
     };
     await saveMetadata(metadata);
 
@@ -505,8 +596,9 @@ export async function saveP2PBlobMetadata(
     
     const existing = await getMetadata(metadataKey);
     if (existing) {
-      // just update last accessed time
+      // update last accessed time and ensure status is complete
       existing.lastAccessedAt = Date.now();
+      existing.status = "complete"; // blob verified to be in cache
       await saveMetadata(existing);
       // ensure reactive set stays in sync (blob verified above)
       if (type === "audio") {
@@ -520,7 +612,7 @@ export async function saveP2PBlobMetadata(
     const blob = await clonedResponse.blob();
     const size = blob.size;
 
-    // save metadata
+    // save metadata - mark as complete since blob is fully in cache
     const metadata: CacheMetadata = {
       url: metadataKey,
       remoteId,
@@ -529,6 +621,7 @@ export async function saveP2PBlobMetadata(
       lastAccessedAt: Date.now(),
       size,
       type,
+      status: "complete",
     };
     await saveMetadata(metadata);
 
@@ -546,14 +639,21 @@ export async function saveP2PBlobMetadata(
 // get a blob from cache (and update last accessed time)
 export async function getCachedBlob(remoteId: string, blobId: string): Promise<Response | null> {
   try {
+    const metadataKey = `${remoteId}/${blobId}`;
+    const metadata = await getMetadata(metadataKey);
+    
+    // if metadata says pending/failed, don't trust cached data
+    if (metadata && (metadata.status === "pending" || metadata.status === "failed")) {
+      debug(`cache entry incomplete (${metadata.status}): ${blobId.slice(0, 8)}...`);
+      return null;
+    }
+    
     const cacheName = getRemoteCacheName(remoteId);
     const cache = await caches.open(cacheName);
     const response = await cache.match(blobId);
 
     if (response) {
       // update last accessed time
-      const metadataKey = `${remoteId}/${blobId}`;
-      const metadata = await getMetadata(metadataKey);
       if (metadata) {
         metadata.lastAccessedAt = Date.now();
         await saveMetadata(metadata);
@@ -564,7 +664,6 @@ export async function getCachedBlob(remoteId: string, blobId: string): Promise<R
     }
 
     // cache miss - check if we thought it was cached (indicates stale metadata)
-    const metadataKey = `${remoteId}/${blobId}`;
     const wasInStore = cacheStatus[metadataKey];
     if (wasInStore) {
       warn(`CACHE MISMATCH: ${blobId.slice(0, 8)}... was in cacheStatus but NOT in Cache API - removing from store`);
@@ -582,8 +681,17 @@ export async function getCachedBlob(remoteId: string, blobId: string): Promise<R
 }
 
 // check if a blob is cached for a specific remote
+// returns false if metadata indicates pending/failed status
 export async function isCached(remoteId: string, blobId: string): Promise<boolean> {
   try {
+    const metadataKey = `${remoteId}/${blobId}`;
+    const metadata = await getMetadata(metadataKey);
+    
+    // if metadata says pending/failed, treat as not cached
+    if (metadata && (metadata.status === "pending" || metadata.status === "failed")) {
+      return false;
+    }
+    
     const cacheName = getRemoteCacheName(remoteId);
     const cache = await caches.open(cacheName);
     const response = await cache.match(blobId);
@@ -725,6 +833,8 @@ export async function preCacheBlob(
   try {
     // retry with exponential backoff
     let lastError: Error | null = null;
+    let expectedSize: number | undefined;
+    
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const response = await fetch(url, { credentials: "include" });
@@ -736,6 +846,13 @@ export async function preCacheBlob(
         // track download progress if we have content-length and sha256
         const contentLength = response.headers.get("Content-Length");
         const totalBytes = contentLength ? parseInt(contentLength, 10) : null;
+        expectedSize = totalBytes ?? undefined;
+        
+        // create pending entry with expected size (for crash recovery + validation)
+        // only do this on first attempt to avoid overwriting previous state
+        if (attempt === 0) {
+          await createPendingCacheEntry(remoteId, blobId, type, expectedSize);
+        }
         
         let responseToCache: Response;
         
@@ -776,7 +893,8 @@ export async function preCacheBlob(
           responseToCache = response;
         }
 
-        await cacheBlob(url, responseToCache, type, remoteId, blobId);
+        // cacheBlob validates size and marks as complete
+        await cacheBlob(url, responseToCache, type, remoteId, blobId, expectedSize);
         debug(`pre-cache successful after ${attempt + 1} attempt(s)`);
         return; // success!
       } catch (error) {

@@ -25,6 +25,7 @@ import {
   updateLoadingProgress,
   addToLoadingSet,
   removeFromLoadingSet,
+  getCachedBlob,
 } from "../cache/blobCache";
 
 // store of active blob URLs - provides granular reactivity per key
@@ -196,17 +197,15 @@ async function resolveP2PBlob(
   }
   
   // P2P remotes - check Cache API first, blob might be cached from a previous session
+  // use getCachedBlob to properly check metadata status (filters out incomplete downloads)
   try {
-    const cacheName = getRemoteCacheName(remote.remote_id);
-    const cache = await caches.open(cacheName);
-    const response = await cache.match(blobId);
+    const response = await getCachedBlob(remote.remote_id, blobId);
     if (response) {
       debug("blobResolver", `cache hit for P2P blob: ${blobId.slice(0, 8)}...`);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       addActiveBlobUrl(cacheKey, url);
-      // ensure metadata is up to date
-      void saveP2PBlobMetadata(remote.remote_id, blobId, type);
+      // metadata was already updated by getCachedBlob
       return url;
     }
   } catch (err) {
@@ -447,13 +446,12 @@ export async function preCacheP2PBlob(
     return;
   }
   
-  // check Cache API - if cached, create blob URL from it
+  // check Cache API - if cached and complete, create blob URL from it
+  // use getCachedBlob to properly check metadata status
   try {
-    const cacheName = getRemoteCacheName(remoteId);
-    const cache = await caches.open(cacheName);
-    const response = await cache.match(blobId);
+    const response = await getCachedBlob(remoteId, blobId);
     if (response) {
-      // blob is in Cache API - create blob URL and add to memory
+      // blob is in Cache API and complete - create blob URL and add to memory
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       addActiveBlobUrl(cacheKey, url);
