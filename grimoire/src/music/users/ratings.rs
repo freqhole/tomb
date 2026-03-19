@@ -106,25 +106,21 @@ impl RatingsService {
         .fetch_one(&pool)
         .await?;
 
-        // create feed event (async, fire-and-forget)
-        let uid = user_id.clone();
-        let ttype = target_type_str.clone();
-        let tid = request.target_id.clone();
-        let rating = request.rating as i64;
-        tokio::spawn(async move {
-            // lookup username
-            if let Ok(pool) = database::connect().await {
-                if let Ok(Some(username)) = sqlx::query_scalar!(
-                    "SELECT username FROM user_accountz WHERE id = ?",
-                    uid
-                )
+        // create feed event
+        if let Ok(Some(username)) =
+            sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", user_id)
                 .fetch_optional(&pool)
                 .await
-                {
-                    let _ = upsert_rating_feed_event(&ttype, &tid, &uid, &username, rating).await;
-                }
-            }
-        });
+        {
+            let _ = upsert_rating_feed_event(
+                &target_type_str,
+                &request.target_id,
+                user_id,
+                &username,
+                request.rating as i64,
+            )
+            .await;
+        }
 
         Ok(UserRating::from(row))
     }

@@ -77,22 +77,15 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Pla
         }
     };
 
-    // create feed event (async, fire-and-forget)
+    // create feed event
     if let Some(ref user_id) = req.created_by_id {
-        let pid = playlist.id.clone();
-        let uid = user_id.clone();
-        tokio::spawn(async move {
-            // lookup username
-            if let Ok(pool) = database::connect().await {
-                if let Ok(Some(username)) =
-                    sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", uid)
-                        .fetch_optional(&pool)
-                        .await
-                {
-                    let _ = upsert_playlist_feed_event(&pid, &uid, &username).await;
-                }
-            }
-        });
+        if let Ok(Some(username)) =
+            sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", user_id)
+                .fetch_optional(&pool)
+                .await
+        {
+            let _ = upsert_playlist_feed_event(&playlist.id, user_id, &username).await;
+        }
     }
 
     GrimoireResponse::success("Playlist created successfully", playlist)
@@ -353,22 +346,15 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
         }
     }
 
-    // update feed event (async, fire-and-forget)
+    // update feed event
     if let Some(ref user_id) = req.updated_by {
-        let pid = id.to_string();
-        let uid = user_id.clone();
-        tokio::spawn(async move {
-            // lookup username
-            if let Ok(pool) = database::connect().await {
-                if let Ok(Some(username)) =
-                    sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", uid)
-                        .fetch_optional(&pool)
-                        .await
-                {
-                    let _ = upsert_playlist_feed_event(&pid, &uid, &username).await;
-                }
-            }
-        });
+        if let Ok(Some(username)) =
+            sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", user_id)
+                .fetch_optional(&pool)
+                .await
+        {
+            let _ = upsert_playlist_feed_event(id, user_id, &username).await;
+        }
     }
 
     // Fetch and return the updated playlist
@@ -461,22 +447,16 @@ pub async fn add_playlist_image(
             .execute(&pool)
             .await;
 
-            // fire-and-forget: create image feed event (don't create separate playlist feed event)
+            // create image feed event (don't create separate playlist feed event)
             if let Some((user_id, username)) = created_by {
-                let user_id = user_id.to_string();
-                let username = username.to_string();
-                let playlist_id = playlist_id.to_string();
-                let media_blob_id = media_blob_id.to_string();
-                tokio::spawn(async move {
-                    let _ = crate::music::analytics::feed_events::create_image_feed_event(
-                        "playlist",
-                        &playlist_id,
-                        &media_blob_id,
-                        &user_id,
-                        &username,
-                    )
-                    .await;
-                });
+                let _ = crate::music::analytics::feed_events::create_image_feed_event(
+                    "playlist",
+                    playlist_id,
+                    media_blob_id,
+                    user_id,
+                    username,
+                )
+                .await;
             }
 
             GrimoireResponse::success("Image added to playlist", ())
@@ -827,18 +807,11 @@ pub async fn add_songs_to_playlist(
     .execute(&pool)
     .await;
 
-    // create/update feed event for playlist (fire-and-forget)
-    let playlist_id_clone = playlist_id.to_string();
+    // create/update feed event for playlist
     if let Some((user_id, username)) = created_by {
-        let user_id = user_id.to_string();
-        let username = username.to_string();
-        tokio::spawn(async move {
-            let _ = upsert_playlist_feed_event(&playlist_id_clone, &user_id, &username).await;
-        });
+        let _ = upsert_playlist_feed_event(playlist_id, user_id, username).await;
     } else {
-        tokio::spawn(async move {
-            let _ = upsert_playlist_feed_event(&playlist_id_clone, "", "").await;
-        });
+        let _ = upsert_playlist_feed_event(playlist_id, "", "").await;
     }
 
     GrimoireResponse::success("Songs added to playlist successfully", ())
@@ -929,18 +902,11 @@ pub async fn remove_songs_from_playlist(
     .execute(&pool)
     .await;
 
-    // update feed event for playlist (fire-and-forget)
-    let playlist_id_clone = playlist_id.to_string();
+    // update feed event for playlist
     if let Some((user_id, username)) = created_by {
-        let user_id = user_id.to_string();
-        let username = username.to_string();
-        tokio::spawn(async move {
-            let _ = upsert_playlist_feed_event(&playlist_id_clone, &user_id, &username).await;
-        });
+        let _ = upsert_playlist_feed_event(playlist_id, user_id, username).await;
     } else {
-        tokio::spawn(async move {
-            let _ = upsert_playlist_feed_event(&playlist_id_clone, "", "").await;
-        });
+        let _ = upsert_playlist_feed_event(playlist_id, "", "").await;
     }
 
     GrimoireResponse::success("Songs removed from playlist successfully", ())

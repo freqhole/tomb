@@ -433,22 +433,16 @@ pub async fn add_song_image(
         Ok(_) => {
             tracing::info!("add_song_image: successfully added image");
 
-            // fire-and-forget: create feed event if user provided
+            // create feed event if user provided
             if let Some((user_id, username)) = created_by {
-                let user_id = user_id.to_string();
-                let username = username.to_string();
-                let song_id = song_id.to_string();
-                let media_blob_id = media_blob_id.to_string();
-                tokio::spawn(async move {
-                    let _ = crate::music::analytics::feed_events::create_image_feed_event(
-                        "song",
-                        &song_id,
-                        &media_blob_id,
-                        &user_id,
-                        &username,
-                    )
-                    .await;
-                });
+                let _ = crate::music::analytics::feed_events::create_image_feed_event(
+                    "song",
+                    song_id,
+                    media_blob_id,
+                    user_id,
+                    username,
+                )
+                .await;
             }
 
             GrimoireResponse::success("Image added to song", ())

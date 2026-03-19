@@ -880,22 +880,15 @@ pub async fn find_or_create_album_for_artist(
             }
         }
 
-        // create feed event for new album (async, fire-and-forget)
+        // create feed event for new album
         if let Some(ref user_id) = created_by {
-            let aid = album.id.clone();
-            let uid = user_id.clone();
-            tokio::spawn(async move {
-                // lookup username
-                if let Ok(pool) = database::connect().await {
-                    if let Ok(Some(username)) =
-                        sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", uid)
-                            .fetch_optional(&pool)
-                            .await
-                    {
-                        let _ = upsert_album_feed_event(&aid, &uid, &username, 1).await;
-                    }
-                }
-            });
+            if let Ok(Some(username)) =
+                sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", user_id)
+                    .fetch_optional(&pool)
+                    .await
+            {
+                let _ = upsert_album_feed_event(&album.id, user_id, &username, 1).await;
+            }
         }
 
         Ok((album, true))

@@ -261,11 +261,8 @@ pub async fn create_listen_session(
                 username: None,
                 progress_percent: Some(0.0),
             };
-            // create feed event (async, fire-and-forget)
-            let session_id = row.id;
-            tokio::spawn(async move {
-                let _ = upsert_session_feed_event(&session_id).await;
-            });
+            // create feed event
+            let _ = upsert_session_feed_event(&row.id).await;
             GrimoireResponse::success("listen session created", session)
         }
         Err(e) => GrimoireResponse::failure("failed to create listen session", vec![e.into()]),
@@ -308,11 +305,8 @@ pub async fn update_listen_session_progress(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
-            // update feed event (async, fire-and-forget)
-            let sid = session_id.to_string();
-            tokio::spawn(async move {
-                let _ = upsert_session_feed_event(&sid).await;
-            });
+            // update feed event
+            let _ = upsert_session_feed_event(session_id).await;
             GrimoireResponse::success_unit("session progress updated")
         }
         Ok(_) => GrimoireResponse::failure(
@@ -356,11 +350,8 @@ pub async fn update_listen_session_status(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
-            // update feed event (async, fire-and-forget)
-            let sid = session_id.to_string();
-            tokio::spawn(async move {
-                let _ = upsert_session_feed_event(&sid).await;
-            });
+            // update feed event
+            let _ = upsert_session_feed_event(session_id).await;
             GrimoireResponse::success_unit("session status updated")
         }
         Ok(_) => GrimoireResponse::failure(
@@ -432,11 +423,8 @@ pub async fn update_listen_session_songs(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
-            // update feed event (async, fire-and-forget)
-            let sid = session_id.to_string();
-            tokio::spawn(async move {
-                let _ = upsert_session_feed_event(&sid).await;
-            });
+            // update feed event
+            let _ = upsert_session_feed_event(session_id).await;
             GrimoireResponse::success_unit("session songs updated")
         }
         Ok(_) => GrimoireResponse::failure(
