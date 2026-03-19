@@ -83,6 +83,16 @@ export function isP2PRemoteSync(remoteId: string): boolean | undefined {
 }
 
 /**
+ * check if a remote is tauri-managed (local files, always available).
+ * returns undefined if not yet cached (need async lookup).
+ */
+export function isTauriManagedRemoteSync(remoteId: string): boolean | undefined {
+  const cached = transportTypeCache.get(remoteId);
+  if (cached === undefined) return undefined;
+  return cached.isTauriManaged;
+}
+
+/**
  * cache a remote's transport info for future sync lookups.
  */
 function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app", isTauriManaged: boolean = false) {

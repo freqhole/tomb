@@ -8,7 +8,7 @@ import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { isP2PRemote } from "../storage/blobResolver";
+import { isP2PRemote, isTauriManagedRemoteSync } from "../storage/blobResolver";
 
 // ===== per-remote cache naming =====
 // cache names follow pattern: freqhole-blobs-{remoteId}
@@ -75,8 +75,14 @@ export function isBlobCachedReactive(url: string | null | undefined): boolean {
 
 // check if a song is cached using remoteId and blobId (sha256)
 // this is the correct way to check cache status for both HTTP and P2P transports
+// tauri-managed remotes are treated as always cached (local files)
 export function isSongCachedReactive(remoteId: string | null | undefined, sha256: string | null | undefined): boolean {
   if (!remoteId || !sha256) return false;
+  
+  // tauri-managed remotes have local files - always "cached"
+  const isTauriManaged = isTauriManagedRemoteSync(remoteId);
+  if (isTauriManaged) return true;
+  
   const key = `${remoteId}/${sha256}`;
   return cacheStatus[key] ?? false;
 }

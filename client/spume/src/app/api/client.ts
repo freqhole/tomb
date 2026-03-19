@@ -272,7 +272,8 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
       if (!peerAddr) {
         throw new Error('peer_addr required for app transport');
       }
-      return createTauriTransport(peerAddr);
+      const appCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
+      return createTauriTransport(peerAddr, appCacheName);
       
     case 'wasm':
       if (!peerAddr) {

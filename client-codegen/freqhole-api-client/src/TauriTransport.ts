@@ -33,8 +33,8 @@ export function isTauriAvailable(): boolean {
   return typeof window !== "undefined" && "__TAURI__" in window;
 }
 
-// unified cache for blobs - reuse same cache name as WasmTransport for consistency
-const CACHE_NAME = "freqhole-blobs-v1";
+// default cache name if none provided
+const DEFAULT_CACHE_NAME = "freqhole-blobs-v1";
 
 // in-memory url cache for revocation
 const urlCache = new Map<string, string>();
@@ -76,9 +76,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 export class TauriTransport implements Transport {
   private peerAddr: string;
   private nodeId: string | null = null;
+  private readonly cacheName: string;
 
-  constructor(peerAddr: string) {
+  constructor(peerAddr: string, cacheName?: string) {
     this.peerAddr = peerAddr;
+    this.cacheName = cacheName ?? DEFAULT_CACHE_NAME;
   }
 
   /**
@@ -203,10 +205,9 @@ export class TauriTransport implements Transport {
       return cached;
     }
 
-    // check Cache API (use fake http URL since Cache API requires HTTP/HTTPS)
-    const cache = await caches.open(CACHE_NAME);
-    const cacheKey = `https://p2p-cache.local/${this.peerAddr}/${blobId}`;
-    const cachedResponse = await cache.match(cacheKey);
+    // check Cache API - use blobId as key (cache name already partitions by remote)
+    const cache = await caches.open(this.cacheName);
+    const cachedResponse = await cache.match(blobId);
 
     if (cachedResponse) {
       const blob = await cachedResponse.blob();
@@ -219,11 +220,11 @@ export class TauriTransport implements Transport {
     const blobData = await this.fetchBlob(blobId);
     const blob = new Blob([blobData.data.slice().buffer], { type: blobData.contentType });
 
-    // store in Cache API
+    // store in Cache API using blobId as key
     const response = new Response(blob, {
       headers: { "Content-Type": blobData.contentType },
     });
-    await cache.put(cacheKey, response);
+    await cache.put(blobId, response);
 
     // create object URL
     const url = URL.createObjectURL(blob);
@@ -285,23 +286,25 @@ const transportCache = new Map<string, TauriTransport>();
  * get or create a TauriTransport for a peer (async)
  * initializes transport before returning
  */
-export async function createTauriTransport(peerAddr: string): Promise<TauriTransport> {
-  const existing = transportCache.get(peerAddr);
+export async function createTauriTransport(peerAddr: string, cacheName?: string): Promise<TauriTransport> {
+  // include cacheName in cache key so different remotes get different transports
+  const cacheKey = cacheName ? `${peerAddr}:${cacheName}` : peerAddr;
+  const existing = transportCache.get(cacheKey);
   if (existing) {
     return existing;
   }
 
-  const transport = new TauriTransport(peerAddr);
+  const transport = new TauriTransport(peerAddr, cacheName);
   await transport.init();
-  transportCache.set(peerAddr, transport);
+  transportCache.set(cacheKey, transport);
   return transport;
 }
 
 /**
  * get or create a TauriTransport (alias for createTauriTransport)
  */
-export async function getTauriTransport(peerAddr: string): Promise<TauriTransport> {
-  return createTauriTransport(peerAddr);
+export async function getTauriTransport(peerAddr: string, cacheName?: string): Promise<TauriTransport> {
+  return createTauriTransport(peerAddr, cacheName);
 }
 
 /**
