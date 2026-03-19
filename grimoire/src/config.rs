@@ -433,7 +433,9 @@ impl GrimoireConfig {
 
         // Validate server config if present
         if let Some(server) = &self.server {
-            // Validate static_files.directory is absolute when enabled
+            // Validate static_files.directory when set and enabled
+            // when enabled=true + no directory → embedded assets are served
+            // when enabled=true + directory set → directory must be valid
             if server.static_files.enabled {
                 if let Some(ref dir) = server.static_files.directory {
                     if !dir.is_absolute() {
@@ -454,11 +456,8 @@ impl GrimoireConfig {
                             dir.display()
                         )));
                     }
-                } else {
-                    return Err(ConfigError::InvalidValue(
-                        "server.static_files.directory must be set when static_files.enabled is true".to_string(),
-                    ));
                 }
+                // if directory is None, embedded assets will be served - no validation needed
             }
 
             // Validate fetch_music.output_dir is absolute when enabled

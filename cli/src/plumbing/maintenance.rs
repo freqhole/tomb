@@ -3,8 +3,11 @@
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::blob_data::{backfill_thumbnails, count_blobs_needing_thumbnails};
+use grimoire::config::{ensure_server_image_blob, find_config, GrimoireConfig};
+use grimoire::error::GrimoireError;
 use grimoire::maintenance::{cleanup_orphaned_genres, cleanup_orphaned_tags};
 use serde::Serialize;
+use std::path::PathBuf;
 
 /// Combined summary for all cleanup operations
 #[derive(Serialize)]
@@ -44,10 +47,27 @@ pub enum MaintenanceAction {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Update server image blob for P2P transport
+    /// reads server.image_path, creates a media blob, and stores the blob_id in config
+    UpdateServerImage {
+        /// Path to config file (uses --config if not specified)
+        #[arg(long, short = 'c')]
+        config: Option<PathBuf>,
+    },
+    /// Update embedded spume web client files on disk
+    /// only updates if static_files.enabled=true, directory is set, and directory exists
+    UpdateSpume {
+        /// Path to config file (uses --config if not specified)
+        #[arg(long, short = 'c')]
+        config: Option<PathBuf>,
+    },
 }
 
 /// Handle maintenance commands
-pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_json::Value> {
+pub async fn handle_command(
+    action: MaintenanceAction,
+    global_config: Option<std::path::PathBuf>,
+) -> CommandOutput<serde_json::Value> {
     match action {
         MaintenanceAction::CleanupOrphanedTags { dry_run } => {
             let response = cleanup_orphaned_tags(dry_run).await;
@@ -163,6 +183,170 @@ pub async fn handle_command(action: MaintenanceAction) -> CommandOutput<serde_js
                 };
 
                 CommandOutput::success(response.message, result)
+            }
+        }
+
+        MaintenanceAction::UpdateServerImage { config } => {
+            let path = match find_config(config.or(global_config)) {
+                Ok(p) => p,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "failed to find config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
+
+            match ensure_server_image_blob(&path).await {
+                Ok(blob_id) => {
+                    let message = format!("server image blob created: {}", blob_id);
+                    CommandOutput::success(
+                        message,
+                        serde_json::json!({
+                            "blob_id": blob_id,
+                            "config_path": path.display().to_string()
+                        }),
+                    )
+                }
+                Err(e) => CommandOutput::failure(
+                    "failed to update server image blob",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
+            }
+        }
+
+        MaintenanceAction::UpdateSpume { config } => {
+            // check for embedded assets first
+            if !grimoire::setup::has_embedded_spume() {
+                return CommandOutput::failure(
+                    "no embedded spume assets",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: "this build does not include embedded spume web client"
+                            .to_string(),
+                    }
+                    .into()],
+                    (),
+                );
+            }
+
+            // find config to get static_files settings
+            let path = match find_config(config.or(global_config)) {
+                Ok(p) => p,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "failed to find config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
+
+            // load config to check static_files settings
+            let cfg = match GrimoireConfig::load(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "failed to load config",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        }
+                        .into()],
+                        (),
+                    )
+                }
+            };
+
+            // only update if enabled=true AND directory is set AND directory exists
+            let server = match &cfg.server {
+                Some(s) => s,
+                None => {
+                    return CommandOutput::failure(
+                        "server config not found",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: "this command requires [server] section in config".to_string(),
+                        }
+                        .into()],
+                        (),
+                    );
+                }
+            };
+
+            if !server.static_files.enabled {
+                return CommandOutput::failure(
+                    "static_files.enabled is false",
+                    vec![GrimoireError::ProcessingFailed {
+                        message:
+                            "spume update only applies when server.static_files.enabled = true"
+                                .to_string(),
+                    }
+                    .into()],
+                    (),
+                );
+            }
+
+            let spume_dir = match &server.static_files.directory {
+                Some(dir) => dir.clone(),
+                None => {
+                    return CommandOutput::failure(
+                        "static_files.directory not set",
+                        vec![GrimoireError::ProcessingFailed {
+                            message: "spume update only applies when server.static_files.directory is configured (embedded assets are served directly when no directory is set)"
+                                .to_string(),
+                        }
+                        .into()],
+                        (),
+                    );
+                }
+            };
+
+            if !spume_dir.exists() {
+                return CommandOutput::failure(
+                    "static_files.directory does not exist",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "directory {} does not exist - run update-spume after initial extraction or create directory manually",
+                            spume_dir.display()
+                        ),
+                    }
+                    .into()],
+                    (),
+                );
+            }
+
+            match grimoire::setup::update_spume_to(&spume_dir) {
+                Ok(result) => {
+                    let message = format!(
+                        "spume updated: cleaned {} items, extracted {} files to {}",
+                        result.files_cleaned, result.files_extracted, result.destination
+                    );
+                    CommandOutput::success(
+                        message,
+                        serde_json::json!({
+                            "files_cleaned": result.files_cleaned,
+                            "files_extracted": result.files_extracted,
+                            "destination": result.destination
+                        }),
+                    )
+                }
+                Err(e) => CommandOutput::failure(
+                    "failed to update spume",
+                    vec![GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    }
+                    .into()],
+                    (),
+                ),
             }
         }
     }

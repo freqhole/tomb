@@ -40,6 +40,9 @@ use tower_http::services::ServeFile;
 use crate::{error::ApiError, state::AppState};
 
 /// serve static file handler with range request support
+///
+/// when `directory` is set, serves files from disk with range request support.
+/// when `directory` is None, serves embedded spume assets bundled in the binary.
 pub async fn serve_static(
     Extension(state): Extension<AppState>,
     req: Request,
@@ -55,26 +58,70 @@ pub async fn serve_static(
         return Err(ApiError::NotFound);
     }
 
-    let static_dir = server_config
-        .static_files
-        .directory
-        .as_ref()
-        .ok_or_else(|| ApiError::Internal("static files directory not configured".to_string()))?;
+    // if directory is set, serve from disk; otherwise serve from embedded assets
+    match &server_config.static_files.directory {
+        Some(static_dir) => {
+            // serve from disk with range request support
+            let handler = RangeHandler::new(static_dir, 86400) // 1 day cache
+                .map_err(|_| {
+                    ApiError::Internal(format!(
+                        "static files directory not found: {}",
+                        static_dir.display()
+                    ))
+                })?;
+            handler.handle_request(req).await.map_err(|e| match e {
+                RangeError::NotFound => ApiError::NotFound,
+                RangeError::InvalidRange => ApiError::BadRequest("invalid range".to_string()),
+                RangeError::UnsatisfiableRange => {
+                    ApiError::BadRequest("unsatisfiable range".to_string())
+                }
+                RangeError::IoError(e) => ApiError::Internal(format!("io error: {}", e)),
+            })
+        }
+        None => {
+            // serve from embedded spume assets
+            serve_embedded_file(req).await
+        }
+    }
+}
 
-    let handler = RangeHandler::new(static_dir, 86400) // 1 day cache
-        .map_err(|_| {
-            let path = PathBuf::from(static_dir);
-            ApiError::Internal(format!(
-                "static files directory not found: {}",
-                path.display()
-            ))
-        })?;
-    handler.handle_request(req).await.map_err(|e| match e {
-        RangeError::NotFound => ApiError::NotFound,
-        RangeError::InvalidRange => ApiError::BadRequest("invalid range".to_string()),
-        RangeError::UnsatisfiableRange => ApiError::BadRequest("unsatisfiable range".to_string()),
-        RangeError::IoError(e) => ApiError::Internal(format!("io error: {}", e)),
-    })
+/// serve a file from embedded spume assets
+async fn serve_embedded_file(req: Request) -> Result<Response, ApiError> {
+    use grimoire::setup::SPUME_DIST;
+
+    let path = req.uri().path();
+    // remove leading slash and normalize
+    let path = path.trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+
+    // try to get the file from embedded assets
+    let file = SPUME_DIST.get_file(path).or_else(|| {
+        // for SPA routing: if no extension, try falling back to index.html
+        if !path.contains('.') {
+            SPUME_DIST.get_file("index.html")
+        } else {
+            None
+        }
+    });
+
+    match file {
+        Some(file) => {
+            let contents = file.contents();
+            let content_type = mime_guess::from_path(path)
+                .first_or_octet_stream()
+                .to_string();
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, content_type)
+                .header(CONTENT_LENGTH, contents.len())
+                .header(CACHE_CONTROL, "public, max-age=86400") // 1 day cache
+                .header(ACCEPT_RANGES, "none")
+                .body(Body::from(contents.to_vec()))
+                .map_err(|e| ApiError::Internal(format!("failed to build response: {}", e)))
+        }
+        None => Err(ApiError::NotFound),
+    }
 }
 
 /// serve server image (public, no auth required)

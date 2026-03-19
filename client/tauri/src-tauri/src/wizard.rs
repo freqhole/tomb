@@ -2,6 +2,7 @@
 //!
 //! commands for opening/closing the setup wizard window
 
+#[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 
 use tauri::webview::Color;

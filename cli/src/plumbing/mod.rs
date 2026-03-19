@@ -174,9 +174,10 @@ pub async fn handle_users(action: UserAction, json_output: bool) -> anyhow::Resu
 pub async fn handle_maintenance(
     action: MaintenanceAction,
     json_output: bool,
+    global_config: Option<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
-    let output = maintenance::handle_command(action).await;
+    let output = maintenance::handle_command(action, global_config).await;
     utils::print_and_exit(output, format);
 }
 

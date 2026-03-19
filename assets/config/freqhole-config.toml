@@ -284,10 +284,25 @@ allowed_origins = ["http://localhost:1420", "http://localhost:5173"]
 # static file serving
 # ============================================================================
 [server.static_files]
-# REQUIRED: enable serving static files (HTML, JS, CSS, images, etc.)
+# enable serving static files (HTML, JS, CSS, images, etc.)
+#
+# when enabled = true with no directory set:
+#   serves the spume web client files embedded in the freqhole binary
+#   (no disk extraction needed - files are served directly from memory)
+#
+# when enabled = true with directory set:
+#   serves static files from the specified disk directory
+#   (ignores embedded assets - useful for development or custom builds)
+#
 enabled = false
-# REQUIRED when enabled=true: directory to serve from (must be absolute path)
-# OPTIONAL when enabled=false (can omit or leave as empty string)
+
+# optional: directory to serve static files from (must be absolute path)
+# when omitted or empty, embedded spume assets are served instead
+# when set, files are served from this directory on disk
+#
+# to extract embedded spume to disk, use: freqhole maintenance update-spume
+# this only works when enabled = true AND directory points to existing path
+#
 directory = ""
 
 # ============================================================================

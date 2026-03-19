@@ -224,7 +224,7 @@ async fn main() -> Result<()> {
             action,
             json_output,
         } => {
-            plumbing::handle_maintenance(action, json_output).await?;
+            plumbing::handle_maintenance(action, json_output, cli.config.clone()).await?;
         }
         Commands::Analytics {
             action,
