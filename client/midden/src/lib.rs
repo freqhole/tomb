@@ -2,13 +2,21 @@
 //!
 //! uses iroh to connect to freqhole peers from the browser.
 //! accepts either plain node_id or full endpoint address JSON with relay/IP hints.
+//!
+//! supports two protocols:
+//! - freqhole/1: custom protocol for API proxying and small blob streaming
+//! - freqhole-blobz: iroh-blobs protocol for verified streaming of audio files
 
+use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
+use iroh_blobs::api::downloader::Downloader;
+use iroh_blobs::api::Store;
+use iroh_blobs::{Hash, HashAndFormat};
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use tracing::level_filters::LevelFilter;
+use tracing::{info, warn};
 use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
@@ -60,6 +68,27 @@ enum PeerMessage {
         id: u64,
         size: Option<u64>,
         content_type: Option<String>,
+        error: Option<String>,
+    },
+    EnsureBlobRequest {
+        id: u64,
+        blake3_hash: String,
+    },
+    EnsureBlobResponse {
+        id: u64,
+        available: bool,
+        error: Option<String>,
+    },
+    /// request to compute blake3 hash for a blob (by blob_id/sha256)
+    /// used before verified streaming when blake3 not in API response
+    ComputeBlake3Request {
+        id: u64,
+        blob_id: String,
+    },
+    /// response with computed blake3 hash
+    ComputeBlake3Response {
+        id: u64,
+        blake3: Option<String>,
         error: Option<String>,
     },
 }
@@ -159,10 +188,17 @@ fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
 }
 
 /// browser P2P node for freqhole federation
+///
+/// supports two protocols:
+/// - freqhole/1: API proxying and small blob streaming
+/// - iroh-blobs: verified streaming for audio files
 #[wasm_bindgen]
 pub struct MiddenNode {
     endpoint: Endpoint,
     secret_key_bytes: [u8; 32],
+    // iroh-blobs components
+    blobs_store: Store,
+    blobs_downloader: Downloader,
 }
 
 #[wasm_bindgen]
@@ -170,8 +206,6 @@ impl MiddenNode {
     /// create a new node with random identity
     /// waits for relay connection before returning
     pub async fn create() -> Result<MiddenNode, JsError> {
-        info!("creating midden node with random identity...");
-
         // generate random secret key
         let mut bytes = [0u8; 32];
         getrandom::getrandom(&mut bytes).map_err(|e| JsError::new(&e.to_string()))?;
@@ -189,7 +223,6 @@ impl MiddenNode {
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(key_bytes);
 
-        info!("creating midden node from existing key...");
         Self::create_with_secret_key(bytes).await
     }
 
@@ -197,13 +230,18 @@ impl MiddenNode {
     async fn create_with_secret_key(bytes: [u8; 32]) -> Result<MiddenNode, JsError> {
         let secret_key = SecretKey::from_bytes(&bytes);
 
-        // create endpoint with freqhole ALPN
-        let endpoint = Endpoint::builder()
+        // use N0 preset for relay + DNS discovery (peers can find each other)
+        let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
             .alpns(vec![FREQHOLE_ALPN.to_vec()])
             .bind()
             .await
             .map_err(to_js_err)?;
+
+        // setup iroh-blobs with MemStore (no persistence in browser)
+        let mem_store = iroh_blobs::store::mem::MemStore::default();
+        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
+        let blobs_store = mem_store.as_ref().clone();
 
         // wait for relay connection
         endpoint.online().await;
@@ -214,6 +252,8 @@ impl MiddenNode {
         Ok(MiddenNode {
             endpoint,
             secret_key_bytes: bytes,
+            blobs_store,
+            blobs_downloader,
         })
     }
 
@@ -249,9 +289,6 @@ impl MiddenNode {
         body: Option<String>,
     ) -> Result<JsValue, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-        let node_id_short = &addr.id.to_string()[..16];
-
-        info!("proxy {} {} to {}", method, path, node_id_short);
 
         let conn = self.connect_to_peer(&addr).await?;
 
@@ -290,13 +327,6 @@ impl MiddenNode {
     /// returns BlobResult with data and metadata
     pub async fn fetch_blob(&self, peer_addr: &str, blob_id: &str) -> Result<BlobResult, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-        let node_id_short = &addr.id.to_string()[..16];
-
-        info!(
-            "fetch blob {} from {}",
-            &blob_id[..16.min(blob_id.len())],
-            node_id_short
-        );
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -325,7 +355,7 @@ impl MiddenNode {
 
         match response {
             PeerMessage::BlobStreamResponse {
-                size,
+                size: _,
                 content_type,
                 error,
                 ..
@@ -334,16 +364,11 @@ impl MiddenNode {
                     return Err(JsError::new(&err));
                 }
 
-                let expected_size = size.unwrap_or(0);
-                info!("receiving {} bytes", expected_size);
-
                 // read all blob data
                 let data: Vec<u8> = recv
                     .read_to_end(100 * 1024 * 1024) // 100MB max
                     .await
                     .map_err(to_js_err)?;
-
-                info!("received {} bytes", data.len());
 
                 Ok(BlobResult { data, content_type })
             }
@@ -361,13 +386,6 @@ impl MiddenNode {
         on_progress: &js_sys::Function,
     ) -> Result<BlobResult, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-        let node_id_short = &addr.id.to_string()[..16];
-
-        info!(
-            "fetch blob (w/progress) {} from {}",
-            &blob_id[..16.min(blob_id.len())],
-            node_id_short
-        );
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -406,7 +424,6 @@ impl MiddenNode {
                 }
 
                 let total_size = size.unwrap_or(0);
-                info!("receiving {} bytes (with progress)", total_size);
 
                 // read in chunks with progress callback
                 let chunk_size = 64 * 1024; // 64KB chunks
@@ -435,8 +452,6 @@ impl MiddenNode {
                     }
                 }
 
-                info!("received {} bytes", data.len());
-
                 Ok(BlobResult { data, content_type })
             }
             _ => Err(JsError::new("unexpected response type")),
@@ -448,9 +463,6 @@ impl MiddenNode {
     /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
     pub async fn fetch_hello_image(&self, peer_addr: &str) -> Result<BlobResult, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-        let node_id_short = &addr.id.to_string()[..16];
-
-        info!("fetch hello image from {}", node_id_short);
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -476,7 +488,7 @@ impl MiddenNode {
 
         match response {
             PeerMessage::HelloImageResponse {
-                size,
+                size: _,
                 content_type,
                 error,
                 ..
@@ -485,16 +497,11 @@ impl MiddenNode {
                     return Err(JsError::new(&err));
                 }
 
-                let expected_size = size.unwrap_or(0);
-                info!("receiving server image {} bytes", expected_size);
-
                 // read all image data
                 let data: Vec<u8> = recv
                     .read_to_end(10 * 1024 * 1024) // 10MB max for server image
                     .await
                     .map_err(to_js_err)?;
-
-                info!("received {} bytes", data.len());
 
                 Ok(BlobResult { data, content_type })
             }
@@ -513,14 +520,6 @@ impl MiddenNode {
         data: &[u8],
     ) -> Result<UploadResult, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-        let node_id_short = &addr.id.to_string()[..16];
-
-        info!(
-            "upload blob {} ({} bytes) to {}",
-            filename,
-            data.len(),
-            node_id_short
-        );
 
         // connect to peer
         let conn = self.connect_to_peer(&addr).await?;
@@ -548,8 +547,6 @@ impl MiddenNode {
         send.write_all(data).await.map_err(to_js_err)?;
         send.finish().map_err(to_js_err)?;
 
-        info!("upload sent, waiting for response");
-
         // read response (no length prefix, read to end)
         let response_bytes: Vec<u8> = recv.read_to_end(1024 * 1024).await.map_err(to_js_err)?;
 
@@ -567,10 +564,6 @@ impl MiddenNode {
                     return Err(JsError::new(&err));
                 }
 
-                info!(
-                    "upload complete: blob_id={:?}, job_id={:?}",
-                    blob_id, job_id
-                );
                 Ok(UploadResult {
                     blob_id,
                     job_id,
@@ -579,6 +572,238 @@ impl MiddenNode {
             }
             _ => Err(JsError::new("unexpected response type")),
         }
+    }
+
+    /// download a blob using iroh-blobs verified streaming
+    ///
+    /// this is the preferred method for audio files - provides:
+    /// - verified streaming (each chunk is cryptographically verified)
+    /// - resume support (can restart interrupted transfers)
+    /// - efficient parallel chunk fetching
+    ///
+    /// peer_addr: plain node_id or full endpoint JSON
+    /// blake3_hash: the blake3 hash of the blob (64 hex chars)
+    pub async fn download_verified(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+    ) -> Result<Uint8Array, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        // parse blake3 hash
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+
+        // create hash_and_format for download
+        let hash_and_format = HashAndFormat::raw(hash);
+
+        // download the blob - use peer's node_id for discovery
+        let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
+
+        // get progress stream and log events
+        use iroh_blobs::api::downloader::DownloadProgressItem;
+        use n0_future::StreamExt;
+
+        let mut stream = progress
+            .stream()
+            .await
+            .map_err(|e| JsError::new(&format!("download stream failed: {}", e)))?;
+
+        let mut had_error = false;
+        let mut last_error: Option<String> = None;
+
+        while let Some(event) = stream.next().await {
+            match &event {
+                DownloadProgressItem::TryProvider { .. } => {}
+                DownloadProgressItem::ProviderFailed { .. } => {}
+                DownloadProgressItem::PartComplete { .. } => {}
+                DownloadProgressItem::Progress(_bytes) => {
+                    // progress logging disabled - too noisy
+                }
+                DownloadProgressItem::Error(e) => {
+                    had_error = true;
+                    last_error = Some(format!("{:?}", e));
+                }
+                DownloadProgressItem::DownloadError => {
+                    had_error = true;
+                    last_error = Some("download error".to_string());
+                }
+            }
+        }
+
+        if had_error {
+            return Err(JsError::new(&format!(
+                "download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            )));
+        }
+
+        // read the blob from store
+        let bytes = self
+            .blobs_store
+            .get_bytes(hash)
+            .await
+            .map_err(|e| JsError::new(&format!("failed to read blob from store: {}", e)))?;
+
+        // convert to Uint8Array
+        let array = Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
+        Ok(array)
+    }
+
+    /// ensure a blob is loaded into the peer's FsStore by blake3 hash
+    ///
+    /// call this before retrying download_verified if the first attempt fails.
+    /// the server will look up the file by blake3 hash and add it to FsStore.
+    ///
+    /// returns true if blob is now available, false if not found.
+    pub async fn ensure_blob(&self, peer_addr: &str, blake3_hash: &str) -> Result<bool, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        // connect to peer
+        let conn = self.connect_to_peer(&addr).await?;
+
+        let (mut send, mut recv): (SendStream, RecvStream) =
+            conn.open_bi().await.map_err(to_js_err)?;
+
+        // send ensure request
+        let request = PeerMessage::EnsureBlobRequest {
+            id: 1,
+            blake3_hash: blake3_hash.to_string(),
+        };
+        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
+        send.write_all(&bytes).await.map_err(to_js_err)?;
+        send.finish().map_err(to_js_err)?;
+
+        // read response
+        let response_bytes = recv.read_to_end(64 * 1024).await.map_err(to_js_err)?;
+
+        let response: PeerMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
+
+        match response {
+            PeerMessage::EnsureBlobResponse {
+                available, error, ..
+            } => {
+                if let Some(err) = error {
+                    warn!("ensure_blob error: {}", err);
+                    return Ok(false);
+                }
+                Ok(available)
+            }
+            _ => Err(JsError::new("unexpected response type")),
+        }
+    }
+
+    /// download a blob using iroh-blobs with automatic ensure + retry
+    ///
+    /// tries download_verified first. if blob not in peer's FsStore,
+    /// calls ensure_blob to load it, then retries.
+    pub async fn download_verified_with_ensure(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+    ) -> Result<Uint8Array, JsError> {
+        // first attempt
+        match self.download_verified(peer_addr, blake3_hash).await {
+            Ok(data) => return Ok(data),
+            Err(_e) => {
+                // retry with ensure_blob (normal for first download)
+            }
+        }
+
+        // ensure blob is loaded into FsStore
+        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
+        if !available {
+            return Err(JsError::new(&format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            )));
+        }
+
+        // retry verified download
+        self.download_verified(peer_addr, blake3_hash).await
+    }
+
+    /// compute blake3 hash for a blob on demand
+    ///
+    /// use this when the client doesn't have the blake3 hash yet (not in API response).
+    /// the server will compute the hash, save it to the database, and add the file
+    /// to FsStore for verified streaming.
+    ///
+    /// returns the blake3 hash (64 hex chars) if successful, null if blob not found.
+    pub async fn compute_blake3(
+        &self,
+        peer_addr: &str,
+        blob_id: &str,
+    ) -> Result<Option<String>, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        // connect to peer
+        let conn = self.connect_to_peer(&addr).await?;
+
+        let (mut send, mut recv): (SendStream, RecvStream) =
+            conn.open_bi().await.map_err(to_js_err)?;
+
+        // send compute request
+        let request = PeerMessage::ComputeBlake3Request {
+            id: 1,
+            blob_id: blob_id.to_string(),
+        };
+        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
+        send.write_all(&bytes).await.map_err(to_js_err)?;
+        send.finish().map_err(to_js_err)?;
+
+        // read response
+        let response_bytes = recv.read_to_end(64 * 1024).await.map_err(to_js_err)?;
+
+        let response: PeerMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
+
+        match response {
+            PeerMessage::ComputeBlake3Response { blake3, error, .. } => {
+                if let Some(err) = error {
+                    // info only for non-expected errors
+                    warn!("compute_blake3 error: {}", err);
+                    return Ok(None);
+                }
+                if let Some(ref _hash) = blake3 {
+                    // computed blake3 - silent success
+                }
+                Ok(blake3)
+            }
+            _ => Err(JsError::new("unexpected response type")),
+        }
+    }
+
+    /// download a blob by blob_id using verified streaming with on-demand blake3
+    ///
+    /// use this when the client doesn't have the blake3 hash yet (not in API response).
+    /// computes blake3 on the server, then uses iroh-blobs verified streaming.
+    ///
+    /// returns (blob_data, blake3_hash) for caching the hash for future requests.
+    pub async fn download_verified_by_id(
+        &self,
+        peer_addr: &str,
+        blob_id: &str,
+    ) -> Result<js_sys::Array, JsError> {
+        let blob_id_short = &blob_id[..16.min(blob_id.len())];
+
+        // compute blake3 on demand
+        let blake3 = self
+            .compute_blake3(peer_addr, blob_id)
+            .await?
+            .ok_or_else(|| JsError::new(&format!("blob {} not found on peer", blob_id_short)))?;
+
+        // use verified streaming (with ensure fallback)
+        let data = self
+            .download_verified_with_ensure(peer_addr, &blake3)
+            .await?;
+
+        // return [data, blake3] as JS array
+        let result = js_sys::Array::new();
+        result.push(&data);
+        result.push(&JsValue::from_str(&blake3));
+        Ok(result)
     }
 }
 

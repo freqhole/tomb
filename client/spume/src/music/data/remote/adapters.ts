@@ -24,7 +24,7 @@ export type RemoteSong = Required<Pick<Song,
   // source type and metadata
   | 'source_type' | 'opfs_path' | 'file_name' | 'file_size'
   | 'last_modified' | 'mime_type' | 'source_url' | 'downloaded_at'
-  | 'remote_server_id' | 'remote_sha256' | 'added_at'
+  | 'remote_server_id' | 'remote_sha256' | 'blake3' | 'added_at'
 >> & Pick<Song,
   // optional numeric ratings (undefined = not rated)
   | 'user_rating' | 'album_rating'
@@ -81,6 +81,7 @@ export interface ApiSongQueryItem {
   media_blob: {
     sha256: string;
     mime?: string | null;
+    blake3?: string | null; // iroh-blobs content hash
   } | null;
   genre: {
     id: string;
@@ -187,6 +188,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     // remote fields
     remote_server_id: remoteServerId,
     remote_sha256: song.id,
+    blake3: blob?.blake3 ?? null, // for iroh-blobs verified streaming
     added_at: song.created_at,
   };
 

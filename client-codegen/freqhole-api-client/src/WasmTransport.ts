@@ -53,6 +53,13 @@ export interface MiddenNodeLike {
   ): Promise<UploadResultLike>;
   // fetch server image (public, no auth required) - optional
   fetch_hello_image?(peer_addr: string): Promise<BlobResultLike>;
+  // download blob with iroh-blobs verified streaming - optional
+  download_verified?(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
+  // download blob with automatic ensure + retry - optional
+  download_verified_with_ensure?(
+    peer_addr: string,
+    blake3_hash: string,
+  ): Promise<Uint8Array>;
 }
 
 /**
@@ -185,7 +192,7 @@ export class WasmTransport implements Transport {
     }
   }
 
-  async fetchBlob(blobId: string): Promise<BlobData> {
+  async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
     // use just blobId as key (cache name already partitions by remote)
@@ -198,7 +205,66 @@ export class WasmTransport implements Transport {
       return { data, contentType };
     }
 
-    // fetch from peer
+    // if blake3 is provided, try iroh-blobs verified download
+    // prefer download_verified_with_ensure (handles on-demand loading)
+    // fall back to download_verified if that's not available
+    if (blake3) {
+      const downloadFn =
+        this.node.download_verified_with_ensure ?? this.node.download_verified;
+
+      if (downloadFn) {
+        try {
+          const data = await downloadFn.call(this.node, this.peerAddr, blake3);
+          const contentType = "audio/mpeg"; // iroh-blobs doesn't track content type, assume audio
+
+          // cache for future use
+          const arrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          ) as ArrayBuffer;
+          const response = new Response(arrayBuffer, {
+            headers: { "Content-Type": contentType },
+          });
+          await cache.put(blobId, response);
+
+          return { data, contentType };
+        } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          console.warn(
+            `[WasmTransport] verified download failed, falling back: ${errorMessage}`,
+          );
+          // fall through to regular fetch_blob
+        }
+      }
+    } else if (this.node.download_verified_by_id) {
+      // no blake3 provided - try on-demand computation + verified download
+      try {
+        const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
+        const data = result[0] as Uint8Array;
+        const blake3Hash = result[1] as string;
+        const contentType = "audio/mpeg";
+
+        // cache for future use
+        const arrayBuffer = data.buffer.slice(
+          data.byteOffset,
+          data.byteOffset + data.byteLength,
+        ) as ArrayBuffer;
+        const response = new Response(arrayBuffer, {
+          headers: { "Content-Type": contentType },
+        });
+        await cache.put(blobId, response);
+
+        return { data, contentType };
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[WasmTransport] on-demand verified download failed, falling back: ${errorMessage}`,
+        );
+        // fall through to regular fetch_blob
+      }
+    }
+
+    // fetch from peer using legacy protocol
     try {
       const result = await this.node.fetch_blob(this.peerAddr, blobId);
       const data = result.data();
@@ -223,11 +289,13 @@ export class WasmTransport implements Transport {
    * fetch a blob with progress callback
    * @param blobId - the blob ID to fetch
    * @param onProgress - callback with (received, total) bytes
+   * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    * @returns blob data with content type
    */
   async fetchBlobWithProgress(
     blobId: string,
     onProgress: BlobProgressCallback,
+    blake3?: string,
   ): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
@@ -242,7 +310,43 @@ export class WasmTransport implements Transport {
       return { data, contentType };
     }
 
-    // fetch from peer - use progress-enabled method if available
+    // if blake3 is provided, try iroh-blobs verified download
+    // prefer download_verified_with_ensure (handles on-demand loading)
+    // note: download_verified doesn't support progress yet, but we can still use it
+    if (blake3) {
+      const downloadFn =
+        this.node.download_verified_with_ensure ?? this.node.download_verified;
+
+      if (downloadFn) {
+        try {
+          const data = await downloadFn.call(this.node, this.peerAddr, blake3);
+          const contentType = "audio/mpeg";
+
+          // report 100% progress
+          onProgress(data.length, data.length);
+
+          // cache for future use
+          const arrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          ) as ArrayBuffer;
+          const response = new Response(arrayBuffer, {
+            headers: { "Content-Type": contentType },
+          });
+          await cache.put(blobId, response);
+
+          return { data, contentType };
+        } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          console.warn(
+            `[WasmTransport] verified download failed, falling back: ${errorMessage}`,
+          );
+          // fall through to regular fetch_blob
+        }
+      }
+    }
+
+    // fetch from peer using legacy protocol
     try {
       let result: BlobResultLike;
       if (this.node.fetch_blob_with_progress) {
@@ -273,15 +377,15 @@ export class WasmTransport implements Transport {
     }
   }
 
-  async getBlobUrl(blobId: string): Promise<string> {
+  async getBlobUrl(blobId: string, blake3?: string): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
     if (cached) {
       return cached;
     }
 
-    // fetch and create object URL
-    const { data, contentType } = await this.fetchBlob(blobId);
+    // fetch and create object URL (pass blake3 for verified download)
+    const { data, contentType } = await this.fetchBlob(blobId, blake3);
     const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
     const blob = new Blob([arrayBuffer], { type: contentType });
     const url = URL.createObjectURL(blob);
@@ -294,11 +398,13 @@ export class WasmTransport implements Transport {
    * get a blob URL with progress callback
    * @param blobId - the blob ID to fetch
    * @param onProgress - callback with (received, total) bytes
+   * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    * @returns URL usable in <audio>/<img> src
    */
   async getBlobUrlWithProgress(
     blobId: string,
     onProgress: BlobProgressCallback,
+    blake3?: string,
   ): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
@@ -308,8 +414,8 @@ export class WasmTransport implements Transport {
       return cached;
     }
 
-    // fetch with progress and create object URL
-    const { data, contentType } = await this.fetchBlobWithProgress(blobId, onProgress);
+    // fetch with progress and create object URL (pass blake3 for verified download)
+    const { data, contentType } = await this.fetchBlobWithProgress(blobId, onProgress, blake3);
     const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
     const blob = new Blob([arrayBuffer], { type: contentType });
     const url = URL.createObjectURL(blob);

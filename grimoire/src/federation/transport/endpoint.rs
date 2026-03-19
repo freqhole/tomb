@@ -2,29 +2,36 @@
 //!
 //! this is the main entry point for iroh networking in freqhole.
 //! handles binding the endpoint, accepting connections, and connecting to peers.
+//!
+//! uses iroh's Router pattern to handle multiple protocols:
+//! - freqhole/1: existing P2P proxy protocol
+//! - freqhole-blobz: iroh-blobs verified streaming (audio files)
 
+use crate::blobz::{get_blobs_store, BLOBS_ALPN};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::identity;
+use crate::federation::transport::freqhole_protocol::FreqholeProtocol;
 use crate::federation::transport::protocol::FREQHOLE_ALPN;
+use iroh::endpoint::presets;
+use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
-use std::sync::Arc;
+use iroh_blobs::provider::events::{EventMask, EventSender};
+use iroh_blobs::BlobsProtocol;
 use tracing::{info, warn};
 
 /// federation endpoint - manages iroh P2P connections
 pub struct FederationEndpoint {
     endpoint: Endpoint,
     node_id: PublicKey,
-    /// callback for handling incoming connections
-    /// stored so we can spawn the accept loop
-    #[allow(dead_code)]
-    accept_handle: Option<tokio::task::JoinHandle<()>>,
+    /// router handle for protocol dispatch
+    router: Option<Router>,
 }
 
 impl FederationEndpoint {
     /// create a new federation endpoint
     ///
     /// loads or generates the iroh keypair, binds the endpoint,
-    /// and optionally starts the accept loop for incoming connections.
+    /// and sets up protocol handlers for freqhole/1 and freqhole-blobz.
     pub async fn new() -> GrimoireResult<Self> {
         // load our keypair
         let secret_key = identity::load_or_generate_keypair()?;
@@ -38,15 +45,15 @@ impl FederationEndpoint {
         Ok(Self {
             endpoint,
             node_id,
-            accept_handle: None,
+            router: None,
         })
     }
 
     /// build the iroh endpoint with our config
     async fn build_endpoint(secret_key: SecretKey) -> GrimoireResult<Endpoint> {
-        let endpoint = Endpoint::builder()
+        // use N0 preset for relay + DNS discovery (peers can find each other)
+        let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(vec![FREQHOLE_ALPN.to_vec()])
             .bind()
             .await
             .map_err(|e| GrimoireError::FederationApiError {
@@ -66,52 +73,32 @@ impl FederationEndpoint {
         &self.endpoint
     }
 
-    /// start accepting incoming connections
+    /// start the router with both protocol handlers
     ///
-    /// spawns a background task that accepts connections and calls the handler
-    /// for each one. the handler receives the peer's node_id and connection.
-    pub fn start_accept_loop<F>(&mut self, handler: F)
-    where
-        F: Fn(PublicKey, iroh::endpoint::Connection) + Send + Sync + 'static,
-    {
-        let endpoint = self.endpoint.clone();
-        let handler = Arc::new(handler);
+    /// sets up:
+    /// - freqhole/1: existing P2P proxy protocol
+    /// - freqhole-blobz: iroh-blobs verified streaming
+    pub async fn start_router(&mut self) -> GrimoireResult<()> {
+        info!("[p2p-endpoint] starting router with dual protocol support");
 
-        info!("[p2p-endpoint] starting accept loop");
+        // create freqhole/1 protocol handler
+        let freqhole_handler = FreqholeProtocol::new();
 
-        let handle = tokio::spawn(async move {
-            loop {
-                info!("[p2p-endpoint] waiting for incoming connection...");
-                match endpoint.accept().await {
-                    Some(incoming) => {
-                        info!("[p2p-endpoint] got incoming connection, awaiting handshake...");
-                        let handler = handler.clone();
+        // create iroh-blobs protocol handler with event tracing enabled
+        let blobs_store = get_blobs_store().await?;
+        let event_sender = EventSender::DEFAULT.tracing(EventMask::default());
+        let blobs_handler = BlobsProtocol::new(blobs_store, Some(event_sender));
 
-                        tokio::spawn(async move {
-                            match incoming.await {
-                                Ok(conn) => {
-                                    let peer_id = conn.remote_id();
-                                    info!(
-                                        "[p2p-endpoint] accepted connection from peer: {}",
-                                        peer_id
-                                    );
-                                    handler(peer_id, conn);
-                                }
-                                Err(e) => {
-                                    warn!("[p2p-endpoint] failed to accept connection: {}", e);
-                                }
-                            }
-                        });
-                    }
-                    None => {
-                        info!("[p2p-endpoint] endpoint closed, stopping accept loop");
-                        break;
-                    }
-                }
-            }
-        });
+        // build router with both protocols
+        let router = Router::builder(self.endpoint.clone())
+            .accept(FREQHOLE_ALPN, freqhole_handler)
+            .accept(BLOBS_ALPN, blobs_handler)
+            .spawn();
 
-        self.accept_handle = Some(handle);
+        info!("[p2p-endpoint] router started with ALPNs: freqhole/1, /iroh-bytes/4");
+
+        self.router = Some(router);
+        Ok(())
     }
 
     /// connect to a peer by node_id
@@ -137,9 +124,41 @@ impl FederationEndpoint {
         Ok(conn)
     }
 
+    /// connect to a peer for iroh-blobs streaming
+    ///
+    /// uses the freqhole-blobz ALPN for verified streaming
+    pub async fn connect_for_blobs(
+        &self,
+        peer_node_id: PublicKey,
+    ) -> GrimoireResult<iroh::endpoint::Connection> {
+        let addr = EndpointAddr::from_parts(peer_node_id, []);
+
+        info!("connecting to peer for blobs: {}", peer_node_id);
+
+        let conn = self.endpoint.connect(addr, BLOBS_ALPN).await.map_err(|e| {
+            GrimoireError::FederationApiError {
+                message: format!(
+                    "failed to connect to peer {} for blobs: {}",
+                    peer_node_id, e
+                ),
+            }
+        })?;
+
+        info!("connected to peer for blobs: {}", peer_node_id);
+        Ok(conn)
+    }
+
     /// gracefully close the endpoint
     pub async fn close(self) {
         info!("closing federation endpoint");
+
+        // shutdown router if running
+        if let Some(router) = self.router {
+            if let Err(e) = router.shutdown().await {
+                warn!("error shutting down router: {:?}", e);
+            }
+        }
+
         self.endpoint.close().await;
     }
 }

@@ -511,6 +511,11 @@ impl GrimoireConfig {
         self.data_dir.join("tmp")
     }
 
+    /// Get path to freqhole-blobz directory (iroh-blobs FsStore)
+    pub fn freqhole_blobz_path(&self) -> PathBuf {
+        self.data_dir.join("freqhole-blobz")
+    }
+
     /// Get path to wordlist file
     pub fn wordlist_path(&self) -> PathBuf {
         self.data_dir.join("wordlist.txt")
@@ -1023,6 +1028,7 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
+        blake3: None,
     };
 
     let blob = create_media_blob(request)
@@ -1286,10 +1292,13 @@ mod tests {
                 generate_waveform_args: "--whatever".to_string(),
                 generate_scan_duplicate_report: false,
                 skip_duplicates: true,
+                thumbnail_sizes: vec![50, 200],
+                thumbnail_on_demand_enabled: false,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
                 level: "info".to_string(),
+                log_file: "freqhole.log".to_string(),
             },
             server: None,
             federation: None,
@@ -1322,10 +1331,13 @@ mod tests {
                 generate_waveform_args: "--whatever".to_string(),
                 generate_scan_duplicate_report: false,
                 skip_duplicates: true,
+                thumbnail_sizes: vec![50, 200],
+                thumbnail_on_demand_enabled: false,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
                 level: "invalid".to_string(),
+                log_file: "freqhole.log".to_string(),
             },
             server: None,
             federation: None,
@@ -1356,10 +1368,13 @@ mod tests {
                 generate_waveform_args: "--whatever".to_string(),
                 generate_scan_duplicate_report: false,
                 skip_duplicates: true,
+                thumbnail_sizes: vec![50, 200],
+                thumbnail_on_demand_enabled: false,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
                 level: "info".to_string(),
+                log_file: "freqhole.log".to_string(),
             },
             server: None,
             federation: None,

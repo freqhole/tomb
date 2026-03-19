@@ -59,11 +59,25 @@ export class IntoUnderlyingSource {
 
 /**
  * browser P2P node for freqhole federation
+ *
+ * supports two protocols:
+ * - freqhole/1: API proxying and small blob streaming
+ * - iroh-blobs: verified streaming for audio files
  */
 export class MiddenNode {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    /**
+     * compute blake3 hash for a blob on demand
+     *
+     * use this when the client doesn't have the blake3 hash yet (not in API response).
+     * the server will compute the hash, save it to the database, and add the file
+     * to FsStore for verified streaming.
+     *
+     * returns the blake3 hash (64 hex chars) if successful, null if blob not found.
+     */
+    compute_blake3(peer_addr: string, blob_id: string): Promise<string | undefined>;
     /**
      * create a new node with random identity
      * waits for relay connection before returning
@@ -74,6 +88,43 @@ export class MiddenNode {
      * key_bytes must be exactly 32 bytes
      */
     static create_from_key(key_bytes: Uint8Array): Promise<MiddenNode>;
+    /**
+     * download a blob using iroh-blobs verified streaming
+     *
+     * this is the preferred method for audio files - provides:
+     * - verified streaming (each chunk is cryptographically verified)
+     * - resume support (can restart interrupted transfers)
+     * - efficient parallel chunk fetching
+     *
+     * peer_addr: plain node_id or full endpoint JSON
+     * blake3_hash: the blake3 hash of the blob (64 hex chars)
+     */
+    download_verified(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
+    /**
+     * download a blob by blob_id using verified streaming with on-demand blake3
+     *
+     * use this when the client doesn't have the blake3 hash yet (not in API response).
+     * computes blake3 on the server, then uses iroh-blobs verified streaming.
+     *
+     * returns (blob_data, blake3_hash) for caching the hash for future requests.
+     */
+    download_verified_by_id(peer_addr: string, blob_id: string): Promise<Array<any>>;
+    /**
+     * download a blob using iroh-blobs with automatic ensure + retry
+     *
+     * tries download_verified first. if blob not in peer's FsStore,
+     * calls ensure_blob to load it, then retries.
+     */
+    download_verified_with_ensure(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
+    /**
+     * ensure a blob is loaded into the peer's FsStore by blake3 hash
+     *
+     * call this before retrying download_verified if the first attempt fails.
+     * the server will look up the file by blake3 hash and add it to FsStore.
+     *
+     * returns true if blob is now available, false if not found.
+     */
+    ensure_blob(peer_addr: string, blake3_hash: string): Promise<boolean>;
     /**
      * fetch a blob from a peer
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints

@@ -92,7 +92,8 @@ export async function getAudioURL(song: Song): Promise<string> {
             updateLoadingProgress(song.sha256, received / total);
           }
         };
-        const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio", onProgress);
+        // pass blake3 for verified streaming via iroh-blobs (6th param, 5th is thumbnailSize)
+        const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio", onProgress, undefined, song.blake3 ?? undefined);
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
         return url;
       } catch (error) {
@@ -240,7 +241,8 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     // P2P remotes: use blobResolver
     if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
       try {
-        const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio");
+        // pass blake3 for verified streaming via iroh-blobs
+        const url = await resolveBlobUrl(song.sha256, song.remote_server_id, "audio", undefined, undefined, song.blake3 ?? undefined);
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id });
         debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);
         return url;

@@ -505,7 +505,9 @@ export async function playSong(
     setPendingUpNextSha256(null);
 
     // cleanup previous audio url and any pending swap listener
-    if (currentSongId) {
+    // but only if switching to a different song - if replaying the same song,
+    // getAudioURL() may have reused/recreated the blob URL we'd be cleaning up
+    if (currentSongId && currentSongId !== song.sha256) {
       cleanupAudioURL(currentSongId);
     }
     if (pendingSwapCleanup) {

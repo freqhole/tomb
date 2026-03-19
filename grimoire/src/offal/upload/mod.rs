@@ -221,6 +221,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
+        blake3: None,
     })
     .await
     {

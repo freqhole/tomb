@@ -11,6 +11,7 @@
 //! 2. resolve_peer - if haruspex configured, lookup via haruspex (may auto-create user)
 //! 3. knocking_enabled - if true, allow connection but restrict to public routes only
 
+use crate::blobz;
 use crate::config::get_config;
 use crate::federation::resolver::{is_knocking_enabled, is_known_peer, resolve_peer};
 use crate::federation::transport::protocol::PeerMessage;
@@ -305,8 +306,42 @@ async fn handle_stream(
                         Some(data)
                     } else if let Some(ref local_path) = blob.local_path {
                         // blob stored on filesystem - read it
+                        let path = std::path::Path::new(local_path);
                         match read_file_to_bytes(local_path).await {
-                            Ok(data) => Some(data),
+                            Ok(data) => {
+                                // opportunistically compute blake3 and add to FsStore
+                                // this enables verified streaming for future requests
+                                // (don't block on this, fire and forget)
+                                if blob.blake3.is_none() {
+                                    let blob_id_clone = blob_id.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) =
+                                            blobz::ensure_blake3_hash(&blob_id_clone).await
+                                        {
+                                            tracing::debug!(
+                                                "failed to compute blake3 for {}: {}",
+                                                blob_id_clone,
+                                                e
+                                            );
+                                        } else {
+                                            tracing::debug!(
+                                                "computed blake3 on-demand for {}",
+                                                blob_id_clone
+                                            );
+                                        }
+                                    });
+                                } else {
+                                    // already have blake3, just ensure file is in FsStore
+                                    let path_clone = path.to_path_buf();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = blobz::add_file_to_store(&path_clone).await
+                                        {
+                                            tracing::debug!("failed to add blob to FsStore: {}", e);
+                                        }
+                                    });
+                                }
+                                Some(data)
+                            }
                             Err(e) => {
                                 let resp = PeerMessage::BlobStreamResponse {
                                     id,
@@ -546,11 +581,97 @@ async fn handle_stream(
             }
         }
 
+        PeerMessage::EnsureBlobRequest { id, blake3_hash } => {
+            debug!(
+                "ensure blob request: {} from {}",
+                &blake3_hash[..16.min(blake3_hash.len())],
+                node_id_short
+            );
+
+            // require auth
+            let _caller = match get_caller_for_peer(node_id_str).await {
+                Some(c) => c,
+                None => {
+                    let resp = PeerMessage::EnsureBlobResponse {
+                        id,
+                        available: false,
+                        error: Some("unauthorized: peer not registered".to_string()),
+                    };
+                    send_response(&mut send, &resp).await?;
+                    return Ok(());
+                }
+            };
+
+            // ensure blob is loaded into FsStore
+            match blobz::ensure_blob_by_blake3(&blake3_hash).await {
+                Ok(available) => {
+                    let resp = PeerMessage::EnsureBlobResponse {
+                        id,
+                        available,
+                        error: None,
+                    };
+                    send_response(&mut send, &resp).await?;
+                }
+                Err(e) => {
+                    let resp = PeerMessage::EnsureBlobResponse {
+                        id,
+                        available: false,
+                        error: Some(format!("failed to ensure blob: {}", e)),
+                    };
+                    send_response(&mut send, &resp).await?;
+                }
+            }
+        }
+
+        PeerMessage::ComputeBlake3Request { id, blob_id } => {
+            debug!(
+                "compute blake3 request: {} from {}",
+                &blob_id[..16.min(blob_id.len())],
+                node_id_short
+            );
+
+            // require auth
+            let _caller = match get_caller_for_peer(node_id_str).await {
+                Some(c) => c,
+                None => {
+                    let resp = PeerMessage::ComputeBlake3Response {
+                        id,
+                        blake3: None,
+                        error: Some("unauthorized: peer not registered".to_string()),
+                    };
+                    send_response(&mut send, &resp).await?;
+                    return Ok(());
+                }
+            };
+
+            // compute blake3 hash for blob (also adds to FsStore)
+            match blobz::ensure_blake3_hash(&blob_id).await {
+                Ok(blake3) => {
+                    let resp = PeerMessage::ComputeBlake3Response {
+                        id,
+                        blake3: Some(blake3),
+                        error: None,
+                    };
+                    send_response(&mut send, &resp).await?;
+                }
+                Err(e) => {
+                    let resp = PeerMessage::ComputeBlake3Response {
+                        id,
+                        blake3: None,
+                        error: Some(format!("failed to compute blake3: {}", e)),
+                    };
+                    send_response(&mut send, &resp).await?;
+                }
+            }
+        }
+
         // ignore responses sent to us (shouldn't happen)
         PeerMessage::ProxyResponse { .. }
         | PeerMessage::BlobStreamResponse { .. }
         | PeerMessage::BlobUploadResponse { .. }
-        | PeerMessage::HelloImageResponse { .. } => {
+        | PeerMessage::HelloImageResponse { .. }
+        | PeerMessage::EnsureBlobResponse { .. }
+        | PeerMessage::ComputeBlake3Response { .. } => {
             debug!("unexpected response message from {}", node_id_short);
         }
     }

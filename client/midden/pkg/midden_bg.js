@@ -204,6 +204,10 @@ if (Symbol.dispose) IntoUnderlyingSource.prototype[Symbol.dispose] = IntoUnderly
 
 /**
  * browser P2P node for freqhole federation
+ *
+ * supports two protocols:
+ * - freqhole/1: API proxying and small blob streaming
+ * - iroh-blobs: verified streaming for audio files
  */
 export class MiddenNode {
     constructor() {
@@ -227,6 +231,28 @@ export class MiddenNode {
         wasm.__wbg_middennode_free(ptr, 0);
     }
     /**
+     * compute blake3 hash for a blob on demand
+     *
+     * use this when the client doesn't have the blake3 hash yet (not in API response).
+     * the server will compute the hash, save it to the database, and add the file
+     * to FsStore for verified streaming.
+     *
+     * returns the blake3 hash (64 hex chars) if successful, null if blob not found.
+     * @param {string} peer_addr
+     * @param {string} blob_id
+     * @returns {Promise<string | undefined>}
+     */
+    compute_blake3(peer_addr, blob_id) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_compute_blake3(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
      * create a new node with random identity
      * waits for relay connection before returning
      * @returns {Promise<MiddenNode>}
@@ -245,6 +271,91 @@ export class MiddenNode {
         const ptr0 = passArray8ToWasm0(key_bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.middennode_create_from_key(ptr0, len0);
+        return ret;
+    }
+    /**
+     * download a blob using iroh-blobs verified streaming
+     *
+     * this is the preferred method for audio files - provides:
+     * - verified streaming (each chunk is cryptographically verified)
+     * - resume support (can restart interrupted transfers)
+     * - efficient parallel chunk fetching
+     *
+     * peer_addr: plain node_id or full endpoint JSON
+     * blake3_hash: the blake3 hash of the blob (64 hex chars)
+     * @param {string} peer_addr
+     * @param {string} blake3_hash
+     * @returns {Promise<Uint8Array>}
+     */
+    download_verified(peer_addr, blake3_hash) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_download_verified(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * download a blob by blob_id using verified streaming with on-demand blake3
+     *
+     * use this when the client doesn't have the blake3 hash yet (not in API response).
+     * computes blake3 on the server, then uses iroh-blobs verified streaming.
+     *
+     * returns (blob_data, blake3_hash) for caching the hash for future requests.
+     * @param {string} peer_addr
+     * @param {string} blob_id
+     * @returns {Promise<Array<any>>}
+     */
+    download_verified_by_id(peer_addr, blob_id) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_download_verified_by_id(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * download a blob using iroh-blobs with automatic ensure + retry
+     *
+     * tries download_verified first. if blob not in peer's FsStore,
+     * calls ensure_blob to load it, then retries.
+     * @param {string} peer_addr
+     * @param {string} blake3_hash
+     * @returns {Promise<Uint8Array>}
+     */
+    download_verified_with_ensure(peer_addr, blake3_hash) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_download_verified_with_ensure(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * ensure a blob is loaded into the peer's FsStore by blake3 hash
+     *
+     * call this before retrying download_verified if the first attempt fails.
+     * the server will look up the file by blake3 hash and add it to FsStore.
+     *
+     * returns true if blob is now available, false if not found.
+     * @param {string} peer_addr
+     * @param {string} blake3_hash
+     * @returns {Promise<boolean>}
+     */
+    ensure_blob(peer_addr, blake3_hash) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_ensure_blob(this.__wbg_ptr, ptr0, len0, ptr1, len1);
         return ret;
     }
     /**
@@ -1071,42 +1182,42 @@ export function __wbg_wasClean_69f68dc4ed2d2cc7() { return logError(function (ar
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000001() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 1001, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 1002, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hc596dafa92621b3d, wasm_bindgen__convert__closures_____invoke__hb72a618774b4f7ad);
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 1955, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 1956, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h04df11150c2ec967, wasm_bindgen__convert__closures_____invoke__hab17faabe688f6d8);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000002() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 1685, function: Function { arguments: [], shim_idx: 1686, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hd6d68ab47fc947cb, wasm_bindgen__convert__closures_____invoke__he97c8cbe0989dfdf);
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2395, function: Function { arguments: [], shim_idx: 2396, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__ha7f394643b1887b3, wasm_bindgen__convert__closures_____invoke__he5a7fdd38fa79d5e);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000003() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 1746, function: Function { arguments: [Externref], shim_idx: 1747, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2455, function: Function { arguments: [Externref], shim_idx: 2456, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h62030f04146461fd, wasm_bindgen__convert__closures_____invoke__h66dcf80ecdfd60a9);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000004() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 1770, function: Function { arguments: [], shim_idx: 1771, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2479, function: Function { arguments: [], shim_idx: 2480, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h662eff4f51ac122f, wasm_bindgen__convert__closures_____invoke__ha42ef89cec163d20);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000005() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 1774, function: Function { arguments: [], shim_idx: 1775, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
-    const ret = makeClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hc597ae8fdc7b67cc, wasm_bindgen__convert__closures_____invoke__h3cdcafd25419cf3d);
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2484, function: Function { arguments: [], shim_idx: 2485, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
+    const ret = makeClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h94ada4b4ca07a4ba, wasm_bindgen__convert__closures_____invoke__h8e48a5c06956cc7f);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000006() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2134, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2135, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2881, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2882, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h8a10a08b2dea436a, wasm_bindgen__convert__closures_____invoke__hf0f0900181bab35b);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000007() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 3706, function: Function { arguments: [], shim_idx: 3707, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hb41233f8cd2e34ba, wasm_bindgen__convert__closures_____invoke__hfd89352a7e0044f3);
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 4413, function: Function { arguments: [], shim_idx: 4414, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hf45afd2339ecd0b0, wasm_bindgen__convert__closures_____invoke__h527d1a328962d6ec);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000008() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 3717, function: Function { arguments: [Externref], shim_idx: 3749, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 4424, function: Function { arguments: [Externref], shim_idx: 4456, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h80c7527661a50b70, wasm_bindgen__convert__closures_____invoke__ha84b42b578005502);
     return ret;
 }, arguments); }
@@ -1136,10 +1247,10 @@ export function __wbindgen_init_externref_table() {
 }
 
 //#endregion
-function wasm_bindgen__convert__closures_____invoke__he97c8cbe0989dfdf(arg0, arg1) {
+function wasm_bindgen__convert__closures_____invoke__he5a7fdd38fa79d5e(arg0, arg1) {
     _assertNum(arg0);
     _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__he97c8cbe0989dfdf(arg0, arg1);
+    wasm.wasm_bindgen__convert__closures_____invoke__he5a7fdd38fa79d5e(arg0, arg1);
 }
 
 function wasm_bindgen__convert__closures_____invoke__ha42ef89cec163d20(arg0, arg1) {
@@ -1148,16 +1259,16 @@ function wasm_bindgen__convert__closures_____invoke__ha42ef89cec163d20(arg0, arg
     wasm.wasm_bindgen__convert__closures_____invoke__ha42ef89cec163d20(arg0, arg1);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h3cdcafd25419cf3d(arg0, arg1) {
+function wasm_bindgen__convert__closures_____invoke__h8e48a5c06956cc7f(arg0, arg1) {
     _assertNum(arg0);
     _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__h3cdcafd25419cf3d(arg0, arg1);
+    wasm.wasm_bindgen__convert__closures_____invoke__h8e48a5c06956cc7f(arg0, arg1);
 }
 
-function wasm_bindgen__convert__closures_____invoke__hfd89352a7e0044f3(arg0, arg1) {
+function wasm_bindgen__convert__closures_____invoke__h527d1a328962d6ec(arg0, arg1) {
     _assertNum(arg0);
     _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__hfd89352a7e0044f3(arg0, arg1);
+    wasm.wasm_bindgen__convert__closures_____invoke__h527d1a328962d6ec(arg0, arg1);
 }
 
 function wasm_bindgen__convert__closures_____invoke__h569cea25dbd1aa76(arg0, arg1) {
@@ -1167,10 +1278,10 @@ function wasm_bindgen__convert__closures_____invoke__h569cea25dbd1aa76(arg0, arg
     return ret !== 0;
 }
 
-function wasm_bindgen__convert__closures_____invoke__hb72a618774b4f7ad(arg0, arg1, arg2) {
+function wasm_bindgen__convert__closures_____invoke__hab17faabe688f6d8(arg0, arg1, arg2) {
     _assertNum(arg0);
     _assertNum(arg1);
-    wasm.wasm_bindgen__convert__closures_____invoke__hb72a618774b4f7ad(arg0, arg1, arg2);
+    wasm.wasm_bindgen__convert__closures_____invoke__hab17faabe688f6d8(arg0, arg1, arg2);
 }
 
 function wasm_bindgen__convert__closures_____invoke__h66dcf80ecdfd60a9(arg0, arg1, arg2) {

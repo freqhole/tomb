@@ -438,6 +438,7 @@ export async function downloadPlaylist(
           downloaded_at: Date.now(),
           remote_server_id: null,
           remote_sha256: song.id,
+          blake3: null, // not available for downloaded files
           added_at: Date.now(),
         };
 
@@ -774,6 +775,7 @@ export async function syncPlaylist(
           downloaded_at: Date.now(),
           remote_server_id: null,
           remote_sha256: song.id,
+          blake3: null, // not available for synced files
           added_at: Date.now(),
         };
 

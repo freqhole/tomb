@@ -16,9 +16,12 @@ use serde_json::Value as JsonValue;
 ///
 /// path: POST /api/analytics/sessions
 pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    tracing::debug!(user_id = %caller.user_id, "offal: create_listen_session");
+
     let req: CreateListenSessionRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!(error = %e, "offal: create_listen_session: bad request");
             return GrimoireResponse::failure(
                 "bad request",
                 vec![ErrorDetail::new(
@@ -26,11 +29,26 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                     "bad request",
                     &e.to_string(),
                 )],
-            )
+            );
         }
     };
 
+    tracing::debug!(
+        song_count = req.song_ids.len(),
+        session_type = %req.session_type,
+        "offal: create_listen_session: parsed request"
+    );
+
     let response = create_listen_session(&caller.user_id, &req).await;
+
+    if !response.success {
+        tracing::warn!(
+            message = %response.message,
+            error_count = response.errors.len(),
+            "offal: create_listen_session: failed"
+        );
+    }
+
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 

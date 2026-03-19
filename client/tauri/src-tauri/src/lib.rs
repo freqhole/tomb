@@ -313,6 +313,8 @@ pub fn run() {
             p2p_commands::p2p_get_node_id,
             p2p_commands::p2p_proxy_request,
             p2p_commands::p2p_fetch_blob,
+            p2p_commands::p2p_fetch_blob_verified,
+            p2p_commands::p2p_fetch_blob_verified_by_id,
             p2p_commands::p2p_fetch_hello_image,
             p2p_commands::p2p_upload_blob,
             p2p_commands::p2p_close_connection,

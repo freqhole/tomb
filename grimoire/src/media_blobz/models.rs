@@ -93,6 +93,8 @@ pub struct MediaBlob {
     pub width: Option<i64>,
     /// height in pixels (for sized thumbnails)
     pub height: Option<i64>,
+    /// blake3 content hash for iroh-blobs verified streaming
+    pub blake3: Option<String>,
 }
 
 /// safe response type for blob metadata endpoint - excludes internal fields like local_path
@@ -104,6 +106,8 @@ pub struct BlobMetadataResponse {
     pub mime: Option<String>,
     pub filename: Option<String>,
     pub blob_type: BlobType,
+    /// blake3 content hash for iroh-blobs verified streaming (null if not yet computed)
+    pub blake3: Option<String>,
 }
 
 impl From<MediaBlob> for BlobMetadataResponse {
@@ -115,6 +119,7 @@ impl From<MediaBlob> for BlobMetadataResponse {
             mime: blob.mime,
             filename: blob.filename,
             blob_type: blob.blob_type,
+            blake3: blob.blake3,
         }
     }
 }
@@ -140,6 +145,8 @@ pub struct CreateMediaBlobRequest {
     pub width: Option<i64>,
     /// height in pixels (for sized thumbnails)
     pub height: Option<i64>,
+    /// blake3 content hash for iroh-blobs (computed on ingest or on-demand)
+    pub blake3: Option<String>,
 }
 
 impl ZodSchema for MediaBlob {
@@ -163,6 +170,7 @@ impl ZodSchema for MediaBlob {
             ("updated_by", &zod_nullable(zod_string())),
             ("width", &zod_nullable(zod_number())),
             ("height", &zod_nullable(zod_number())),
+            ("blake3", &zod_nullable(zod_string())),
         ])
     }
 }

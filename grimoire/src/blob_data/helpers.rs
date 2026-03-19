@@ -1,6 +1,7 @@
 //! helper functions for creating thumbnails and waveforms as binary blobs
 //! all output is standardized to WebP format for optimal compression and quality
 
+use crate::blobz::compute_blake3_hash;
 use crate::config::GrimoireConfig;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest};
@@ -123,6 +124,15 @@ pub async fn create_media_blob_from_file(
         }
     };
 
+    // Compute blake3 hash for iroh-blobs verified streaming
+    let blake3 = match compute_blake3_hash(Path::new(file_path)).await {
+        Ok(hash) => Some(hash),
+        Err(e) => {
+            tracing::warn!("failed to compute blake3 for {}: {}", file_path, e);
+            None // non-fatal, can compute on-demand later
+        }
+    };
+
     let request = CreateMediaBlobRequest {
         sha256,
         size: Some(file_size as i64),
@@ -142,6 +152,7 @@ pub async fn create_media_blob_from_file(
         data: None, // Store as file reference
         width: None,
         height: None,
+        blake3, // computed at ingest for audio files
     };
 
     match media_blobz::create_media_blob(request).await {
@@ -471,6 +482,7 @@ pub async fn create_image_blob_from_webp_data(
         data: Some(webp_data.into()), // Store as binary data
         width: None,
         height: None,
+        blake3: None, // not needed for images stored in blobdata db
     };
 
     match media_blobz::create_media_blob(request).await {

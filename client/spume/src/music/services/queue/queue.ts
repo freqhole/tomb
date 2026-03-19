@@ -9,7 +9,7 @@ import {
 } from "../../../app/services/storage/db";
 import type { QueueHistoryEntry, QueueSourceContext } from "../../../app/services/storage/types";
 import { evictCachedBlob } from "../cache/blobCache";
-import { evictP2PBlob, preCacheNextP2PSongs } from "../storage/blobResolver";
+import { evictP2PBlob, preCacheNextP2PSongs, cancelP2PDownload } from "../storage/blobResolver";
 import { clearPendingUpNext, pendingUpNextSha256, playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
@@ -58,8 +58,9 @@ export async function playQueue(
         if (oldSong.remote_server_id) {
           void evictCachedBlob(oldSong.remote_server_id, oldSong.sha256);
         }
-        // evict P2P cache
+        // cancel in-progress P2P download and evict P2P cache
         if (oldSong.remote_server_id) {
+          cancelP2PDownload(oldSong.sha256, oldSong.remote_server_id);
           void evictP2PBlob(oldSong.sha256, oldSong.remote_server_id);
         }
       }
@@ -215,8 +216,9 @@ export async function removeFromQueue(index: number): Promise<void> {
       if (removedSong.remote_server_id) {
         void evictCachedBlob(removedSong.remote_server_id, removedSong.sha256);
       }
-      // evict P2P cache (if applicable)
+      // cancel in-progress P2P download and evict P2P cache (if applicable)
       if (removedSong.remote_server_id) {
+        cancelP2PDownload(removedSong.sha256, removedSong.remote_server_id);
         void evictP2PBlob(removedSong.sha256, removedSong.remote_server_id);
       }
     }
@@ -277,8 +279,9 @@ export async function clearQueue(): Promise<void> {
         if (song.remote_server_id) {
           void evictCachedBlob(song.remote_server_id, song.sha256);
         }
-        // evict P2P cache (if applicable)
+        // cancel in-progress P2P download and evict P2P cache (if applicable)
         if (song.remote_server_id) {
+          cancelP2PDownload(song.sha256, song.remote_server_id);
           void evictP2PBlob(song.sha256, song.remote_server_id);
         }
       }

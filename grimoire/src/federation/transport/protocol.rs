@@ -102,4 +102,42 @@ pub enum PeerMessage {
         /// error message if image not configured
         error: Option<String>,
     },
+
+    /// request to ensure a blob is loaded into FsStore by blake3 hash
+    /// used by clients before attempting iroh-blobs download
+    EnsureBlobRequest {
+        /// request id for correlation
+        id: u64,
+        /// blake3 hash of blob to ensure (64 hex chars)
+        blake3_hash: String,
+    },
+
+    /// response indicating whether blob is now available
+    EnsureBlobResponse {
+        /// request id for correlation
+        id: u64,
+        /// true if blob is now available in FsStore
+        available: bool,
+        /// error message if lookup/load failed
+        error: Option<String>,
+    },
+
+    /// request to compute blake3 hash for a blob (by blob_id/sha256)
+    /// used by clients before verified streaming when blake3 not in API response
+    ComputeBlake3Request {
+        /// request id for correlation
+        id: u64,
+        /// blob_id (sha256) to compute blake3 for
+        blob_id: String,
+    },
+
+    /// response with computed blake3 hash
+    ComputeBlake3Response {
+        /// request id for correlation
+        id: u64,
+        /// computed blake3 hash (64 hex chars) if successful
+        blake3: Option<String>,
+        /// error message if computation failed
+        error: Option<String>,
+    },
 }

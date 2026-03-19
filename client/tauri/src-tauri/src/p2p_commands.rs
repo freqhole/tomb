@@ -5,8 +5,31 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::Mutex;
 
 use crate::spume_bridge::notify_peer_offline;
+
+/// storage for the FederationEndpoint - Router needs to stay alive
+static FEDERATION_ENDPOINT_HANDLE: Mutex<
+    Option<grimoire::federation::transport::FederationEndpoint>,
+> = Mutex::new(None);
+
+/// store the federation endpoint so the Router stays alive
+fn store_federation_endpoint(endpoint: grimoire::federation::transport::FederationEndpoint) {
+    let mut guard = FEDERATION_ENDPOINT_HANDLE.lock().unwrap();
+    *guard = Some(endpoint);
+}
+
+/// clear the stored federation endpoint (call before init or on stop)
+pub async fn clear_federation_endpoint_handle() {
+    let endpoint = {
+        let mut guard = FEDERATION_ENDPOINT_HANDLE.lock().unwrap();
+        guard.take()
+    };
+    if let Some(ep) = endpoint {
+        ep.close().await;
+    }
+}
 
 /// check if an error message indicates a connection failure (peer likely offline)
 fn is_connection_error(error_msg: &str) -> bool {
@@ -37,6 +60,17 @@ pub struct P2pBlobResponse {
     pub size: u64,
 }
 
+/// blob response with base64 data and computed blake3 hash
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pBlobWithBlake3Response {
+    /// base64-encoded blob data
+    pub data: String,
+    pub content_type: Option<String>,
+    pub size: u64,
+    /// computed blake3 hash (for caching)
+    pub blake3: String,
+}
+
 /// upload response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pUploadResponse {
@@ -57,6 +91,7 @@ pub struct P2pUploadResponse {
 /// existing endpoint first.
 pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // clear any existing endpoint first (safe to call even if none exists)
+    clear_federation_endpoint_handle().await;
     grimoire::federation::p2p_client::clear_federation_endpoint().await;
 
     // initialize grimoire config from server config (ignore if already initialized)
@@ -91,30 +126,28 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     let node_id = endpoint.node_id();
     eprintln!("[p2p] P2P endpoint ready, node_id: {}", node_id);
 
-    // start accept loop for incoming connections if knocking enabled or peers exist
+    // start router for incoming connections if knocking enabled or peers exist
     let service = grimoire::users::UserService::new();
     let has_peers = service.has_peer_nodes().await;
 
     if knocking_enabled || has_peers {
         eprintln!(
-            "[p2p] starting accept loop (knocking={}, has_peers={})",
+            "[p2p] starting router (knocking={}, has_peers={})",
             knocking_enabled, has_peers
         );
-        endpoint.start_accept_loop(|peer_id, conn| {
-            // eprintln!(
-            //     "[p2p] incoming connection from: {}",
-            //     &peer_id.to_string()[..16]
-            // );
-            tokio::spawn(async move {
-                grimoire::federation::transport::handle_incoming(peer_id, conn).await;
-            });
-        });
+        endpoint
+            .start_router()
+            .await
+            .map_err(|e| format!("failed to start P2P router: {}", e))?;
     }
 
-    // register endpoint for P2P client operations
+    // register endpoint for P2P client operations (stores reference for outbound)
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
 
-    // eprintln!("[p2p] P2P endpoint initialized successfully");
+    // store the FederationEndpoint so the Router stays alive
+    store_federation_endpoint(endpoint);
+
+    eprintln!("[p2p] P2P endpoint initialized successfully");
     Ok(())
 }
 
@@ -187,6 +220,70 @@ pub async fn p2p_fetch_blob(
         data: STANDARD.encode(&blob.data),
         content_type: blob.content_type,
         size: blob.size,
+    })
+}
+
+/// fetch a blob from a remote peer via iroh-blobs verified streaming
+///
+/// uses blake3 content hash for cryptographic verification.
+/// if blob not in peer's FsStore, automatically calls ensure_blob then retries.
+/// returns base64-encoded data (since tauri can't easily pass raw bytes)
+#[tauri::command]
+pub async fn p2p_fetch_blob_verified(
+    app_handle: tauri::AppHandle,
+    peer_addr: String,
+    blake3_hash: String,
+) -> Result<P2pBlobResponse, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    // use fetch_blob_verified_with_ensure which handles on-demand loading
+    let data =
+        grimoire::federation::p2p_client::fetch_blob_verified_with_ensure(&peer_addr, &blake3_hash)
+            .await
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if is_connection_error(&error_msg) {
+                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+                }
+                error_msg
+            })?;
+
+    Ok(P2pBlobResponse {
+        data: STANDARD.encode(&data),
+        content_type: Some("audio/mpeg".to_string()), // iroh-blobs doesn't track content type
+        size: data.len() as u64,
+    })
+}
+
+/// fetch a blob from a remote peer via iroh-blobs verified streaming with on-demand blake3
+///
+/// use this when the client doesn't have the blake3 hash yet.
+/// computes blake3 on the server, then uses verified streaming.
+/// returns base64-encoded data and the computed blake3 hash.
+#[tauri::command]
+pub async fn p2p_fetch_blob_verified_by_id(
+    app_handle: tauri::AppHandle,
+    peer_addr: String,
+    blob_id: String,
+) -> Result<P2pBlobWithBlake3Response, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let (data, blake3) =
+        grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)
+            .await
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if is_connection_error(&error_msg) {
+                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+                }
+                error_msg
+            })?;
+
+    Ok(P2pBlobWithBlake3Response {
+        data: STANDARD.encode(&data),
+        content_type: Some("audio/mpeg".to_string()),
+        size: data.len() as u64,
+        blake3,
     })
 }
 

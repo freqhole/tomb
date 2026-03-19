@@ -5,6 +5,7 @@ use axum::{
     Extension, Json,
 };
 use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
+use grimoire::blobz::compute_blake3_from_bytes;
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
 use grimoire::media_blobz::CreateMediaBlobRequest;
 use grimoire::media_blobz::{create_media_blob, BlobType};
@@ -96,6 +97,9 @@ pub async fn upload_music_handler(
     hasher.update(&data);
     let hash = format!("{:x}", hasher.finalize());
 
+    // compute blake3 hash for iroh-blobs verified streaming
+    let blake3_hash = compute_blake3_from_bytes(&data);
+
     // detect mime type
     let mime_type = detect_audio_mime_type(&filename, &data);
 
@@ -131,6 +135,7 @@ pub async fn upload_music_handler(
         data: None,
         width: None,
         height: None,
+        blake3: Some(blake3_hash), // computed at ingest for P2P streaming
     })
     .await
     .map_err(|e| ApiError::Internal(format!("failed to create blob: {}", e)))?;

@@ -177,9 +177,48 @@ export class TauriTransport implements Transport {
 
   /**
    * fetch a blob via P2P
+   * if blake3 is provided, uses iroh-blobs verified streaming
    */
-  async fetchBlob(blobId: string): Promise<BlobData> {
+  async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
     const inv = await ensureInvoke();
+
+    // if blake3 is provided, use verified iroh-blobs download
+    if (blake3) {
+      try {
+        const result = (await inv("p2p_fetch_blob_verified", {
+          peerAddr: this.peerAddr,
+          blake3Hash: blake3,
+        })) as { data: string; content_type: string | null; size: number };
+
+        const bytes = base64ToBytes(result.data);
+        return {
+          data: bytes,
+          contentType: result.content_type ?? "audio/mpeg",
+        };
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.warn(`[TauriTransport] verified download failed, falling back: ${errorMessage}`);
+        // fall through to regular fetch_blob
+      }
+    } else {
+      // no blake3 provided - try on-demand computation + verified download
+      try {
+        const result = (await inv("p2p_fetch_blob_verified_by_id", {
+          peerAddr: this.peerAddr,
+          blobId,
+        })) as { data: string; content_type: string | null; size: number; blake3: string };
+
+        const bytes = base64ToBytes(result.data);
+        return {
+          data: bytes,
+          contentType: result.content_type ?? "audio/mpeg",
+        };
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.warn(`[TauriTransport] on-demand verified download failed, falling back: ${errorMessage}`);
+        // fall through to regular fetch_blob
+      }
+    }
 
     const result = (await inv("p2p_fetch_blob", {
       peerAddr: this.peerAddr,
@@ -197,8 +236,9 @@ export class TauriTransport implements Transport {
 
   /**
    * get a URL for a blob - caches in Cache API
+   * if blake3 provided, uses verified iroh-blobs download
    */
-  async getBlobUrl(blobId: string): Promise<string> {
+  async getBlobUrl(blobId: string, blake3?: string): Promise<string> {
     // check in-memory cache first
     const cached = urlCache.get(blobId);
     if (cached) {
@@ -216,8 +256,8 @@ export class TauriTransport implements Transport {
       return url;
     }
 
-    // fetch via P2P and cache
-    const blobData = await this.fetchBlob(blobId);
+    // fetch via P2P and cache (pass blake3 for verified download)
+    const blobData = await this.fetchBlob(blobId, blake3);
     const blob = new Blob([blobData.data.slice().buffer], { type: blobData.contentType });
 
     // store in Cache API using blobId as key

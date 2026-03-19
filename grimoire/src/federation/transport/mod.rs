@@ -8,11 +8,13 @@
 
 mod connection;
 mod endpoint;
+mod freqhole_protocol;
 mod handler;
 mod protocol;
 
 pub use connection::{BlobStreamInfo, PeerConnection, ProxyResponse};
 pub use endpoint::FederationEndpoint;
+pub use freqhole_protocol::FreqholeProtocol;
 pub use handler::handle_incoming;
 pub use protocol::{PeerMessage, FREQHOLE_ALPN};
 
@@ -51,8 +53,8 @@ async fn should_accept_incoming() -> bool {
 /// start the federation endpoint and begin accepting P2P connections
 ///
 /// this is the main entry point for P2P networking. it creates the
-/// endpoint, generates/loads the keypair, and starts accepting
-/// incoming connections. requests are dispatched directly to offal.
+/// endpoint, generates/loads the keypair, and starts the router
+/// with dual protocol support (freqhole/1 + freqhole-blobz).
 ///
 /// optimization: if knocking is disabled AND no peer nodes exist,
 /// skips the accept loop since no one can connect anyway.
@@ -61,14 +63,10 @@ pub async fn start_federation_endpoint() -> GrimoireResult<FederationEndpoint> {
 
     // check if should accept incoming connections
     if should_accept_incoming().await {
-        info!("starting P2P accept loop (knocking enabled or peers registered)");
-        endpoint.start_accept_loop(|peer_id, conn| {
-            tokio::spawn(async move {
-                handle_incoming(peer_id, conn).await;
-            });
-        });
+        info!("starting P2P router (knocking enabled or peers registered)");
+        endpoint.start_router().await?;
     } else {
-        info!("skipping P2P accept loop (no knocking, no peers - outbound only)");
+        info!("skipping P2P router (no knocking, no peers - outbound only)");
     }
 
     Ok(endpoint)

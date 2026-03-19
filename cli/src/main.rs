@@ -118,6 +118,15 @@ enum Commands {
         json_output: bool,
     },
 
+    /// Blob operations (blake3 hashes for P2P streaming)
+    Blobz {
+        #[command(subcommand)]
+        action: plumbing::BlobzAction,
+        /// Output as JSON
+        #[arg(long)]
+        json_output: bool,
+    },
+
     /// Start the HTTP server
     Server {
         /// Path to configuration file (overrides --config global flag)
@@ -243,6 +252,12 @@ async fn main() -> Result<()> {
             json_output,
         } => {
             plumbing::handle_federation(action, json_output).await?;
+        }
+        Commands::Blobz {
+            action,
+            json_output,
+        } => {
+            plumbing::handle_blobz(action, json_output).await?;
         }
         Commands::Server { .. } => {
             // handled above with early return

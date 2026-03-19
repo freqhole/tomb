@@ -147,6 +147,7 @@ impl P2pState {
 
     /// stop the P2P endpoint
     pub async fn stop(&self) {
+        crate::p2p_commands::clear_federation_endpoint_handle().await;
         grimoire::federation::p2p_client::clear_federation_endpoint().await;
         self.set_status(P2pStatus::Stopped);
     }

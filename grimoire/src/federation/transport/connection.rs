@@ -289,6 +289,88 @@ impl PeerConnection {
         }
     }
 
+    /// ensure a blob is loaded into the peer's FsStore by blake3 hash
+    ///
+    /// this should be called before attempting iroh-blobs download if the
+    /// first attempt fails. the server will look up the file by blake3 hash
+    /// and add it to FsStore for verified streaming.
+    ///
+    /// returns true if blob is now available, false if not found.
+    pub async fn ensure_blob(&self, blake3_hash: &str) -> GrimoireResult<bool> {
+        let id = self.next_request_id();
+        let msg = PeerMessage::EnsureBlobRequest {
+            id,
+            blake3_hash: blake3_hash.to_string(),
+        };
+
+        let response = self.send_message(&msg).await?;
+
+        match response {
+            PeerMessage::EnsureBlobResponse {
+                id: resp_id,
+                available,
+                error,
+            } => {
+                if resp_id != id {
+                    return Err(GrimoireError::FederationApiError {
+                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
+                    });
+                }
+                if let Some(err) = error {
+                    debug!("ensure_blob error for {}: {}", &blake3_hash[..16], err);
+                    return Ok(false);
+                }
+                Ok(available)
+            }
+            _ => Err(GrimoireError::FederationApiError {
+                message: "unexpected response type for ensure blob".to_string(),
+            }),
+        }
+    }
+
+    /// compute blake3 hash for a blob on demand
+    ///
+    /// use this when the client doesn't have the blake3 hash yet (not in API response).
+    /// the server will compute the hash, save it to the database, and add the file
+    /// to FsStore for verified streaming.
+    ///
+    /// returns the blake3 hash if successful, None if blob not found.
+    pub async fn compute_blake3(&self, blob_id: &str) -> GrimoireResult<Option<String>> {
+        let id = self.next_request_id();
+        let msg = PeerMessage::ComputeBlake3Request {
+            id,
+            blob_id: blob_id.to_string(),
+        };
+
+        let response = self.send_message(&msg).await?;
+
+        match response {
+            PeerMessage::ComputeBlake3Response {
+                id: resp_id,
+                blake3,
+                error,
+            } => {
+                if resp_id != id {
+                    return Err(GrimoireError::FederationApiError {
+                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
+                    });
+                }
+                if let Some(err) = error {
+                    debug!(
+                        "compute_blake3 error for {}: {}",
+                        &blob_id[..16.min(blob_id.len())],
+                        err
+                    );
+                    return Ok(None);
+                }
+                Ok(blake3)
+            }
+            _ => Err(GrimoireError::FederationApiError {
+                message: "unexpected response type for compute blake3".to_string(),
+            }),
+        }
+    }
+
     /// upload a blob to the peer
     ///
     /// sends a length-prefixed header followed by raw blob bytes.

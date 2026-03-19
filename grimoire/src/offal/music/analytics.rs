@@ -29,6 +29,7 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
     let req: RecordPlayRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!(error = %e, "offal: record_play: bad request");
             return GrimoireResponse::failure(
                 "bad request",
                 vec![ErrorDetail::new(
@@ -40,6 +41,14 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         }
     };
 
+    tracing::debug!(
+        user_id = %caller.user_id,
+        media_blob_id = %req.media_blob_id,
+        song_id = %req.song_id,
+        session_id = ?req.session_id,
+        "offal: record_play"
+    );
+
     let (media_event, music_event) = create_play_event(
         req.media_blob_id,
         req.song_id,
@@ -49,6 +58,15 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
     );
 
     let response = record_play_event(&media_event, &music_event).await;
+
+    if !response.success {
+        tracing::warn!(
+            message = %response.message,
+            errors = ?response.errors,
+            "offal: record_play: failed"
+        );
+    }
+
     response.map(|_| JsonValue::Null)
 }
 

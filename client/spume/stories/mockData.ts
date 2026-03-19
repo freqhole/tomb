@@ -259,6 +259,7 @@ export function generateBulkSongs(count: number): DomainSong[] {
       downloaded_at: null,
       remote_server_id: null,
       remote_sha256: null,
+      blake3: null,
       added_at: now,
     });
   }

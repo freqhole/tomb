@@ -251,12 +251,41 @@ pub async fn create_listen_session_handler(
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<CreateListenSessionRequest>,
 ) -> Result<Json<ListenSession>, ApiError> {
+    tracing::debug!(
+        user_id = %user.user_id,
+        song_count = req.song_ids.len(),
+        session_type = %req.session_type,
+        "create_listen_session: request"
+    );
+
     let response = create_listen_session(&user.user_id, &req).await;
 
-    response
-        .data
-        .ok_or_else(|| ApiError::Internal(response.message))
-        .map(Json)
+    match response.data {
+        Some(session) => {
+            tracing::debug!(session_id = %session.id, "create_listen_session: success");
+            Ok(Json(session))
+        }
+        None => {
+            // check if it's a validation error (invalid_song_ids)
+            let is_validation_error = response
+                .errors
+                .iter()
+                .any(|e| e.error_type == "invalid_song_ids");
+
+            tracing::warn!(
+                message = %response.message,
+                is_validation = is_validation_error,
+                errors = ?response.errors,
+                "create_listen_session: failed"
+            );
+
+            if is_validation_error {
+                Err(ApiError::BadRequest(response.message))
+            } else {
+                Err(ApiError::Internal(response.message))
+            }
+        }
+    }
 }
 
 inventory::submit! {

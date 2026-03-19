@@ -63,6 +63,9 @@ export function getLoadingP2PSongIds(): Set<string> {
 // track in-progress P2P fetches with their promises so callers can await them
 const inProgressP2PFetches = new Map<string, Promise<string>>();
 
+// track abort controllers for cancellable downloads
+const inProgressAbortControllers = new Map<string, AbortController>();
+
 // sync cache of remote transport info - populated on first async lookup
 // allows sync check of whether a remote uses transport-based blob fetching
 interface TransportCacheEntry {
@@ -122,6 +125,7 @@ export type ThumbnailSize = 50 | 200;
  * @param type - the blob type ("audio" or "image") for cache metadata tracking
  * @param onProgress - optional callback for download progress
  * @param thumbnailSize - optional thumbnail size (50 or 200px) - uses original if not specified
+ * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
  * @returns URL string usable in <img src> or <audio src>
  */
 export async function resolveBlobUrl(
@@ -130,6 +134,7 @@ export async function resolveBlobUrl(
   type: "audio" | "image" = "image",
   onProgress?: BlobProgressCallback,
   thumbnailSize?: ThumbnailSize,
+  blake3?: string,
 ): Promise<string> {
   // include thumbnail size in cache key so different sizes are cached separately
   const cacheKey = thumbnailSize 
@@ -164,10 +169,14 @@ export async function resolveBlobUrl(
     const transportType = remote.is_tauri_managed ? "tauri" : "P2P";
     debug("blobResolver", `starting ${transportType} fetch for ${blobId.slice(0, 8)}...`);
     
+    // create AbortController for cancellable downloads
+    const abortController = new AbortController();
+    inProgressAbortControllers.set(cacheKey, abortController);
+    
     // start the fetch and track it
     // note: P2P thumbnail support requires proxy_request - use original blob for now
     // TODO: add P2P thumbnail support via proxy_request to /api/blobs/{id}/thumb/{size}
-    const fetchPromise = resolveP2PBlob(blobId, remote, cacheKey, type, onProgress);
+    const fetchPromise = resolveP2PBlob(blobId, remote, cacheKey, type, onProgress, blake3, abortController.signal);
     inProgressP2PFetches.set(cacheKey, fetchPromise);
     
     try {
@@ -175,6 +184,7 @@ export async function resolveBlobUrl(
       return url;
     } finally {
       inProgressP2PFetches.delete(cacheKey);
+      inProgressAbortControllers.delete(cacheKey);
     }
   } else {
     // HTTP transport - return direct URL (with thumbnail suffix if requested)
@@ -188,6 +198,8 @@ export async function resolveBlobUrl(
  * for P2P: checks Cache API first, then fetches from peer if not cached.
  * for Tauri: uses IPC to get local file path, returns asset:// URL.
  * @param onProgress - optional callback for download progress (received, total)
+ * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+ * @param signal - optional AbortSignal for cancellation
  */
 async function resolveP2PBlob(
   blobId: string,
@@ -195,12 +207,19 @@ async function resolveP2PBlob(
   cacheKey: string,
   type: "audio" | "image",
   onProgress?: BlobProgressCallback,
+  blake3?: string,
+  signal?: AbortSignal,
 ): Promise<string> {
+  // check if already cancelled
+  if (signal?.aborted) {
+    throw new Error("download cancelled");
+  }
+
   // Tauri-managed remotes don't need Cache API - files are local
   if (isTauriAvailable() && remote.is_tauri_managed) {
     debug("blobResolver", `resolving local blob via Tauri IPC: ${blobId.slice(0, 8)}...`);
     const transport = await getTransportForRemote(remote);
-    const url = await transport.getBlobUrl(blobId);
+    const url = await transport.getBlobUrl(blobId, blake3);
     addActiveBlobUrl(cacheKey, url);
     debug("blobResolver", `resolved local blob: ${blobId.slice(0, 8)}... -> ${url.slice(0, 30)}...`);
     return url;
@@ -227,18 +246,35 @@ async function resolveP2PBlob(
     throw new Error(`remote ${remote.remote_id} has no peer_addr for P2P transport`);
   }
 
-  debug("blobResolver", `fetching from peer: ${blobId.slice(0, 8)}...`);
+  debug("blobResolver", `fetching from peer: ${blobId.slice(0, 8)}...${blake3 ? ` (verified: ${blake3.slice(0, 8)}...)` : ""}`);
 
   // get transport - handles wasm/app differences internally
   const transport = await getTransportForRemote(remote);
   
-  // use progress-enabled fetch if callback provided and transport supports it
-  let url: string;
-  if (onProgress && transport.getBlobUrlWithProgress) {
-    url = await transport.getBlobUrlWithProgress(blobId, onProgress);
-  } else {
-    url = await transport.getBlobUrl(blobId);
-  }
+  // create abort promise that rejects when signal fires
+  const abortPromise = signal 
+    ? new Promise<never>((_, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("download cancelled")), { once: true });
+      })
+    : null;
+  
+  // create download promise
+  const downloadPromise = (async () => {
+    // use progress-enabled fetch if callback provided and transport supports it
+    // pass blake3 for verified streaming via iroh-blobs
+    let url: string;
+    if (onProgress && transport.getBlobUrlWithProgress) {
+      url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3);
+    } else {
+      url = await transport.getBlobUrl(blobId, blake3);
+    }
+    return url;
+  })();
+  
+  // race download against abort signal
+  const url = abortPromise 
+    ? await Promise.race([downloadPromise, abortPromise])
+    : await downloadPromise;
 
   // track the URL for cleanup and trigger reactive updates
   addActiveBlobUrl(cacheKey, url);
@@ -266,6 +302,23 @@ export function revokeBlobUrl(blobId: string, remoteId: string, thumbnailSize?: 
     }
     removeActiveBlobUrl(cacheKey);
     debug("blobResolver", `revoked blob URL for ${blobId.slice(0, 8)}...`);
+  }
+}
+
+/**
+ * cancel an in-progress P2P download.
+ * call this when a song is removed from the queue to free network resources.
+ * 
+ * @param blobId - blob ID being downloaded  
+ * @param remoteId - remote ID the download is from
+ */
+export function cancelP2PDownload(blobId: string, remoteId: string): void {
+  const cacheKey = `${remoteId}/${blobId}`;
+  const controller = inProgressAbortControllers.get(cacheKey);
+  if (controller) {
+    debug("blobResolver", `cancelling P2P download: ${blobId.slice(0, 8)}...`);
+    controller.abort();
+    inProgressAbortControllers.delete(cacheKey);
   }
 }
 
@@ -435,12 +488,14 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
 /**
  * pre-cache a P2P blob (fetch in background for later use).
  * tracks loading state and progress for UI feedback.
+ * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs (audio only)
  */
 export async function preCacheP2PBlob(
   blobId: string,
   remoteId: string,
   sha256?: string,
   type: "audio" | "image" = "audio",
+  blake3?: string,
 ): Promise<void> {
   const cacheKey = `${remoteId}/${blobId}`;
   
@@ -479,7 +534,7 @@ export async function preCacheP2PBlob(
   }
   
   try {
-    debug("blobResolver", `pre-caching P2P blob: ${blobId.slice(0, 8)}...`);
+    debug("blobResolver", `pre-caching P2P blob: ${blobId.slice(0, 8)}...${blake3 ? ` (verified)` : ""}`);
     
     // create progress callback if we have sha256 for tracking
     const onProgress: BlobProgressCallback | undefined = 
@@ -492,7 +547,8 @@ export async function preCacheP2PBlob(
         : undefined;
     
     // use resolveBlobUrl which handles in-progress tracking and deduplication
-    await resolveBlobUrl(blobId, remoteId, type, onProgress);
+    // pass blake3 for verified streaming via iroh-blobs
+    await resolveBlobUrl(blobId, remoteId, type, onProgress, undefined, blake3);
     
     debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
   } catch (err) {
@@ -516,6 +572,7 @@ export async function preCacheNextP2PSongs(
     duration_seconds: number;
     source_type: string;
     remote_server_id: string | null;
+    blake3?: string | null; // for iroh-blobs verified streaming
     images?: Array<{
       remote_blob_id?: string;
       remote_server_id?: string;
@@ -537,6 +594,7 @@ export async function preCacheNextP2PSongs(
   const songsToCache: Array<{ 
     sha256: string; 
     remoteId: string;
+    blake3?: string; // for iroh-blobs verified streaming
     waveformBlobId?: string;
     waveformRemoteId?: string;
     thumbnailBlobId?: string;
@@ -602,6 +660,7 @@ export async function preCacheNextP2PSongs(
     songsToCache.push({
       sha256: song.sha256,
       remoteId: song.remote_server_id,
+      blake3: song.blake3 ?? undefined, // for iroh-blobs verified streaming
       waveformBlobId,
       waveformRemoteId,
       thumbnailBlobId,
@@ -628,8 +687,8 @@ export async function preCacheNextP2PSongs(
   // this prevents the "none of the queue items play" issue
   const [firstSong, ...restSongs] = songsToCache;
   try {
-    await preCacheP2PBlob(firstSong.sha256, firstSong.remoteId, firstSong.sha256);
-    debug("blobResolver", `first P2P song pre-cached: ${firstSong.sha256.slice(0, 8)}...`);
+    await preCacheP2PBlob(firstSong.sha256, firstSong.remoteId, firstSong.sha256, "audio", firstSong.blake3);
+    debug("blobResolver", `first P2P song pre-cached: ${firstSong.sha256.slice(0, 8)}...${firstSong.blake3 ? " (verified)" : ""}`);
     // also pre-cache first song's waveform and thumbnail (awaited for immediate display)
     if (firstSong.waveformBlobId && firstSong.waveformRemoteId) {
       debug("blobResolver", `pre-caching first song waveform: ${firstSong.waveformBlobId.slice(0, 8)}...`);
@@ -645,7 +704,7 @@ export async function preCacheNextP2PSongs(
   
   // fire off the rest in parallel (fire and forget) - audio, waveform, and thumbnail images
   for (const song of restSongs) {
-    void preCacheP2PBlob(song.sha256, song.remoteId, song.sha256);
+    void preCacheP2PBlob(song.sha256, song.remoteId, song.sha256, "audio", song.blake3);
     if (song.waveformBlobId && song.waveformRemoteId) {
       void preCacheP2PBlob(song.waveformBlobId, song.waveformRemoteId, undefined, "image");
     }

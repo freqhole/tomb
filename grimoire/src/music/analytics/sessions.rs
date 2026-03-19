@@ -162,8 +162,15 @@ pub struct ListListenSessionsResponse {
 /// uses json_each() so the query works with a single bind parameter and the query! macro.
 async fn validate_song_ids(pool: &SqlitePool, song_ids: &[String]) -> Vec<String> {
     if song_ids.is_empty() {
+        tracing::debug!("validate_song_ids: empty input");
         return vec![];
     }
+
+    tracing::debug!(
+        count = song_ids.len(),
+        first_id = ?song_ids.first(),
+        "validate_song_ids: checking IDs"
+    );
 
     let song_ids_json = serde_json::to_string(song_ids).unwrap_or_else(|_| "[]".to_string());
 
@@ -180,6 +187,11 @@ async fn validate_song_ids(pool: &SqlitePool, song_ids: &[String]) -> Vec<String
 
     match valid_ids {
         Ok(ids) => {
+            tracing::debug!(
+                input_count = song_ids.len(),
+                valid_count = ids.len(),
+                "validate_song_ids: found valid IDs"
+            );
             // preserve original ordering
             let valid_set: std::collections::HashSet<String> = ids.into_iter().collect();
             song_ids
@@ -189,7 +201,7 @@ async fn validate_song_ids(pool: &SqlitePool, song_ids: &[String]) -> Vec<String
                 .collect()
         }
         Err(e) => {
-            eprintln!("failed to validate song_ids: {e}");
+            tracing::warn!(error = %e, "validate_song_ids: DB query failed");
             // on error, keep the original IDs rather than losing data
             song_ids.to_vec()
         }
@@ -215,7 +227,17 @@ pub async fn create_listen_session(
     // validate song_ids — only keep IDs that exist on this server
     let validated_song_ids = validate_song_ids(&pool, &req.song_ids).await;
     if validated_song_ids.is_empty() {
-        return GrimoireResponse::failure("no valid song IDs found on this server", vec![]);
+        return GrimoireResponse::failure(
+            "no valid song IDs found on this server",
+            vec![crate::error::ErrorDetail::new(
+                "invalid_song_ids",
+                "invalid song IDs",
+                &format!(
+                    "none of the {} provided song IDs exist on this server",
+                    req.song_ids.len()
+                ),
+            )],
+        );
     }
 
     let song_ids_json =

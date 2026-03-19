@@ -14,6 +14,7 @@
 use clap::{Parser, Subcommand};
 
 mod analytics;
+mod blobz;
 mod config;
 mod database;
 mod dir_tags;
@@ -27,6 +28,7 @@ mod wordlist;
 
 // Re-export action enums for use in main CLI
 pub use analytics::AnalyticsAction;
+pub use blobz::BlobzAction;
 pub use config::ConfigAction;
 pub use database::DatabaseAction;
 pub use dir_tags::DirTagsAction;
@@ -126,6 +128,14 @@ pub enum Commands {
         #[arg(long, global = true)]
         json_output: bool,
     },
+    /// Blob operations (blake3 hashes for P2P streaming)
+    Blobz {
+        #[command(subcommand)]
+        action: BlobzAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
+    },
 }
 
 // Public handler functions for use in main.rs
@@ -196,6 +206,12 @@ pub async fn handle_dir_tags(action: DirTagsAction, json_output: bool) -> anyhow
 pub async fn handle_federation(action: FederationAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = federation::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_blobz(action: BlobzAction, json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = blobz::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
 

@@ -4,11 +4,26 @@
 
 use crate::blob_data::{self, find_existing_thumbnail};
 use crate::error::ErrorDetail;
-use crate::media_blobz::get_media_blob;
+use crate::media_blobz::{get_media_blob, get_media_blob_by_sha256, MediaBlob};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use base64::Engine;
 use serde_json::Value as JsonValue;
+
+/// resolve blob by id or sha256 (auto-detect based on length)
+///
+/// sha256 hashes are 64 hex chars, blob IDs are shorter.
+/// this allows clients to use either identifier.
+async fn resolve_blob(id_or_sha256: &str) -> Result<MediaBlob, crate::error::GrimoireError> {
+    // sha256 is exactly 64 hex chars
+    if id_or_sha256.len() == 64 && id_or_sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        tracing::debug!(sha256 = %id_or_sha256, "resolve_blob: looking up by sha256");
+        get_media_blob_by_sha256(id_or_sha256).await
+    } else {
+        tracing::debug!(id = %id_or_sha256, "resolve_blob: looking up by id");
+        get_media_blob(id_or_sha256).await
+    }
+}
 
 /// dispatch media blob routes
 ///
@@ -55,12 +70,14 @@ pub async fn dispatch(
 /// get blob metadata
 ///
 /// path: GET /api/blobs/{id}/metadata
+///
+/// accepts blob ID or sha256 hash (auto-detected by length)
 pub async fn get_metadata(
     _caller: &Caller,
     id: &str,
     _body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    match get_media_blob(id).await {
+    match resolve_blob(id).await {
         Ok(blob) => GrimoireResponse::success("blob metadata", serde_json::to_value(blob).unwrap()),
         Err(e) => {
             GrimoireResponse::failure("failed to get blob metadata", vec![ErrorDetail::from(e)])
@@ -75,18 +92,22 @@ pub async fn get_metadata(
 /// returns the local filesystem path for a blob, enabling native apps
 /// to load files directly via convertFileSrc() or similar mechanisms
 pub async fn get_path(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    match get_media_blob(id).await {
+    tracing::debug!(id_or_sha256 = %id, len = id.len(), "offal: get_path");
+
+    match resolve_blob(id).await {
         Ok(blob) => {
             if let Some(path) = blob.local_path {
+                tracing::debug!(blob_id = %blob.id, path = %path, "offal: get_path: success");
                 GrimoireResponse::success(
                     "blob path",
                     serde_json::json!({
-                        "id": id,
+                        "id": blob.id,
                         "path": path,
                         "mime": blob.mime,
                     }),
                 )
             } else {
+                tracing::debug!(blob_id = %blob.id, "offal: get_path: no local path");
                 GrimoireResponse::failure(
                     "blob has no local path",
                     vec![ErrorDetail::new(
@@ -97,7 +118,10 @@ pub async fn get_path(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireR
                 )
             }
         }
-        Err(e) => GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)]),
+        Err(e) => {
+            tracing::warn!(id_or_sha256 = %id, error = %e, "offal: get_path: blob not found");
+            GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)])
+        }
     }
 }
 
@@ -105,17 +129,18 @@ pub async fn get_path(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireR
 ///
 /// path: GET /api/blobs/{id}/data
 ///
+/// accepts blob ID or sha256 hash (auto-detected by length).
 /// returns base64-encoded blob data + mime type for blobs stored in the database.
 /// Tauri apps use this as a fallback when the blob has no local filesystem path.
 pub async fn get_data(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    // first get metadata for mime type
-    let blob = match get_media_blob(id).await {
+    // first get metadata for mime type (and actual blob ID if sha256 was passed)
+    let blob = match resolve_blob(id).await {
         Ok(b) => b,
         Err(e) => return GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)]),
     };
 
-    // get binary data from blob_data table
-    let data_response = blob_data::get_blob_data(id).await;
+    // get binary data from blob_data table (use actual blob ID, not sha256)
+    let data_response = blob_data::get_blob_data(&blob.id).await;
     if !data_response.success {
         return GrimoireResponse::failure(
             "failed to get blob data",
@@ -147,7 +172,7 @@ pub async fn get_data(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireR
     GrimoireResponse::success(
         "blob data",
         serde_json::json!({
-            "id": id,
+            "id": blob.id,
             "mime": blob.mime,
             "data": base64_data,
         }),
@@ -158,6 +183,7 @@ pub async fn get_data(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireR
 ///
 /// path: GET /api/blobs/{id}/thumb/{size}
 ///
+/// accepts blob ID or sha256 hash (auto-detected by length).
 /// returns thumbnail path if available, or original blob path
 pub async fn get_thumbnail(
     _caller: &Caller,
@@ -168,8 +194,20 @@ pub async fn get_thumbnail(
     // parse size as u32
     let target_size: u32 = size.parse().unwrap_or(200);
 
+    // resolve sha256 to blob ID if needed
+    let blob_id = if id.len() == 64 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+        match resolve_blob(id).await {
+            Ok(blob) => blob.id,
+            Err(e) => {
+                return GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)])
+            }
+        }
+    } else {
+        id.to_string()
+    };
+
     // try to find a thumbnail of the requested size for this blob
-    match find_existing_thumbnail(id, target_size).await {
+    match find_existing_thumbnail(&blob_id, target_size).await {
         Some(thumb) => {
             if let Some(path) = thumb.local_path {
                 GrimoireResponse::success(
@@ -204,15 +242,16 @@ pub async fn get_thumbnail(
 ///
 /// path: GET /api/blobs/{id}
 ///
+/// accepts blob ID or sha256 hash (auto-detected by length).
 /// for Tauri/native apps, returns file path instead of streaming bytes
 pub async fn get_blob(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    match get_media_blob(id).await {
+    match resolve_blob(id).await {
         Ok(blob) => {
             if let Some(path) = &blob.local_path {
                 GrimoireResponse::success(
                     "blob",
                     serde_json::json!({
-                        "id": id,
+                        "id": blob.id,
                         "path": path,
                         "mime": blob.mime,
                         "size": blob.size,
@@ -224,7 +263,7 @@ pub async fn get_blob(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireR
                 GrimoireResponse::success(
                     "blob (no local path)",
                     serde_json::json!({
-                        "id": id,
+                        "id": blob.id,
                         "mime": blob.mime,
                         "size": blob.size,
                         "filename": blob.filename,

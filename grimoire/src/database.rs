@@ -82,6 +82,16 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
     .execute(&blob_pool)
     .await?;
 
+    // create freqhole-blobz directory for iroh-blobs FsStore
+    let config = get_config();
+    let blobz_path = config.freqhole_blobz_path();
+    if !blobz_path.exists() {
+        std::fs::create_dir_all(&blobz_path).map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to create freqhole-blobz directory: {}", e),
+        })?;
+        tracing::info!("created freqhole-blobz directory: {}", blobz_path.display());
+    }
+
     Ok(())
 }
 

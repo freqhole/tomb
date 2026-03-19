@@ -6,6 +6,7 @@ use std::time::Instant;
 use super::user_prefs;
 use crate::database;
 
+use crate::media_blobz::{BlobType, MediaBlob};
 use crate::music::crud::models::{
     AlbumQueryResult, ArtistQueryResult, EntityUrl, GenreQueryResult, ImageMetadata, QueryParams,
     QueryResult, SongQueryResult,
@@ -121,6 +122,10 @@ enum CommonColumns {
 pub struct SongViewRow {
     song_id: String,
     song_media_blob_id: String,
+    // media blob fields for P2P verified streaming
+    media_blob_sha256: Option<String>,
+    media_blob_blake3: Option<String>,
+    media_blob_mime: Option<String>,
     song_images: Option<String>, // JSON array from view
     song_urls: Option<String>,   // JSON array of entity URLs from view
     song_title: String,
@@ -221,6 +226,9 @@ impl SongViewRow {
             .artist_images
             .and_then(|json_str| serde_json::from_str::<Vec<ImageMetadata>>(&json_str).ok())
             .map(crate::JsonVec);
+
+        // clone media_blob_id before it's moved into song
+        let media_blob_id = self.song_media_blob_id.clone();
 
         let song = Song {
             id: self.song_id,
@@ -325,12 +333,35 @@ impl SongViewRow {
             None
         };
 
+        // construct media_blob from view fields (for P2P verified streaming)
+        let media_blob = self.media_blob_sha256.map(|sha256| MediaBlob {
+            id: media_blob_id.clone(),
+            sha256,
+            size: None,
+            mime: self.media_blob_mime,
+            source_client_id: None,
+            local_path: None,
+            filename: None,
+            parent_blob_id: None,
+            blob_type: BlobType::Original,
+            metadata: serde_json::Value::Null,
+            created_at: 0,
+            updated_at: 0,
+            deleted_at: None,
+            deleted_by: None,
+            created_by: None,
+            updated_by: None,
+            width: None,
+            height: None,
+            blake3: self.media_blob_blake3,
+        });
+
         SongQueryResult {
             song,
             artist,
             album,
             genre: None,
-            media_blob: None,
+            media_blob,
             images,
             relevance_score: None,
             snippet: None,

@@ -111,6 +111,7 @@ export interface Song {
   // remote files: server info
   remote_server_id: string | null;
   remote_sha256: string | null; // server's song.id
+  blake3: string | null; // blake3 hash for iroh-blobs verified streaming
 
   // local tracking
   added_at: number;

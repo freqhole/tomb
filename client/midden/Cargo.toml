@@ -9,9 +9,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = "1"
+bytes = "1.10"
 console_error_panic_hook = "0.1.7"
 getrandom = { version = "0.2", features = ["js"] }
-iroh = "0.96"
+iroh = { version = "0.97", default-features = false }
+iroh-blobs = { version = "0.99", default-features = false }
 js-sys = "0.3"
 n0-future = "0.3"
 serde = { version = "1", features = ["derive"] }

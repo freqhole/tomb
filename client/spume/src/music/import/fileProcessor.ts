@@ -179,6 +179,7 @@ export async function processMusicFile(
     downloaded_at: null,
     remote_server_id: null,
     remote_sha256: null,
+    blake3: null, // not available for local files
 
     added_at: now,
   };

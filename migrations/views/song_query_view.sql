@@ -12,6 +12,12 @@ SELECT
         (SELECT media_blob_id FROM album_imagez WHERE album_id = al.id AND is_primary = 1 LIMIT 1),
         (SELECT media_blob_id FROM artist_imagez WHERE artist_id = ar.id AND is_primary = 1 LIMIT 1)
     ) as song_thumbnail_blob_id,
+
+    -- media blob fields (for P2P verified streaming via iroh-blobs)
+    mb.sha256 as media_blob_sha256,
+    mb.blake3 as media_blob_blake3,
+    mb.mime as media_blob_mime,
+
     s.title as song_title,
     s.track_number as song_track_number,
     s.disc_number as song_disc_number,
@@ -133,6 +139,7 @@ SELECT
     NULL as album_rating_created_at
 
 FROM songz s
+LEFT JOIN media_blobz mb ON s.media_blob_id = mb.id
 LEFT JOIN artist_songz ars ON s.id = ars.song_id
 LEFT JOIN artistz ar ON ars.artist_id = ar.id AND ar.deleted_at IS NULL
 LEFT JOIN album_songz als ON s.id = als.song_id

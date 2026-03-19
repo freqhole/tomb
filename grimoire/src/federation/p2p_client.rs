@@ -6,10 +6,17 @@
 //! - server routes for HTTP-based P2P proxy
 //!
 //! the endpoint must be initialized via `set_federation_endpoint()` before use.
+//!
+//! supports two blob fetching methods:
+//! - `fetch_blob`: old protocol (freqhole/1) - streams via custom protocol
+//! - `fetch_blob_verified`: iroh-blobs protocol - blake3 verified streaming
 
 use std::sync::{Arc, Mutex};
 
 use iroh::{Endpoint, EndpointAddr, PublicKey};
+use iroh_blobs::api::downloader::Downloader;
+use iroh_blobs::api::Store;
+use iroh_blobs::{Hash, HashAndFormat};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
@@ -18,6 +25,15 @@ use crate::federation::transport::{PeerConnection, FREQHOLE_ALPN};
 
 /// global federation endpoint for P2P client operations
 static FEDERATION_ENDPOINT: Mutex<Option<Arc<Endpoint>>> = Mutex::new(None);
+
+/// iroh-blobs store and downloader for verified blob fetching
+static BLOBS_STATE: Mutex<Option<BlobsState>> = Mutex::new(None);
+
+/// state for iroh-blobs verified downloads
+struct BlobsState {
+    store: Store,
+    downloader: Downloader,
+}
 
 /// response from a P2P proxy request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,17 +63,40 @@ pub struct P2pUploadResult {
 ///
 /// call this after creating the federation endpoint in the server.
 /// can be called multiple times (e.g., after restart).
+/// also initializes the iroh-blobs downloader for verified blob fetching.
 pub fn set_federation_endpoint(endpoint: &Endpoint) {
-    let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
-    *guard = Some(Arc::new(endpoint.clone()));
-    info!("P2P client endpoint initialized");
+    // set endpoint
+    {
+        let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
+        *guard = Some(Arc::new(endpoint.clone()));
+    }
+
+    // initialize iroh-blobs downloader with MemStore (no persistence on client)
+    // blobs are returned to JS which caches in Cache API
+    let mem_store = iroh_blobs::store::mem::MemStore::default();
+    let downloader = Downloader::new(&mem_store, endpoint);
+    let store = mem_store.as_ref().clone();
+
+    {
+        let mut guard = BLOBS_STATE.lock().unwrap();
+        *guard = Some(BlobsState { store, downloader });
+    }
+
+    info!("P2P client endpoint and blobs downloader initialized");
 }
 
 /// clear and close the federation endpoint
 ///
 /// actually closes the iroh endpoint (which stops the accept loop),
 /// then clears the global so a new one can be created.
+/// also clears the iroh-blobs downloader state.
 pub async fn clear_federation_endpoint() {
+    // clear blobs state first
+    {
+        let mut guard = BLOBS_STATE.lock().unwrap();
+        *guard = None;
+    }
+
     // take the endpoint out of the global while holding the lock briefly
     let endpoint = {
         let mut guard = FEDERATION_ENDPOINT.lock().unwrap();
@@ -207,6 +246,233 @@ pub async fn fetch_blob(peer_addr: &str, blob_id: &str) -> GrimoireResult<P2pBlo
         content_type: info.content_type,
         size: info.size,
     })
+}
+
+/// fetch a blob from a remote peer using iroh-blobs verified streaming
+///
+/// uses blake3 content hash for cryptographic verification.
+/// returns error if hash not found, verification fails, or connection fails.
+///
+/// blake3_hash: the blake3 hash of the blob (64 hex chars)
+pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> GrimoireResult<Vec<u8>> {
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16];
+    let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
+
+    info!(
+        "fetching verified blob {} from {}",
+        hash_short, node_id_short
+    );
+
+    // get blobs state (downloader + store)
+    let (downloader, store) = {
+        let guard = BLOBS_STATE.lock().unwrap();
+        let state = guard.as_ref().ok_or_else(|| GrimoireError::FederationApiError {
+            message: "blobs downloader not initialized".to_string(),
+        })?;
+        (state.downloader.clone(), state.store.clone())
+    };
+
+    // parse blake3 hash
+    let hash: Hash = blake3_hash
+        .parse()
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("invalid blake3 hash: {}", e),
+        })?;
+
+    // create hash_and_format for download
+    let hash_and_format = HashAndFormat::raw(hash);
+
+    // download the blob using iroh-blobs protocol
+    use futures_util::StreamExt;
+    use iroh_blobs::api::downloader::DownloadProgressItem;
+
+    let progress = downloader.download(hash_and_format, [addr.id]);
+    let mut stream = progress.stream().await.map_err(|e| {
+        GrimoireError::FederationApiError {
+            message: format!("download stream failed: {}", e),
+        }
+    })?;
+
+    // consume progress stream, check for errors
+    let mut had_error = false;
+    let mut last_error: Option<String> = None;
+
+    while let Some(event) = stream.next().await {
+        match event {
+            DownloadProgressItem::Error(e) => {
+                had_error = true;
+                last_error = Some(format!("{:?}", e));
+            }
+            DownloadProgressItem::DownloadError => {
+                had_error = true;
+                last_error = Some("download error".to_string());
+            }
+            DownloadProgressItem::PartComplete { .. } => {
+                debug!("iroh-blobs: part complete for {}", hash_short);
+            }
+            _ => {}
+        }
+    }
+
+    if had_error {
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "verified download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            ),
+        });
+    }
+
+    // read the blob from store
+    let bytes = store.get_bytes(hash).await.map_err(|e| {
+        GrimoireError::FederationApiError {
+            message: format!("failed to read blob from store: {}", e),
+        }
+    })?;
+
+    info!(
+        "received {} verified bytes for blob {} from {}",
+        bytes.len(),
+        hash_short,
+        node_id_short
+    );
+
+    Ok(bytes.to_vec())
+}
+
+/// ensure a blob is loaded into a remote peer's FsStore
+///
+/// calls the peer's ensure_blob endpoint which looks up the file by blake3 hash
+/// and adds it to FsStore for verified streaming. use this before retrying
+/// iroh-blobs download if the first attempt fails.
+///
+/// returns true if blob is now available, false if not found.
+pub async fn ensure_blob(peer_addr: &str, blake3_hash: &str) -> GrimoireResult<bool> {
+    let endpoint = get_endpoint()?;
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16];
+    let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
+
+    debug!(
+        "ensuring blob {} is in FsStore on {}",
+        hash_short, node_id_short
+    );
+
+    let conn = connect_to_peer(&endpoint, &addr).await?;
+    let available = conn.ensure_blob(blake3_hash).await?;
+
+    if available {
+        info!(
+            "ensure_blob: {} now available on {}",
+            hash_short, node_id_short
+        );
+    } else {
+        debug!(
+            "ensure_blob: {} not found on {}",
+            hash_short, node_id_short
+        );
+    }
+
+    Ok(available)
+}
+
+/// compute blake3 hash for a blob on demand
+///
+/// use this when the client doesn't have the blake3 hash yet (not in API response).
+/// the server will compute the hash, save it to the database, and add the file
+/// to FsStore for verified streaming.
+///
+/// returns Some(blake3_hash) if successful, None if blob not found.
+pub async fn compute_blake3(peer_addr: &str, blob_id: &str) -> GrimoireResult<Option<String>> {
+    let endpoint = get_endpoint()?;
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16];
+    let blob_id_short = &blob_id[..16.min(blob_id.len())];
+
+    debug!(
+        "computing blake3 for {} on {}",
+        blob_id_short, node_id_short
+    );
+
+    let conn = connect_to_peer(&endpoint, &addr).await?;
+    let blake3 = conn.compute_blake3(blob_id).await?;
+
+    if let Some(ref hash) = blake3 {
+        info!(
+            "compute_blake3: {} -> {} on {}",
+            blob_id_short,
+            &hash[..16],
+            node_id_short
+        );
+    } else {
+        debug!(
+            "compute_blake3: {} not found on {}",
+            blob_id_short, node_id_short
+        );
+    }
+
+    Ok(blake3)
+}
+
+/// fetch a blob using verified streaming with on-demand loading
+///
+/// tries iroh-blobs first. if blob not in FsStore, calls ensure_blob
+/// to load it, then retries. this handles blobs that haven't been
+/// backfilled to FsStore yet.
+///
+/// timeout: max time to wait for ensure + retry (suggested: 5 seconds)
+pub async fn fetch_blob_verified_with_ensure(
+    peer_addr: &str,
+    blake3_hash: &str,
+) -> GrimoireResult<Vec<u8>> {
+    // first attempt - might fail if blob not in FsStore
+    match fetch_blob_verified(peer_addr, blake3_hash).await {
+        Ok(data) => return Ok(data),
+        Err(e) => {
+            let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
+            debug!(
+                "verified download failed for {}, trying ensure: {}",
+                hash_short, e
+            );
+        }
+    }
+
+    // ensure blob is loaded into FsStore
+    let available = ensure_blob(peer_addr, blake3_hash).await?;
+    if !available {
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            ),
+        });
+    }
+
+    // retry verified download
+    fetch_blob_verified(peer_addr, blake3_hash).await
+}
+
+/// fetch a blob by blob_id using verified streaming with on-demand blake3 computation
+///
+/// use this when the client doesn't have the blake3 hash yet (not in API response).
+/// computes blake3 on demand via the server, then uses verified streaming.
+///
+/// returns the blob data and the computed blake3 hash (for caching).
+pub async fn fetch_blob_verified_by_id(peer_addr: &str, blob_id: &str) -> GrimoireResult<(Vec<u8>, String)> {
+    let blob_id_short = &blob_id[..16.min(blob_id.len())];
+    
+    // compute blake3 on demand
+    let blake3 = compute_blake3(peer_addr, blob_id).await?.ok_or_else(|| {
+        GrimoireError::FederationApiError {
+            message: format!("blob {} not found on peer", blob_id_short),
+        }
+    })?;
+    
+    // now use verified streaming
+    let data = fetch_blob_verified_with_ensure(peer_addr, &blake3).await?;
+    
+    Ok((data, blake3))
 }
 
 /// fetch server image from a remote peer (public, no auth required)

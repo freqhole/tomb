@@ -250,6 +250,7 @@ pub async fn generate_sized_thumbnails(
             data: Some(webp_data.into()),
             width: Some(size as i64),
             height: Some(size as i64),
+            blake3: None, // not needed for thumbnails
         };
 
         match media_blobz::create_media_blob(request).await {
@@ -308,7 +309,8 @@ pub async fn find_existing_thumbnail(parent_blob_id: &str, width: u32) -> Option
             created_by,
             updated_by,
             width,
-            height
+            height,
+            blake3
          FROM media_blobz
          WHERE parent_blob_id = ?
            AND blob_type = 'thumbnail'
@@ -390,7 +392,8 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
             b.created_by,
             b.updated_by,
             b.width,
-            b.height
+            b.height,
+            b.blake3
          FROM media_blobz b
          WHERE b.blob_type IN ('original', 'waveform')
            AND b.mime LIKE 'image/%'

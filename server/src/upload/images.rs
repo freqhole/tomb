@@ -156,6 +156,7 @@ pub async fn upload_image_handler(
         data: Some(Bytes::from(data)),
         width: None,
         height: None,
+        blake3: None, // not needed for images
     })
     .await
     .map_err(|e| ApiError::Internal(format!("failed to create blob: {}", e)))?;

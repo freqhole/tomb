@@ -186,7 +186,7 @@ export class TauriLocalTransport implements Transport {
    * fetch blob - get file path via IPC, convert to asset URL, fetch via browser
    * falls back to /api/blobs/{id}/data for db-stored blobs without local paths
    */
-  async fetchBlob(blobId: string): Promise<BlobData> {
+  async fetchBlob(blobId: string, _blake3?: string): Promise<BlobData> {
     await ensureInvoke();
 
     // check if we have a cached object URL (db-stored blob)
@@ -277,7 +277,7 @@ export class TauriLocalTransport implements Transport {
    * get blob URL - returns Tauri asset:// URL for direct <audio>/<img> src usage
    * for db-stored blobs, returns object URL from cached data
    */
-  getBlobUrl(blobId: string): string | Promise<string> {
+  getBlobUrl(blobId: string, _blake3?: string): string | Promise<string> {
     // check object URL cache first (db-stored blobs)
     const cachedObjectUrl = this.blobObjectUrlCache.get(blobId);
     if (cachedObjectUrl) {

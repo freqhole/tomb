@@ -44,23 +44,30 @@ export interface Transport {
   /**
    * fetch a blob by ID
    * @param blobId - the blob ID to fetch
+   * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    * @returns blob data with content type
    */
-  fetchBlob(blobId: string): Promise<BlobData>;
+  fetchBlob(blobId: string, blake3?: string): Promise<BlobData>;
 
   /**
    * get a URL for a blob (for <audio>/<img> src)
    * HTTP transport returns direct URL, P2P transports may need caching
+   * @param blobId - the blob ID to fetch
+   * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    */
-  getBlobUrl(blobId: string): string | Promise<string>;
+  getBlobUrl(blobId: string, blake3?: string): string | Promise<string>;
 
   /**
    * get a URL for a blob with progress callback (optional).
    * only implemented by transports that support streaming progress (WasmTransport).
+   * @param blobId - the blob ID to fetch
+   * @param onProgress - callback with (received, total) bytes
+   * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    */
   getBlobUrlWithProgress?(
     blobId: string,
     onProgress: (received: number, total: number) => void,
+    blake3?: string,
   ): Promise<string>;
 
   /**
@@ -154,7 +161,7 @@ export class HttpTransport implements Transport {
     };
   }
 
-  async fetchBlob(blobId: string): Promise<BlobData> {
+  async fetchBlob(blobId: string, _blake3?: string): Promise<BlobData> {
     const url = `${this.baseUrl}/api/blobs/${blobId}`;
     const headers: Record<string, string> = {};
 
@@ -177,7 +184,7 @@ export class HttpTransport implements Transport {
     return { data, contentType };
   }
 
-  getBlobUrl(blobId: string): string {
+  getBlobUrl(blobId: string, _blake3?: string): string {
     return `${this.baseUrl}/api/blobs/${blobId}`;
   }
 }

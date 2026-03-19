@@ -358,7 +358,8 @@ export const BlobMetadataResponseSchema = z.object({
   size: z.number().nullable(),
   mime: z.string().nullable(),
   filename: z.string().nullable(),
-  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  blake3: z.string().nullable()
 });
 export type BlobMetadataResponse = z.infer<typeof BlobMetadataResponseSchema>;
 
@@ -758,7 +759,8 @@ export const FavoriteSongResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable(),
   width: z.number().nullable(),
-  height: z.number().nullable()
+  height: z.number().nullable(),
+  blake3: z.string().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1440,7 +1442,8 @@ export const MediaBlobSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable(),
   width: z.number().nullable(),
-  height: z.number().nullable()
+  height: z.number().nullable(),
+  blake3: z.string().nullable()
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
@@ -1678,7 +1681,8 @@ export const PlaylistSongResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable(),
   width: z.number().nullable(),
-  height: z.number().nullable()
+  height: z.number().nullable(),
+  blake3: z.string().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1810,7 +1814,8 @@ export const PlaylistSongsQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable(),
   width: z.number().nullable(),
-  height: z.number().nullable()
+  height: z.number().nullable(),
+  blake3: z.string().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1881,7 +1886,8 @@ export type PlaylistsQueryResult = z.infer<typeof PlaylistsQueryResultSchema>;
 
 export const ProcessKnockRequestSchema = z.object({
   username: z.string().nullable(),
-  role: z.string()
+  role: z.string(),
+  user_id: z.string().nullable()
 });
 export type ProcessKnockRequest = z.infer<typeof ProcessKnockRequestSchema>;
 
@@ -2334,7 +2340,8 @@ export const SongQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable(),
   width: z.number().nullable(),
-  height: z.number().nullable()
+  height: z.number().nullable(),
+  blake3: z.string().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -2484,7 +2491,8 @@ export const SongsQueryResultSchema = z.object({
   created_by: z.string().nullable(),
   updated_by: z.string().nullable(),
   width: z.number().nullable(),
-  height: z.number().nullable()
+  height: z.number().nullable(),
+  blake3: z.string().nullable()
 }).nullable(),
   images: z.array(z.object({
   blob_id: z.string(),
