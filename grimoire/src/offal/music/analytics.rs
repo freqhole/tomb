@@ -37,7 +37,7 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                     "bad request",
                     &e.to_string(),
                 )],
-            )
+            );
         }
     };
 
