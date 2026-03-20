@@ -2733,6 +2733,8 @@ export const UpdateSongsRequestSchema = z.object({
   album_id: z.string().nullable(),
   album_title: z.string().nullable(),
   album_type: z.string().nullable(),
+  populate_track_artist: z.boolean().nullable(),
+  aggregate_album_images: z.boolean().nullable(),
   release_date: z.string().nullable(),
   label: z.string().nullable(),
   genre: z.string().nullable(),

@@ -400,6 +400,9 @@ interface UpdateSongsMutationParams {
   artist_id?: string;
   album?: string;
   album_id?: string;
+  album_type?: string;
+  populate_track_artist?: boolean;
+  aggregate_album_images?: boolean;
   genre?: string;
   genre_id?: string;
   year?: number;

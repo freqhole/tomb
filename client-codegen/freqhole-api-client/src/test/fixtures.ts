@@ -91,6 +91,8 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
   album_id: null,
   album_title: null,
   album_type: null,
+  populate_track_artist: null,
+  aggregate_album_images: null,
   release_date: null,
   label: null,
   genre: null,

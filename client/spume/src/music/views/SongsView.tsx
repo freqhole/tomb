@@ -1,7 +1,7 @@
 // songs view - optimized with virtualization and infinite scroll
 
 import { useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
@@ -447,17 +447,20 @@ export function SongsView(props: SongsViewProps) {
         )}
       </div>
 
-      {/* bulk edit modal */}
-      <BulkEditSongsModal
-        isOpen={showBulkEditModal()}
-        onClose={() => setShowBulkEditModal(false)}
-        songIds={Array.from(getSelectedSongIds())}
-        mode={bulkEditMode()}
-        onSuccess={() => {
-          clearSelection();
-          songsQuery.refetch();
-        }}
-      />
+      {/* bulk edit modal - wrapped in Show so it unmounts/remounts fresh */}
+      <Show when={showBulkEditModal()}>
+        <BulkEditSongsModal
+          isOpen={true}
+          onClose={() => setShowBulkEditModal(false)}
+          songIds={Array.from(getSelectedSongIds())}
+          songs={allSongs().filter((s) => getSelectedSongIds().has(s.id))}
+          mode={bulkEditMode()}
+          onSuccess={() => {
+            clearSelection();
+            songsQuery.refetch();
+          }}
+        />
+      </Show>
     </div>
   );
 }

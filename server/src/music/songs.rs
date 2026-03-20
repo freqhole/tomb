@@ -173,8 +173,6 @@ pub async fn update_songs_handler(
     State(_state): State<AppState>,
     Json(mut request): Json<UpdateSongsRequest>,
 ) -> Result<Json<GrimoireResponse<UpdateSongsResult>>, ApiError> {
-    tracing::debug!("update_songs: song_ids={:?}", request.song_ids);
-
     // Normalize the request (handles conflicts between different update fields)
     request = request.normalize();
 
@@ -247,10 +245,7 @@ pub async fn bulk_clear_song_artwork_handler(
 ) -> Result<Json<BulkClearSongArtworkResponse>, ApiError> {
     check_role(&user, UserRole::Admin)?;
 
-    tracing::debug!(
-        "bulk_clear_song_artwork: count={}",
-        request.song_ids.len()
-    );
+    tracing::debug!("bulk_clear_song_artwork: count={}", request.song_ids.len());
 
     let response = bulk_clear_song_artwork(request.song_ids).await;
     Ok(Json(response))

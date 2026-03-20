@@ -1058,6 +1058,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
     artist_id?: string | null;
     album?: string | null;
     album_id?: string | null;
+    album_type?: string | null;
+    populate_track_artist?: boolean;
+    aggregate_album_images?: boolean;
     genre?: string | null;
     genre_id?: string | null;
     track_number?: number | null;
@@ -1080,6 +1083,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
       artist_name: params.artist,        // name fallback
       album_id: params.album_id,         // direct ID (preferred)
       album_title: params.album,         // name fallback
+      album_type: params.album_type,
+      populate_track_artist: params.populate_track_artist,
+      aggregate_album_images: params.aggregate_album_images,
       track_number: params.track_number,
       disc_number: params.disc_number,
       year: params.year,

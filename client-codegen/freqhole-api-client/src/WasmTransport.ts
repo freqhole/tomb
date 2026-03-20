@@ -60,6 +60,8 @@ export interface MiddenNodeLike {
     peer_addr: string,
     blake3_hash: string,
   ): Promise<Uint8Array>;
+  // download blob by ID with on-demand blake3 computation - optional
+  download_verified_by_id?(peer_addr: string, blob_id: string): Promise<[Uint8Array, string]>;
 }
 
 /**
@@ -241,7 +243,7 @@ export class WasmTransport implements Transport {
       try {
         const result = await this.node.download_verified_by_id(this.peerAddr, blobId);
         const data = result[0] as Uint8Array;
-        const blake3Hash = result[1] as string;
+        // result[1] is the computed blake3 hash - could be cached for future verified downloads
         const contentType = "audio/mpeg";
 
         // cache for future use

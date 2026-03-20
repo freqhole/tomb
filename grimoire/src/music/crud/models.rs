@@ -460,6 +460,14 @@ pub struct UpdateSongsRequest {
     #[arg(long)]
     pub album_type: Option<String>,
 
+    /// auto-populate track_artist from each song's current artist (for compilation conversion)
+    #[arg(long)]
+    pub populate_track_artist: Option<bool>,
+
+    /// copy images from all source albums to the target album (for album merging)
+    #[arg(long)]
+    pub aggregate_album_images: Option<bool>,
+
     #[arg(long)]
     pub release_date: Option<String>,
 

@@ -272,6 +272,63 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         None
     };
 
+    // collect source album IDs for image aggregation (before any changes)
+    let source_album_ids: Vec<String> = if req.aggregate_album_images == Some(true) {
+        let mut ids = Vec::new();
+        for song_id in &req.song_ids {
+            if let Ok(Some(album_id)) = sqlx::query_scalar!(
+                "SELECT album_id FROM album_songz WHERE song_id = ?",
+                song_id
+            )
+            .fetch_optional(&pool)
+            .await
+            {
+                if !ids.contains(&album_id) {
+                    ids.push(album_id);
+                }
+            }
+        }
+        ids
+    } else {
+        Vec::new()
+    };
+
+    // handle populate_track_artist BEFORE any artist changes
+    // this captures each song's current artist name as track_artist
+    if req.populate_track_artist == Some(true) {
+        for song_id in &req.song_ids {
+            // get current artist name for this song
+            let current_artist_name: Option<String> = sqlx::query_scalar!(
+                r#"SELECT ar.name FROM artistz ar
+                   JOIN artist_songz ars ON ar.id = ars.artist_id
+                   WHERE ars.song_id = ? AND ar.deleted_at IS NULL
+                   LIMIT 1"#,
+                song_id
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+
+            if let Some(artist_name) = current_artist_name {
+                let result = sqlx::query!(
+                    "UPDATE songz SET track_artist = ?, updated_at = unixepoch() WHERE id = ?",
+                    artist_name,
+                    song_id
+                )
+                .execute(&pool)
+                .await;
+
+                if let Err(e) = result {
+                    return GrimoireResponse::failure(
+                        &format!("failed to update track_artist for song {}", song_id),
+                        vec![GrimoireError::Database(e).into()],
+                    );
+                }
+            }
+        }
+    }
+
     // update song table fields if any provided
     let has_song_updates = req.title.is_some()
         || req.track_number.is_some()
@@ -489,6 +546,42 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
                 "Failed to create artist-album relationship",
                 vec![err.into()],
             );
+        }
+    }
+
+    // aggregate images from source albums to target album
+    if req.aggregate_album_images == Some(true) {
+        if let Some(ref album) = album {
+            for source_album_id in &source_album_ids {
+                // skip if source is the same as target
+                if source_album_id == &album.id {
+                    continue;
+                }
+
+                // get all images from source album
+                let source_images: Vec<(String, bool)> = sqlx::query!(
+                    "SELECT media_blob_id, is_primary FROM album_imagez WHERE album_id = ?",
+                    source_album_id
+                )
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|row| (row.media_blob_id, row.is_primary.unwrap_or(0) != 0))
+                .collect();
+
+                // copy images to target album (set is_primary = 0 for copied images)
+                // only the first album's primary image stays primary
+                for (blob_id, _is_primary) in source_images {
+                    let _ = sqlx::query!(
+                        "INSERT OR IGNORE INTO album_imagez (album_id, media_blob_id, is_primary) VALUES (?, ?, 0)",
+                        album.id,
+                        blob_id
+                    )
+                    .execute(&pool)
+                    .await;
+                }
+            }
         }
     }
 

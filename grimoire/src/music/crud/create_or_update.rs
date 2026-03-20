@@ -816,11 +816,25 @@ pub async fn find_or_create_album_for_artist(
     .await?;
 
     if let Some(row) = existing {
+        // check if we need to update album_type
+        if let Some(ref new_album_type) = req.album_type {
+            if row.album_type != *new_album_type {
+                // update the album_type
+                let _ = sqlx::query!(
+                    "UPDATE albumz SET album_type = ?, updated_at = unixepoch() WHERE id = ?",
+                    new_album_type,
+                    row.id
+                )
+                .execute(&pool)
+                .await;
+            }
+        }
+
         Ok((
             Album {
                 id: row.id,
                 title: row.title,
-                album_type: row.album_type,
+                album_type: req.album_type.clone().unwrap_or(row.album_type),
                 release_date: row.release_date,
                 label: row.label,
                 genres: None,
