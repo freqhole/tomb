@@ -118,13 +118,13 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
 ///
 /// path: POST /api/music/artists
 pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
+    if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
             vec![ErrorDetail::new(
                 "forbidden",
                 "forbidden",
-                "must be member to create artists",
+                "admin only",
             )],
         );
     }

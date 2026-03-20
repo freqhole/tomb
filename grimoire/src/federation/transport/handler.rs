@@ -11,6 +11,7 @@
 //! 2. resolve_peer - if haruspex configured, lookup via haruspex (may auto-create user)
 //! 3. knocking_enabled - if true, allow connection but restrict to public routes only
 
+use crate::api_registry::Method as OffalMethod;
 use crate::blobz;
 use crate::config::get_config;
 use crate::federation::resolver::{is_knocking_enabled, is_known_peer, resolve_peer};
@@ -23,6 +24,19 @@ use base64::Engine;
 use iroh::PublicKey;
 use serde_json::{json, Value as JsonValue};
 use tokio::fs::File;
+
+/// convert string method to offal Method
+fn to_offal_method(method: &str) -> Option<OffalMethod> {
+    match method.to_uppercase().as_str() {
+        "GET" => Some(OffalMethod::GET),
+        "POST" => Some(OffalMethod::POST),
+        "PUT" => Some(OffalMethod::PUT),
+        "DELETE" => Some(OffalMethod::DELETE),
+        "PATCH" => Some(OffalMethod::PATCH),
+        "HEAD" => Some(OffalMethod::HEAD),
+        _ => None,
+    }
+}
 use tokio::io::AsyncReadExt;
 use tracing::{debug, info, warn};
 
@@ -238,7 +252,8 @@ async fn handle_stream(
             }
 
             // dispatch via offal
-            let response = offal_dispatch(&path, &caller, json_body).await;
+            let response =
+                offal_dispatch(&path, &caller, json_body, to_offal_method(&method)).await;
 
             // convert GrimoireResponse to HTTP-like response
             let (status, response_body) = if response.success {
@@ -487,7 +502,8 @@ async fn handle_stream(
                 "/api/upload/music" // default to music
             };
 
-            let response = offal_dispatch(upload_path, &caller, upload_body).await;
+            let response =
+                offal_dispatch(upload_path, &caller, upload_body, Some(OffalMethod::POST)).await;
 
             if response.success {
                 // extract blob_id and job_id from response
@@ -529,7 +545,13 @@ async fn handle_stream(
 
             // public endpoint - use offal dispatch
             let caller = Caller::new("guest", "guest", UserRole::Viewer);
-            let response = offal_dispatch("/api/hello/image", &caller, JsonValue::Null).await;
+            let response = offal_dispatch(
+                "/api/hello/image",
+                &caller,
+                JsonValue::Null,
+                Some(OffalMethod::GET),
+            )
+            .await;
 
             if response.success {
                 // the response should contain blob info - extract and stream

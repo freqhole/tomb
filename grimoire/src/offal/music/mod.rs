@@ -16,7 +16,7 @@ pub mod sessions;
 pub mod songs;
 pub mod tags;
 
-use crate::api_registry::RouteInfo;
+use crate::api_registry::{Method, RouteInfo};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
@@ -46,6 +46,7 @@ pub async fn dispatch(
     path: &str,
     caller: &Caller,
     body: &JsonValue,
+    method: Option<Method>,
 ) -> Option<GrimoireResponse<JsonValue>> {
     // first check exact path matches
     match path {
@@ -125,7 +126,6 @@ pub async fn dispatch(
         // listen sessions
         "/api/analytics/sessions" => Some(sessions::create(caller, body.clone()).await),
         "/api/analytics/sessions/list" => Some(sessions::list(caller, body.clone()).await),
-        "/api/analytics/sessions/delete" => Some(sessions::delete(caller, body.clone()).await),
 
         // musicbrainz
         "/api/musicbrainz/search/releases" => {
@@ -138,7 +138,7 @@ pub async fn dispatch(
         // fetch jobs
         "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
 
-        _ => dispatch_path_params(path, caller, body).await,
+        _ => dispatch_path_params(path, caller, body, method).await,
     }
 }
 
@@ -147,6 +147,7 @@ async fn dispatch_path_params(
     path: &str,
     caller: &Caller,
     body: &JsonValue,
+    method: Option<Method>,
 ) -> Option<GrimoireResponse<JsonValue>> {
     // playlists: /api/music/playlists/{id}, /api/playlists/{id}/images
     if let Some(id) = path.strip_prefix("/api/music/playlists/") {
@@ -229,8 +230,11 @@ async fn dispatch_path_params(
                 return Some(sessions::update_status(caller, id, status, body.clone()).await);
             }
         }
-        // /api/analytics/sessions/{id} - could be GET or DELETE
-        return Some(sessions::get_or_delete(caller, rest, body.clone()).await);
+        // /api/analytics/sessions/{id} - GET or DELETE based on method
+        return match method {
+            Some(Method::DELETE) => Some(sessions::delete(caller, rest, body.clone()).await),
+            _ => Some(sessions::get(caller, rest, body.clone()).await),
+        };
     }
 
     // blobs: delegated to media_blobz module

@@ -249,14 +249,8 @@ struct TopRequest {
     limit: Option<i64>,
 }
 
-pub async fn top_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
-    }
-
+pub async fn top_songs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    // no auth check - route-level auth is Authenticated
     let req: TopRequest = serde_json::from_value(body).unwrap_or_default();
     let response = get_top_songs(req.limit.unwrap_or(50)).await;
     response.map(|data| serde_json::to_value(data).unwrap())
@@ -265,14 +259,8 @@ pub async fn top_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
 /// get top albums (admin)
 ///
 /// path: POST /api/analytics/top/albums
-pub async fn top_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
-    }
-
+pub async fn top_albums(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    // no auth check - route-level auth is Authenticated
     let req: TopRequest = serde_json::from_value(body).unwrap_or_default();
     let response = get_top_albums(req.limit.unwrap_or(50)).await;
     response.map(|data| serde_json::to_value(data).unwrap())
@@ -281,14 +269,8 @@ pub async fn top_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
 /// get top artists (admin)
 ///
 /// path: POST /api/analytics/top/artists
-pub async fn top_artists(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
-    }
-
+pub async fn top_artists(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    // no auth check - route-level auth is Authenticated
     let req: TopRequest = serde_json::from_value(body).unwrap_or_default();
     let response = get_top_artists(req.limit.unwrap_or(50)).await;
     response.map(|data| serde_json::to_value(data).unwrap())

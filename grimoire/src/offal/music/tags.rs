@@ -128,10 +128,10 @@ pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/tags/add-to-albums
 pub async fn add_to_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
+    if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "must be member")],
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
         );
     }
 
@@ -163,10 +163,10 @@ struct RemoveAlbumsTagsRequest {
 }
 
 pub async fn remove_from_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
+    if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "must be member")],
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
         );
     }
 
@@ -198,10 +198,10 @@ struct ReplaceAlbumsTagsRequest {
 }
 
 pub async fn replace_on_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
+    if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "must be member")],
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
         );
     }
 

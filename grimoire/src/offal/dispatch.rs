@@ -4,6 +4,7 @@
 //! domain-level dispatch functions handle route matching within their domain.
 
 use super::caller::Caller;
+use crate::api_registry::Method;
 use crate::error::ErrorDetail;
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
@@ -17,7 +18,13 @@ use serde_json::Value as JsonValue;
 /// * `path` - route path (e.g., "/api/music/playlists/list")
 /// * `caller` - authenticated caller identity
 /// * `body` - request body as JSON value (can be null for no-body requests)
-pub async fn dispatch(path: &str, caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+/// * `method` - optional HTTP method (used to differentiate GET vs DELETE on same path)
+pub async fn dispatch(
+    path: &str,
+    caller: &Caller,
+    body: JsonValue,
+    method: Option<Method>,
+) -> GrimoireResponse<JsonValue> {
     // normalize path (strip trailing slash)
     let path = path.trim_end_matches('/');
 
@@ -29,7 +36,7 @@ pub async fn dispatch(path: &str, caller: &Caller, body: JsonValue) -> GrimoireR
         return resp;
     }
 
-    if let Some(resp) = super::music::dispatch(path, caller, &body).await {
+    if let Some(resp) = super::music::dispatch(path, caller, &body, method).await {
         return resp;
     }
 

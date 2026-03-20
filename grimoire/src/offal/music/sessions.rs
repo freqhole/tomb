@@ -158,10 +158,10 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// get or delete a listen session by id (path param)
+/// get a listen session by id (path param)
 ///
-/// path: GET/DELETE /api/analytics/sessions/{id}
-pub async fn get_or_delete(
+/// path: GET /api/analytics/sessions/{id}
+pub async fn get(
     caller: &Caller,
     session_id: &str,
     _body: JsonValue,
@@ -183,7 +183,6 @@ pub async fn get_or_delete(
         }
     }
 
-    // for now, treat as GET - DELETE would need method info passed down
     get_response.map(|data| serde_json::to_value(data).unwrap())
 }
 
@@ -252,26 +251,14 @@ pub async fn update_status(
     response.map(|_| JsonValue::Null)
 }
 
-/// delete a listen session
+/// delete a listen session (path param)
 ///
-/// path: POST /api/analytics/sessions/delete
-///
-/// body: { "session_id": "..." }
-pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    let session_id = match body.get("session_id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return GrimoireResponse::failure(
-                "bad request",
-                vec![ErrorDetail::new(
-                    "bad_request",
-                    "bad request",
-                    "session_id is required",
-                )],
-            )
-        }
-    };
-
+/// path: DELETE /api/analytics/sessions/{id}
+pub async fn delete(
+    caller: &Caller,
+    session_id: &str,
+    _body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
     // verify ownership before deleting
     let get_response = get_listen_session(session_id).await;
     if let Some(session) = &get_response.data {

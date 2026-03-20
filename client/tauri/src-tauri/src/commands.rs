@@ -2077,7 +2077,7 @@ pub async fn api_call(
     // get caller from app config admin user
     let caller = get_caller_from_app_config(&app_handle)?;
 
-    let response = grimoire::offal::dispatch(&path, &caller, body).await;
+    let response = grimoire::offal::dispatch(&path, &caller, body, None).await;
 
     // return the full response as JSON
     serde_json::to_value(&response).map_err(|e| e.to_string())

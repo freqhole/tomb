@@ -9,6 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use grimoire::api_registry::Method as OffalMethod;
 use grimoire::offal::{dispatch, Caller};
 use grimoire::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
@@ -22,6 +23,19 @@ impl From<&AuthenticatedUser> for Caller {
     }
 }
 
+/// convert axum Method to offal Method
+fn to_offal_method(method: &axum::http::Method) -> Option<OffalMethod> {
+    match method.as_str() {
+        "GET" => Some(OffalMethod::GET),
+        "POST" => Some(OffalMethod::POST),
+        "PUT" => Some(OffalMethod::PUT),
+        "DELETE" => Some(OffalMethod::DELETE),
+        "PATCH" => Some(OffalMethod::PATCH),
+        "HEAD" => Some(OffalMethod::HEAD),
+        _ => None,
+    }
+}
+
 /// generic offal dispatch handler
 ///
 /// routes the request through grimoire::offal::dispatch() and returns JSON response.
@@ -31,6 +45,7 @@ pub async fn offal_handler(
     request: Request,
 ) -> Response {
     let path = request.uri().path().to_string();
+    let method = to_offal_method(request.method());
 
     let body: JsonValue = match extract_body(request).await {
         Ok(b) => b,
@@ -40,7 +55,7 @@ pub async fn offal_handler(
     };
 
     let caller = Caller::from(&user);
-    let response = dispatch(&path, &caller, body).await;
+    let response = dispatch(&path, &caller, body, method).await;
 
     grimoire_to_response(response)
 }
@@ -48,6 +63,7 @@ pub async fn offal_handler(
 /// offal handler for unauthenticated (public) routes
 pub async fn offal_public_handler(request: Request) -> Response {
     let path = request.uri().path().to_string();
+    let method = to_offal_method(request.method());
 
     let body: JsonValue = match extract_body(request).await {
         Ok(b) => b,
@@ -58,7 +74,7 @@ pub async fn offal_public_handler(request: Request) -> Response {
 
     // public routes use anonymous caller with Viewer role (lowest privilege)
     let caller = Caller::new("anonymous", "anonymous", grimoire::users::UserRole::Viewer);
-    let response = dispatch(&path, &caller, body).await;
+    let response = dispatch(&path, &caller, body, method).await;
 
     grimoire_to_response(response)
 }
