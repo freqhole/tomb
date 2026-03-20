@@ -178,7 +178,7 @@ export async function processMusicFile(
     source_url: null,
     downloaded_at: null,
     remote_server_id: null,
-    remote_sha256: null,
+    remote_song_id: null,
     blake3: null, // not available for local files
 
     added_at: now,

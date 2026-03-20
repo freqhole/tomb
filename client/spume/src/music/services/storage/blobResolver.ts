@@ -497,6 +497,14 @@ export async function preCacheP2PBlob(
   type: "audio" | "image" = "audio",
   blake3?: string,
 ): Promise<void> {
+  // only pre-cache for P2P remotes, skip for HTTP
+  const remote = await getRemoteById(remoteId);
+  if (!remote) return;
+  if (!isP2PTransportType(remote)) {
+    // HTTP remotes don't need pre-caching, URLs work directly
+    return;
+  }
+
   const cacheKey = `${remoteId}/${blobId}`;
   
   // check if already in memory

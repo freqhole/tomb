@@ -437,7 +437,7 @@ export async function downloadPlaylist(
           source_url: blobUrl,
           downloaded_at: Date.now(),
           remote_server_id: null,
-          remote_sha256: song.id,
+          remote_song_id: song.id, // server's song.id for sync tracking
           blake3: null, // not available for downloaded files
           added_at: Date.now(),
         };
@@ -774,7 +774,7 @@ export async function syncPlaylist(
           source_url: blobUrl,
           downloaded_at: Date.now(),
           remote_server_id: null,
-          remote_sha256: song.id,
+          remote_song_id: song.id, // server's song.id for sync tracking
           blake3: null, // not available for synced files
           added_at: Date.now(),
         };

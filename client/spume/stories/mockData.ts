@@ -258,7 +258,7 @@ export function generateBulkSongs(count: number): DomainSong[] {
       source_url: null,
       downloaded_at: null,
       remote_server_id: null,
-      remote_sha256: null,
+      remote_song_id: null,
       blake3: null,
       added_at: now,
     });

@@ -138,7 +138,7 @@ function initAudio(): HTMLAudioElement {
             // non-parseable URL, skip base_url routing
           }
           void queueAnalyticsEvent("play_complete", {
-            media_blob_id: currentSong.sha256,
+            media_blob_id: currentSong.media_blob_id ?? currentSong.sha256,
             song_id: currentSong.id,
             target_remote_id: currentSong.remote_server_id ?? undefined,
             target_base_url: targetBaseUrl,

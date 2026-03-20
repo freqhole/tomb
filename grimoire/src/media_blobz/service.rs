@@ -312,25 +312,20 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
 }
 
 /// get media blob with binary data for streaming
-/// accepts blob id OR sha256 hash (auto-detected by length)
+///
 /// returns (MediaBlob, Option<Vec<u8>>)
 /// - if blob has local_path, returns (blob, None) - data should be read from filesystem
 /// - if blob data is in database, returns (blob, Some(data))
 /// - if neither exists, returns error
-pub async fn get_media_blob_with_data(id_or_sha256: &str) -> GrimoireResult<(MediaBlob, Option<Vec<u8>>)> {
-    // auto-detect: sha256 is 64 chars, blob_id is shorter
-    let blob = if id_or_sha256.len() == 64 && id_or_sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-        get_media_blob_by_sha256(id_or_sha256).await?
-    } else {
-        get_media_blob(id_or_sha256).await?
-    };
+pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Option<Vec<u8>>)> {
+    let blob = get_media_blob(id).await?;
 
     // If blob has local_path, caller should read from filesystem
     if blob.local_path.is_some() {
         return Ok((blob, None));
     }
 
-    // Try to get data from blob_data table (using actual blob id, not sha256)
+    // Try to get data from blob_data table
     let data_response = blob_data::get_blob_data(&blob.id).await;
 
     if data_response.success {
@@ -340,9 +335,7 @@ pub async fn get_media_blob_with_data(id_or_sha256: &str) -> GrimoireResult<(Med
     }
 
     // No data source available
-    Err(GrimoireError::MediaBlobNotFound {
-        id: id_or_sha256.to_string(),
-    })
+    Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
 }
 
 /// update media blob local_path (for setting filesystem location after upload)

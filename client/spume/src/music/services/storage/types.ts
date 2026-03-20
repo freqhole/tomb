@@ -55,8 +55,12 @@ export interface GenreRef {
 
 // ===== SONGS TABLE =====
 export interface Song {
-  id: string; // local database primary key (auto-increment converted to string)
-  sha256: string; // media blob ID - content hash of audio file (universal identifier)
+  /** local database primary key (auto-increment converted to string) */
+  id: string;
+  /** content hash of audio file - 64 hex chars, universal deduplication identifier */
+  sha256: string;
+  /** server's short blob ID (16 hex chars) - used for analytics FK constraints */
+  media_blob_id?: string;
   title: string;
   artist_id: string; // FK to artists (always required)
   album_id: string; // FK to albums
@@ -109,9 +113,12 @@ export interface Song {
   downloaded_at: number | null;
 
   // remote files: server info
+  /** which remote server this song came from (for P2P resolution) */
   remote_server_id: string | null;
-  remote_sha256: string | null; // server's song.id
-  blake3: string | null; // blake3 hash for iroh-blobs verified streaming
+  /** server's song.id that this was downloaded from (for sync tracking) */
+  remote_song_id: string | null;
+  /** blake3 content hash (64 hex chars) for iroh-blobs verified streaming */
+  blake3: string | null;
 
   // local tracking
   added_at: number;

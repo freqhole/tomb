@@ -8,7 +8,7 @@ import { getRemoteMediaUrl } from "../../../utils/urls";
 // Core required fields plus optional user-specific metadata
 export type RemoteSong = Required<Pick<Song, 
   // core identification
-  | 'id' | 'sha256' | 'title' | 'artist_id' | 'album_id'
+  | 'id' | 'sha256' | 'media_blob_id' | 'title' | 'artist_id' | 'album_id'
   // track metadata
   | 'track_number' | 'disc_number' | 'duration_seconds' | 'year'
   | 'bpm' | 'track_artist' | 'lyrics' | 'metadata'
@@ -24,7 +24,7 @@ export type RemoteSong = Required<Pick<Song,
   // source type and metadata
   | 'source_type' | 'opfs_path' | 'file_name' | 'file_size'
   | 'last_modified' | 'mime_type' | 'source_url' | 'downloaded_at'
-  | 'remote_server_id' | 'remote_sha256' | 'blake3' | 'added_at'
+  | 'remote_server_id' | 'remote_song_id' | 'blake3' | 'added_at'
 >> & Pick<Song,
   // optional numeric ratings (undefined = not rated)
   | 'user_rating' | 'album_rating'
@@ -130,6 +130,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
   const result = {
     id: song.id,
     sha256,
+    media_blob_id: song.media_blob_id, // short blob ID for analytics FK
     title: song.title,
     artist_id: artist?.id || "",
     album_id: album?.id || "",
@@ -187,7 +188,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
 
     // remote fields
     remote_server_id: remoteServerId,
-    remote_sha256: song.id,
+    remote_song_id: song.id, // server's song.id for sync tracking
     blake3: blob?.blake3 ?? null, // for iroh-blobs verified streaming
     added_at: song.created_at,
   };

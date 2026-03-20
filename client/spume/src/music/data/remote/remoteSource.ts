@@ -84,6 +84,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
     return this._remoteId;
   }
 
+  // get HTTP URL for a blob, or undefined for Tauri-managed remotes
+  // Tauri-managed remotes don't run an HTTP server - all blob access goes through IPC
+  private getBlobHttpUrl(blobId: string): string | undefined {
+    if (this.remote.is_tauri_managed) {
+      return undefined;
+    }
+    return getRemoteMediaUrl(this.baseUrl, blobId);
+  }
+
   // check a failed result for 401 auth errors and flag the remote if needed.
   // call this before throwing on any API failure.
   // NOTE: P2P remotes don't use HTTP auth, so we skip flagging them - 401-like
@@ -862,7 +871,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               images: apiFav.album.images && apiFav.album.images.length > 0
                 ? apiFav.album.images.map((img) => ({
                     remote_blob_id: img.blob_id,
-                    remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id),
+                    remote_url: this.getBlobHttpUrl(img.blob_id),
                     remote_server_id: this.remoteId,
                     is_primary: img.is_primary ? true : false,
                     blob_type: 'thumbnail' as const,
@@ -891,7 +900,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               images: apiFav.artist.images && apiFav.artist.images.length > 0
                 ? apiFav.artist.images.map((img) => ({
                     remote_blob_id: img.blob_id,
-                    remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id),
+                    remote_url: this.getBlobHttpUrl(img.blob_id),
                     remote_server_id: this.remoteId,
                     is_primary: img.is_primary ? true : false,
                     blob_type: 'thumbnail' as const,
@@ -912,7 +921,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               is_public: apiFav.playlist.playlist.is_public === 1,
               images: (apiFav.playlist.playlist.images || []).map((img) => ({
                 remote_blob_id: img.blob_id,
-                remote_url: getRemoteMediaUrl(this.baseUrl, img.blob_id),
+                remote_url: this.getBlobHttpUrl(img.blob_id),
                 remote_server_id: this.remoteId,
                 is_primary: img.is_primary === 1,
                 blob_type: img.blob_type as 'thumbnail' | 'waveform',
@@ -1214,7 +1223,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           await this.handleFailedRequest(result);
           throw new Error("failed to get artist images");
         }
-        return result.data.map((blobId: string) => getRemoteMediaUrl(this.baseUrl, blobId));
+        // for Tauri-managed remotes, getBlobHttpUrl returns undefined - filter those out
+        return result.data
+          .map((blobId: string) => this.getBlobHttpUrl(blobId))
+          .filter((url): url is string => url !== undefined);
       }
       case 'album':
       case 'song':
