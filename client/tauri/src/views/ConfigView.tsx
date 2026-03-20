@@ -255,7 +255,14 @@ export default function ConfigView(props: ConfigViewProps = {}) {
   const editorContent = (
     <div class="editor-section">
       <Show when={upgradeStatus()?.needs_upgrade}>
-        <div class="upgrade-banner">
+        <div
+          class="wizard-notification warning"
+          style={{
+            "flex-direction": "column",
+            "align-items": "flex-start",
+            gap: "0.5rem",
+          }}
+        >
           <button
             class="warning"
             onClick={performUpgrade}
@@ -264,11 +271,11 @@ export default function ConfigView(props: ConfigViewProps = {}) {
           >
             {isUpgrading() ? "upgrading..." : `update config`}
           </button>
-          <span class="upgrade-hint">
+          <span>
             new config template available! ({upgradeStatus()?.config_version} →{" "}
             {upgradeStatus()?.binary_version})
           </span>
-          <span class="upgrade-hint">
+          <span>
             please upgrade your config file to the latest version. a backup of
             your old config will be created.
           </span>
@@ -310,7 +317,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       </div>
 
       <Show when={saveMessage()}>
-        <div class={`save-message ${isError() ? "error" : "success"}`}>
+        <div class={`wizard-notification ${isError() ? "error" : "success"}`}>
           <span class="message-text">{saveMessage()}</span>
           <button class="dismiss-btn" onClick={dismissMessage} title="dismiss">
             ×
@@ -319,8 +326,17 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       </Show>
 
       <Show when={saveErrors().length > 0}>
-        <div class="validation-errors">
-          <div class="errors-header">
+        <div
+          class="wizard-notification error"
+          style={{ "flex-direction": "column", "align-items": "stretch" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "space-between",
+            }}
+          >
             <strong>validation errors:</strong>
             <button
               class="dismiss-btn"

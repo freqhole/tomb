@@ -61,6 +61,13 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
       );
       if (match) {
         setSelectedUser(match);
+        // notify parent of existing user match
+        props.onSelect({
+          id: match.id,
+          username: match.username,
+          role: match.role,
+          isExisting: true,
+        });
       } else {
         setSelectedUser(null);
       }

@@ -1235,6 +1235,105 @@ a:hover {
   cursor: not-allowed;
 }
 
+/* unified sticky notification for wizard views */
+.wizard-notification {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.wizard-notification.sticky-bottom {
+  top: auto;
+  bottom: 0;
+  margin-bottom: 0;
+  margin-top: 1rem;
+}
+
+.wizard-notification.error {
+  background: #450a0a;
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+}
+
+.wizard-notification.success {
+  background: #14532d;
+  border: 1px solid #166534;
+  color: #86efac;
+}
+
+.wizard-notification.warning {
+  background: #422006;
+  border: 1px solid #78350f;
+  color: #fcd34d;
+}
+
+.wizard-notification .message-text {
+  flex: 1;
+}
+
+.wizard-notification .dismiss-btn {
+  flex: none;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  width: 1.5rem;
+  min-width: 1.5rem;
+  max-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.wizard-notification.error .dismiss-btn {
+  color: #fca5a5;
+}
+
+.wizard-notification.success .dismiss-btn {
+  color: #86efac;
+}
+
+.wizard-notification.warning .dismiss-btn {
+  color: #fcd34d;
+}
+
+.wizard-notification .dismiss-btn:hover {
+  opacity: 1;
+}
+
+.wizard-notification button.inline-action {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  border-radius: 4px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.wizard-notification button.inline-action:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* validation errors list within notification */
+.wizard-notification.error ul {
+  margin: 0.5rem 0 0 1.25rem;
+  padding: 0;
+}
+
+.wizard-notification.error li {
+  margin-bottom: 0.25rem;
+}
+
 .status-section {
   margin-bottom: 2rem;
   padding: 1rem;
@@ -1626,6 +1725,16 @@ button.danger:hover {
   background: #18181b;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
+}
+
+.knock-node-id.clickable {
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.knock-node-id.clickable:hover {
+  color: #a1a1aa;
+  background: #27272a;
 }
 
 .knock-message {

@@ -137,6 +137,9 @@ export default function FederationView() {
   const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(
     null,
   );
+  const [copiedKnockNodeId, setCopiedKnockNodeId] = createSignal<string | null>(
+    null,
+  );
 
   onMount(async () => {
     await loadStatus();
@@ -452,11 +455,29 @@ export default function FederationView() {
       <h1>federation</h1>
 
       <Show when={error()}>
-        <div class="error-banner">{error()}</div>
+        <div class="wizard-notification error">
+          <span class="message-text">{error()}</span>
+          <button
+            class="dismiss-btn"
+            onClick={() => setError("")}
+            title="dismiss"
+          >
+            ×
+          </button>
+        </div>
       </Show>
 
       <Show when={success()}>
-        <div class="success-banner">{success()}</div>
+        <div class="wizard-notification success">
+          <span class="message-text">{success()}</span>
+          <button
+            class="dismiss-btn"
+            onClick={() => setSuccess("")}
+            title="dismiss"
+          >
+            ×
+          </button>
+        </div>
       </Show>
 
       <Show when={loading()}>
@@ -696,6 +717,19 @@ export default function FederationView() {
                           <span class="knock-time">
                             {formatRelativeTime(knock.created_at)}
                           </span>
+                        </div>
+                        <div
+                          class="knock-node-id clickable"
+                          title="click to copy node id"
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(knock.node_id);
+                            setCopiedKnockNodeId(knock.node_id);
+                            setTimeout(() => setCopiedKnockNodeId(null), 3000);
+                          }}
+                        >
+                          {copiedKnockNodeId() === knock.node_id
+                            ? "copied!"
+                            : formatNodeId(knock.node_id)}
                         </div>
                       </div>
                       <Show when={knock.message}>

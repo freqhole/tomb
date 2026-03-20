@@ -229,8 +229,17 @@ export default function SettingsView() {
               </div>
 
               <Show when={infoMessage()}>
-                <div class={`message ${infoIsError() ? "error" : "success"}`}>
-                  {infoMessage()}
+                <div
+                  class={`wizard-notification sticky-bottom ${infoIsError() ? "error" : "success"}`}
+                >
+                  <span class="message-text">{infoMessage()}</span>
+                  <button
+                    class="dismiss-btn"
+                    onClick={() => setInfoMessage("")}
+                    title="dismiss"
+                  >
+                    ×
+                  </button>
                 </div>
               </Show>
             </div>
