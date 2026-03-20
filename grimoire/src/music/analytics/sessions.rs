@@ -324,7 +324,9 @@ pub async fn update_listen_session_progress(
         Ok(Some(row)) => {
             // reject updates for completed sessions
             if row.status == "completed" {
-                return GrimoireResponse::success_unit("session already completed, progress ignored");
+                return GrimoireResponse::success_unit(
+                    "session already completed, progress ignored",
+                );
             }
             // skip if no actual progress (prevents updated_at churn)
             if req.progress <= row.songs_completed {
