@@ -11,7 +11,6 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 /// route metadata for auth/user management
-/// matches server inventory routes
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "whoami",
@@ -58,7 +57,7 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "serde_json::Value",
         auth: RouteAuth::Public,
     },
-    // webauthn routes (matching server inventory)
+    // webauthn routes
     RouteInfo {
         name: "register_start",
         path: "/api/auth/webauthn/register/start",

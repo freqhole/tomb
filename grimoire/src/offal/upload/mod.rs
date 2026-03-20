@@ -29,7 +29,6 @@ use crate::users::UserRole;
 use crate::Bytes;
 
 /// route metadata for upload
-/// matches server inventory routes
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "upload_music",

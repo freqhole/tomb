@@ -5,7 +5,6 @@
 //! typescript clients).
 
 use crate::users::UserRole;
-use inventory;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,32 +111,6 @@ pub struct RouteInfo {
     pub response_type: &'static str,
     /// authorization requirements for this route
     pub auth: RouteAuth,
-}
-
-inventory::collect!(RouteInfo);
-
-pub fn all_routes() -> Vec<RouteInfo> {
-    inventory::iter::<RouteInfo>
-        .into_iter()
-        .map(|r| r.clone())
-        .collect()
-}
-
-pub fn all_routes_map(
-) -> std::collections::HashMap<&'static str, std::collections::HashMap<&'static str, RouteInfo>> {
-    let mut map: std::collections::HashMap<
-        &'static str,
-        std::collections::HashMap<&'static str, RouteInfo>,
-    > = std::collections::HashMap::new();
-
-    for route in inventory::iter::<RouteInfo> {
-        let domain_key = route.domain.as_str();
-        map.entry(domain_key)
-            .or_insert_with(std::collections::HashMap::new)
-            .insert(route.name, route.clone());
-    }
-
-    map
 }
 
 pub mod type_registry {

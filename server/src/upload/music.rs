@@ -4,7 +4,6 @@ use axum::{
     extract::{Multipart, State},
     Extension, Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::blobz::compute_blake3_from_bytes;
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
 use grimoire::media_blobz::CreateMediaBlobRequest;
@@ -18,18 +17,6 @@ use std::path::PathBuf;
 use crate::auth::{check_role, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::AppState;
-
-inventory::submit! {
-    RouteInfo {
-        name: "upload_music",
-        path: "/api/upload/music",
-        method: Method::POST,
-        domain: Domain::Music,
-        request_type: "String",
-        response_type: "MusicUploadResponse",
-        auth: RouteAuth::Role(UserRole::Member),
-    }
-}
 
 /// upload music handler
 ///

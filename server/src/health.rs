@@ -1,7 +1,6 @@
 //! health check handlers
 
 use axum::Json;
-use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::config::get_config;
 use grimoire::health::{HealthResponse, ServerInfoResponse};
 
@@ -29,18 +28,6 @@ pub async fn health_check() -> Result<Json<HealthResponse>, ApiError> {
         status: overall_status.to_string(),
         database: db_status,
     }))
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "health_check",
-        path: "/health",
-        method: Method::GET,
-        domain: Domain::App,
-        request_type: "String",
-        response_type: "HealthResponse",
-        auth: RouteAuth::Public,
-    }
 }
 
 /// server info endpoint - provides server identification and metadata
@@ -82,16 +69,4 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         image_blob_id,
         knocking_enabled,
     }))
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "server_info",
-        path: "/api/hello",
-        method: Method::GET,
-        domain: Domain::App,
-        request_type: "String",
-        response_type: "ServerInfoResponse",
-        auth: RouteAuth::Public,
-    }
 }

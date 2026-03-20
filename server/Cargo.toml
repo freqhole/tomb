@@ -30,9 +30,6 @@ webauthn-rs = { workspace = true, optional = true }
 # Internal dependencies
 grimoire = { path = "../grimoire", default-features = false }
 
-# api codegen support
-inventory = "0.3"
-
 # Additional dependencies
 mime_guess = { workspace = true }
 futures-util = { workspace = true }

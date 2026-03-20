@@ -110,31 +110,23 @@ pub async fn handle_music_action(action: MusicAction) -> Result<()> {
 }
 ```
 
-## 3. server: add route handler
+## 3. offal: add route handler
+
+routes are defined in `grimoire/src/offal/` organized by domain. each domain has:
+
+- a `ROUTES` constant with route metadata
+- handler functions that take `(caller, body)` or `(caller, path_param, body)`
+- a dispatch function that routes paths to handlers
 
 ```rust
-// server/src/music/playlists.rs
-use axum::{extract::Extension, Json};
-use grimoire::api_registry::{Domain, Method, RouteInfo};
-use grimoire::music::entities::playlists::{create_playlist, CreatePlaylistRequest, Playlist};
-use crate::auth::middleware::AuthenticatedUser;
-use crate::error::ApiError;
+// grimoire/src/offal/music/playlists.rs
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
+use crate::music::entities::playlists::{create_playlist, CreatePlaylistRequest, Playlist};
+use crate::offal::caller::Caller;
+use crate::response::GrimoireResponse;
+use serde_json::Value as JsonValue;
 
-pub async fn create_playlist_handler(
-    Extension(user): Extension<AuthenticatedUser>,
-    Json(mut req): Json<CreatePlaylistRequest>,
-) -> Result<Json<Playlist>, ApiError> {
-    req.created_by_id = Some(user.user_id);
-
-    let response = create_playlist(req).await;
-
-    response
-        .data
-        .ok_or_else(|| ApiError::Internal(response.message))
-        .map(Json)
-}
-
-inventory::submit! {
+pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "create_playlist",
         path: "/api/music/playlists",
@@ -142,11 +134,9 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "CreatePlaylistRequest",
         response_type: "Playlist",
-    }
-}
-
-// path parameters use {param} syntax (axum v0.7+)
-inventory::submit! {
+        auth: RouteAuth::Authenticated,
+    },
+    // path parameters use {param} syntax
     RouteInfo {
         name: "get_playlist_by_id",
         path: "/api/music/playlists/{id}",  // use {id}, not :id
@@ -154,25 +144,49 @@ inventory::submit! {
         domain: Domain::Music,
         request_type: "String",
         response_type: "Playlist",
-    }
+        auth: RouteAuth::Authenticated,
+    },
+];
+
+pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let mut req: CreatePlaylistRequest = serde_json::from_value(body)?;
+    req.created_by_id = Some(caller.user_id.clone());
+
+    let response = create_playlist(req).await;
+    response.map(|p| serde_json::to_value(p).unwrap())
+}
+
+pub async fn get(caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let response = get_playlist(id).await;
+    response.map(|p| serde_json::to_value(p).unwrap())
 }
 ```
 
-### register route
+### update domain dispatch
 
 ```rust
-// server/src/routes.rs
-pub fn build_router() -> Router<AppState> {
-    let routes = api_registry::all_routes_map();
+// grimoire/src/offal/music/mod.rs
+pub mod playlists;
 
-    let protected_routes = Router::new()
-        .route(
-            routes["music"]["create_playlist"].path,
-            post(music::playlists::create_playlist_handler),
-        )
-        .layer(axum_middleware::from_fn(auth::middleware::require_auth));
+pub fn routes() -> Vec<RouteInfo> {
+    let mut all = Vec::new();
+    all.extend_from_slice(playlists::ROUTES);
+    // ... other modules
+    all
+}
 
-    // ... rest of router
+pub async fn dispatch(path: &str, caller: &Caller, body: &JsonValue, method: Option<Method>) -> Option<GrimoireResponse<JsonValue>> {
+    // static paths first
+    if path == "/api/music/playlists" {
+        return Some(playlists::create(caller, body.clone()).await);
+    }
+
+    // path parameters
+    if let Some(id) = path.strip_prefix("/api/music/playlists/") {
+        return Some(playlists::get(caller, id, body.clone()).await);
+    }
+
+    None
 }
 ```
 
@@ -225,8 +239,8 @@ export const routes = {
 - [ ] exports in entity `mod.rs`
 - [ ] types registered in `grimoire/src/api_registry/mod.rs::type_registry`
 - [ ] cli plumbing command in `cli/src/plumbing/`
-- [ ] server handler in `server/src/music/` with `inventory::submit!`
-- [ ] route registered in `server/src/routes.rs` using `routes[domain][name].path`
+- [ ] offal handler in `grimoire/src/offal/music/*.rs` with ROUTES and handler function
+- [ ] dispatch updated in `grimoire/src/offal/music/mod.rs`
 - [ ] codegen run: `cd client-codegen && make all`
 - [ ] verify generated `schema.ts` and `routes.ts`
 

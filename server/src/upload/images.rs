@@ -4,7 +4,6 @@ use axum::{
     extract::{Multipart, State},
     Extension, Json,
 };
-use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
 use grimoire::media_blobz::{create_media_blob, BlobType};
 use grimoire::music::entities::{albums, artists, playlists, songs};
@@ -23,42 +22,6 @@ use crate::error::ApiError;
 use crate::AppState;
 
 const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024; // 10MB
-
-inventory::submit! {
-    RouteInfo {
-        name: "upload_image",
-        path: "/api/upload/image",
-        method: Method::POST,
-        domain: Domain::Music,
-        request_type: "String",
-        response_type: "ImageUploadResponse",
-        auth: RouteAuth::Role(UserRole::Member),
-    }
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "delete_image",
-        path: "/api/music/images/delete",
-        method: Method::POST,
-        domain: Domain::Music,
-        request_type: "DeleteImageRequest",
-        response_type: "EmptyResponse",
-        auth: RouteAuth::Role(UserRole::Admin),
-    }
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "set_primary_image",
-        path: "/api/music/images/set-primary",
-        method: Method::POST,
-        domain: Domain::Music,
-        request_type: "SetPrimaryImageRequest",
-        response_type: "EmptyResponse",
-        auth: RouteAuth::Role(UserRole::Admin),
-    }
-}
 
 /// upload image handler
 ///

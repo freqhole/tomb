@@ -18,7 +18,6 @@ use crate::users::UserRole;
 use serde_json::Value as JsonValue;
 
 /// route metadata for albums
-/// matches server inventory routes
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "query_albums",

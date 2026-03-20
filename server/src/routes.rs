@@ -9,7 +9,8 @@ use axum::{
     routing::{delete, get, head, post, put},
     Router,
 };
-use grimoire::api_registry::{Method, RouteAuth};
+use grimoire::api_registry::{Method, RouteAuth, RouteInfo};
+use std::collections::HashMap;
 
 use crate::{adapter, auth, blobs, state::AppState, static_files, upload};
 
@@ -32,12 +33,24 @@ const CUSTOM_ROUTES: &[&str] = &[
     "redeem_invite",
 ];
 
+/// build a map for looking up routes by domain and name
+fn build_routes_map(routes: &[RouteInfo]) -> HashMap<&str, HashMap<&str, &RouteInfo>> {
+    let mut map: HashMap<&str, HashMap<&str, &RouteInfo>> = HashMap::new();
+    for route in routes {
+        let domain_key = route.domain.as_str();
+        map.entry(domain_key)
+            .or_insert_with(HashMap::new)
+            .insert(route.name, route);
+    }
+    map
+}
+
 /// build the application router
 ///
 /// generates routes from offal metadata, with custom handlers for special cases
 pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
-    let routes_map = grimoire::api_registry::all_routes_map();
     let all_routes = grimoire::offal::all_routes();
+    let routes_map = build_routes_map(&all_routes);
 
     // two routers: protected (with auth) and public (no auth)
     let mut protected = Router::new();

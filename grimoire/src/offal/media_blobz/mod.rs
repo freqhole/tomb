@@ -11,8 +11,7 @@ use crate::response::GrimoireResponse;
 use base64::Engine;
 use serde_json::Value as JsonValue;
 
-/// route metadata for media blobs
-/// matches server inventory routes (stream_blob, blob_metadata, get_blob_thumbnail)
+/// route metadata for media blobs (stream_blob, blob_metadata, get_blob_thumbnail)
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "stream_blob",

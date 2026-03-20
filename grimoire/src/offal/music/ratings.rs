@@ -9,7 +9,6 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 /// route metadata for ratings
-/// matches server inventory routes
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "set_rating",
@@ -49,7 +48,11 @@ pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -64,7 +67,11 @@ pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
         }
         Err(e) => GrimoireResponse::failure(
             "failed to set rating",
-            vec![ErrorDetail::new("rating_error", "rating error", &e.to_string())],
+            vec![ErrorDetail::new(
+                "rating_error",
+                "rating error",
+                &e.to_string(),
+            )],
         ),
     }
 }
@@ -84,7 +91,11 @@ pub async fn remove(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -94,13 +105,16 @@ pub async fn remove(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         .remove_rating(&caller.user_id, req.target_type, &req.target_id)
         .await
     {
-        Ok(removed) => GrimoireResponse::success(
-            "rating removed",
-            serde_json::to_value(removed).unwrap(),
-        ),
+        Ok(removed) => {
+            GrimoireResponse::success("rating removed", serde_json::to_value(removed).unwrap())
+        }
         Err(e) => GrimoireResponse::failure(
             "failed to remove rating",
-            vec![ErrorDetail::new("rating_error", "rating error", &e.to_string())],
+            vec![ErrorDetail::new(
+                "rating_error",
+                "rating error",
+                &e.to_string(),
+            )],
         ),
     }
 }
@@ -120,19 +134,30 @@ pub async fn stats(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
 
     let service = RatingsService::new();
-    match service.get_rating_stats(req.target_type, &req.target_id).await {
+    match service
+        .get_rating_stats(req.target_type, &req.target_id)
+        .await
+    {
         Ok(stats) => {
             GrimoireResponse::success("rating stats", serde_json::to_value(stats).unwrap())
         }
         Err(e) => GrimoireResponse::failure(
             "failed to get rating stats",
-            vec![ErrorDetail::new("rating_error", "rating error", &e.to_string())],
+            vec![ErrorDetail::new(
+                "rating_error",
+                "rating error",
+                &e.to_string(),
+            )],
         ),
     }
 }

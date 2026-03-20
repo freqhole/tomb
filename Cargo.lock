@@ -2597,7 +2597,6 @@ dependencies = [
  "humantime",
  "image",
  "include_dir",
- "inventory",
  "iroh",
  "iroh-blobs",
  "lofty",
@@ -3312,15 +3311,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf64c2edc8226891a71f127587a2861b132d2b942310843814d5001d99a1d307"
 dependencies = [
  "smallvec",
-]
-
-[[package]]
-name = "inventory"
-version = "0.3.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc61209c082fbeb19919bee74b176221b27223e27b65d781eb91af24eb1fb46e"
-dependencies = [
- "rustversion",
 ]
 
 [[package]]
@@ -6581,7 +6571,6 @@ dependencies = [
  "http",
  "http-body-util",
  "httpdate",
- "inventory",
  "mime_guess",
  "reqwest 0.12.28",
  "serde",

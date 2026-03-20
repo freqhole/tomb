@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
 /// route metadata for jobs
-/// matches server inventory routes
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "get_job_status",

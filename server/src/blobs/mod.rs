@@ -22,7 +22,6 @@ use axum::{
     response::{IntoResponse, Json, Response},
     Extension,
 };
-use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::media_blobz::{get_media_blob_with_data, BlobMetadataResponse};
 use std::io::SeekFrom;
 use tokio::{
@@ -31,30 +30,6 @@ use tokio::{
 };
 
 use crate::{auth::AuthenticatedUser, error::ApiError};
-
-inventory::submit! {
-    RouteInfo {
-        name: "stream_blob",
-        path: "/api/blobs/{id}",
-        method: Method::GET,
-        domain: Domain::Music,
-        request_type: "String",
-        response_type: "String", // binary response, not typed
-        auth: RouteAuth::Authenticated,
-    }
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "blob_metadata",
-        path: "/api/blobs/{id}/metadata",
-        method: Method::GET,
-        domain: Domain::Music,
-        request_type: "String",
-        response_type: "BlobMetadataResponse",
-        auth: RouteAuth::Authenticated,
-    }
-}
 
 /// stream blob with range request support
 ///
@@ -107,18 +82,6 @@ pub async fn blob_metadata_handler(
     let response: BlobMetadataResponse = blob.into();
 
     Ok(Json(response))
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "get_blob_thumbnail",
-        path: "/api/blobs/{id}/thumb/{size}",
-        method: Method::GET,
-        domain: Domain::Music,
-        request_type: "String",
-        response_type: "String", // binary response, not typed
-        auth: RouteAuth::Authenticated,
-    }
 }
 
 /// get or generate a sized thumbnail for a blob

@@ -14,7 +14,6 @@ use crate::users::UserRole;
 use serde_json::Value as JsonValue;
 
 /// route metadata for artists
-/// matches server inventory routes
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "create_artist",
@@ -121,11 +120,7 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "forbidden",
-                "admin only",
-            )],
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
         );
     }
 

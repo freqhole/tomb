@@ -1,6 +1,6 @@
 # api client codegen
 
-generates a type-safe TypeScript API client from Rust route definitions. Rust types deriving `ZodSchema` are converted to Zod schemas, and route metadata registered via `inventory::submit!` becomes a typed route config. a hand-written client uses these to provide runtime validation on all API calls.
+generates a type-safe TypeScript API client from Rust route definitions. Rust types deriving `ZodSchema` are converted to Zod schemas, and route metadata from `offal::all_routes()` becomes a typed route config. a hand-written client uses these to provide runtime validation on all API calls.
 
 ## usage
 
@@ -10,15 +10,19 @@ make all      # clean + generate + typecheck
 make clean    # remove generated files
 ```
 
-this runs the `client-codegen` binary which reads the `inventory`-collected route metadata from `server` and the `ZodSchema` types from `grimoire`, then outputs two generated files into `freqhole-api-client/src/codegen/`.
+this runs the `client-codegen` binary which reads route metadata from `grimoire::offal::all_routes()` and the `ZodSchema` types from `grimoire`, then outputs two generated files into `freqhole-api-client/src/codegen/`.
 
 ## structure
 
 ```
-rust handler (handlers.rs)
-  + inventory::submit! metadata
+offal route definitions (grimoire/src/offal/*)
+  - ROUTES const with metadata
+  - handler functions
   |
-  +---> axum router (mod.rs)
+  v
+offal::all_routes() collects all routes
+  |
+  +---> server routes.rs (builds router)
   |
   +---> codegen (generator.rs)
           |
@@ -72,7 +76,7 @@ the `freqhole-api-client` package is linked into the frontend via `file:` refere
 ## how it works
 
 1. Rust domain types in `grimoire` derive `ZodSchema` (via `zod_gen_derive`)
-2. server route handlers include `inventory::submit!` blocks with route metadata
+2. route handlers in `grimoire/src/offal/` define ROUTES constants with metadata
 3. types are registered in `grimoire/src/api_registry/type_registry.rs`
 4. `client-codegen` binary collects all of this at compile time and generates:
    - **schema.ts** — Zod schemas with inferred TypeScript types
@@ -81,7 +85,7 @@ the `freqhole-api-client` package is linked into the frontend via `file:` refere
 
 ## adding a new route's types to codegen
 
-after defining types in grimoire and adding the route handler in server (see `docs/HOW_TO_ADD_FEATURES.md`):
+after defining types in grimoire and adding the offal handler (see `docs/HOW_TO_ADD_FEATURES.md`):
 
 1. ensure request/response types derive `ZodSchema`
 2. register them in `grimoire/src/api_registry/type_registry.rs`

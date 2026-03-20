@@ -1,7 +1,6 @@
 //! authentication route handlers
 
 use axum::{extract::Extension, response::IntoResponse, Json};
-use grimoire::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use grimoire::users::{
     ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, UserService,
     WhoAmIResponse,
@@ -28,18 +27,6 @@ pub async fn whoami(Extension(user): Extension<AuthenticatedUser>) -> ApiResult<
     Ok(Json(response))
 }
 
-inventory::submit! {
-    RouteInfo {
-        name: "whoami",
-        path: "/api/auth/whoami",
-        method: Method::GET,
-        domain: Domain::Auth,
-        request_type: "String",
-        response_type: "WhoAmIResponse",
-        auth: RouteAuth::Authenticated,
-    }
-}
-
 /// logout handler - destroys current session
 ///
 /// requires authentication middleware
@@ -48,18 +35,6 @@ pub async fn logout(session: Session) -> ApiResult<impl IntoResponse> {
     Ok(Json(serde_json::json!({
         "message": "logged out successfully"
     })))
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "logout",
-        path: "/api/auth/logout",
-        method: Method::POST,
-        domain: Domain::Auth,
-        request_type: "String",
-        response_type: "serde_json::Value",
-        auth: RouteAuth::Authenticated,
-    }
 }
 
 /// get api key status - check if current user has an api key
@@ -98,30 +73,6 @@ pub async fn api_key_status(
     };
 
     Ok(Json(response))
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "regenerate_api_key",
-        path: "/api/auth/api-key/regenerate",
-        method: Method::POST,
-        domain: Domain::Auth,
-        request_type: "String",
-        response_type: "ApiKeyRegenerateResponse",
-        auth: RouteAuth::Authenticated,
-    }
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "api_key_status",
-        path: "/api/auth/api-key/status",
-        method: Method::GET,
-        domain: Domain::Auth,
-        request_type: "String",
-        response_type: "ApiKeyStatusResponse",
-        auth: RouteAuth::Authenticated,
-    }
 }
 
 /// regenerate api key - generate new api key for current user
@@ -271,16 +222,4 @@ pub async fn redeem_invite(
             "role": user.role.to_string(),
         }
     })))
-}
-
-inventory::submit! {
-    RouteInfo {
-        name: "redeem_invite",
-        path: "/api/auth/invite",
-        method: Method::POST,
-        domain: Domain::Auth,
-        request_type: "RedeemInviteRequest",
-        response_type: "serde_json::Value",
-        auth: RouteAuth::Public,
-    }
 }
