@@ -1163,7 +1163,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       await this.handleFailedRequest(result);
       throw new Error("failed to get album tags");
     }
-    return result.data.map((t: any) => t.tag.name);
+    return result.data.filter((t: any) => t.tag).map((t: any) => t.tag.name);
   }
 
   async addTagsToAlbum(albumId: string, tagNames: string[]): Promise<void> {

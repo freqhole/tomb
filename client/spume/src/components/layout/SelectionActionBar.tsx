@@ -17,6 +17,8 @@ export interface SelectionActionBarProps {
   onSetDiscNumber: () => void;
   /** called when delete images button clicked */
   onDeleteImages: () => void;
+  /** called when manage tags button clicked */
+  onManageTags: () => void;
   /** called when add to playlist button clicked */
   onAddToPlaylist: () => void;
   /** called when add to queue button clicked */
@@ -166,6 +168,11 @@ export function SelectionActionBar(props: SelectionActionBarProps) {
           >
             <Icon name={IconNames.image} size={16} />
             <span class="ml-1 whitespace-nowrap">clear images</span>
+          </Button>
+
+          <Button variant="ghost" size="sm" onClick={props.onManageTags} title="manage album tags">
+            <Icon name={IconNames.tag} size={16} />
+            <span class="ml-1 whitespace-nowrap">tags</span>
           </Button>
 
           <Button variant="ghost" size="sm" onClick={props.onAddToPlaylist} title="add to playlist">

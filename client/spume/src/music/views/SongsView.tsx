@@ -11,6 +11,7 @@ import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { SelectionActionBar } from "../../components/layout/SelectionActionBar";
 import { BulkEditSongsModal } from "../../components/modals/BulkEditSongsModal";
+import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
 import {
   VirtualSongList,
   type SortField,
@@ -68,6 +69,7 @@ export function SongsView(props: SongsViewProps) {
   const selectionCount = useSelectionCount();
   const [showBulkEditModal, setShowBulkEditModal] = createSignal(false);
   const [bulkEditMode, setBulkEditMode] = createSignal<"metadata" | "disc">("metadata");
+  const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
 
   // container ref for action bar centering
   let contentContainerRef: HTMLDivElement | undefined;
@@ -293,6 +295,22 @@ export function SongsView(props: SongsViewProps) {
     }
   };
 
+  const handleManageTags = () => {
+    setShowTagSelectorModal(true);
+  };
+
+  // get unique album IDs from selected songs
+  const selectedAlbumIds = createMemo(() => {
+    const selectedIds = getSelectedSongIds();
+    const albums = new Set<string>();
+    for (const song of allSongs()) {
+      if (selectedIds.has(song.id) && song.album_id) {
+        albums.add(song.album_id);
+      }
+    }
+    return Array.from(albums);
+  });
+
   const handleAddToPlaylist = async () => {
     const selectedIds = Array.from(getSelectedSongIds());
     await showPlaylistSelector(selectedIds);
@@ -437,6 +455,7 @@ export function SongsView(props: SongsViewProps) {
                 onEditMetadata={handleEditMetadata}
                 onSetDiscNumber={handleSetDiscNumber}
                 onDeleteImages={handleDeleteImages}
+                onManageTags={handleManageTags}
                 onAddToPlaylist={handleAddToPlaylist}
                 onAddToQueue={handleAddToQueue}
                 onDeleteSongs={handleDeleteSongs}
@@ -456,6 +475,18 @@ export function SongsView(props: SongsViewProps) {
           songs={allSongs().filter((s) => getSelectedSongIds().has(s.id))}
           mode={bulkEditMode()}
           onSuccess={() => {
+            clearSelection();
+            songsQuery.refetch();
+          }}
+        />
+      </Show>
+
+      {/* tag selector modal */}
+      <Show when={showTagSelectorModal()}>
+        <TagSelectorModal
+          albumIds={selectedAlbumIds()}
+          onClose={() => setShowTagSelectorModal(false)}
+          onSave={() => {
             clearSelection();
             songsQuery.refetch();
           }}

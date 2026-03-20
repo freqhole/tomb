@@ -1,4 +1,5 @@
 // tag selector modal for managing album tags
+// supports single or multiple albums with aggregated tag state
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { getDataSource } from "../../music/data";
 import { Button } from "../buttons/Button";
@@ -23,15 +24,20 @@ interface TagSelectorModalProps {
   onSave?: () => void;
 }
 
+type TagState = "all" | "some" | "none";
+
 export function TagSelectorModal(props: TagSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isLoading, setIsLoading] = createSignal(false);
   const [allTags, setAllTags] = createSignal<Tag[]>([]);
-  const [currentTags, setCurrentTags] = createSignal<Set<string>>(new Set());
+  // track how many albums have each tag: tagId -> count
+  const [tagCounts, setTagCounts] = createSignal<Map<string, number>>(new Map());
   const [pendingChanges, setPendingChanges] = createSignal<{
     add: Set<string>;
     remove: Set<string>;
   }>({ add: new Set(), remove: new Set() });
+
+  const albumCount = () => props.albumIds.length;
 
   // load tags on mount
   (async () => {
@@ -39,23 +45,29 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
 
     setIsLoading(true);
     try {
-      // load all tags
+      // load all available tags
       const tags = await datasource.getTags?.();
       if (tags) {
         setAllTags(tags);
       }
 
-      // load current tags for the first album (for single album editing)
-      // TODO: support multi-album tag union
-      if (props.albumIds.length > 0) {
-        const tagNames = await datasource.getAlbumTags?.(props.albumIds[0]);
-        if (tagNames) {
-          // map tag names to tag ids
-          const tagIds = tagNames
-            .map((name) => tags?.find((t) => t.name === name)?.tag_id)
-            .filter((id): id is string => id !== undefined);
-          setCurrentTags(new Set(tagIds));
+      // load tags for ALL albums and count occurrences
+      if (props.albumIds.length > 0 && datasource.getAlbumTags) {
+        const counts = new Map<string, number>();
+
+        for (const albumId of props.albumIds) {
+          const tagNames = await datasource.getAlbumTags(albumId);
+          if (tagNames) {
+            for (const name of tagNames) {
+              const tag = tags?.find((t) => t.name === name);
+              if (tag) {
+                counts.set(tag.tag_id, (counts.get(tag.tag_id) || 0) + 1);
+              }
+            }
+          }
         }
+
+        setTagCounts(counts);
       }
     } catch (err) {
       console.error("failed to load tags:", err);
@@ -72,41 +84,45 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
     return allTags().filter((tag) => tag.name.toLowerCase().includes(query));
   });
 
-  // check if a tag is currently applied (including pending changes)
-  const isTagApplied = (tagId: string) => {
+  // get the state of a tag across all albums
+  const getTagState = (tagId: string): TagState => {
     const changes = pendingChanges();
-    if (changes.add.has(tagId)) return true;
-    if (changes.remove.has(tagId)) return false;
-    return currentTags().has(tagId);
+
+    // pending changes override current state
+    if (changes.add.has(tagId)) return "all";
+    if (changes.remove.has(tagId)) return "none";
+
+    const count = tagCounts().get(tagId) || 0;
+    if (count === 0) return "none";
+    if (count === albumCount()) return "all";
+    return "some";
   };
 
   // toggle tag selection
   const toggleTag = (tagId: string) => {
     const changes = pendingChanges();
-    const isCurrentlyApplied = currentTags().has(tagId);
+    const state = getTagState(tagId);
 
-    if (isCurrentlyApplied) {
-      // removing a tag that's currently applied
+    if (state === "all" || state === "some") {
+      // tag is on some/all albums - toggle means remove
       if (changes.remove.has(tagId)) {
         // already marked for removal, cancel it
         changes.remove.delete(tagId);
       } else {
-        // mark for removal
+        // mark for removal from all albums
         changes.remove.add(tagId);
+        changes.add.delete(tagId);
       }
-      // remove from add set if it was there
-      changes.add.delete(tagId);
     } else {
-      // adding a tag that's not currently applied
+      // tag is on no albums - toggle means add
       if (changes.add.has(tagId)) {
         // already marked for addition, cancel it
         changes.add.delete(tagId);
       } else {
-        // mark for addition
+        // mark for addition to all albums
         changes.add.add(tagId);
+        changes.remove.delete(tagId);
       }
-      // remove from remove set if it was there
-      changes.remove.delete(tagId);
     }
 
     setPendingChanges({ ...changes });
@@ -218,7 +234,14 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       >
         {/* header */}
         <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{modalTitle()}</h2>
+          <div>
+            <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{modalTitle()}</h2>
+            <Show when={props.albumIds.length > 1}>
+              <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
+                changes will apply to all selected albums
+              </p>
+            </Show>
+          </div>
           <button
             onClick={() => props.onClose()}
             class="p-1 hover:bg-[var(--color-bg-hover)] rounded transition-colors"
@@ -269,11 +292,12 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
               <div class="space-y-1">
                 <For each={filteredTags()}>
                   {(tag) => {
-                    const applied = () => isTagApplied(tag.tag_id);
+                    const state = () => getTagState(tag.tag_id);
                     const isPending = () => {
                       const changes = pendingChanges();
                       return changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id);
                     };
+                    const count = () => tagCounts().get(tag.tag_id) || 0;
 
                     return (
                       <button
@@ -282,9 +306,11 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
                           w-full flex items-center justify-between px-3 py-2 rounded
                           transition-colors text-left
                           ${
-                            applied()
+                            state() === "all"
                               ? "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]"
-                              : "hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
+                              : state() === "some"
+                                ? "bg-yellow-500/10 text-yellow-500"
+                                : "hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
                           }
                           ${isPending() ? "ring-2 ring-[var(--color-accent-500)]/50" : ""}
                         `}
@@ -292,9 +318,18 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
                         <span class="flex items-center gap-2">
                           <Icon name={IconNames.tag} size={14} />
                           {tag.name}
+                          {/* show count badge for partial state with multiple albums */}
+                          <Show when={state() === "some" && albumCount() > 1}>
+                            <span class="text-xs bg-yellow-500/20 px-1.5 py-0.5 rounded">
+                              {count()}/{albumCount()}
+                            </span>
+                          </Show>
                         </span>
-                        <Show when={applied()}>
+                        <Show when={state() === "all"}>
                           <Icon name={IconNames.check} size={16} color="var(--color-accent-500)" />
+                        </Show>
+                        <Show when={state() === "some"}>
+                          <span class="w-2 h-0.5 bg-yellow-500 rounded" />
                         </Show>
                       </button>
                     );
@@ -312,24 +347,22 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
               {pendingChanges().add.size > 0 && (
                 <span class="text-[var(--color-accent-500)]">+{pendingChanges().add.size}</span>
               )}
-              {pendingChanges().add.size > 0 && pendingChanges().remove.size > 0 && (
-                <span> / </span>
-              )}
+              {pendingChanges().add.size > 0 && pendingChanges().remove.size > 0 && " "}
               {pendingChanges().remove.size > 0 && (
-                <span class="text-red-500">-{pendingChanges().remove.size}</span>
+                <span class="text-red-400">-{pendingChanges().remove.size}</span>
               )}
             </Show>
           </div>
-          <div class="flex gap-2">
-            <Button onClick={props.onClose} variant="ghost">
+          <div class="flex items-center gap-2">
+            <Button onClick={props.onClose} disabled={isLoading()} variant="ghost">
               cancel
             </Button>
             <Button
               onClick={handleSave}
-              variant="primary"
               disabled={isLoading() || !hasPendingChanges()}
+              variant="primary"
             >
-              save
+              {isLoading() ? "saving..." : "save"}
             </Button>
           </div>
         </div>
