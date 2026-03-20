@@ -267,9 +267,11 @@ pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> Grimoire
     // get blobs state (downloader + store)
     let (downloader, store) = {
         let guard = BLOBS_STATE.lock().unwrap();
-        let state = guard.as_ref().ok_or_else(|| GrimoireError::FederationApiError {
-            message: "blobs downloader not initialized".to_string(),
-        })?;
+        let state = guard
+            .as_ref()
+            .ok_or_else(|| GrimoireError::FederationApiError {
+                message: "blobs downloader not initialized".to_string(),
+            })?;
         (state.downloader.clone(), state.store.clone())
     };
 
@@ -288,11 +290,12 @@ pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> Grimoire
     use iroh_blobs::api::downloader::DownloadProgressItem;
 
     let progress = downloader.download(hash_and_format, [addr.id]);
-    let mut stream = progress.stream().await.map_err(|e| {
-        GrimoireError::FederationApiError {
+    let mut stream = progress
+        .stream()
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
             message: format!("download stream failed: {}", e),
-        }
-    })?;
+        })?;
 
     // consume progress stream, check for errors
     let mut had_error = false;
@@ -325,11 +328,12 @@ pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> Grimoire
     }
 
     // read the blob from store
-    let bytes = store.get_bytes(hash).await.map_err(|e| {
-        GrimoireError::FederationApiError {
+    let bytes = store
+        .get_bytes(hash)
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
             message: format!("failed to read blob from store: {}", e),
-        }
-    })?;
+        })?;
 
     info!(
         "received {} verified bytes for blob {} from {}",
@@ -368,10 +372,7 @@ pub async fn ensure_blob(peer_addr: &str, blake3_hash: &str) -> GrimoireResult<b
             hash_short, node_id_short
         );
     } else {
-        debug!(
-            "ensure_blob: {} not found on {}",
-            hash_short, node_id_short
-        );
+        debug!("ensure_blob: {} not found on {}", hash_short, node_id_short);
     }
 
     Ok(available)
@@ -459,19 +460,22 @@ pub async fn fetch_blob_verified_with_ensure(
 /// computes blake3 on demand via the server, then uses verified streaming.
 ///
 /// returns the blob data and the computed blake3 hash (for caching).
-pub async fn fetch_blob_verified_by_id(peer_addr: &str, blob_id: &str) -> GrimoireResult<(Vec<u8>, String)> {
+pub async fn fetch_blob_verified_by_id(
+    peer_addr: &str,
+    blob_id: &str,
+) -> GrimoireResult<(Vec<u8>, String)> {
     let blob_id_short = &blob_id[..16.min(blob_id.len())];
-    
+
     // compute blake3 on demand
     let blake3 = compute_blake3(peer_addr, blob_id).await?.ok_or_else(|| {
         GrimoireError::FederationApiError {
             message: format!("blob {} not found on peer", blob_id_short),
         }
     })?;
-    
+
     // now use verified streaming
     let data = fetch_blob_verified_with_ensure(peer_addr, &blake3).await?;
-    
+
     Ok((data, blake3))
 }
 
@@ -518,6 +522,7 @@ pub async fn upload_blob(
     filename: &str,
     content_type: &str,
     data: &[u8],
+    associate_with: Option<serde_json::Value>,
 ) -> GrimoireResult<P2pUploadResult> {
     let endpoint = get_endpoint()?;
     let addr = parse_peer_address(peer_addr)?;
@@ -531,7 +536,9 @@ pub async fn upload_blob(
     );
 
     let conn = connect_to_peer(&endpoint, &addr).await?;
-    let result = conn.upload_blob(filename, content_type, data).await?;
+    let result = conn
+        .upload_blob(filename, content_type, data, associate_with)
+        .await?;
 
     info!(
         "upload complete: blob_id={:?}, job_id={:?}",

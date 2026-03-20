@@ -403,6 +403,7 @@ async fn handle_stream(
             filename,
             content_type,
             size,
+            associate_with,
         } => {
             debug!(
                 "blob upload: {} ({} bytes) from {}",
@@ -466,11 +467,16 @@ async fn handle_stream(
             // encode data as base64 for the upload handler
             let base64_data = base64::engine::general_purpose::STANDARD.encode(&data);
 
-            let upload_body = json!({
+            let mut upload_body = json!({
                 "data": base64_data,
                 "filename": filename,
                 "content_type": content_type,
             });
+
+            // include association metadata if provided
+            if let Some(assoc) = associate_with {
+                upload_body["associate_with"] = assoc;
+            }
 
             // determine upload path based on content type
             let upload_path = if content_type.starts_with("audio/") {

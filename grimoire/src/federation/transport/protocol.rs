@@ -67,6 +67,8 @@ pub enum PeerMessage {
         content_type: String,
         /// total size in bytes
         size: u64,
+        /// optional association metadata (entity_type, entity_id, is_primary)
+        associate_with: Option<serde_json::Value>,
     },
 
     /// blob upload response (sent after receiving full blob)

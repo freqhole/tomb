@@ -330,6 +330,7 @@ pub fn p2p_close_all_connections() {
 /// upload a blob to a remote peer via P2P
 ///
 /// data: base64-encoded blob data (since tauri can't easily pass raw bytes)
+/// associate_with: optional JSON with entity association metadata
 #[tauri::command]
 pub async fn p2p_upload_blob(
     app_handle: tauri::AppHandle,
@@ -337,6 +338,7 @@ pub async fn p2p_upload_blob(
     filename: String,
     content_type: String,
     data: String,
+    associate_with: Option<serde_json::Value>,
 ) -> Result<P2pUploadResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -345,16 +347,21 @@ pub async fn p2p_upload_blob(
         .decode(&data)
         .map_err(|e| format!("failed to decode base64 data: {}", e))?;
 
-    let result =
-        grimoire::federation::p2p_client::upload_blob(&peer_addr, &filename, &content_type, &bytes)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                if is_connection_error(&error_msg) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let result = grimoire::federation::p2p_client::upload_blob(
+        &peer_addr,
+        &filename,
+        &content_type,
+        &bytes,
+        associate_with,
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        if is_connection_error(&error_msg) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pUploadResponse {
         blob_id: result.blob_id,

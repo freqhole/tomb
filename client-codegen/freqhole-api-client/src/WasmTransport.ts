@@ -45,11 +45,13 @@ export interface MiddenNodeLike {
     on_progress: (received: number, total: number) => void,
   ): Promise<BlobResultLike>;
   // upload blob to peer - optional
+  // associate_with: optional JSON string with entity association metadata
   upload_blob?(
     peer_addr: string,
     filename: string,
     content_type: string,
     data: Uint8Array,
+    associate_with?: string | null,
   ): Promise<UploadResultLike>;
   // fetch server image (public, no auth required) - optional
   fetch_hello_image?(peer_addr: string): Promise<BlobResultLike>;
@@ -154,6 +156,9 @@ export class WasmTransport implements Transport {
       };
     }
 
+    // extract associate_with metadata if present (pass as JSON string to WASM)
+    const associateWith = formData.get("associate_with") as string | null;
+
     // read file data
     const data = new Uint8Array(await file.arrayBuffer());
     const contentType = file.type || "application/octet-stream";
@@ -164,6 +169,7 @@ export class WasmTransport implements Transport {
         file.name,
         contentType,
         data,
+        associateWith,
       );
 
       // use full server response body if available (for proper Zod validation)

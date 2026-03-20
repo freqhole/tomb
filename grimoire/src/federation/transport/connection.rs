@@ -380,6 +380,7 @@ impl PeerConnection {
         filename: &str,
         content_type: &str,
         data: &[u8],
+        associate_with: Option<serde_json::Value>,
     ) -> GrimoireResult<BlobUploadResult> {
         let id = self.next_request_id();
         let (mut send, mut recv) =
@@ -396,6 +397,7 @@ impl PeerConnection {
             filename: filename.to_string(),
             content_type: content_type.to_string(),
             size: data.len() as u64,
+            associate_with,
         };
         let header_bytes =
             serde_json::to_vec(&msg).map_err(|e| GrimoireError::FederationApiError {

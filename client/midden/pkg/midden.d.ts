@@ -160,9 +160,10 @@ export class MiddenNode {
     /**
      * upload a blob to a peer
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
+     * associate_with: optional JSON string with entity association metadata
      * returns UploadResult with blob_id and job_id on success
      */
-    upload_blob(peer_addr: string, filename: string, content_type: string, data: Uint8Array): Promise<UploadResult>;
+    upload_blob(peer_addr: string, filename: string, content_type: string, data: Uint8Array, associate_with?: string | null): Promise<UploadResult>;
 }
 
 /**

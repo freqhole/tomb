@@ -135,6 +135,17 @@ export class TauriTransport implements Transport {
       };
     }
 
+    // extract associate_with metadata if present
+    const associateWithStr = formData.get("associate_with") as string | null;
+    let associateWith: object | null = null;
+    if (associateWithStr) {
+      try {
+        associateWith = JSON.parse(associateWithStr);
+      } catch {
+        // ignore parse errors
+      }
+    }
+
     // read file and encode as base64 (tauri IPC requires this for binary data)
     const bytes = new Uint8Array(await file.arrayBuffer());
     const base64 = bytesToBase64(bytes);
@@ -146,6 +157,7 @@ export class TauriTransport implements Transport {
         filename: file.name,
         contentType,
         data: base64,
+        associateWith,
       })) as { blob_id: string | null; job_id: string | null; body: string | null };
 
       // use full server response body if available (for proper Zod validation)

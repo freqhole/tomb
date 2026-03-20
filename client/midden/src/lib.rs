@@ -53,6 +53,7 @@ enum PeerMessage {
         filename: String,
         content_type: String,
         size: u64,
+        associate_with: Option<serde_json::Value>,
     },
     BlobUploadResponse {
         id: u64,
@@ -511,6 +512,7 @@ impl MiddenNode {
 
     /// upload a blob to a peer
     /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
+    /// associate_with: optional JSON string with entity association metadata
     /// returns UploadResult with blob_id and job_id on success
     pub async fn upload_blob(
         &self,
@@ -518,6 +520,7 @@ impl MiddenNode {
         filename: &str,
         content_type: &str,
         data: &[u8],
+        associate_with: Option<String>,
     ) -> Result<UploadResult, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
 
@@ -527,12 +530,18 @@ impl MiddenNode {
         let (mut send, mut recv): (SendStream, RecvStream) =
             conn.open_bi().await.map_err(to_js_err)?;
 
+        // parse associate_with if provided
+        let associate_with_value: Option<serde_json::Value> = associate_with
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok());
+
         // send length-prefixed header
         let request = PeerMessage::BlobUploadRequest {
             id: 1,
             filename: filename.to_string(),
             content_type: content_type.to_string(),
             size: data.len() as u64,
+            associate_with: associate_with_value,
         };
         let header_bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
         let header_len = header_bytes.len() as u32;
