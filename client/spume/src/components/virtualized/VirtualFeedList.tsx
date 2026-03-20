@@ -281,7 +281,12 @@ function FeedRow(props: {
         };
       }
       case "listen_session":
-        return { user, verb: "had", entity: "a listening session" };
+        // "is having" for active sessions, "had" for completed/paused/abandoned
+        return {
+          user,
+          verb: item.session_status === "active" ? "is having" : "had",
+          entity: "a listening session",
+        };
       case "new_image": {
         const count = item.image_count ?? 1;
         const imageWord = count === 1 ? "image" : "images";

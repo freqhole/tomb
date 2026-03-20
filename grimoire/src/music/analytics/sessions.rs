@@ -294,6 +294,7 @@ pub async fn create_listen_session(
 /// update session progress (song-based)
 /// progress only moves forward - server enforces this with MAX
 /// when progress >= total_songs, the trigger auto-marks session as completed
+/// rejects updates for completed sessions (prevents feed timestamp churn)
 pub async fn update_listen_session_progress(
     session_id: &str,
     user_id: &str,
@@ -305,6 +306,45 @@ pub async fn update_listen_session_progress(
             return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
         }
     };
+
+    // check current state - skip update if no actual progress change or session is completed
+    let current = sqlx::query!(
+        r#"
+        SELECT songs_completed, status
+        FROM listen_sessionz
+        WHERE id = ? AND user_id = ?
+        "#,
+        session_id,
+        user_id,
+    )
+    .fetch_optional(&pool)
+    .await;
+
+    match current {
+        Ok(Some(row)) => {
+            // reject updates for completed sessions
+            if row.status == "completed" {
+                return GrimoireResponse::success_unit("session already completed, progress ignored");
+            }
+            // skip if no actual progress (prevents updated_at churn)
+            if req.progress <= row.songs_completed {
+                return GrimoireResponse::success_unit("no progress change");
+            }
+        }
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "listen session not found",
+                vec![ErrorDetail::new(
+                    "session_not_found",
+                    "Session Not Found",
+                    "the listen session does not exist or has been deleted",
+                )],
+            );
+        }
+        Err(e) => {
+            return GrimoireResponse::failure("failed to check session state", vec![e.into()]);
+        }
+    }
 
     // progress only moves forward (MAX ensures this)
     // songs_completed tracks the same value for the auto-complete trigger

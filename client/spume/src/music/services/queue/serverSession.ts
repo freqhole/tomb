@@ -365,8 +365,9 @@ export async function stopServerSession(
   await stopAllServerSessions(status);
 }
 
-// resume an existing server session (from feed UI).
+// resume an existing server session (from feed UI or page reload).
 // this only resumes a single session on the specified remote.
+// if songs are provided, rebuilds songIndices for proper progress tracking.
 export async function resumeServerSession(
   sessionId: string,
   resumeState: {
@@ -378,6 +379,7 @@ export async function resumeServerSession(
     entityId?: string;
   },
   historyEntryId?: string,
+  songs?: Song[],
 ): Promise<void> {
   const remoteId = remote.remote_id;
   if (!remoteId) {
@@ -387,13 +389,23 @@ export async function resumeServerSession(
   // stop any active sessions first
   await stopAllServerSessions("paused");
 
+  // rebuild songIndices from provided songs (maps queue index to this remote's songs)
+  const songIndices: number[] = [];
+  if (songs) {
+    for (let i = 0; i < songs.length; i++) {
+      if (songs[i].remote_server_id === remoteId) {
+        songIndices.push(i);
+      }
+    }
+  }
+
   // create a session entry for this remote
   const session: RemoteSession = {
     sessionId,
     remoteId,
     label: sessionContext?.label ?? "",
     entityId: sessionContext?.entityId,
-    songIndices: [], // will be populated if updateServerSessionSongs is called
+    songIndices,
     progress: resumeState.progress,
   };
 
@@ -441,6 +453,7 @@ export function getSessionIdForRemote(remoteId: string): string | null {
 // reconnect server session after page reload.
 // called from listenProgress.reconnectProgressTracking after finding a matching history entry.
 // uses the stored server_session_id and server_remote_id to resume tracking.
+// songs are passed to rebuild songIndices for proper progress tracking.
 export async function reconnectServerSession(
   historyEntry: {
     id: string;
@@ -449,6 +462,7 @@ export async function reconnectServerSession(
     label: string;
     entity_id?: string;
     songs_completed: number;
+    songs: Song[];
   },
 ): Promise<void> {
   // skip if no server session info stored
@@ -461,6 +475,7 @@ export async function reconnectServerSession(
   }
 
   // resume the server session with progress = songs_completed
+  // pass songs so songIndices can be rebuilt for progress tracking
   await resumeServerSession(
     historyEntry.server_session_id,
     { progress: historyEntry.songs_completed },
@@ -470,5 +485,6 @@ export async function reconnectServerSession(
       entityId: historyEntry.entity_id,
     },
     historyEntry.id,
+    historyEntry.songs,
   );
 }

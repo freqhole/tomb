@@ -336,6 +336,7 @@ export async function resumeHistoryEntry(
       label: entry.label,
       entity_id: entry.entity_id,
       songs_completed: entry.songs_completed || 0,
+      songs: entry.songs,
     });
   }
 }

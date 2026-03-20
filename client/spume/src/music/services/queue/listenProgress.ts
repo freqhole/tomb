@@ -219,6 +219,7 @@ export function reconnectProgressTracking(): void {
       label: entry.label,
       entity_id: entry.entity_id,
       songs_completed: entry.songs_completed,
+      songs: entry.songs,
     });
   }
 }
