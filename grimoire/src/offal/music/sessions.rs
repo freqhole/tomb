@@ -1,5 +1,6 @@
 //! listen session API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::analytics::sessions::{
     create_listen_session, delete_listen_session, get_listen_session, list_listen_sessions,
@@ -11,6 +12,73 @@ use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for listen sessions
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "create_listen_session",
+        path: "/api/analytics/sessions",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "CreateListenSessionRequest",
+        response_type: "ListenSession",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "list_listen_sessions",
+        path: "/api/analytics/sessions/list",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListListenSessionsRequest",
+        response_type: "ListListenSessionsResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_listen_session",
+        path: "/api/analytics/sessions/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "ListenSession",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "update_listen_session_progress",
+        path: "/api/analytics/sessions/{id}/progress",
+        method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "UpdateListenSessionProgressRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
+    },
+    RouteInfo {
+        name: "update_listen_session_songs",
+        path: "/api/analytics/sessions/{id}/songs",
+        method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "UpdateListenSessionSongsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
+    },
+    RouteInfo {
+        name: "update_listen_session_status",
+        path: "/api/analytics/sessions/{id}/status/{status}",
+        method: Method::PUT,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
+    },
+    RouteInfo {
+        name: "delete_listen_session",
+        path: "/api/analytics/sessions/{id}",
+        method: Method::DELETE,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Owner,
+    },
+];
 
 /// create a listen session
 ///

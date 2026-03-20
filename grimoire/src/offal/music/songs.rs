@@ -1,5 +1,6 @@
 //! song API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{
     list_recent_songs, query_songs, update_songs as grimoire_update_songs,
@@ -14,6 +15,64 @@ use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for songs
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "query_songs",
+        path: "/api/songs/query",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "SongsQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "recent_songs",
+        path: "/api/songs/recent",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RecentSongsRequest",
+        response_type: "Vec<Song>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "update_songs",
+        path: "/api/songs/update",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UpdateSongsRequest",
+        response_type: "UpdateSongsResult",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "bulk_delete_songs",
+        path: "/api/songs/bulk-delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "BulkDeleteSongsRequest",
+        response_type: "BulkDeleteSongsResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "bulk_clear_song_artwork",
+        path: "/api/songs/bulk-clear-artwork",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "BulkClearSongArtworkRequest",
+        response_type: "BulkClearSongArtworkResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "delete_song",
+        path: "/api/songs/{id}",
+        method: Method::DELETE,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "DeleteSongResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+];
 
 /// query songs
 ///

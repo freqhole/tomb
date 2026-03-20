@@ -4,9 +4,15 @@
 
 pub mod users;
 
+use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
+
+/// collect all route metadata from auth domain
+pub fn routes() -> Vec<RouteInfo> {
+    users::ROUTES.to_vec()
+}
 
 /// dispatch auth domain routes
 pub async fn dispatch(

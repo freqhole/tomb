@@ -5,9 +5,18 @@
 pub mod health;
 pub mod knock;
 
+use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
+
+/// collect all route metadata from public domain
+pub fn routes() -> Vec<RouteInfo> {
+    let mut all = Vec::new();
+    all.extend_from_slice(health::ROUTES);
+    all.extend_from_slice(knock::ROUTES);
+    all
+}
 
 /// dispatch public domain routes
 pub async fn dispatch(

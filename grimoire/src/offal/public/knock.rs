@@ -2,6 +2,7 @@
 //!
 //! public endpoints for P2P access requests
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::federation::knock::{
     create_knock, get_knock_status, CreateKnockRequest as GrimoireCreateKnockRequest,
@@ -9,6 +10,28 @@ use crate::federation::knock::{
 use crate::response::GrimoireResponse;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for knock requests
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "create_knock_public",
+        path: "/api/knock",
+        method: Method::POST,
+        domain: Domain::Admin,
+        request_type: "CreateKnockRequest",
+        response_type: "KnockRequest",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "get_knock_status_public",
+        path: "/api/knock/status",
+        method: Method::GET,
+        domain: Domain::Admin,
+        request_type: "String",
+        response_type: "KnockStatusResponse",
+        auth: RouteAuth::Public,
+    },
+];
 
 /// create a knock request (public endpoint)
 ///

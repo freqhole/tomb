@@ -1,5 +1,6 @@
 //! artist API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{query_artists, QueryParams};
 use crate::music::entities::artists::{
@@ -11,6 +12,65 @@ use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for artists
+/// matches server inventory routes
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "create_artist",
+        path: "/api/music/artists",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "CreateArtistRequest",
+        response_type: "Artist",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "query_artists",
+        path: "/api/artists/query",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "ArtistsQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_artist",
+        path: "/api/artists/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "GetArtistRequest",
+        response_type: "Artist",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "delete_artist",
+        path: "/api/artists/{id}",
+        method: Method::DELETE,
+        domain: Domain::Music,
+        request_type: "DeleteArtistRequest",
+        response_type: "DeleteArtistResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "update_artist",
+        path: "/api/artists/update",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UpdateArtistRequest",
+        response_type: "Artist",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "get_artist_images",
+        path: "/api/artists/{id}/images",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<String>",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// query artists
 ///

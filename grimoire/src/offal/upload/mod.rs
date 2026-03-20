@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use tokio::time::{sleep, Duration};
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::jobs::{
     create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
@@ -26,6 +27,52 @@ use crate::response::GrimoireResponse;
 use crate::upload::{AssociationHint, AssociationInfo, ImageUploadResponse, MusicImportResponse};
 use crate::users::UserRole;
 use crate::Bytes;
+
+/// route metadata for upload
+/// matches server inventory routes
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "upload_music",
+        path: "/api/upload/music",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "MusicUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "upload_image",
+        path: "/api/upload/image",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "ImageUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "delete_image",
+        path: "/api/music/images/delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "DeleteImageRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "set_primary_image",
+        path: "/api/music/images/set-primary",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetPrimaryImageRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+];
+
+/// collect all route metadata from upload domain
+pub fn routes() -> Vec<RouteInfo> {
+    ROUTES.to_vec()
+}
 
 /// max image size: 10MB
 const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024;

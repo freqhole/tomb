@@ -1,6 +1,7 @@
 //! analytics API handlers
 
 use crate::analytics::MediaEvent;
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::analytics::admin::{
     get_overview_stats, get_top_albums, get_top_artists, get_top_songs, get_user_stats,
@@ -13,6 +14,73 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for analytics
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "record_play",
+        path: "/api/analytics/play",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RecordPlayRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "listening_history",
+        path: "/api/analytics/listening-history",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListeningHistoryRequest",
+        response_type: "ListeningHistoryResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "song_analytics",
+        path: "/api/analytics/song-stats",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SongAnalyticsRequest",
+        response_type: "PlayAnalytics",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "top_songs",
+        path: "/api/analytics/top-songs",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "TopSongsRequest",
+        response_type: "Vec<TopSong>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "top_albums",
+        path: "/api/analytics/top-albums",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "TopAlbumsRequest",
+        response_type: "Vec<TopAlbum>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "top_artists",
+        path: "/api/analytics/top-artists",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "TopArtistsRequest",
+        response_type: "Vec<TopArtist>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "activity_feed",
+        path: "/api/analytics/feed",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "FeedRequest",
+        response_type: "FeedResponse",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// record a play event (canonical endpoint)
 ///

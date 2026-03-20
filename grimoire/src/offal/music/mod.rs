@@ -16,9 +16,28 @@ pub mod sessions;
 pub mod songs;
 pub mod tags;
 
+use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
+
+/// collect all route metadata from music domain
+pub fn routes() -> Vec<RouteInfo> {
+    let mut all = Vec::new();
+    all.extend_from_slice(albums::ROUTES);
+    all.extend_from_slice(analytics::ROUTES);
+    all.extend_from_slice(artists::ROUTES);
+    all.extend_from_slice(favorites::ROUTES);
+    all.extend_from_slice(genres::ROUTES);
+    all.extend_from_slice(jobs::ROUTES);
+    all.extend_from_slice(playlists::ROUTES);
+    all.extend_from_slice(ratings::ROUTES);
+    all.extend_from_slice(search::ROUTES);
+    all.extend_from_slice(sessions::ROUTES);
+    all.extend_from_slice(songs::ROUTES);
+    all.extend_from_slice(tags::ROUTES);
+    all
+}
 
 /// dispatch music domain routes
 ///

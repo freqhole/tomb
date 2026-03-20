@@ -1,5 +1,6 @@
 //! search API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::config::MusicBrainzConfig;
 use crate::error::ErrorDetail;
 use crate::music::musicbrainz::{
@@ -9,7 +10,48 @@ use crate::music::musicbrainz::{
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::search::{get_suggestions, search, SearchRequest, SuggestionsRequest};
+use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for search
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "search",
+        path: "/api/music/search",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SearchRequest",
+        response_type: "SearchResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "suggestions",
+        path: "/api/music/suggestions",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SuggestionsRequest",
+        response_type: "SuggestionsResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "search_musicbrainz_releases",
+        path: "/api/musicbrainz/search/releases",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SearchReleasesRequest",
+        response_type: "MbSearchReleasesResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "get_musicbrainz_release",
+        path: "/api/musicbrainz/release",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetReleaseRequest",
+        response_type: "MbReleaseDetail",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+];
 
 /// full-text search
 ///

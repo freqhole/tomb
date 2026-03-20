@@ -2,14 +2,74 @@
 //!
 //! admin endpoints for managing knock requests
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::federation::knock::{
     accept_knock, delete_knock, get_knock, list_knocks, reject_knock, ProcessKnockRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
+use crate::users::UserRole;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for knock admin
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "list_knocks",
+        path: "/api/admin/knocks",
+        method: Method::GET,
+        domain: Domain::Admin,
+        request_type: "String",
+        response_type: "Vec<KnockRequest>",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "list_all_knocks",
+        path: "/api/admin/knocks/all",
+        method: Method::GET,
+        domain: Domain::Admin,
+        request_type: "String",
+        response_type: "Vec<KnockRequest>",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "get_knock",
+        path: "/api/admin/knocks/{id}",
+        method: Method::GET,
+        domain: Domain::Admin,
+        request_type: "String",
+        response_type: "KnockRequest",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "accept_knock",
+        path: "/api/admin/knocks/{id}/accept",
+        method: Method::POST,
+        domain: Domain::Admin,
+        request_type: "ProcessKnockRequest",
+        response_type: "KnockRequest",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "reject_knock",
+        path: "/api/admin/knocks/{id}/reject",
+        method: Method::POST,
+        domain: Domain::Admin,
+        request_type: "String",
+        response_type: "KnockRequest",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "delete_knock",
+        path: "/api/admin/knocks/{id}",
+        method: Method::DELETE,
+        domain: Domain::Admin,
+        request_type: "String",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+];
 
 /// list pending knocks (admin only)
 ///

@@ -1,5 +1,6 @@
 //! tag API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::entities::tags::{
     add_albums_tags, delete_tag as grimoire_delete_tag, get_albums_tags,
@@ -8,8 +9,85 @@ use crate::music::entities::tags::{
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
+use crate::users::UserRole;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for tags
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "list_tags",
+        path: "/api/tags/list",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<Tag>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "query_tags",
+        path: "/api/tags/query",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryTagsRequest",
+        response_type: "Vec<Tag>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_tag",
+        path: "/api/tags/get",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetTagRequest",
+        response_type: "Tag",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "delete_tag",
+        path: "/api/tags/delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "DeleteTagRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "get_albums_tags",
+        path: "/api/tags/albums/get",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetAlbumsTagsRequest",
+        response_type: "Vec<Tag>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "add_albums_tags",
+        path: "/api/tags/albums/add",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "AddAlbumsTagsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "remove_albums_tags",
+        path: "/api/tags/albums/remove",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RemoveAlbumsTagsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "replace_albums_tags",
+        path: "/api/tags/albums/replace",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ReplaceAlbumsTagsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+];
 
 /// list all tags
 ///

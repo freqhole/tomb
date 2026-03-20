@@ -1,5 +1,6 @@
 //! job API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::jobs::{
     create_job, get_job, get_jobs_status, list_jobs, CreateJobRequest, JobStatus, JobType,
@@ -7,8 +8,50 @@ use crate::jobs::{
 use crate::music::fetch::FetchMediaParams;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
+use crate::users::UserRole;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
+
+/// route metadata for jobs
+/// matches server inventory routes
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "get_job_status",
+        path: "/api/jobs/status",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetJobsStatusRequest",
+        response_type: "GetJobsStatusResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "list_jobs",
+        path: "/api/jobs/list",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListJobsRequest",
+        response_type: "Vec<JobResponse>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "create_fetch_job",
+        path: "/api/music/fetch",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "FetchMediaParams",
+        response_type: "JobResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "get_fetch_job",
+        path: "/api/music/fetch/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "GetJobRequest",
+        response_type: "JobResponse",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// get status of multiple jobs
 ///

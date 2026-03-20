@@ -1,6 +1,7 @@
 //! typescript client generator - outputs route config + schemas
 
-use grimoire::api_registry::{self, RouteAuth, RouteInfo};
+use grimoire::api_registry::{RouteAuth, RouteInfo};
+use grimoire::offal;
 use std::collections::HashSet;
 use zod_gen::ZodGenerator;
 
@@ -10,25 +11,35 @@ fn generate_schema_file(routes: &[RouteInfo]) -> Result<String, Box<dyn std::err
 
     grimoire::api_registry::type_registry::register_all_types(&mut generator, &mut registered);
 
-    // validate all route types are registered
+    // validate all route types are registered (collect all errors first)
+    let mut missing_types = Vec::new();
     for route in routes {
         if let Some(t) = extract_type(route.request_type) {
             if !registered.contains(&t) {
-                panic!("Type '{}' used in '{}' not registered!", t, route.name);
+                missing_types.push(format!("  {} (request for '{}')", t, route.name));
             }
         }
         if let Some(t) = extract_type(route.response_type) {
             if !registered.contains(&t) {
-                panic!("Type '{}' used in '{}' not registered!", t, route.name);
+                missing_types.push(format!("  {} (response for '{}')", t, route.name));
             }
         }
+    }
+
+    if !missing_types.is_empty() {
+        missing_types.sort();
+        missing_types.dedup();
+        panic!(
+            "Unregistered types used in routes:\n{}",
+            missing_types.join("\n")
+        );
     }
 
     Ok(generator.generate())
 }
 
 fn extract_type(rust_type: &str) -> Option<String> {
-    // primitives and json types don't need registration
+    // primitives, json types, and empty types don't need registration
     if rust_type == "String"
         || rust_type == "bool"
         || rust_type == "i32"
@@ -38,6 +49,9 @@ fn extract_type(rust_type: &str) -> Option<String> {
         || rust_type == "f32"
         || rust_type == "f64"
         || rust_type == "serde_json::Value"
+        || rust_type == "EmptyRequest"
+        || rust_type == "EmptyResponse"
+        || rust_type == "()"
     {
         return None;
     }
@@ -72,8 +86,6 @@ fn auth_to_ts(auth: &RouteAuth) -> String {
 }
 
 fn generate_routes_file(routes: &[RouteInfo]) -> String {
-    use std::collections::HashMap;
-
     let mut output = String::from(
         "// generated route config\nimport * as s from './schema';\nimport { z } from 'zod';\n\n",
     );
@@ -99,8 +111,9 @@ fn generate_routes_file(routes: &[RouteInfo]) -> String {
     output.push_str("  | { type: 'owner' }\n");
     output.push_str("  | { type: 'owner_or'; role: UserRoleName };\n\n");
 
-    // group routes by domain
-    let mut domains: HashMap<&str, Vec<&RouteInfo>> = HashMap::new();
+    // group routes by domain (BTreeMap for consistent ordering)
+    let mut domains: std::collections::BTreeMap<&str, Vec<&RouteInfo>> =
+        std::collections::BTreeMap::new();
     for route in routes {
         domains
             .entry(route.domain.as_str())
@@ -110,7 +123,10 @@ fn generate_routes_file(routes: &[RouteInfo]) -> String {
 
     output.push_str("export const routes = {\n");
 
-    for (domain, domain_routes) in domains.iter() {
+    for (domain, mut domain_routes) in domains {
+        // sort routes by name within each domain
+        domain_routes.sort_by_key(|r| r.name);
+
         output.push_str(&format!("  {}: {{\n", domain));
 
         for route in domain_routes {
@@ -163,7 +179,7 @@ fn schema_ref(rust_type: &str) -> String {
 }
 
 pub fn generate_all() -> Result<(), Box<dyn std::error::Error>> {
-    let routes = api_registry::all_routes();
+    let routes = offal::all_routes();
     std::fs::create_dir_all("freqhole-api-client/src/codegen")?;
 
     let schema = generate_schema_file(&routes)?;

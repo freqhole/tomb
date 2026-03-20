@@ -2,6 +2,7 @@
 //!
 //! blob metadata, file paths, and thumbnails for local file access
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::blob_data::{self, find_existing_thumbnail};
 use crate::error::ErrorDetail;
 use crate::media_blobz::get_media_blob;
@@ -9,6 +10,43 @@ use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use base64::Engine;
 use serde_json::Value as JsonValue;
+
+/// route metadata for media blobs
+/// matches server inventory routes (stream_blob, blob_metadata, get_blob_thumbnail)
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "stream_blob",
+        path: "/api/blobs/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "String",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "blob_metadata",
+        path: "/api/blobs/{id}/metadata",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "BlobMetadataResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_blob_thumbnail",
+        path: "/api/blobs/{id}/thumb/{size}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "String",
+        auth: RouteAuth::Authenticated,
+    },
+];
+
+/// collect all route metadata from media_blobz domain
+pub fn routes() -> Vec<RouteInfo> {
+    ROUTES.to_vec()
+}
 
 /// dispatch media blob routes
 ///

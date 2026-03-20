@@ -1,5 +1,6 @@
 //! album API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{query_albums, QueryParams};
 use crate::music::entities::albums::{
@@ -15,6 +16,56 @@ use crate::response::GrimoireResponse;
 use crate::upload::{DeleteImageRequest, SetPrimaryImageRequest};
 use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for albums
+/// matches server inventory routes
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "query_albums",
+        path: "/api/albums/query",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "AlbumsQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_album",
+        path: "/api/albums/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "GetAlbumRequest",
+        response_type: "Album",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "delete_album",
+        path: "/api/albums/{id}",
+        method: Method::DELETE,
+        domain: Domain::Music,
+        request_type: "DeleteAlbumRequest",
+        response_type: "DeleteAlbumResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "update_album",
+        path: "/api/albums/update",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UpdateAlbumRequest",
+        response_type: "Album",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "get_album_images",
+        path: "/api/albums/{id}/images",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<String>",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// query albums
 ///

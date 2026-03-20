@@ -1,11 +1,35 @@
 //! favorites API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
+use crate::music::users::{FavoritesService, SetFavoriteRequest};
 use crate::music::{query_favorites, ListFavoritesRequest, ListFavoritesResponse};
-use crate::music::users::{SetFavoriteRequest, FavoritesService};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
+use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for favorites
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "set_favorite",
+        path: "/api/favorites/set",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetFavoriteRequest",
+        response_type: "SetFavoriteResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "list_favorites",
+        path: "/api/favorites/list",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListFavoritesRequest",
+        response_type: "ListFavoritesResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+];
 
 /// set favorite status
 ///
@@ -16,7 +40,11 @@ pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -38,7 +66,11 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };
@@ -48,12 +80,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     let target_type = req.target_type.as_ref().map(|t| t.to_string());
     let target_type_str = target_type.as_deref();
 
-    let response = query_favorites(
-        &caller.user_id,
-        target_type_str,
-        limit,
-        offset,
-    ).await;
+    let response = query_favorites(&caller.user_id, target_type_str, limit, offset).await;
 
     match response.data {
         Some(favorites) => {
@@ -68,12 +95,10 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
                     has_more,
                     offset: offset as i64,
                     limit: limit as i64,
-                }).unwrap(),
+                })
+                .unwrap(),
             )
         }
-        None => GrimoireResponse::failure(
-            &response.message,
-            response.errors,
-        ),
+        None => GrimoireResponse::failure(&response.message, response.errors),
     }
 }

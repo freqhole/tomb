@@ -1,5 +1,6 @@
 //! playlist API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{
     query_playlist_songs as grimoire_query_playlist_songs, query_playlists, QueryParams,
@@ -17,6 +18,109 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for playlists
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "list_playlists",
+        path: "/api/music/playlists/list",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "PlaylistsQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "create_playlist",
+        path: "/api/music/playlists",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "CreatePlaylistRequest",
+        response_type: "Playlist",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "get_playlist_by_id",
+        path: "/api/music/playlists/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Playlist",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_playlist_etag",
+        path: "/api/music/playlists/{id}/etag",
+        method: Method::HEAD,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_playlist_images",
+        path: "/api/playlists/{id}/images",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "GetPlaylistRequest",
+        response_type: "Vec<String>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "update_playlist",
+        path: "/api/playlists/update",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UpdatePlaylistRequest",
+        response_type: "Playlist",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "delete_playlist",
+        path: "/api/playlists/delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "DeletePlaylistRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "add_songs_to_playlist",
+        path: "/api/playlists/add-songs",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "AddSongsToPlaylistRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "remove_songs_from_playlist",
+        path: "/api/playlists/remove-songs",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RemoveSongsFromPlaylistRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "reorder_playlist_songs",
+        path: "/api/playlists/reorder",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ReorderPlaylistSongsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "query_playlist_songs",
+        path: "/api/playlists/songs",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryPlaylistSongsRequest",
+        response_type: "PlaylistSongsQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// list playlists
 ///

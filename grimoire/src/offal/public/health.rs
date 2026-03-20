@@ -1,10 +1,33 @@
 //! health and discovery handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::config::get_config;
 use crate::error::ErrorDetail;
 use crate::health::{HealthResponse, ServerInfoResponse};
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
+
+/// route metadata for health/discovery
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "health_check",
+        path: "/health",
+        method: Method::GET,
+        domain: Domain::App,
+        request_type: "String",
+        response_type: "HealthResponse",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "server_info",
+        path: "/api/hello",
+        method: Method::GET,
+        domain: Domain::App,
+        request_type: "String",
+        response_type: "ServerInfoResponse",
+        auth: RouteAuth::Public,
+    },
+];
 
 /// server info endpoint
 ///

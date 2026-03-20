@@ -4,9 +4,15 @@
 
 pub mod knocks;
 
+use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::Value as JsonValue;
+
+/// collect all route metadata from admin domain
+pub fn routes() -> Vec<RouteInfo> {
+    knocks::ROUTES.to_vec()
+}
 
 /// dispatch admin domain routes
 pub async fn dispatch(

@@ -1,5 +1,6 @@
 //! user management handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -8,6 +9,93 @@ use crate::users::{
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for auth/user management
+/// matches server inventory routes
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "whoami",
+        path: "/api/auth/whoami",
+        method: Method::GET,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "WhoAmIResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "logout",
+        path: "/api/auth/logout",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "api_key_status",
+        path: "/api/auth/api-key/status",
+        method: Method::GET,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "ApiKeyStatusResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "regenerate_api_key",
+        path: "/api/auth/api-key/regenerate",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "ApiKeyRegenerateResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "redeem_invite",
+        path: "/api/auth/invite",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "RedeemInviteRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
+    },
+    // webauthn routes (matching server inventory)
+    RouteInfo {
+        name: "register_start",
+        path: "/api/auth/webauthn/register/start",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "RegisterStartRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "register_finish",
+        path: "/api/auth/webauthn/register/finish",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "login_start",
+        path: "/api/auth/webauthn/login/start",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "StartLoginRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "login_finish",
+        path: "/api/auth/webauthn/login/finish",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Public,
+    },
+];
 
 /// get current user info
 ///

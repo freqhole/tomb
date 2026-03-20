@@ -1,12 +1,35 @@
 //! genre API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{query_genres, QueryParams};
-use crate::music::entities::genres::{get_genre as grimoire_get_genre};
+use crate::music::entities::genres::get_genre as grimoire_get_genre;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use serde_json::Value as JsonValue;
+
+/// route metadata for genres
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "query_genres",
+        path: "/api/genres/query",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "GenresQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_genre",
+        path: "/api/genres/{id}",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "GetGenreRequest",
+        response_type: "GenreQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// query genres
 ///
@@ -17,7 +40,11 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", &e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
             )
         }
     };

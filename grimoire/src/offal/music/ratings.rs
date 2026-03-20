@@ -1,11 +1,44 @@
 //! ratings API handlers
 
+use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::users::{RatingTarget, RatingsService, SetRatingRequest};
+use crate::users::{RatingTarget, RatingsService, SetRatingRequest, UserRole};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
+
+/// route metadata for ratings
+/// matches server inventory routes
+pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "set_rating",
+        path: "/api/ratings/set",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetRatingRequest",
+        response_type: "SetRatingResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "remove_rating",
+        path: "/api/ratings/remove",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RemoveRatingRequest",
+        response_type: "RemoveRatingResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "get_rating_stats",
+        path: "/api/ratings/stats",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetRatingStatsRequest",
+        response_type: "RatingStats",
+        auth: RouteAuth::Authenticated,
+    },
+];
 
 /// set a rating
 ///
