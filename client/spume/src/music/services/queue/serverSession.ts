@@ -11,6 +11,7 @@
 import { createSignal } from "solid-js";
 import { getClientForRemote, type Remote, type RemoteRef } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { debug, warn } from "../../../utils/logger";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
 import { computeSmartLabel } from "./smartLabel";
@@ -45,10 +46,14 @@ export { activeServerSessionId };
 // group songs by remote_server_id, returns Map<remoteId, { songs, indices }>
 function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices: number[] }> {
   const groups = new Map<string, { songs: Song[]; indices: number[] }>();
+  let skippedCount = 0;
   for (let i = 0; i < songs.length; i++) {
     const song = songs[i];
     // only remote songs get server sessions
-    if (song.source_type !== "remote" || !song.remote_server_id) continue;
+    if (song.source_type !== "remote" || !song.remote_server_id) {
+      skippedCount++;
+      continue;
+    }
     const remoteId = song.remote_server_id;
     let group = groups.get(remoteId);
     if (!group) {
@@ -57,6 +62,10 @@ function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices
     }
     group.songs.push(song);
     group.indices.push(i);
+  }
+  debug(`[serverSession] groupSongsByRemote: ${songs.length} songs, ${groups.size} remotes, ${skippedCount} skipped (not remote or no remote_server_id)`);
+  if (skippedCount > 0 && songs.length > 0) {
+    debug(`[serverSession] first song source_type=${songs[0].source_type}, remote_server_id=${songs[0].remote_server_id}`);
   }
   return groups;
 }
@@ -67,9 +76,14 @@ async function resolveRemote(remoteId: string): Promise<Remote | null> {
   try {
     const remote = await getRemoteById(remoteId);
     // valid if has either base_url (HTTP) or peer_addr (P2P)
-    if (!remote || (!remote.base_url && !remote.peer_addr)) return null;
+    if (!remote || (!remote.base_url && !remote.peer_addr)) {
+      warn(`[serverSession] resolveRemote: remote ${remoteId} not found or missing base_url/peer_addr`, remote);
+      return null;
+    }
+    debug(`[serverSession] resolveRemote: resolved ${remoteId} → ${remote.name} (base_url=${remote.base_url}, peer_addr=${remote.peer_addr})`);
     return remote;
-  } catch {
+  } catch (e) {
+    warn(`[serverSession] resolveRemote: error resolving ${remoteId}`, e);
     return null;
   }
 }
@@ -90,17 +104,24 @@ export async function createServerSessions(
   source: QueueSourceContext,
   historyEntryId?: string,
 ): Promise<Map<string, string>> {
+  debug(`[serverSession] createServerSessions called with ${songs.length} songs, source=${source.type}`);
+  
   // stop any previous sessions before creating new ones
   await stopAllServerSessions("paused");
 
   const groups = groupSongsByRemote(songs);
   const created = new Map<string, string>(); // remoteId → sessionId
 
+  debug(`[serverSession] will attempt to create sessions for ${groups.size} remotes`);
+
   // create sessions in parallel
   const promises = Array.from(groups.entries()).map(
     async ([remoteId, group]) => {
       const remote = await resolveRemote(remoteId);
-      if (!remote) return;
+      if (!remote) {
+        warn(`[serverSession] skipping remote ${remoteId}: could not resolve`);
+        return;
+      }
 
       try {
         const totalDurationMs = group.songs.reduce(
@@ -108,6 +129,7 @@ export async function createServerSessions(
           0,
         );
 
+        debug(`[serverSession] creating session on remote ${remoteId} (${remote.name}) with ${group.songs.length} songs`);
         const client = await getClientForRemote(remote);
         const result = await client.music.createListenSession({
           session_type: source.type,
@@ -119,6 +141,7 @@ export async function createServerSessions(
         });
 
         if (result.success) {
+          debug(`[serverSession] created session ${result.data.id} on remote ${remoteId}`);
           const session: RemoteSession = {
             sessionId: result.data.id,
             remoteId,
