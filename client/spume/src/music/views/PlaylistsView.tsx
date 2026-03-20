@@ -1050,45 +1050,44 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                 <TwoColumnLayout
                   leftColumn={
                     <>
-                      <div style={{ height: isNarrow() ? "calc(100% - 68px)" : "100%" }}>
-                        <VirtualItemList
-                          items={playlistListItems()}
-                          selectedId={selectedPlaylistId()}
-                          scrollPaddingTop={100}
-                          height={listHeight() - (isNarrow() ? 68 : 0)}
-                          onItemClick={handlePlaylistClick}
-                          onVirtualizerReady={(scrollFn) => {
-                            setScrollToIndex(() => scrollFn);
+                      <VirtualItemList
+                        items={playlistListItems()}
+                        selectedId={selectedPlaylistId()}
+                        scrollPaddingTop={100}
+                        scrollPaddingBottom={68}
+                        height={listHeight()}
+                        onItemClick={handlePlaylistClick}
+                        onVirtualizerReady={(scrollFn) => {
+                          setScrollToIndex(() => scrollFn);
 
-                            // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
-                            const current = selectedPlaylistId();
-                            if (current && current === initialPlaylistId) {
-                              const index = playlists().findIndex((p) => p.playlist_id === current);
-                              if (index >= 0) {
-                                setTimeout(() => scrollFn(index), 50);
-                              }
+                          // only scroll if current playlist matches the initial one (prevents scroll on subsequent clicks)
+                          const current = selectedPlaylistId();
+                          if (current && current === initialPlaylistId) {
+                            const index = playlists().findIndex((p) => p.playlist_id === current);
+                            if (index >= 0) {
+                              setTimeout(() => scrollFn(index), 50);
                             }
-                          }}
-                          onEndReached={handlePlaylistsLoadMore}
-                          getContextMenuActions={(item) => {
-                            const playlist = playlists().find((p) => p.playlist_id === item.id);
-                            if (!playlist) return [];
+                          }
+                        }}
+                        onEndReached={handlePlaylistsLoadMore}
+                        getContextMenuActions={(item) => {
+                          const playlist = playlists().find((p) => p.playlist_id === item.id);
+                          if (!playlist) return [];
 
-                            return usePlaylistContextMenu(
-                              {
-                                id: playlist.playlist_id,
-                                title: playlist.title,
-                                song_count: playlist.song_count,
-                              },
-                              {
-                                showPlayActions: true,
-                                isFavorite: false, // playlist-level favorites not yet implemented on frontend
-                              }
-                            );
-                          }}
-                        />
-                      </div>
-                      <div class="sticky bottom-0 bg-[var(--color-background-primary)] p-4">
+                          return usePlaylistContextMenu(
+                            {
+                              id: playlist.playlist_id,
+                              title: playlist.title,
+                              song_count: playlist.song_count,
+                            },
+                            {
+                              showPlayActions: true,
+                              isFavorite: false, // playlist-level favorites not yet implemented on frontend
+                            }
+                          );
+                        }}
+                      />
+                      <div class="sticky bottom-0 p-4">
                         <Button variant="primary" fullWidth={true} onClick={handleCreatePlaylist}>
                           create playlist
                         </Button>
@@ -1190,7 +1189,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
                             {/* action buttons - only render here on wide screens */}
                             <Show when={!editMode() && !isNarrow()}>
-                              <div class="flex gap-2 sticky top-0 bg-[var(--color-background-primary)] py-2 z-10">
+                              <div class="flex gap-2 sticky top-0 py-2 z-10">
                                 <Show
                                   when={
                                     selectedPlaylist()?.is_editable !== false &&

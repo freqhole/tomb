@@ -487,13 +487,13 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const songRow = (
                     <div
                       draggable={!isTauriMode()}
-                      class={`absolute top-0 left-0 w-full flex items-center py-2 group transition-all duration-200 cursor-move overflow-hidden ${
+                      class={`absolute top-0 left-0 w-full flex items-center py-2 pl-2 group transition-all duration-200 cursor-move overflow-hidden ${
                         isDropTarget()
                           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
                           : isDragging()
                             ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
                             : isCurrentlyPlaying()
-                              ? "rounded-lg border-l-2 border-l-[var(--color-accent-500)]"
+                              ? "rounded-lg"
                               : progress() > 0
                                 ? "rounded-lg"
                                 : "hover:bg-[var(--color-accent-500)]/10"

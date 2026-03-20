@@ -37,6 +37,8 @@ export interface VirtualItemListProps {
   height?: number;
   /** top padding inside the scroll container (px) - content scrolls under this space */
   scrollPaddingTop?: number;
+  /** bottom padding inside the scroll container (px) - extra space so last items can scroll up */
+  scrollPaddingBottom?: number;
   /** hide image/thumbnail for all items */
   hideImage?: boolean;
   /** compact mode - hides images between wide and lg breakpoints to save space */
@@ -69,6 +71,9 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
     props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
       ? props.scrollPaddingTop
       : 0;
+
+  // bottom padding is always applied when specified
+  const scrollPadBottom = () => props.scrollPaddingBottom || 0;
 
   // stable count accessor - only updates when length actually changes
   const count = createMemo(() => props.items.length);
@@ -194,7 +199,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
       {/* virtual list container */}
       <div
         style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
+          height: `${rowVirtualizer.getTotalSize() + scrollPadBottom()}px`,
           width: "100%",
           position: "relative",
         }}
@@ -247,10 +252,10 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   <MarqueeText text={item.title} hoverOnly={true} />
                 </div>
                 {item.subtitle && (
-                  <div class="text-xs text-[var(--color-text-tertiary)] mt-1">{item.subtitle}</div>
+                  <div class="text-xs text-[var(--color-text-tertiary)]">{item.subtitle}</div>
                 )}
                 {item.metadata && (
-                  <div class="text-xs text-[var(--color-text-muted)] mt-0.5">{item.metadata}</div>
+                  <div class="text-xs text-[var(--color-text-muted)]">{item.metadata}</div>
                 )}
               </div>
             </button>
