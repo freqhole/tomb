@@ -44,7 +44,7 @@ pub async fn dispatch(
         return resp;
     }
 
-    if let Some(resp) = super::admin::dispatch(path, caller, &body).await {
+    if let Some(resp) = super::admin::dispatch(path, caller, &body, method).await {
         return resp;
     }
 
