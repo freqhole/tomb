@@ -79,14 +79,22 @@ export class FreqholeClient {
       try {
         const response = await this.transport.request(method, finalPath, body);
 
-        if (response.status >= 400) {
+        // handle errors: status >= 400 OR status 0 (IPC/network failure)
+        if (response.status >= 400 || response.status === 0) {
           // try to extract error details
-          let errorMessage = `HTTP ${response.status}`;
+          let errorMessage = response.status === 0 ? "connection error" : `HTTP ${response.status}`;
           let errorCode: string | undefined;
           try {
             const errorBody = JSON.parse(response.body);
             if (errorBody?.error) {
-              errorMessage = `HTTP ${response.status}: ${errorBody.error}`;
+              errorMessage = response.status === 0
+                ? errorBody.error
+                : `HTTP ${response.status}: ${errorBody.error}`;
+            }
+            if (errorBody?.message) {
+              errorMessage = response.status === 0
+                ? errorBody.message
+                : `HTTP ${response.status}: ${errorBody.message}`;
             }
             if (errorBody?.code) {
               errorCode = errorBody.code;
@@ -118,6 +126,26 @@ export class FreqholeClient {
 
         // parse and validate response
         const json = JSON.parse(response.body);
+
+        // check for GrimoireResponse failure (success: false with errors)
+        if (json.success === false) {
+          const errorMessage = json.message || json.errors?.[0]?.detail || "request failed";
+          const errorCode = json.errors?.[0]?.error_type;
+          const issuePath: (string | number)[] = [];
+          if (errorCode === "unauthorized") {
+            issuePath.push(AUTH_ERROR_PATH);
+          }
+          if (errorCode) {
+            issuePath.push(errorCode);
+          }
+          return {
+            success: false,
+            error: new z.ZodError([
+              { code: "custom", path: issuePath, message: errorMessage },
+            ]),
+          };
+        }
+
         const data = json.data ?? json;
 
         const result = respSchema.safeParse(data);
