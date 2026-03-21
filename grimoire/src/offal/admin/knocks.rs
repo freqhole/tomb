@@ -10,8 +10,9 @@ use crate::federation::knock::{
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use zod_gen_derive::ZodSchema;
 
 /// route metadata for knock admin
 pub const ROUTES: &[RouteInfo] = &[
@@ -35,37 +36,37 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "get_knock",
-        path: "/api/admin/knocks/{id}",
-        method: Method::GET,
+        path: "/api/admin/knocks/get",
+        method: Method::POST,
         domain: Domain::Admin,
-        request_type: "String",
+        request_type: "GetKnockRequest",
         response_type: "KnockRequest",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
         name: "accept_knock",
-        path: "/api/admin/knocks/{id}/accept",
+        path: "/api/admin/knocks/accept",
         method: Method::POST,
         domain: Domain::Admin,
-        request_type: "ProcessKnockRequest",
+        request_type: "AcceptKnockRequest",
         response_type: "KnockRequest",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
         name: "reject_knock",
-        path: "/api/admin/knocks/{id}/reject",
+        path: "/api/admin/knocks/reject",
         method: Method::POST,
         domain: Domain::Admin,
-        request_type: "String",
+        request_type: "RejectKnockRequest",
         response_type: "KnockRequest",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
         name: "delete_knock",
-        path: "/api/admin/knocks/{id}",
-        method: Method::DELETE,
+        path: "/api/admin/knocks/delete",
+        method: Method::POST,
         domain: Domain::Admin,
-        request_type: "String",
+        request_type: "DeleteKnockRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
@@ -195,12 +196,12 @@ pub async fn delete_by_id(caller: &Caller, id: &str) -> GrimoireResponse<JsonVal
     }
 }
 
-// --- legacy body-based handlers (kept for compatibility) ---
-
-/// get a specific knock (legacy body-based)
-#[derive(Deserialize)]
-struct GetKnockRequest {
-    knock_id: String,
+/// get a specific knock
+///
+/// path: POST /api/admin/knocks/get
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetKnockRequest {
+    pub id: String,
 }
 
 pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -225,17 +226,19 @@ pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
         }
     };
 
-    let response = get_knock(&req.knock_id).await;
+    let response = get_knock(&req.id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// accept a knock (legacy body-based)
-#[derive(Deserialize)]
-struct AcceptKnockRequest {
-    knock_id: String,
-    username: Option<String>,
-    role: Option<String>,
-    user_id: Option<String>,
+/// accept a knock
+///
+/// path: POST /api/admin/knocks/accept
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AcceptKnockRequest {
+    pub id: String,
+    pub username: Option<String>,
+    pub role: Option<String>,
+    pub user_id: Option<String>,
 }
 
 pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -266,7 +269,7 @@ pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         user_id: req.user_id,
     };
 
-    match accept_knock(&req.knock_id, process_req, &caller.user_id).await {
+    match accept_knock(&req.id, process_req, &caller.user_id).await {
         Ok(knock) => {
             GrimoireResponse::success("knock accepted", serde_json::to_value(knock).unwrap())
         }
@@ -274,10 +277,12 @@ pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     }
 }
 
-/// reject a knock (legacy body-based)
-#[derive(Deserialize)]
-struct RejectKnockRequest {
-    knock_id: String,
+/// reject a knock
+///
+/// path: POST /api/admin/knocks/reject
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RejectKnockRequest {
+    pub id: String,
 }
 
 pub async fn reject(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -302,7 +307,7 @@ pub async fn reject(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         }
     };
 
-    match reject_knock(&req.knock_id, &caller.user_id).await {
+    match reject_knock(&req.id, &caller.user_id).await {
         Ok(knock) => {
             GrimoireResponse::success("knock rejected", serde_json::to_value(knock).unwrap())
         }
@@ -310,10 +315,12 @@ pub async fn reject(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     }
 }
 
-/// delete a knock (legacy body-based)
-#[derive(Deserialize)]
-struct DeleteKnockRequest {
-    knock_id: String,
+/// delete a knock
+///
+/// path: POST /api/admin/knocks/delete
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteKnockRequest {
+    pub id: String,
 }
 
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -338,7 +345,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         }
     };
 
-    match delete_knock(&req.knock_id).await {
+    match delete_knock(&req.id).await {
         Ok(()) => GrimoireResponse::success("knock deleted", JsonValue::Null),
         Err(e) => GrimoireResponse::failure("failed to delete knock", vec![ErrorDetail::from(e)]),
     }

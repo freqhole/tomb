@@ -19,10 +19,10 @@ use axum::{
         },
         HeaderValue, StatusCode,
     },
-    response::{IntoResponse, Json, Response},
+    response::Response,
     Extension,
 };
-use grimoire::media_blobz::{get_media_blob_with_data, BlobMetadataResponse};
+use grimoire::media_blobz::get_media_blob_with_data;
 use std::io::SeekFrom;
 use tokio::{
     fs::File,
@@ -66,22 +66,6 @@ pub async fn stream_blob_handler(
     } else {
         Err(ApiError::NotFound)
     }
-}
-
-/// blob metadata with sha256 for download deduplication
-///
-/// GET /api/blobs/{id}/metadata
-pub async fn blob_metadata_handler(
-    Extension(_user): Extension<AuthenticatedUser>,
-    Path(blob_id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    let blob = grimoire::media_blobz::get_media_blob(&blob_id)
-        .await
-        .map_err(|_| ApiError::NotFound)?;
-
-    let response: BlobMetadataResponse = blob.into();
-
-    Ok(Json(response))
 }
 
 /// get or generate a sized thumbnail for a blob

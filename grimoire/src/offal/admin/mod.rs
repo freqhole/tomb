@@ -19,54 +19,17 @@ pub async fn dispatch(
     path: &str,
     caller: &Caller,
     body: &JsonValue,
-    method: Option<Method>,
+    _method: Option<Method>,
 ) -> Option<GrimoireResponse<JsonValue>> {
     match path {
-        // admin knock management - canonical paths
+        // admin knock management
         "/api/admin/knocks" => Some(knocks::list(caller, body.clone()).await),
         "/api/admin/knocks/all" => Some(knocks::list_all(caller, body.clone()).await),
+        "/api/admin/knocks/get" => Some(knocks::get(caller, body.clone()).await),
+        "/api/admin/knocks/accept" => Some(knocks::accept(caller, body.clone()).await),
+        "/api/admin/knocks/reject" => Some(knocks::reject(caller, body.clone()).await),
+        "/api/admin/knocks/delete" => Some(knocks::delete(caller, body.clone()).await),
 
-        _ => dispatch_path_params(path, caller, body, method).await,
+        _ => None,
     }
-}
-
-/// dispatch path-param routes for admin domain
-/// handles: /api/admin/knocks/{id}, /api/admin/knocks/{id}/accept, /api/admin/knocks/{id}/reject
-pub async fn dispatch_path_params(
-    path: &str,
-    caller: &Caller,
-    body: &JsonValue,
-    method: Option<Method>,
-) -> Option<GrimoireResponse<JsonValue>> {
-    // /api/admin/knocks/{id}/accept
-    if let Some(id) = path
-        .strip_prefix("/api/admin/knocks/")
-        .and_then(|s| s.strip_suffix("/accept"))
-    {
-        if !id.contains('/') {
-            return Some(knocks::accept_by_id(caller, id, body.clone()).await);
-        }
-    }
-
-    // /api/admin/knocks/{id}/reject
-    if let Some(id) = path
-        .strip_prefix("/api/admin/knocks/")
-        .and_then(|s| s.strip_suffix("/reject"))
-    {
-        if !id.contains('/') {
-            return Some(knocks::reject_by_id(caller, id).await);
-        }
-    }
-
-    // /api/admin/knocks/{id} - GET or DELETE based on method
-    if let Some(id) = path.strip_prefix("/api/admin/knocks/") {
-        if !id.contains('/') && id != "all" {
-            return match method {
-                Some(Method::DELETE) => Some(knocks::delete_by_id(caller, id).await),
-                _ => Some(knocks::get_by_id(caller, id).await),
-            };
-        }
-    }
-
-    None
 }

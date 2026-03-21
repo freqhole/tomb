@@ -3,7 +3,8 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::jobs::{
-    create_job, get_job, get_jobs_status, list_jobs, CreateJobRequest, JobStatus, JobType,
+    create_job, get_job, get_jobs_status, list_jobs, CreateJobRequest, GetJobRequest, JobStatus,
+    JobType,
 };
 use crate::music::fetch::FetchMediaParams;
 use crate::offal::caller::Caller;
@@ -43,8 +44,8 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "get_fetch_job",
-        path: "/api/music/fetch/{id}",
-        method: Method::GET,
+        path: "/api/music/fetch/status",
+        method: Method::POST,
         domain: Domain::Music,
         request_type: "GetJobRequest",
         response_type: "JobResponse",
@@ -151,14 +152,24 @@ pub async fn create_fetch(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     response.map(|job| serde_json::to_value(crate::jobs::JobResponse::from(job)).unwrap())
 }
 
-/// get a fetch job by id (path param)
+/// get a fetch job by id
 ///
-/// path: GET /api/music/fetch/{id}
-pub async fn get_fetch(
-    _caller: &Caller,
-    id: &str,
-    _body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
-    let response = get_job(id).await;
+/// path: POST /api/music/fetch/status
+pub async fn get_fetch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetJobRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = get_job(&req.job_id).await;
     response.map(|job| serde_json::to_value(crate::jobs::JobResponse::from(job)).unwrap())
 }

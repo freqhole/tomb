@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 pub enum Method {
     GET,
     POST,
-    PUT,
-    DELETE,
     PATCH,
     HEAD,
 }
@@ -22,8 +20,6 @@ impl Method {
         match self {
             Method::GET => "GET",
             Method::POST => "POST",
-            Method::PUT => "PUT",
-            Method::DELETE => "DELETE",
             Method::PATCH => "PATCH",
             Method::HEAD => "HEAD",
         }
@@ -173,13 +169,14 @@ pub mod type_registry {
 
     // analytics types
     use crate::music::analytics::{
-        CreateListenSessionRequest, FeedItem, FeedItemType, FeedRequest, FeedResponse,
-        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
-        ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
-        OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
-        SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
-        TopSongsRequest, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
-        UserStats,
+        CreateListenSessionRequest, DeleteListenSessionRequest, FeedItem, FeedItemType,
+        FeedRequest, FeedResponse, GetListenSessionRequest, ListListenSessionsRequest,
+        ListListenSessionsResponse, ListenSession, ListenSessionStatus, ListenSessionType,
+        ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse, OverviewStats,
+        PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary, SongAnalyticsRequest,
+        TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong, TopSongsRequest,
+        UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
+        UpdateListenSessionStatusRequest, UserStats,
     };
 
     // musicbrainz types
@@ -209,6 +206,14 @@ pub mod type_registry {
     use crate::federation::knock::{
         CreateKnockRequest, KnockRequest, KnockStatus, KnockStatusResponse, ProcessKnockRequest,
     };
+
+    // knock request types from offal (separate from federation types)
+    use crate::offal::admin::knocks::{
+        AcceptKnockRequest, DeleteKnockRequest, GetKnockRequest, RejectKnockRequest,
+    };
+
+    // blob metadata request type
+    use crate::offal::media_blobz::GetBlobMetadataRequest;
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
@@ -712,5 +717,32 @@ pub mod type_registry {
 
         gen.add_schema::<ProcessKnockRequest>("ProcessKnockRequest");
         registered.insert("ProcessKnockRequest".to_string());
+
+        // knock admin request types
+        gen.add_schema::<GetKnockRequest>("GetKnockRequest");
+        registered.insert("GetKnockRequest".to_string());
+
+        gen.add_schema::<AcceptKnockRequest>("AcceptKnockRequest");
+        registered.insert("AcceptKnockRequest".to_string());
+
+        gen.add_schema::<RejectKnockRequest>("RejectKnockRequest");
+        registered.insert("RejectKnockRequest".to_string());
+
+        gen.add_schema::<DeleteKnockRequest>("DeleteKnockRequest");
+        registered.insert("DeleteKnockRequest".to_string());
+
+        // listen session request types
+        gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");
+        registered.insert("GetListenSessionRequest".to_string());
+
+        gen.add_schema::<DeleteListenSessionRequest>("DeleteListenSessionRequest");
+        registered.insert("DeleteListenSessionRequest".to_string());
+
+        gen.add_schema::<UpdateListenSessionStatusRequest>("UpdateListenSessionStatusRequest");
+        registered.insert("UpdateListenSessionStatusRequest".to_string());
+
+        // blob metadata request type
+        gen.add_schema::<GetBlobMetadataRequest>("GetBlobMetadataRequest");
+        registered.insert("GetBlobMetadataRequest".to_string());
     }
 }

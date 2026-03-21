@@ -6,7 +6,7 @@
 use axum::{
     extract::DefaultBodyLimit,
     middleware as axum_middleware,
-    routing::{delete, get, head, post, put},
+    routing::{get, head, patch, post},
     Router,
 };
 use grimoire::api_registry::{Method, RouteAuth, RouteInfo};
@@ -19,7 +19,6 @@ use crate::{adapter, auth, blobs, state::AppState, static_files, upload};
 const CUSTOM_ROUTES: &[&str] = &[
     // streaming routes - binary data, range requests
     "stream_blob",
-    "blob_metadata",
     "get_blob_thumbnail",
     // upload routes - multipart, body size limits
     "upload_image",
@@ -65,33 +64,15 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
             public = match route.method {
                 Method::GET => public.route(route.path, get(adapter::offal_public_handler)),
                 Method::POST => public.route(route.path, post(adapter::offal_public_handler)),
-                Method::PUT => public.route(route.path, put(adapter::offal_public_handler)),
-                Method::DELETE => public.route(route.path, delete(adapter::offal_public_handler)),
+                Method::PATCH => public.route(route.path, patch(adapter::offal_public_handler)),
                 Method::HEAD => public.route(route.path, head(adapter::offal_public_handler)),
-                _ => {
-                    tracing::warn!(
-                        "skipping route {} with unsupported method {:?}",
-                        route.name,
-                        route.method
-                    );
-                    continue;
-                }
             };
         } else {
             protected = match route.method {
                 Method::GET => protected.route(route.path, get(adapter::offal_handler)),
                 Method::POST => protected.route(route.path, post(adapter::offal_handler)),
-                Method::PUT => protected.route(route.path, put(adapter::offal_handler)),
-                Method::DELETE => protected.route(route.path, delete(adapter::offal_handler)),
+                Method::PATCH => protected.route(route.path, patch(adapter::offal_handler)),
                 Method::HEAD => protected.route(route.path, head(adapter::offal_handler)),
-                _ => {
-                    tracing::warn!(
-                        "skipping route {} with unsupported method {:?}",
-                        route.name,
-                        route.method
-                    );
-                    continue;
-                }
             };
         }
     }
@@ -118,10 +99,6 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
         .route(
             routes_map["music"]["stream_blob"].path,
             get(blobs::stream_blob_handler),
-        )
-        .route(
-            routes_map["music"]["blob_metadata"].path,
-            get(blobs::blob_metadata_handler),
         )
         .route(
             routes_map["music"]["get_blob_thumbnail"].path,

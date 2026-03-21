@@ -82,7 +82,8 @@ pub use api_types::{
 pub use sessions::{
     create_listen_session, delete_listen_session, get_listen_session, list_listen_sessions,
     update_listen_session_progress, update_listen_session_songs, update_listen_session_status,
-    CreateListenSessionRequest, ListListenSessionsRequest, ListListenSessionsResponse,
-    ListenSession, ListenSessionStatus, ListenSessionType, UpdateListenSessionProgressRequest,
-    UpdateListenSessionSongsRequest,
+    CreateListenSessionRequest, DeleteListenSessionRequest, GetListenSessionRequest,
+    ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
+    ListenSessionType, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
+    UpdateListenSessionStatusRequest,
 };

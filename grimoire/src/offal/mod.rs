@@ -18,6 +18,24 @@ pub mod public; // unauthenticated routes (hello, knock)
 pub mod upload;
 
 use crate::api_registry::RouteInfo;
+use crate::error::ErrorDetail;
+use crate::response::GrimoireResponse;
+use serde::de::DeserializeOwned;
+use serde_json::Value as JsonValue;
+
+/// parse JSON body into a typed request, returning bad_request error on failure
+pub fn parse_body<T: DeserializeOwned>(body: JsonValue) -> Result<T, GrimoireResponse<JsonValue>> {
+    serde_json::from_value(body).map_err(|e| {
+        GrimoireResponse::failure(
+            "bad request",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "bad request",
+                &e.to_string(),
+            )],
+        )
+    })
+}
 
 /// collect all route metadata from all domains
 ///

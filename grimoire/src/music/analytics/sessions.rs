@@ -136,6 +136,8 @@ pub struct CreateListenSessionRequest {
 /// progress only ever moves forward (server enforces this with MAX)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateListenSessionProgressRequest {
+    /// the session id to update
+    pub id: String,
     /// the next song index (after completing/skipping the current song)
     /// e.g., finishing song 0 means progress = 1
     pub progress: i64,
@@ -155,6 +157,25 @@ pub struct ListListenSessionsRequest {
 pub struct ListListenSessionsResponse {
     pub items: Vec<ListenSession>,
     pub total: i64,
+}
+
+/// request for getting a listen session by id
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetListenSessionRequest {
+    pub id: String,
+}
+
+/// request for deleting a listen session
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteListenSessionRequest {
+    pub id: String,
+}
+
+/// request for updating listen session status
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdateListenSessionStatusRequest {
+    pub id: String,
+    pub status: String,
 }
 
 /// filter song_ids to only those that actually exist in the songs table.
@@ -433,6 +454,8 @@ pub async fn update_listen_session_status(
 /// request to update session songs (queue sync)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateListenSessionSongsRequest {
+    /// the session id to update
+    pub id: String,
     /// updated list of song ids (replaces the entire list)
     pub song_ids: Vec<String>,
     /// updated label (smart label computed by client)

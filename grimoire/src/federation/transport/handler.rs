@@ -30,8 +30,6 @@ fn to_offal_method(method: &str) -> Option<OffalMethod> {
     match method.to_uppercase().as_str() {
         "GET" => Some(OffalMethod::GET),
         "POST" => Some(OffalMethod::POST),
-        "PUT" => Some(OffalMethod::PUT),
-        "DELETE" => Some(OffalMethod::DELETE),
         "PATCH" => Some(OffalMethod::PATCH),
         "HEAD" => Some(OffalMethod::HEAD),
         _ => None,

@@ -10,8 +10,8 @@ use crate::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, delete_playlist as grimoire_delete_playlist,
     get_playlist, get_playlist_images as grimoire_get_playlist_images, remove_songs_from_playlist,
     update_playlist as grimoire_update_playlist, update_songs_position, AddSongsToPlaylistRequest,
-    CreatePlaylistRequest, RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest,
-    UpdatePlaylistRequest,
+    CreatePlaylistRequest, GetPlaylistRequest, RemoveSongsFromPlaylistRequest,
+    ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -41,26 +41,26 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "get_playlist_by_id",
-        path: "/api/music/playlists/{id}",
-        method: Method::GET,
+        path: "/api/music/playlists/get",
+        method: Method::POST,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "GetPlaylistRequest",
         response_type: "Playlist",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
         name: "get_playlist_etag",
-        path: "/api/music/playlists/{id}/etag",
-        method: Method::HEAD,
+        path: "/api/music/playlists/etag",
+        method: Method::POST,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "GetPlaylistRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
         name: "get_playlist_images",
-        path: "/api/playlists/{id}/images",
-        method: Method::GET,
+        path: "/api/playlists/images",
+        method: Method::POST,
         domain: Domain::Music,
         request_type: "GetPlaylistRequest",
         response_type: "Vec<String>",
@@ -202,21 +202,47 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// get playlist by id (path param)
+/// get playlist by id
 ///
-/// path: GET /api/music/playlists/{id}
-pub async fn get(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    // note: get_playlist doesn't support include_songs option yet
-    let response = get_playlist(id).await;
+/// path: POST /api/music/playlists/get
+pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetPlaylistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = get_playlist(&req.id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// get playlist etag (path param)
+/// get playlist etag
 ///
-/// path: HEAD /api/music/playlists/{id}/etag
-pub async fn get_etag(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    // get playlist and return its updated_at as etag
-    let response = get_playlist(id).await;
+/// path: POST /api/music/playlists/etag
+pub async fn get_etag(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetPlaylistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = get_playlist(&req.id).await;
     response.map(|playlist| {
         serde_json::json!({
             "etag": playlist.updated_at.to_string()
@@ -224,15 +250,25 @@ pub async fn get_etag(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireR
     })
 }
 
-/// get playlist images (path param)
+/// get playlist images
 ///
-/// path: GET /api/playlists/{id}/images
-pub async fn get_images(
-    _caller: &Caller,
-    id: &str,
-    _body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
-    let response = grimoire_get_playlist_images(id).await;
+/// path: POST /api/playlists/images
+pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetPlaylistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_get_playlist_images(&req.id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 

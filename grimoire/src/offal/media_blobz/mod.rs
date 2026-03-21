@@ -9,7 +9,9 @@ use crate::media_blobz::get_media_blob;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use zod_gen_derive::ZodSchema;
 
 /// route metadata for media blobs (stream_blob, blob_metadata, get_blob_thumbnail)
 pub const ROUTES: &[RouteInfo] = &[
@@ -24,10 +26,10 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "blob_metadata",
-        path: "/api/blobs/{id}/metadata",
-        method: Method::GET,
+        path: "/api/blob_metadata",
+        method: Method::POST,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "GetBlobMetadataRequest",
         response_type: "BlobMetadataResponse",
         auth: RouteAuth::Authenticated,
     },
@@ -49,12 +51,17 @@ pub fn routes() -> Vec<RouteInfo> {
 
 /// dispatch media blob routes
 ///
-/// handles: /api/blobs/{id}, /api/blobs/{id}/path, /api/blobs/{id}/data, /api/blobs/{id}/metadata, /api/blobs/{id}/thumb/{size}
+/// handles: /api/blob_metadata, /api/blobs/{id}, /api/blobs/{id}/path, /api/blobs/{id}/data, /api/blobs/{id}/thumb/{size}
 pub async fn dispatch(
     path: &str,
     caller: &Caller,
     body: &JsonValue,
 ) -> Option<GrimoireResponse<JsonValue>> {
+    // exact match for blob_metadata (new POST route)
+    if path == "/api/blob_metadata" {
+        return Some(get_metadata(caller, body.clone()).await);
+    }
+
     let rest = path.strip_prefix("/api/blobs/")?;
 
     // /api/blobs/{id}/path - get filesystem path
@@ -67,12 +74,6 @@ pub async fn dispatch(
     if rest.ends_with("/data") {
         let id = rest.strip_suffix("/data").unwrap();
         return Some(get_data(caller, id, body.clone()).await);
-    }
-
-    // /api/blobs/{id}/metadata - get blob metadata
-    if rest.ends_with("/metadata") {
-        let id = rest.strip_suffix("/metadata").unwrap();
-        return Some(get_metadata(caller, id, body.clone()).await);
     }
 
     // /api/blobs/{id}/thumb/{size} - get thumbnail info
@@ -89,15 +90,31 @@ pub async fn dispatch(
     Some(get_blob(caller, rest, body.clone()).await)
 }
 
+/// request for getting blob metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetBlobMetadataRequest {
+    pub id: String,
+}
+
 /// get blob metadata
 ///
-/// path: GET /api/blobs/{id}/metadata
-pub async fn get_metadata(
-    _caller: &Caller,
-    id: &str,
-    _body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
-    match get_media_blob(id).await {
+/// path: POST /api/blob_metadata
+pub async fn get_metadata(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetBlobMetadataRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match get_media_blob(&req.id).await {
         Ok(blob) => GrimoireResponse::success("blob metadata", serde_json::to_value(blob).unwrap()),
         Err(e) => {
             GrimoireResponse::failure("failed to get blob metadata", vec![ErrorDetail::from(e)])

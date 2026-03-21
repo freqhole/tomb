@@ -46,13 +46,15 @@ pub async fn dispatch(
     path: &str,
     caller: &Caller,
     body: &JsonValue,
-    method: Option<Method>,
+    _method: Option<Method>,
 ) -> Option<GrimoireResponse<JsonValue>> {
-    // first check exact path matches
     match path {
         // playlists
         "/api/music/playlists/list" => Some(playlists::list(caller, body.clone()).await),
         "/api/music/playlists" => Some(playlists::create(caller, body.clone()).await),
+        "/api/music/playlists/get" => Some(playlists::get(caller, body.clone()).await),
+        "/api/music/playlists/etag" => Some(playlists::get_etag(caller, body.clone()).await),
+        "/api/playlists/images" => Some(playlists::get_images(caller, body.clone()).await),
         "/api/playlists/update" => Some(playlists::update(caller, body.clone()).await),
         "/api/playlists/delete" => Some(playlists::delete(caller, body.clone()).await),
         "/api/playlists/add-songs" => Some(playlists::add_songs(caller, body.clone()).await),
@@ -64,6 +66,7 @@ pub async fn dispatch(
         "/api/songs/query" => Some(songs::query(caller, body.clone()).await),
         "/api/songs/recent" => Some(songs::recent(caller, body.clone()).await),
         "/api/songs/update" => Some(songs::update(caller, body.clone()).await),
+        "/api/songs/delete" => Some(songs::delete(caller, body.clone()).await),
         "/api/songs/bulk-delete" => Some(songs::bulk_delete(caller, body.clone()).await),
         "/api/songs/bulk-clear-artwork" => {
             Some(songs::bulk_clear_artwork(caller, body.clone()).await)
@@ -71,15 +74,22 @@ pub async fn dispatch(
 
         // albums
         "/api/albums/query" => Some(albums::query(caller, body.clone()).await),
+        "/api/albums/get" => Some(albums::get(caller, body.clone()).await),
+        "/api/albums/delete" => Some(albums::delete(caller, body.clone()).await),
+        "/api/albums/images" => Some(albums::get_images(caller, body.clone()).await),
         "/api/albums/update" => Some(albums::update(caller, body.clone()).await),
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),
+        "/api/artists/get" => Some(artists::get(caller, body.clone()).await),
+        "/api/artists/delete" => Some(artists::delete(caller, body.clone()).await),
+        "/api/artists/images" => Some(artists::get_images(caller, body.clone()).await),
         "/api/artists/update" => Some(artists::update(caller, body.clone()).await),
         "/api/music/artists" => Some(artists::create(caller, body.clone()).await),
 
         // genres
         "/api/genres/query" => Some(genres::query(caller, body.clone()).await),
+        "/api/genres/get" => Some(genres::get(caller, body.clone()).await),
 
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),
@@ -103,6 +113,8 @@ pub async fn dispatch(
         // jobs
         "/api/jobs/status" => Some(jobs::status(caller, body.clone()).await),
         "/api/jobs/list" => Some(jobs::list(caller, body.clone()).await),
+        "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
+        "/api/music/fetch/status" => Some(jobs::get_fetch(caller, body.clone()).await),
 
         // search
         "/api/music/search" => Some(search::search_handler(caller, body.clone()).await),
@@ -126,6 +138,17 @@ pub async fn dispatch(
         // listen sessions
         "/api/analytics/sessions" => Some(sessions::create(caller, body.clone()).await),
         "/api/analytics/sessions/list" => Some(sessions::list(caller, body.clone()).await),
+        "/api/analytics/sessions/get" => Some(sessions::get(caller, body.clone()).await),
+        "/api/analytics/sessions/delete" => Some(sessions::delete(caller, body.clone()).await),
+        "/api/analytics/sessions/progress" => {
+            Some(sessions::update_progress(caller, body.clone()).await)
+        }
+        "/api/analytics/sessions/songs" => {
+            Some(sessions::update_songs(caller, body.clone()).await)
+        }
+        "/api/analytics/sessions/status" => {
+            Some(sessions::update_status(caller, body.clone()).await)
+        }
 
         // musicbrainz
         "/api/musicbrainz/search/releases" => {
@@ -135,117 +158,14 @@ pub async fn dispatch(
             Some(search::musicbrainz_get_release(caller, body.clone()).await)
         }
 
-        // fetch jobs
-        "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
+        // blob metadata
+        "/api/blob_metadata" => super::media_blobz::dispatch(path, caller, body).await,
 
-        _ => dispatch_path_params(path, caller, body, method).await,
-    }
-}
+        // blobs: streaming routes still use path params
+        _ if path.starts_with("/api/blobs/") => {
+            super::media_blobz::dispatch(path, caller, body).await
+        }
 
-/// dispatch routes with path parameters (e.g., /api/albums/{id})
-async fn dispatch_path_params(
-    path: &str,
-    caller: &Caller,
-    body: &JsonValue,
-    method: Option<Method>,
-) -> Option<GrimoireResponse<JsonValue>> {
-    // playlists: /api/music/playlists/{id}, /api/playlists/{id}/images
-    if let Some(id) = path.strip_prefix("/api/music/playlists/") {
-        if id.ends_with("/etag") {
-            let id = id.strip_suffix("/etag").unwrap();
-            return Some(playlists::get_etag(caller, id, body.clone()).await);
-        }
-        return Some(playlists::get(caller, id, body.clone()).await);
+        _ => None,
     }
-    if let Some(rest) = path.strip_prefix("/api/playlists/") {
-        if let Some(id) = rest.strip_suffix("/images") {
-            return Some(playlists::get_images(caller, id, body.clone()).await);
-        }
-    }
-
-    // albums: /api/albums/{id}, /api/albums/{id}/images
-    if let Some(rest) = path.strip_prefix("/api/albums/") {
-        if rest == "query" || rest == "update" {
-            return None; // handled above
-        }
-        if let Some(id) = rest.strip_suffix("/images") {
-            return Some(albums::get_images(caller, id, body.clone()).await);
-        }
-        return Some(albums::get(caller, rest, body.clone()).await);
-    }
-
-    // artists: /api/artists/{id}, /api/artists/{id}/images
-    if let Some(rest) = path.strip_prefix("/api/artists/") {
-        if rest == "query" || rest == "update" {
-            return None; // handled above
-        }
-        if let Some(id) = rest.strip_suffix("/images") {
-            return Some(artists::get_images(caller, id, body.clone()).await);
-        }
-        return Some(artists::get(caller, rest, body.clone()).await);
-    }
-
-    // genres: /api/genres/{id}
-    if let Some(rest) = path.strip_prefix("/api/genres/") {
-        if rest == "query" {
-            return None; // handled above
-        }
-        return Some(genres::get(caller, rest, body.clone()).await);
-    }
-
-    // songs: /api/songs/{id}
-    if let Some(rest) = path.strip_prefix("/api/songs/") {
-        if rest == "query"
-            || rest == "recent"
-            || rest == "update"
-            || rest == "bulk-delete"
-            || rest == "bulk-clear-artwork"
-        {
-            return None; // handled above
-        }
-        return Some(songs::delete(caller, rest, body.clone()).await);
-    }
-
-    // listen sessions: /api/analytics/sessions/{id}/*
-    if let Some(rest) = path.strip_prefix("/api/analytics/sessions/") {
-        if rest == "list" {
-            return None; // handled above
-        }
-        // /api/analytics/sessions/{id}/progress
-        if rest.ends_with("/progress") {
-            let id = rest.strip_suffix("/progress").unwrap();
-            return Some(sessions::update_progress(caller, id, body.clone()).await);
-        }
-        // /api/analytics/sessions/{id}/songs
-        if rest.ends_with("/songs") {
-            let id = rest.strip_suffix("/songs").unwrap();
-            return Some(sessions::update_songs(caller, id, body.clone()).await);
-        }
-        // /api/analytics/sessions/{id}/status/{status}
-        if rest.contains("/status/") {
-            let parts: Vec<&str> = rest.split("/status/").collect();
-            if parts.len() == 2 {
-                let id = parts[0];
-                let status = parts[1];
-                return Some(sessions::update_status(caller, id, status, body.clone()).await);
-            }
-        }
-        // /api/analytics/sessions/{id} - GET or DELETE based on method
-        return match method {
-            Some(Method::DELETE) => Some(sessions::delete(caller, rest, body.clone()).await),
-            _ => Some(sessions::get(caller, rest, body.clone()).await),
-        };
-    }
-
-    // blobs: delegated to media_blobz module
-    if path.starts_with("/api/blobs/") {
-        return super::media_blobz::dispatch(path, caller, body).await;
-    }
-
-    // fetch jobs: /api/music/fetch/{id}
-    if let Some(id) = path.strip_prefix("/api/music/fetch/") {
-        return Some(jobs::get_fetch(caller, id, body.clone()).await);
-    }
-
-    None
 }

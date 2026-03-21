@@ -4,8 +4,8 @@ use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{
     list_recent_songs, query_songs, update_songs as grimoire_update_songs,
-    BulkClearSongArtworkRequest, BulkDeleteSongsRequest, QueryParams, RecentSongsRequest,
-    UpdateSongsRequest,
+    BulkClearSongArtworkRequest, BulkDeleteSongsRequest, DeleteSongRequest, QueryParams,
+    RecentSongsRequest, UpdateSongsRequest,
 };
 use crate::music::entities::songs::{
     bulk_clear_song_artwork as grimoire_bulk_clear_artwork,
@@ -65,10 +65,10 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "delete_song",
-        path: "/api/songs/{id}",
-        method: Method::DELETE,
+        path: "/api/songs/delete",
+        method: Method::POST,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "DeleteSongRequest",
         response_type: "DeleteSongResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
@@ -238,10 +238,10 @@ pub async fn bulk_clear_artwork(caller: &Caller, body: JsonValue) -> GrimoireRes
     GrimoireResponse::success(&message, serde_json::to_value(response).unwrap())
 }
 
-/// delete a single song (path param)
+/// delete a single song
 ///
-/// path: DELETE /api/songs/{id}
-pub async fn delete(caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
+/// path: POST /api/songs/delete
+pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
@@ -249,6 +249,20 @@ pub async fn delete(caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResp
         );
     }
 
-    let response = grimoire_delete_song(id, Some(caller.user_id.clone())).await;
+    let req: DeleteSongRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_delete_song(&req.id, Some(caller.user_id.clone())).await;
     response.map(|_| JsonValue::Null)
 }

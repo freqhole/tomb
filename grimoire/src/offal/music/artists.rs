@@ -2,7 +2,7 @@
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
-use crate::music::crud::{query_artists, QueryParams};
+use crate::music::crud::{query_artists, DeleteArtistRequest, GetArtistRequest, QueryParams};
 use crate::music::entities::artists::{
     create_artist, delete_artist as grimoire_delete_artist, get_artist as grimoire_get_artist,
     get_artist_images as grimoire_get_artist_images, update_artist as grimoire_update_artist,
@@ -35,8 +35,8 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "get_artist",
-        path: "/api/artists/{id}",
-        method: Method::GET,
+        path: "/api/artists/get",
+        method: Method::POST,
         domain: Domain::Music,
         request_type: "GetArtistRequest",
         response_type: "Artist",
@@ -44,8 +44,8 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "delete_artist",
-        path: "/api/artists/{id}",
-        method: Method::DELETE,
+        path: "/api/artists/delete",
+        method: Method::POST,
         domain: Domain::Music,
         request_type: "DeleteArtistRequest",
         response_type: "DeleteArtistResponse",
@@ -62,10 +62,10 @@ pub const ROUTES: &[RouteInfo] = &[
     },
     RouteInfo {
         name: "get_artist_images",
-        path: "/api/artists/{id}/images",
-        method: Method::GET,
+        path: "/api/artists/images",
+        method: Method::POST,
         domain: Domain::Music,
-        request_type: "String",
+        request_type: "GetArtistRequest",
         response_type: "Vec<String>",
         auth: RouteAuth::Authenticated,
     },
@@ -142,24 +142,47 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// get artist by id (path param)
+/// get artist by id
 ///
-/// path: GET /api/artists/{id}
-pub async fn get(_caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    // note: the underlying get_artist doesn't support include_albums or user_id params yet
-    let response = grimoire_get_artist(id).await;
+/// path: POST /api/artists/get
+pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetArtistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_get_artist(&req.id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// get artist images (path param)
+/// get artist images
 ///
-/// path: GET /api/artists/{id}/images
-pub async fn get_images(
-    _caller: &Caller,
-    id: &str,
-    _body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
-    let response = grimoire_get_artist_images(id).await;
+/// path: POST /api/artists/images
+pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetArtistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_get_artist_images(&req.id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
@@ -195,10 +218,10 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// delete artist (path param)
+/// delete artist
 ///
-/// path: DELETE /api/artists/{id}
-pub async fn delete(caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResponse<JsonValue> {
+/// path: POST /api/artists/delete
+pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
@@ -206,6 +229,20 @@ pub async fn delete(caller: &Caller, id: &str, _body: JsonValue) -> GrimoireResp
         );
     }
 
-    let response = grimoire_delete_artist(id, Some(caller.user_id.clone())).await;
+    let req: DeleteArtistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_delete_artist(&req.id, Some(caller.user_id.clone())).await;
     response.map(|_| JsonValue::Null)
 }

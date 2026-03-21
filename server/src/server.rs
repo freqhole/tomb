@@ -84,14 +84,7 @@ pub async fn start_server(
                     let origin_str = origin.to_str().unwrap_or("");
                     allow_any || allowed_origins.iter().any(|o| o == origin_str)
                 }))
-                .allow_methods([
-                    Method::GET,
-                    Method::POST,
-                    Method::PUT,
-                    Method::DELETE,
-                    Method::PATCH,
-                    Method::OPTIONS,
-                ])
+                .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
                 .allow_headers([
                     AUTHORIZATION,
                     CONTENT_TYPE,
