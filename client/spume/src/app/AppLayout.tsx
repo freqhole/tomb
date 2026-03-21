@@ -89,7 +89,7 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { isTauriMode, setWindowTitle } from "./services/tauri";
+import { isCharnelMode, setWindowTitle } from "./services/charnel";
 import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
@@ -137,7 +137,7 @@ export function AppLayout(props: AppLayoutProps) {
     document.title = title;
 
     // also set tauri window title if in tauri mode
-    if (isTauriMode()) {
+    if (isCharnelMode()) {
       setWindowTitle(title);
     }
   });
@@ -645,7 +645,7 @@ export function AppLayout(props: AppLayoutProps) {
             peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,
             isOffline: r.is_offline,
             lastChecked: r.last_checked,
-            isTauriManaged: r.is_tauri_managed,
+            isCharnelManaged: r.is_charnel_managed,
             isLocal,
             updatedAt: r.updated_at,
           };

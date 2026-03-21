@@ -169,6 +169,9 @@ fn update_menu_for_status(app: &AppHandle<Wry>, status: P2pStatus) {
 
 /// check if federation is enabled in grimoire config
 fn is_federation_enabled() -> bool {
+    if !grimoire::is_config_initialized() {
+        return false;
+    }
     grimoire::config::get_config()
         .federation
         .as_ref()

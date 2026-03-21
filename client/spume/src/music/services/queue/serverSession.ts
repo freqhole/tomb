@@ -238,7 +238,7 @@ async function sendProgress(session: RemoteSession): Promise<void> {
   const client = await getClientForRemote(remote);
   const result = await client.music.updateListenSessionProgress(
     session.sessionId,
-    { progress: session.progress },
+    { id: session.sessionId, progress: session.progress },
   );
 
   if (!result.success) {
@@ -329,6 +329,7 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
               await client.music.updateListenSessionSongs(
                 session.sessionId,
                 {
+                  id: session.sessionId,
                   song_ids: group.songs.map((s) => s.id || s.sha256),
                   label: updatedLabel,
                   total_songs: group.songs.length,

@@ -26,12 +26,12 @@ stuff that's here:
 - does gui stuff. so `solid-js`, `tailwindcss`, indexed db, `@tanstack/solid-virtual` for infinite scroll virtualization, `@tanstack/solid-query` for handy-dandy query stuff, `@kobalte/core` for some ui stuff like context menus + combobox; oh and there's a storybook!
 - `npm run dev` or `npm run storybook` to get started
 
-5. `/client/tauri/` a desktop app built with [tauri](https://v2.tauri.app/) that:
+5. `/client/charnel/` a desktop app built with [tauri](https://v2.tauri.app/) that:
 
 - also does gui stuff, but as a (webview) app
 - includes some extra admin stuff like managing local scan directories and user invites
 - `npm run tauri dev` to get started
-- see also: [/client/tauri/README.md](/client/tauri/README.md)
+- see also: [/client/charnel/README.md](/client/charnel/README.md)
 
 5. `client-codegen` zod schema generator (derived from rust structs) and a lil' js client that's mainly `fetch()` + zod schema wrapperz for all the api routez. see also: [/client-codegen/README.md](/client-codegen/README.md)
 

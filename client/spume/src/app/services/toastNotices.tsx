@@ -7,8 +7,8 @@
 import { Toast as KobalteToast, toaster } from "@kobalte/core/toast";
 import { appState, updateAppState } from "./storage/db";
 import { VERSION } from "../../version";
-import { isTauriMode } from "./tauri/mode";
-import { checkConfigNeedsUpgrade, openSetupWizard } from "./tauri/commands";
+import { isCharnelMode } from "./charnel/mode";
+import { checkConfigNeedsUpgrade, openSetupWizard } from "./charnel/commands";
 import { solidColors } from "../../design-system/colors";
 import { Icon } from "../../components/icons/registry";
 
@@ -163,7 +163,7 @@ export function showKnockCreatedToast(username: string, message?: string): void 
  */
 export async function checkAndShowConfigUpgradeToast(): Promise<void> {
   // only check in tauri mode
-  if (!isTauriMode()) return;
+  if (!isCharnelMode()) return;
 
   // already showing?
   if (isNoticeShowing(NOTICE_CONFIG_UPGRADE)) return;
@@ -370,7 +370,7 @@ interface KnockApiResponse {
  * call this on app startup to notify admin of pending access requests.
  */
 export async function checkPendingKnocks(): Promise<void> {
-  if (!isTauriMode()) {
+  if (!isCharnelMode()) {
     return;
   }
 

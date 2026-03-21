@@ -2,7 +2,7 @@
 import { JSX, For, onMount } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
-import { isTauriMode, setWindowTitle } from "../../app/services/tauri";
+import { isCharnelMode, setWindowTitle } from "../../app/services/charnel";
 
 interface SettingsNavItem {
   path: string;
@@ -27,7 +27,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
     const title = "freqhole ▸ settings";
 
     document.title = title;
-    if (isTauriMode()) {
+    if (isCharnelMode()) {
       setWindowTitle(title);
     }
   });

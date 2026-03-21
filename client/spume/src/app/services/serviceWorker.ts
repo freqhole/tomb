@@ -2,7 +2,7 @@
 // only active in production builds, not in dev or tauri mode
 
 import { createSignal } from "solid-js";
-import { isTauriMode } from "./tauri";
+import { isCharnelMode } from "./charnel";
 import { debug } from "../../utils/logger";
 
 // reactive state for SW updates
@@ -25,7 +25,7 @@ export function shouldEnableServiceWorker(): boolean {
     return false;
   }
 
-  if (isTauriMode()) {
+  if (isCharnelMode()) {
     debug("serviceWorker", "disabled in tauri mode");
     return false;
   }

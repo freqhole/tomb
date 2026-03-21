@@ -73,12 +73,12 @@ import { routes } from "./routes";
 import { initAppDB } from "./services/storage/db";
 import { debug } from "../utils/logger";
 import {
-  isTauriMode,
+  isCharnelMode,
   getConfig,
   onConfigChanged,
   onEvent,
   type TauriEvent,
-} from "./services/tauri";
+} from "./services/charnel";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -228,7 +228,7 @@ export function App() {
 
   // auto-setup remote from tauri bridge (for tauri desktop app)
   async function autoSetupRemoteFromTauriBridge() {
-    if (!isTauriMode()) {
+    if (!isCharnelMode()) {
       debug("not in tauri mode, skipping bridge setup");
       return;
     }
@@ -286,7 +286,7 @@ export function App() {
 
   // request persistent storage (only in prod web mode)
   async function requestPersistentStorage(): Promise<void> {
-    if (import.meta.env.DEV || isTauriMode()) {
+    if (import.meta.env.DEV || isCharnelMode()) {
       return;
     }
 
@@ -347,7 +347,7 @@ export function App() {
 
       // for non-tauri, use local source immediately (no blocking remote connection)
       // RemoteContextHandler will handle connecting to remotes when navigating
-      if (!isTauriMode()) {
+      if (!isCharnelMode()) {
         await useLocalSource();
       }
 
@@ -464,7 +464,7 @@ export function App() {
   const handlePathsSelected = async (paths: string[]) => {
     const remote = getCurrentRemote();
 
-    if (!remote?.is_tauri_managed) {
+    if (!remote?.is_charnel_managed) {
       toast.warning("path-based import is only available for local library", {
         title: "not supported",
       });
@@ -554,7 +554,7 @@ export function App() {
         onPathsSelected={handlePathsSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
-        useTauriDialog={isTauriMode() && getCurrentRemote()?.is_tauri_managed === true}
+        useCharnelDialog={isCharnelMode() && getCurrentRemote()?.is_charnel_managed === true}
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
       />

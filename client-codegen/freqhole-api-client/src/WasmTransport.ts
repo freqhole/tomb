@@ -63,7 +63,8 @@ export interface MiddenNodeLike {
     blake3_hash: string,
   ): Promise<Uint8Array>;
   // download blob by ID with on-demand blake3 computation - optional
-  download_verified_by_id?(peer_addr: string, blob_id: string): Promise<[Uint8Array, string]>;
+  // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
+  download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
 }
 
 /**

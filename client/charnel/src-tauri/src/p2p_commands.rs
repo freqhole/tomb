@@ -94,8 +94,13 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     clear_federation_endpoint_handle().await;
     grimoire::federation::p2p_client::clear_federation_endpoint().await;
 
-    // initialize grimoire config from server config (ignore if already initialized)
-    let _ = grimoire::config::init_config(Some(config_path.to_path_buf()));
+    // initialize grimoire config from server config
+    if let Err(e) = grimoire::config::init_config(Some(config_path.to_path_buf())) {
+        // if config is already initialized, that's fine; otherwise fail
+        if !grimoire::is_config_initialized() {
+            return Err(format!("failed to init config: {}", e));
+        }
+    }
 
     // check if federation is enabled
     let config = grimoire::config::get_config();

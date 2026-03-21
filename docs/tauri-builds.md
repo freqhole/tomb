@@ -19,7 +19,7 @@ make build-all
 make collect
 ```
 
-mac outputs go to `client/tauri/src-tauri/target/*/release/bundle/`. linux packages go to `target/freqhole/$VERSION/tauri-linux/`. `make collect` gathers everything into `build/$VERSION/`.
+mac outputs go to `client/charnel/src-tauri/target/*/release/bundle/`. linux packages go to `target/freqhole/$VERSION/tauri-linux/`. `make collect` gathers everything into `build/$VERSION/`.
 
 ## prerequisites
 

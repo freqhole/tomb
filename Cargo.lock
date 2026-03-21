@@ -835,6 +835,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "charnel"
+version = "0.1.10"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "cocoa",
+ "grimoire",
+ "nix",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-shell",
+ "tauri-plugin-window-state",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.2",
+ "url",
+ "urlencoding",
+ "which",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2084,32 +2110,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "freqhole-app"
-version = "0.1.10"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "cocoa",
- "grimoire",
- "nix",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-shell",
- "tauri-plugin-window-state",
- "tokio",
- "tokio-util",
- "toml 0.8.2",
- "url",
- "urlencoding",
- "which",
 ]
 
 [[package]]

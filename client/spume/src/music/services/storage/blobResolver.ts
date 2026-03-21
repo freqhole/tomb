@@ -14,7 +14,7 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import {
   getTransportForRemote,
   isP2PTransportType,
-  isTauriAvailable,
+  isCharnelAvailable,
   type Remote,
 } from "../../../app/api/client";
 import { type BlobProgressCallback } from "freqhole-api-client";
@@ -70,7 +70,7 @@ const inProgressAbortControllers = new Map<string, AbortController>();
 // allows sync check of whether a remote uses transport-based blob fetching
 interface TransportCacheEntry {
   transport: "http" | "wasm" | "app";
-  isTauriManaged: boolean;
+  isCharnelManaged: boolean;
 }
 const transportTypeCache = new Map<string, TransportCacheEntry>();
 
@@ -82,24 +82,24 @@ export function isP2PRemoteSync(remoteId: string): boolean | undefined {
   const cached = transportTypeCache.get(remoteId);
   if (cached === undefined) return undefined;
   // both P2P (wasm/app) and tauri-managed remotes use transport for blobs
-  return cached.transport === "wasm" || cached.transport === "app" || cached.isTauriManaged;
+  return cached.transport === "wasm" || cached.transport === "app" || cached.isCharnelManaged;
 }
 
 /**
  * check if a remote is tauri-managed (local files, always available).
  * returns undefined if not yet cached (need async lookup).
  */
-export function isTauriManagedRemoteSync(remoteId: string): boolean | undefined {
+export function isCharnelManagedRemoteSync(remoteId: string): boolean | undefined {
   const cached = transportTypeCache.get(remoteId);
   if (cached === undefined) return undefined;
-  return cached.isTauriManaged;
+  return cached.isCharnelManaged;
 }
 
 /**
  * cache a remote's transport info for future sync lookups.
  */
-function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app", isTauriManaged: boolean = false) {
-  transportTypeCache.set(remoteId, { transport, isTauriManaged });
+function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app", isCharnelManaged: boolean = false) {
+  transportTypeCache.set(remoteId, { transport, isCharnelManaged });
 }
 
 /**
@@ -109,8 +109,8 @@ function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app"
 export async function preCacheRemoteTransport(remoteId: string): Promise<void> {
   const remote = await getRemoteById(remoteId);
   if (remote) {
-    cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
-    debug("blobResolver", `pre-cached transport for ${remoteId}: ${remote.transport}, tauri-managed: ${remote.is_tauri_managed}`);
+    cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
+    debug("blobResolver", `pre-cached transport for ${remoteId}: ${remote.transport}, tauri-managed: ${remote.is_charnel_managed}`);
   }
 }
 
@@ -153,10 +153,10 @@ export async function resolveBlobUrl(
   }
 
   // cache transport info for future sync lookups (reduces flicker)
-  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
+  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
 
   // check if this is a P2P remote or Tauri-managed remote (both use transport for blobs)
-  if (isP2PTransportType(remote) || (isTauriAvailable() && remote.is_tauri_managed)) {
+  if (isP2PTransportType(remote) || (isCharnelAvailable() && remote.is_charnel_managed)) {
     // check if there's already a fetch in progress for this blob
     // if so, wait for it instead of starting a duplicate fetch
     const inProgress = inProgressP2PFetches.get(cacheKey);
@@ -166,7 +166,7 @@ export async function resolveBlobUrl(
     }
     
     // only log when we're actually starting a new fetch
-    const transportType = remote.is_tauri_managed ? "tauri" : "P2P";
+    const transportType = remote.is_charnel_managed ? "tauri" : "P2P";
     debug("blobResolver", `starting ${transportType} fetch for ${blobId.slice(0, 8)}...`);
     
     // create AbortController for cancellable downloads
@@ -216,7 +216,7 @@ async function resolveP2PBlob(
   }
 
   // Tauri-managed remotes don't need Cache API - files are local
-  if (isTauriAvailable() && remote.is_tauri_managed) {
+  if (isCharnelAvailable() && remote.is_charnel_managed) {
     debug("blobResolver", `resolving local blob via Tauri IPC: ${blobId.slice(0, 8)}...`);
     const transport = await getTransportForRemote(remote);
     const url = await transport.getBlobUrl(blobId, blake3);
@@ -436,7 +436,7 @@ export async function evictP2PBlob(blobId: string, remoteId: string): Promise<vo
 export async function isP2PRemote(remoteId: string): Promise<boolean> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return false;
-  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
+  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
   return isP2PTransportType(remote);
 }
 
@@ -447,8 +447,8 @@ export async function isP2PRemote(remoteId: string): Promise<boolean> {
 export async function usesBlobResolver(remoteId: string): Promise<boolean> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return false;
-  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
-  return isP2PTransportType(remote) || (isTauriAvailable() && !!remote.is_tauri_managed);
+  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
+  return isP2PTransportType(remote) || (isCharnelAvailable() && !!remote.is_charnel_managed);
 }
 
 /**
@@ -460,7 +460,7 @@ export async function getRemoteTransportType(
 ): Promise<"http" | "wasm" | "app" | null> {
   const remote = await getRemoteById(remoteId);
   if (!remote) return null;
-  cacheTransportType(remoteId, remote.transport, remote.is_tauri_managed ?? false);
+  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
   return remote.transport;
 }
 

@@ -8,7 +8,7 @@ import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { isP2PRemote, isTauriManagedRemoteSync } from "../storage/blobResolver";
+import { isP2PRemote, isCharnelManagedRemoteSync } from "../storage/blobResolver";
 
 // ===== per-remote cache naming =====
 // cache names follow pattern: freqhole-blobs-{remoteId}
@@ -44,7 +44,7 @@ export async function shouldSkipCaching(remoteId: string): Promise<boolean> {
   if (!remote) return false;
   
   // skip for tauri-managed remotes
-  if (remote.is_tauri_managed) return true;
+  if (remote.is_charnel_managed) return true;
 
   // P2P remotes should not skip caching
   const isPeerRemote = await isP2PRemote(remoteId);
@@ -80,8 +80,8 @@ export function isSongCachedReactive(remoteId: string | null | undefined, sha256
   if (!remoteId || !sha256) return false;
   
   // tauri-managed remotes have local files - always "cached"
-  const isTauriManaged = isTauriManagedRemoteSync(remoteId);
-  if (isTauriManaged) return true;
+  const isCharnelManaged = isCharnelManagedRemoteSync(remoteId);
+  if (isCharnelManaged) return true;
   
   const key = `${remoteId}/${sha256}`;
   return cacheStatus[key] ?? false;

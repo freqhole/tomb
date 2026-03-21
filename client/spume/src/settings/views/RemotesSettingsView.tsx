@@ -454,7 +454,7 @@ export function RemotesSettingsView() {
                     <div class="flex items-start gap-4">
                       {/* server image or home icon for tauri-managed */}
                       <Show
-                        when={remote.is_tauri_managed}
+                        when={remote.is_charnel_managed}
                         fallback={<RemoteImage remote={remote} />}
                       >
                         <div class="w-12 h-12 rounded-lg bg-[var(--color-bg-tertiary)] flex items-center justify-center shrink-0">
@@ -467,7 +467,7 @@ export function RemotesSettingsView() {
                           <h3 class="text-sm font-medium text-[var(--color-text-primary)] truncate">
                             {remote.name}
                           </h3>
-                          <Show when={remote.is_tauri_managed}>
+                          <Show when={remote.is_charnel_managed}>
                             <span class="px-1.5 py-0.5 text-xs font-medium bg-[var(--color-accent-500)]/20 text-[var(--color-accent-500)] rounded">
                               embedded
                             </span>
@@ -477,7 +477,7 @@ export function RemotesSettingsView() {
                               p2p
                             </span>
                           </Show>
-                          <Show when={isLocal() && !remote.is_tauri_managed}>
+                          <Show when={isLocal() && !remote.is_charnel_managed}>
                             <span class="px-1.5 py-0.5 text-xs font-medium bg-blue-600/20 text-blue-400 rounded">
                               local
                             </span>

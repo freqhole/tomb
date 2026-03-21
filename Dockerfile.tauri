@@ -38,12 +38,12 @@ COPY . .
 
 # install npm dependencies
 RUN cd client/spume && npm ci
-RUN cd client/tauri && npm ci
+RUN cd client/charnel && npm ci
 
 # build spume frontend
 RUN FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cd client/spume && npm run build
 
 # build tauri app - deb + rpm
-RUN cd client/tauri && SQLX_OFFLINE="true" npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
+RUN cd client/charnel && SQLX_OFFLINE="true" npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
 
 # outputs in /app/target/${TARGET_ARCH}/release/bundle/deb/*.deb and rpm/*.rpm

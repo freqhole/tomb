@@ -13,7 +13,7 @@ const APP_CONFIG_FILENAME: &str = "charnel-config.toml";
 
 /// charnel app configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CharnelAppConfig {
+pub struct FreqholeAppConfig {
     /// app config version (tracks which binary version last wrote this config)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,

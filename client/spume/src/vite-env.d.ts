@@ -2,7 +2,7 @@
 
 interface ImportMetaEnv {
   /** Set to "true" when running in Tauri app context */
-  readonly VITE_TAURI_MODE?: string;
+  readonly VITE_CHARNEL_MODE?: string;
 }
 
 interface ImportMeta {

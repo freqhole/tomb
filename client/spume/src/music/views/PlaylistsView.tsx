@@ -49,7 +49,7 @@ import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
 import { debug, error as errorLog } from "../../utils/logger";
-import { isTauriMode } from "../../app/services/tauri";
+import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface PlaylistsViewProps {
@@ -132,7 +132,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
     // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)
     const handlePointerMove = (e: PointerEvent) => {
-      if (!isTauriMode()) return;
+      if (!isCharnelMode()) return;
 
       // check if pending drag should activate
       if (pendingPointerDrag !== null) {
@@ -167,7 +167,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     };
 
     const handlePointerUp = async () => {
-      if (!isTauriMode()) return;
+      if (!isCharnelMode()) return;
       pendingPointerDrag = null;
 
       const dragId = pointerDragSongId();
@@ -489,7 +489,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       remote &&
       (remote.transport_type === "wasm" ||
         remote.transport_type === "app" ||
-        remote.is_tauri_managed);
+        remote.is_charnel_managed);
 
     // for transport-based remotes, always use resolveBlobUrl with blob ID
     if (isTransportBased && imageMeta?.remote_blob_id) {
@@ -564,7 +564,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       remote &&
       (remote.transport_type === "wasm" ||
         remote.transport_type === "app" ||
-        remote.is_tauri_managed);
+        remote.is_charnel_managed);
 
     // collect all images: Map<blobId, ImageMetadata>
     const imageMap = new Map<string, { blobId: string; url?: string }>();
@@ -681,7 +681,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   };
 
   // combined dragged song id (works for both HTML5 drag and pointer drag)
-  const effectiveDraggedSongId = () => (isTauriMode() ? pointerDragSongId() : draggedSongId());
+  const effectiveDraggedSongId = () => (isCharnelMode() ? pointerDragSongId() : draggedSongId());
 
   // handle drag start
   const handleDragStart = (songId: string) => (e: DragEvent) => {
@@ -729,7 +729,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // handle pointer down for Tauri drag
   const handlePointerDown = (songId: string) => (e: PointerEvent) => {
-    if (isTauriMode() && e.button === 0) {
+    if (isCharnelMode() && e.button === 0) {
       pendingPointerDrag = {
         songId,
         startY: e.clientY,
@@ -1224,7 +1224,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   isFavorite={selectedPlaylist()?.is_favorite ?? false}
                                 />
                                 {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
-                                <Show when={isViewingRemote() && !isTauriMode()}>
+                                <Show when={isViewingRemote() && !isCharnelMode()}>
                                   <Show
                                     when={syncStatus()?.localPlaylistId}
                                     fallback={
@@ -1260,7 +1260,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 <Show
                                   when={
                                     !isViewingRemote() &&
-                                    !isTauriMode() &&
+                                    !isCharnelMode() &&
                                     selectedPlaylist()?.source_remote_id
                                   }
                                 >
@@ -1358,7 +1358,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               isFavorite={selectedPlaylist()?.is_favorite ?? false}
                             />
                             {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
-                            <Show when={isViewingRemote() && !isTauriMode()}>
+                            <Show when={isViewingRemote() && !isCharnelMode()}>
                               <Show
                                 when={syncStatus()?.localPlaylistId}
                                 fallback={
@@ -1394,7 +1394,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             <Show
                               when={
                                 !isViewingRemote() &&
-                                !isTauriMode() &&
+                                !isCharnelMode() &&
                                 selectedPlaylist()?.source_remote_id
                               }
                             >
@@ -1459,7 +1459,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                               ...(song.album_images || []),
                                             ]}
                                             disabled={
-                                              isTauriMode() ||
+                                              isCharnelMode() ||
                                               !isEditablePlaylist(selectedPlaylist()!)
                                             }
                                           >

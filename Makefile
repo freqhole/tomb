@@ -196,7 +196,7 @@ help: info
 
 # Tauri app build commands
 .PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64
-TAURI_DIR := client/tauri
+TAURI_DIR := client/charnel
 
 # macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
@@ -211,14 +211,14 @@ build-tauri-mac-arm:
 		cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole-app_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg"
+	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ] && [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
 		echo "notarizing dmg (this may take a few minutes)..."; \
-		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg \
+		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg \
 			--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
-		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg; \
-		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_aarch64.dmg"; \
+		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg; \
+		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg"; \
 	fi
 
 # macOS x86_64 Tauri app (signed + notarized if env vars set)
@@ -234,14 +234,14 @@ build-tauri-mac-intel:
 		cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole-app_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg"
+	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ] && [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
 		echo "notarizing dmg (this may take a few minutes)..."; \
-		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg \
+		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg \
 			--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
-		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg; \
-		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole-app_$(VERSION)_x64.dmg"; \
+		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg; \
+		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg"; \
 	fi
 
 build-tauri-linux-intel:

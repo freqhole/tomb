@@ -10,7 +10,7 @@ import { getRemoteById, checkRemoteHealth, getTauriManagedRemote } from "./remot
 import { isHttpRemote, isP2PRemote } from "../storage/types";
 import { useRemoteSource, useLocalSource, getCurrentRemote } from "../../../music/data";
 import { getDefaultRoute } from "../../../music/utils/routing";
-import { isTauriMode } from "../tauri";
+import { isCharnelMode } from "../charnel";
 import { debug } from "../../../utils/logger";
 
 // reactive connection state (read by AppLayout for modal)
@@ -82,7 +82,7 @@ export async function cancelAndNavigate(navigate: (path: string, options?: { rep
   }
   
   // otherwise navigate to fallback (local or tauri remote)
-  if (isTauriMode()) {
+  if (isCharnelMode()) {
     const tauriRemote = await getTauriManagedRemote();
     if (tauriRemote && tauriRemote.remote_id !== targetRemoteId) {
       debug("connectionProgress", `cancel: going to tauri remote ${tauriRemote.name}`);

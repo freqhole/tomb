@@ -15,18 +15,18 @@ import {
   FreqholeClient,
   HttpTransport,
   WasmTransport,
-  createTauriTransport,
-  getTauriNodeId,
-  createTauriLocalTransport,
+  createCharnelTransport,
+  getCharnelNodeId,
+  createCharnelLocalTransport,
   type MiddenNodeLike,
   type Transport,
 } from "freqhole-api-client";
-import { isTauriMode } from "../services/tauri";
+import { isCharnelMode } from "../services/charnel";
 
 // re-export for call sites that still need direct access
-// note: isTauriAvailable uses local isTauriMode which checks both env var and window.__TAURI__
+// note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
 export { createHttpClient, isAuthError, isNetworkError };
-export { isTauriMode as isTauriAvailable };
+export { isCharnelMode as isCharnelAvailable };
 
 // client type (inferred from factory function)
 export type { FreqholeClient } from "freqhole-api-client";
@@ -97,11 +97,11 @@ let middenNodePromise: Promise<MiddenNodeLike> | null = null;
 /**
  * get or create the midden node singleton.
  * uses persisted identity from IndexedDB if available, otherwise creates new.
- * NOTE: throws in Tauri builds - use TauriTransport instead.
+ * NOTE: throws in Tauri builds - use CharnelTransport instead.
  */
 export async function getMiddenNode(): Promise<MiddenNodeLike> {
   // midden WASM is not available in Tauri builds - use app P2P
-  if (isTauriMode()) {
+  if (isCharnelMode()) {
     throw new Error("midden WASM not available in Tauri - use transport_type: 'app' for P2P");
   }
 
@@ -114,28 +114,30 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
   }
 
   // lazy import midden to avoid bundling it when not used
-  middenNodePromise = (async () => {
+  middenNodePromise = (async (): Promise<MiddenNodeLike> => {
     const { MiddenNode } = await import("midden");
 
     // check for persisted identity
     const existingIdentity = await getP2PIdentity();
 
+    let node: MiddenNodeLike;
     if (existingIdentity) {
       // restore from persisted key
       console.log("[midden] restoring identity from IndexedDB:", existingIdentity.node_id.slice(0, 16) + "...");
-      middenNode = await MiddenNode.create_from_key(existingIdentity.secret_key);
+      node = await MiddenNode.create_from_key(existingIdentity.secret_key);
     } else {
       // create new identity and persist it
-      middenNode = await MiddenNode.create();
-      const secretKey = middenNode.secret_key();
-      const nodeId = middenNode.node_id();
+      node = await MiddenNode.create();
+      const secretKey = node.secret_key();
+      const nodeId = node.node_id();
       await saveP2PIdentity(secretKey, nodeId);
       console.log("[midden] created new identity:", nodeId.slice(0, 16) + "...");
     }
 
-    const nodeId = middenNode.node_id();
+    middenNode = node;
+    const nodeId = node.node_id();
     console.log("[midden] node ready, node_id:", nodeId);
-    return middenNode;
+    return node;
   })();
 
   return middenNodePromise;
@@ -156,9 +158,9 @@ export async function getLocalNodeIdAsync(): Promise<string | null> {
   if (middenNode) {
     return middenNode.node_id();
   }
-  if (isTauriMode()) {
+  if (isCharnelMode()) {
     try {
-      return await getTauriNodeId();
+      return await getCharnelNodeId();
     } catch {
       return null;
     }
@@ -189,7 +191,7 @@ function resolveTransport(remote: RemoteLike): "http" | "wasm" | "app" {
   }
   // fallback: infer from presence of peer_addr vs base_url
   if ("peer_addr" in remote && remote.peer_addr) {
-    return isTauriMode() ? "app" : "wasm";
+    return isCharnelMode() ? "app" : "wasm";
   }
   return "http";
 }
@@ -225,7 +227,7 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
       if (!peerAddr) {
         throw new Error('peer_addr required for app transport');
       }
-      return new FreqholeClient(await createTauriTransport(peerAddr));
+      return new FreqholeClient(await createCharnelTransport(peerAddr));
       
     case 'wasm':
       if (!peerAddr) {
@@ -240,11 +242,11 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
       if (!baseUrl) {
         throw new Error('base_url required for http transport');
       }
-      // use TauriLocalTransport for tauri-managed remotes (local server)
+      // use CharnelLocalTransport for tauri-managed remotes (local server)
       // tries dispatch first, falls back to HTTP for routes not yet in dispatch
-      if (isTauriMode() && remote.is_tauri_managed) {
-        console.log('[client] using TauriLocalTransport for tauri-managed remote');
-        return new FreqholeClient(createTauriLocalTransport(baseUrl));
+      if (isCharnelMode() && remote.is_charnel_managed) {
+        console.log('[client] using CharnelLocalTransport for tauri-managed remote');
+        return new FreqholeClient(createCharnelLocalTransport(baseUrl));
       }
       return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
   }
@@ -273,7 +275,7 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
         throw new Error('peer_addr required for app transport');
       }
       const appCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
-      return createTauriTransport(peerAddr, appCacheName);
+      return createCharnelTransport(peerAddr, appCacheName);
       
     case 'wasm':
       if (!peerAddr) {
@@ -288,9 +290,9 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
       if (!baseUrl) {
         throw new Error('base_url required for http transport');
       }
-      // use TauriLocalTransport for tauri-managed remotes - supports blobs via IPC
-      if (isTauriMode() && remote.is_tauri_managed) {
-        return createTauriLocalTransport(baseUrl);
+      // use CharnelLocalTransport for tauri-managed remotes - supports blobs via IPC
+      if (isCharnelMode() && remote.is_charnel_managed) {
+        return createCharnelLocalTransport(baseUrl);
       }
       return new HttpTransport(baseUrl, remote.api_key);
   }

@@ -19,7 +19,7 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { isTauriMode } from "../../app/services/tauri";
+import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 
@@ -100,7 +100,7 @@ export interface TopNavProps {
     peerAddr?: string;
     isOffline?: boolean;
     lastChecked?: number | null;
-    isTauriManaged?: boolean;
+    isCharnelManaged?: boolean;
     isLocal?: boolean;
     updatedAt?: number;
   }>;
@@ -428,7 +428,7 @@ export function TopNav(props: TopNavProps) {
                         </h4>
                         <div class="space-y-1">
                           {/* local library option - hidden in tauri mode */}
-                          <Show when={!isTauriMode()}>
+                          <Show when={!isCharnelMode()}>
                             <button
                               class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                               classList={{
@@ -528,7 +528,7 @@ export function TopNav(props: TopNavProps) {
                                         class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
                                       />
                                       <span class="truncate">{remote.name}</span>
-                                      <Show when={remote.isTauriManaged}>
+                                      <Show when={remote.isCharnelManaged}>
                                         <Icon
                                           name="home"
                                           size={14}
@@ -541,7 +541,7 @@ export function TopNav(props: TopNavProps) {
                                           p2p
                                         </span>
                                       </Show>
-                                      <Show when={remote.isLocal && !remote.isTauriManaged}>
+                                      <Show when={remote.isLocal && !remote.isCharnelManaged}>
                                         <span class="px-1.5 py-0.5 text-[10px] font-medium bg-blue-600/20 text-blue-400 rounded">
                                           local
                                         </span>

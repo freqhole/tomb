@@ -222,29 +222,29 @@ pub fn run() {
                         ns_window.setBackgroundColor_(bg_color);
                     }
                 }
-            }
 
-            // setup system tray if enabled in config AND federation is enabled
-            // (tray is purely for P2P controls, so only show if federation is on)
-            let federation_enabled = grimoire::config::get_config()
-                .federation
-                .as_ref()
-                .map(|f| f.enabled)
-                .unwrap_or(false);
+                // setup system tray if enabled in config AND federation is enabled
+                // (tray is purely for P2P controls, so only show if federation is on)
+                let federation_enabled = grimoire::config::get_config()
+                    .federation
+                    .as_ref()
+                    .map(|f| f.enabled)
+                    .unwrap_or(false);
 
-            if app_config.tray_enabled && federation_enabled {
-                #[cfg(target_os = "linux")]
-                if let Err(e) = tray::setup_tray(app.handle()) {
-                    eprintln!(
-                        "warning: system tray setup failed (install libayatana-appindicator3-dev): {e}"
-                    );
+                if app_config.tray_enabled && federation_enabled {
+                    #[cfg(target_os = "linux")]
+                    if let Err(e) = tray::setup_tray(app.handle()) {
+                        eprintln!(
+                            "warning: system tray setup failed (install libayatana-appindicator3-dev): {e}"
+                        );
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    tray::setup_tray(app.handle())?;
                 }
-                #[cfg(not(target_os = "linux"))]
-                tray::setup_tray(app.handle())?;
-            }
 
-            // setup application menu
-            menu::setup_app_menu(app.handle())?;
+                // setup application menu
+                menu::setup_app_menu(app.handle())?;
+            }
 
             Ok(())
         })

@@ -79,7 +79,7 @@ export interface Transport {
 
   /**
    * upload a file by filesystem path (optional).
-   * only implemented by transports with direct filesystem access (TauriLocalTransport).
+   * only implemented by transports with direct filesystem access (CharnelLocalTransport).
    * skips base64 encoding by passing the path to the backend.
    * @param path - API path (e.g., /api/upload/image)
    * @param filePath - local filesystem path to the file

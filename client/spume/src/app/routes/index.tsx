@@ -30,7 +30,7 @@ import {
   RemotesSettingsView,
   FederationSettingsView,
 } from "../../settings";
-import { isTauriMode } from "../services/tauri";
+import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
 import { debug } from "../../utils/logger";
 
@@ -45,7 +45,7 @@ function RootRedirect() {
   onMount(async () => {
     // in tauri mode, always start with the tauri-managed remote
     // (don't try to reconnect to a stored P2P remote that might be offline)
-    if (isTauriMode()) {
+    if (isCharnelMode()) {
       const tauriRemote = await getTauriManagedRemote();
       if (tauriRemote) {
         debug("routes", "tauri mode: navigating to tauri-managed remote");
@@ -98,7 +98,7 @@ export function routes(props: RoutesProps) {
         <Route path="/" component={RootRedirect} />
 
         {/* local context routes - hidden in tauri mode (always uses remote server) */}
-        {!isTauriMode() && (
+        {!isCharnelMode() && (
           <Route path="/local" component={LocalContextHandler}>
             <Route path="/feed" component={FeedView} />
             <Route
@@ -212,7 +212,7 @@ function RemoteContextHandler(props: { children?: any }) {
     name: string;
     base_url?: string; // undefined for P2P remotes
     peer_addr?: string; // for P2P remotes
-    is_tauri_managed?: boolean;
+    is_charnel_managed?: boolean;
   } | null>(null);
 
   // re-auth modal state
@@ -227,7 +227,7 @@ function RemoteContextHandler(props: { children?: any }) {
       // stay where we were (different remote that's already active)
       debug("routes", `fallback: staying on current remote ${current.name}`);
       navigate(getDefaultRoute(current.remote_id), { replace: true });
-    } else if (isTauriMode()) {
+    } else if (isCharnelMode()) {
       // in tauri, try tauri-managed remote
       const tauriRemote = await getTauriManagedRemote();
       if (tauriRemote && tauriRemote.remote_id !== targetRemoteId) {
@@ -285,7 +285,7 @@ function RemoteContextHandler(props: { children?: any }) {
       name: remote.name,
       base_url: isHttpRemote(remote) ? remote.base_url : undefined,
       peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
-      is_tauri_managed: remote.is_tauri_managed,
+      is_charnel_managed: remote.is_charnel_managed,
     });
     setIsConnected(true);
     queryClient.invalidateQueries();
@@ -301,7 +301,7 @@ function RemoteContextHandler(props: { children?: any }) {
 
     // for the tauri-managed sidecar remote, auth refresh is handled automatically
     // by rust pushing a fresh invite code - no need to show the toast
-    if (info.is_tauri_managed) {
+    if (info.is_charnel_managed) {
       return;
     }
 

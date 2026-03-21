@@ -16,7 +16,7 @@ import {
   checkForUpdates,
   forceRefresh,
 } from "../../app/services/serviceWorker";
-import { isTauriMode } from "../../app/services/tauri";
+import { isCharnelMode } from "../../app/services/charnel";
 import {
   getAllRemoteCacheStats,
   clearBlobCache,
@@ -375,7 +375,7 @@ export function StorageSettingsView() {
                 </div>
 
                 {/* persistent storage status */}
-                <Show when={!isTauriMode() && persistentStorage() !== null}>
+                <Show when={!isCharnelMode() && persistentStorage() !== null}>
                   <div class="flex items-center gap-2">
                     <span class="text-[var(--color-text-muted)]">persistent storage:</span>
                     <span class={`${persistentStorage() ? "text-green-400" : "text-yellow-400"}`}>
@@ -388,7 +388,7 @@ export function StorageSettingsView() {
                 <div class="flex items-center gap-2">
                   <span class="text-[var(--color-text-muted)]">mode:</span>
                   <span class="text-[var(--color-text-secondary)]">
-                    {import.meta.env.DEV ? "development" : isTauriMode() ? "desktop" : "web"}
+                    {import.meta.env.DEV ? "development" : isCharnelMode() ? "desktop" : "web"}
                   </span>
                 </div>
               </div>

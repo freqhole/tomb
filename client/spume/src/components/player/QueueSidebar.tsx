@@ -5,7 +5,7 @@ import type { QueueHistoryEntry } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
-import { isTauriMode } from "../../app/services/tauri";
+import { isCharnelMode } from "../../app/services/charnel";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -136,7 +136,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)
   onMount(() => {
-    if (!isTauriMode()) return;
+    if (!isCharnelMode()) return;
 
     const handlePointerMove = (e: PointerEvent) => {
       // check if we have a pending drag that should activate
@@ -197,7 +197,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
   });
 
   // combined dragged index (works for both HTML5 drag and pointer drag)
-  const effectiveDraggedIndex = () => (isTauriMode() ? pointerDragIndex() : draggedIndex());
+  const effectiveDraggedIndex = () => (isCharnelMode() ? pointerDragIndex() : draggedIndex());
 
   const virtualizer = createVirtualizer({
     get count() {
@@ -486,7 +486,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
                   const songRow = (
                     <div
-                      draggable={!isTauriMode()}
+                      draggable={!isCharnelMode()}
                       class={`absolute top-0 left-0 w-full flex items-center py-2 pl-2 group transition-all duration-200 cursor-move overflow-hidden ${
                         isDropTarget()
                           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
@@ -510,7 +510,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       onDrop={() => handleDrop(itemIndex)}
                       onPointerDown={(e) => {
                         // pointer-based drag for Tauri only - set up pending drag
-                        if (isTauriMode() && e.button === 0) {
+                        if (isCharnelMode() && e.button === 0) {
                           pendingPointerDrag = {
                             index: itemIndex,
                             startY: e.clientY,

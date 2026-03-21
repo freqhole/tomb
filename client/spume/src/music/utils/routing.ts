@@ -1,12 +1,12 @@
 // routing utilities for context-aware navigation
 
 import { getCurrentRemote } from "../data";
-import { isTauriMode } from "../../app/services/tauri";
+import { isCharnelMode } from "../../app/services/charnel";
 
 /**
  * check if the current context supports feed view.
  * - browser "local" source does NOT have feed (no server backend)
- * - tauri "local" (is_tauri_managed) DOES have feed
+ * - tauri "local" (is_charnel_managed) DOES have feed
  * - all remotes have feed
  */
 export function hasFeedView(): boolean {
@@ -16,7 +16,7 @@ export function hasFeedView(): boolean {
     return true;
   }
   // local source: only Tauri has feed (it has a local server backend)
-  return isTauriMode();
+  return isCharnelMode();
 }
 
 /**
@@ -80,7 +80,7 @@ export const routes = {
 export function getDefaultRoute(remoteId?: string): string {
   // explicit "local"
   if (remoteId === "local") {
-    return isTauriMode() ? "/local/feed" : "/local/songs";
+    return isCharnelMode() ? "/local/feed" : "/local/songs";
   }
   
   // explicit remote ID

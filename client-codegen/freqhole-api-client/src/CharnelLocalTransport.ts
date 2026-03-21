@@ -1,4 +1,4 @@
-// TauriLocalTransport - local grimoire dispatch via Tauri IPC
+// CharnelLocalTransport - local grimoire dispatch via Tauri IPC
 //
 // bypasses HTTP entirely for local server access in Tauri apps.
 // calls grimoire::api::dispatch directly via the api_call IPC command.
@@ -40,13 +40,13 @@ interface ApiResponse {
 }
 
 /**
- * TauriLocalTransport - local dispatch via Tauri IPC
+ * CharnelLocalTransport - local dispatch via Tauri IPC
  *
  * implements Transport interface for use with FreqholeClient.
  * routes requests through grimoire::api::dispatch via the api_call command.
  * uses Tauri's asset protocol for blob/audio file access.
  */
-export class TauriLocalTransport implements Transport {
+export class CharnelLocalTransport implements Transport {
   // cache blob paths to avoid repeated IPC calls
   private blobPathCache = new Map<string, { path: string; mime?: string }>();
   // cache object URLs for db-stored blobs (no local path)
@@ -82,7 +82,7 @@ export class TauriLocalTransport implements Transport {
       // check for route_not_found - this is now a real error
       const errorType = response.errors?.[0]?.error_type;
       if (!response.success && errorType === "route_not_found") {
-        console.error(`[TauriLocalTransport] route not found: ${path}`);
+        console.error(`[CharnelLocalTransport] route not found: ${path}`);
         return {
           status: 404,
           body: JSON.stringify(response),
@@ -354,9 +354,9 @@ function errorTypeToStatus(errorType: string): number {
 }
 
 /**
- * create a TauriLocalTransport instance
+ * create a CharnelLocalTransport instance
  * @param baseUrl - ignored (kept for API compatibility)
  */
-export function createTauriLocalTransport(baseUrl: string): TauriLocalTransport {
-  return new TauriLocalTransport(baseUrl);
+export function createCharnelLocalTransport(baseUrl: string): CharnelLocalTransport {
+  return new CharnelLocalTransport(baseUrl);
 }

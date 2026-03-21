@@ -87,7 +87,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // get HTTP URL for a blob, or undefined for Tauri-managed remotes
   // Tauri-managed remotes don't run an HTTP server - all blob access goes through IPC
   private getBlobHttpUrl(blobId: string): string | undefined {
-    if (this.remote.is_tauri_managed) {
+    if (this.remote.is_charnel_managed) {
       return undefined;
     }
     return getRemoteMediaUrl(this.baseUrl, blobId);
@@ -163,7 +163,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   //
   // TODO: this is called manually from a few key methods (getSongs, getAlbums, etc.)
   // which is awkward. better approach would be to handle this at the transport layer
-  // (TauriTransport, WasmTransport, HttpTransport) so all successful requests
+  // (CharnelTransport, WasmTransport, HttpTransport) so all successful requests
   // automatically clear offline status without needing per-method calls.
   private async handleSuccessfulRequest(): Promise<void> {
     // skip check if we never marked this remote offline

@@ -31,7 +31,7 @@ const RemoteCommonSchema = z.object({
   last_info_check: z.number().nullable(),
   // optional fields
   api_key: z.string().optional(),
-  is_tauri_managed: z.boolean().optional(),
+  is_charnel_managed: z.boolean().optional(),
   is_offline: z.boolean().optional(),
   offline_since: z.number().nullable().optional(),
   last_checked: z.number().nullable().optional(),
@@ -185,7 +185,7 @@ export type RemoteRef = {
   // optional
   api_key?: string;
   // tauri-managed remote (use local dispatch instead of HTTP)
-  is_tauri_managed?: boolean;
+  is_charnel_managed?: boolean;
 };
 
 /**
@@ -200,7 +200,7 @@ export function toRemoteRef(remote: Remote): RemoteRef {
       transport: "http",
       base_url: remote.base_url,
       api_key: remote.api_key,
-      is_tauri_managed: remote.is_tauri_managed,
+      is_charnel_managed: remote.is_charnel_managed,
     };
   }
   return {
@@ -209,6 +209,6 @@ export function toRemoteRef(remote: Remote): RemoteRef {
     transport: remote.transport,
     peer_addr: remote.peer_addr,
     api_key: remote.api_key,
-    is_tauri_managed: remote.is_tauri_managed,
+    is_charnel_managed: remote.is_charnel_managed,
   };
 }

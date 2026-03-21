@@ -28,7 +28,7 @@ const [currentRemote, setCurrentRemote] = createSignal<{
   api_key?: string;
   transport_type?: TransportType;
   peer_addr?: string; // for P2P remotes
-  is_tauri_managed?: boolean; // true if managed by tauri (use IPC dispatch)
+  is_charnel_managed?: boolean; // true if managed by tauri (use IPC dispatch)
 } | null>(null);
 
 // current authenticated user info (per remote)
@@ -100,7 +100,7 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
     api_key: remote.api_key,
     transport_type: remote.transport ?? remote.transport_type,
     peer_addr: remote.peer_addr,
-    is_tauri_managed: remote.is_tauri_managed,
+    is_charnel_managed: remote.is_charnel_managed,
   });
 
   // fetch current user info from whoami (uses session cookies)

@@ -3,7 +3,7 @@ import { Show, For } from "solid-js";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { isTauriMode } from "../../app/services/tauri/mode";
+import { isCharnelMode } from "../../app/services/charnel/mode";
 import { getCurrentRemote } from "../../music/data";
 
 // type for tauri dialog plugin's open function (dynamically imported when available)
@@ -53,14 +53,14 @@ export function EntityImages(props: EntityImagesProps) {
   };
 
   // check if we should use tauri dialog picker
-  const useTauriDialog = () => {
-    if (!isTauriMode() || !props.onUploadPath) return false;
+  const useCharnelDialog = () => {
+    if (!isCharnelMode() || !props.onUploadPath) return false;
     const remote = getCurrentRemote();
-    return remote?.is_tauri_managed === true;
+    return remote?.is_charnel_managed === true;
   };
 
   const handleUploadClick = async () => {
-    if (!useTauriDialog()) return; // will use file input instead
+    if (!useCharnelDialog()) return; // will use file input instead
 
     try {
       // dynamically import dialog plugin (only available in tauri runtime)
@@ -142,7 +142,7 @@ export function EntityImages(props: EntityImagesProps) {
         {/* upload button - uses tauri dialog when tauri-managed, otherwise file input */}
         <Show when={(props.onUpload || props.onUploadPath) && !props.disabled}>
           <Show
-            when={useTauriDialog()}
+            when={useCharnelDialog()}
             fallback={
               // standard file input for browser/non-tauri-managed
               <label

@@ -76,7 +76,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
         // remote upload - always use remote_blob_id + remote_server_id
         // only set remote_url for standard HTTP (not tauri-managed, which uses IPC)
         const remoteUrl =
-          remote.base_url && !remote.is_tauri_managed
+          remote.base_url && !remote.is_charnel_managed
             ? getRemoteMediaUrl(remote.base_url, blob_id)
             : undefined;
         newImage = {

@@ -1,4 +1,4 @@
-// TauriTransport - P2P transport for Tauri apps
+// CharnelTransport - P2P transport for Tauri apps
 //
 // uses Tauri IPC commands to make P2P requests via the server's
 // app iroh endpoint. no WASM needed.
@@ -13,7 +13,7 @@ let invoke: InvokeFn | null = null;
 
 /**
  * initialize tauri invoke function
- * call this before using TauriTransport
+ * call this before using CharnelTransport
  */
 async function ensureInvoke(): Promise<InvokeFn> {
   if (invoke) return invoke;
@@ -29,7 +29,7 @@ async function ensureInvoke(): Promise<InvokeFn> {
 /**
  * check if tauri is available
  */
-export function isTauriAvailable(): boolean {
+export function isCharnelAvailable(): boolean {
   return typeof window !== "undefined" && "__TAURI__" in window;
 }
 
@@ -70,10 +70,10 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /**
- * TauriTransport - P2P transport using Tauri IPC commands
+ * CharnelTransport - P2P transport using Tauri IPC commands
  * implements Transport interface for use with FreqholeClient
  */
-export class TauriTransport implements Transport {
+export class CharnelTransport implements Transport {
   private peerAddr: string;
   private nodeId: string | null = null;
   private readonly cacheName: string;
@@ -209,7 +209,7 @@ export class TauriTransport implements Transport {
         };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(`[TauriTransport] verified download failed, falling back: ${errorMessage}`);
+        console.warn(`[CharnelTransport] verified download failed, falling back: ${errorMessage}`);
         // fall through to regular fetch_blob
       }
     } else {
@@ -227,7 +227,7 @@ export class TauriTransport implements Transport {
         };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(`[TauriTransport] on-demand verified download failed, falling back: ${errorMessage}`);
+        console.warn(`[CharnelTransport] on-demand verified download failed, falling back: ${errorMessage}`);
         // fall through to regular fetch_blob
       }
     }
@@ -332,13 +332,13 @@ export class TauriTransport implements Transport {
 }
 
 // transport cache - reuse instances per peer
-const transportCache = new Map<string, TauriTransport>();
+const transportCache = new Map<string, CharnelTransport>();
 
 /**
- * get or create a TauriTransport for a peer (async)
+ * get or create a CharnelTransport for a peer (async)
  * initializes transport before returning
  */
-export async function createTauriTransport(peerAddr: string, cacheName?: string): Promise<TauriTransport> {
+export async function createCharnelTransport(peerAddr: string, cacheName?: string): Promise<CharnelTransport> {
   // include cacheName in cache key so different remotes get different transports
   const cacheKey = cacheName ? `${peerAddr}:${cacheName}` : peerAddr;
   const existing = transportCache.get(cacheKey);
@@ -346,23 +346,23 @@ export async function createTauriTransport(peerAddr: string, cacheName?: string)
     return existing;
   }
 
-  const transport = new TauriTransport(peerAddr, cacheName);
+  const transport = new CharnelTransport(peerAddr, cacheName);
   await transport.init();
   transportCache.set(cacheKey, transport);
   return transport;
 }
 
 /**
- * get or create a TauriTransport (alias for createTauriTransport)
+ * get or create a CharnelTransport (alias for createCharnelTransport)
  */
-export async function getTauriTransport(peerAddr: string, cacheName?: string): Promise<TauriTransport> {
-  return createTauriTransport(peerAddr, cacheName);
+export async function getCharnelTransport(peerAddr: string, cacheName?: string): Promise<CharnelTransport> {
+  return createCharnelTransport(peerAddr, cacheName);
 }
 
 /**
  * get local node_id from tauri
  */
-export async function getTauriNodeId(): Promise<string> {
+export async function getCharnelNodeId(): Promise<string> {
   const inv = await ensureInvoke();
   return (await inv("p2p_get_node_id")) as string;
 }
@@ -370,7 +370,7 @@ export async function getTauriNodeId(): Promise<string> {
 /**
  * check if P2P is available in tauri
  */
-export async function isTauriP2PAvailable(): Promise<boolean> {
+export async function isCharnelP2PAvailable(): Promise<boolean> {
   try {
     const inv = await ensureInvoke();
     return (await inv("p2p_is_available")) as boolean;

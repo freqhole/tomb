@@ -5,16 +5,16 @@
  * all functions are only available in tauri builds - browser builds tree-shake this out.
  *
  * usage:
- *   import { isTauriMode, getConfig, onConfigChanged } from "./services/tauri";
+ *   import { isCharnelMode, getConfig, onConfigChanged } from "./services/charnel";
  *
- *   if (isTauriMode()) {
+ *   if (isCharnelMode()) {
  *     const config = await getConfig();
  *     const unlisten = await onConfigChanged((event) => { ... });
  *   }
  */
 
 // re-export mode detection
-export { isTauriMode } from "./mode";
+export { isCharnelMode } from "./mode";
 
 // re-export schemas and types
 export {

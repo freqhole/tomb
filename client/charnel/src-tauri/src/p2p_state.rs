@@ -248,10 +248,15 @@ pub struct P2pStatusResponse {
 /// tauri command to get P2P status
 #[tauri::command]
 pub fn p2p_get_status(state: tauri::State<'_, Arc<P2pState>>) -> P2pStatusResponse {
-    let federation_enabled = grimoire::config::get_config()
-        .federation
-        .map(|f| f.enabled)
-        .unwrap_or(false);
+    // check if config is initialized first (during setup wizard it won't be)
+    let federation_enabled = if grimoire::is_config_initialized() {
+        grimoire::config::get_config()
+            .federation
+            .map(|f| f.enabled)
+            .unwrap_or(false)
+    } else {
+        false
+    };
 
     P2pStatusResponse {
         status: state.status().as_str().to_string(),

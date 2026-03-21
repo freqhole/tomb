@@ -21,7 +21,7 @@ export interface AddMusicModalProps {
   /** name of the remote server (shows in header when set) */
   remoteName?: string;
   /** whether to use tauri dialog (for tauri-managed remotes) */
-  useTauriDialog?: boolean;
+  useCharnelDialog?: boolean;
   /** tracked upload/fetch jobs to display */
   uploadJobs?: UploadJob[];
   /** local import progress */
@@ -45,7 +45,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
 
   const handleSelectFiles = () => {
     // for tauri dialog mode, trigger the tauri dialog picker
-    if (props.useTauriDialog && props.onPathsSelected) {
+    if (props.useCharnelDialog && props.onPathsSelected) {
       handleTauriFilesPick();
       return;
     }
@@ -54,7 +54,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
   };
 
   const handleSelectDirectory = async () => {
-    if (!props.useTauriDialog || !props.onPathsSelected) return;
+    if (!props.useCharnelDialog || !props.onPathsSelected) return;
 
     try {
       // dynamically import dialog plugin (only available in tauri runtime)
@@ -215,7 +215,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                     </div>
                     <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">add music files</h3>
                     <p class="body-small text-[var(--color-text-secondary)] mb-2">
-                      {props.useTauriDialog
+                      {props.useCharnelDialog
                         ? "select files or an entire folder"
                         : props.remoteName
                           ? `files will be uploaded to ${props.remoteName}`
@@ -228,7 +228,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                       <Button variant="primary" onClick={handleSelectFiles}>
                         select files
                       </Button>
-                      <Show when={props.useTauriDialog}>
+                      <Show when={props.useCharnelDialog}>
                         <Button variant="secondary" onClick={handleSelectDirectory}>
                           select folder
                         </Button>
@@ -236,7 +236,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                     </div>
 
                     {/* hidden file input - fallback for non-tauri mode */}
-                    <Show when={!props.useTauriDialog}>
+                    <Show when={!props.useCharnelDialog}>
                       <input
                         ref={fileInputRef}
                         type="file"

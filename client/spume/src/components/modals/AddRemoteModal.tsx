@@ -1,7 +1,7 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
-import { getClientForRemote, isTauriAvailable } from "../../app/api/client";
+import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
 import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import {
@@ -226,7 +226,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         } else {
           const newPending = await createPendingRemote({
             peer_addr: parsed.peer_addr,
-            transport: isTauriAvailable() ? "app" : "wasm",
+            transport: isCharnelAvailable() ? "app" : "wasm",
             stage: "testing",
             server_name: null,
             server_description: null,
@@ -250,7 +250,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         // first, try to get server info via P2P to verify connection
         const client = await getClientForRemote({
           peer_addr: parsed.peer_addr,
-          transport_type: isTauriAvailable() ? "app" : "wasm",
+          transport_type: isCharnelAvailable() ? "app" : "wasm",
         });
 
         // check if cancelled while initializing
@@ -378,7 +378,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         } else {
           await createPendingRemote({
             peer_addr: parsed.peer_addr,
-            transport: isTauriAvailable() ? "app" : "wasm",
+            transport: isCharnelAvailable() ? "app" : "wasm",
             stage: "connected",
             server_name: info.name,
             server_description: info.description,
@@ -419,7 +419,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           try {
             const serverInfoClient = await getClientForRemote({
               peer_addr: parsed.peer_addr,
-              transport_type: isTauriAvailable() ? "app" : "wasm",
+              transport_type: isCharnelAvailable() ? "app" : "wasm",
             });
             const helloResult = await serverInfoClient.app.serverInfo();
             if (helloResult.success && helloResult.data) {
@@ -489,7 +489,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               } else {
                 await createPendingRemote({
                   peer_addr: parsed.peer_addr,
-                  transport: isTauriAvailable() ? "app" : "wasm",
+                  transport: isCharnelAvailable() ? "app" : "wasm",
                   stage: "connected",
                   server_name: info.name,
                   server_description: info.description,
@@ -762,7 +762,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         // get P2P client and redeem invite
         const client = await getClientForRemote({
           peer_addr: currentPeerAddr,
-          transport_type: isTauriAvailable() ? "app" : "wasm",
+          transport_type: isCharnelAvailable() ? "app" : "wasm",
         });
 
         debug("auth", "redeeming invite code via P2P...");
@@ -850,7 +850,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     try {
       const client = await getClientForRemote({
         peer_addr: currentPeerAddr,
-        transport_type: isTauriAvailable() ? "app" : "wasm",
+        transport_type: isCharnelAvailable() ? "app" : "wasm",
       });
 
       debug("knock", "sending knock request...");
@@ -889,7 +889,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         // create new pending remote
         await createPendingRemote({
           peer_addr: currentPeerAddr,
-          transport: isTauriAvailable() ? "app" : "wasm",
+          transport: isCharnelAvailable() ? "app" : "wasm",
           stage: "knock_pending",
           server_name: info?.name ?? null,
           server_description: info?.description ?? null,
@@ -945,7 +945,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     try {
       const client = await getClientForRemote({
         peer_addr: pending.peer_addr,
-        transport_type: isTauriAvailable() ? "app" : "wasm",
+        transport_type: isCharnelAvailable() ? "app" : "wasm",
       });
 
       if (controller.signal.aborted) return;
@@ -1542,7 +1542,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     loading={isLoading()}
                     error={error() || undefined}
                     showModeToggle={!peerAddr()} // hide mode toggle for P2P (login not supported)
-                    hidePasskeyInfo={!!peerAddr() || isTauriAvailable()} // hide for P2P and tauri
+                    hidePasskeyInfo={!!peerAddr() || isCharnelAvailable()} // hide for P2P and tauri
                   />
 
                   {/* request access option for P2P when knocking is enabled */}

@@ -52,26 +52,26 @@ function serviceWorkerPlugin(): Plugin {
   };
 }
 
-// tauri builds should not include midden WASM - use app P2P via TauriTransport
-const isTauriBuild = !!process.env.VITE_TAURI_MODE;
+// tauri builds should not include midden WASM - use app P2P via CharnelTransport
+const isCharnelBuild = !!process.env.VITE_CHARNEL_MODE;
 
 export default defineConfig({
   plugins: [
     // only include WASM plugins for non-Tauri builds
-    ...(isTauriBuild ? [] : [wasm(), topLevelAwait()]),
+    ...(isCharnelBuild ? [] : [wasm(), topLevelAwait()]),
     solidPlugin(),
     serviceWorkerPlugin(),
   ],
   // use relative paths so assets work in Tauri's tauri:// protocol
-  base: isTauriBuild ? "./" : "/",
+  base: isCharnelBuild ? "./" : "/",
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
-    __IS_TAURI__: JSON.stringify(isTauriBuild),
+    __IS_CHARNEL__: JSON.stringify(isCharnelBuild),
   },
   build: {
     rollupOptions: {
       // exclude midden WASM from Tauri builds
-      external: isTauriBuild ? ["midden"] : [],
+      external: isCharnelBuild ? ["midden"] : [],
       output: {
         // bundle everything into a single JS file (no code splitting)
         inlineDynamicImports: true,
@@ -79,9 +79,9 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: isTauriBuild
+    alias: isCharnelBuild
       ? {
-          // stub out midden in Tauri builds - TauriTransport handles P2P in app
+          // stub out midden in Tauri builds - CharnelTransport handles P2P in app
           midden: path.join(dirname, "src/stubs/midden-stub.ts"),
         }
       : {},

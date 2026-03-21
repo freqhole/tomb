@@ -4,7 +4,7 @@ import { getP2PIdentity, deleteP2PIdentity } from "../../app/services/storage/db
 import {
   getMiddenNode,
   isMiddenInitialized,
-  isTauriAvailable,
+  isCharnelAvailable,
   getLocalNodeIdAsync,
 } from "../../app/api/client";
 import type { P2PIdentity } from "../../app/services/storage/types";
@@ -54,7 +54,7 @@ export function FederationSettingsView() {
   const [showResetConfirm, setShowResetConfirm] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
 
-  const isTauri = isTauriAvailable();
+  const isTauri = isCharnelAvailable();
 
   // load existing identity on mount
   onMount(async () => {

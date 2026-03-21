@@ -1,7 +1,7 @@
 // remote server management - CRUD operations for remote configurations
 // auth is handled via cookies, so no credentials stored here
 
-import { getClientForRemote, httpRemote, isTauriAvailable } from "../../api/client";
+import { getClientForRemote, httpRemote, isCharnelAvailable } from "../../api/client";
 import { initAppDB } from "../storage/db";
 import {
   STORE_REMOTES,
@@ -44,7 +44,7 @@ let convertFileSrc: ((path: string) => string) | null = null;
 // ensure convertFileSrc is loaded (for tauri file:// to asset:// conversion)
 async function ensureConvertFileSrc(): Promise<((path: string) => string) | null> {
   if (convertFileSrc) return convertFileSrc;
-  if (!isTauriAvailable()) return null;
+  if (!isCharnelAvailable()) return null;
   try {
     const tauri = await import("@tauri-apps/api/core");
     convertFileSrc = tauri.convertFileSrc;
@@ -85,7 +85,7 @@ export async function getTauriManagedRemote(): Promise<Remote | null> {
   const db = await initAppDB();
   const rawRemotes = await db.getAll(STORE_REMOTES);
   const remotes = parseRemotes(rawRemotes);
-  return remotes.find((r) => r.is_tauri_managed) ?? null;
+  return remotes.find((r) => r.is_charnel_managed) ?? null;
 }
 
 // create or update the tauri-managed remote
@@ -157,7 +157,7 @@ export async function upsertTauriRemote(config: {
     image_blob_id: null,
     version: null,
     last_info_check: null,
-    is_tauri_managed: true,
+    is_charnel_managed: true,
   };
   await db.put(STORE_REMOTES, remote);
   debug(`created tauri remote: ${remote.name} (${remote.base_url})`);
@@ -313,7 +313,7 @@ export async function createRemote(data: {
   let serverInfo = null;
   try {
     if (isP2P) {
-      const client = await getClientForRemote({ peer_addr: data.peer_addr, transport: isTauriAvailable() ? "app" : "wasm" });
+      const client = await getClientForRemote({ peer_addr: data.peer_addr, transport: isCharnelAvailable() ? "app" : "wasm" });
       const result = await client.app.serverInfo();
       if (result.success && result.data) {
         serverInfo = result.data;
@@ -363,7 +363,7 @@ export async function createRemote(data: {
   const remote: Remote = isP2P
     ? {
         ...commonFields,
-        transport: isTauriAvailable() ? "app" : "wasm",
+        transport: isCharnelAvailable() ? "app" : "wasm",
         peer_addr: data.peer_addr!,
         base_url: baseUrl || undefined,
       } as P2PRemote
@@ -559,7 +559,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
       // but don't overwrite local image_url for tauri-managed remotes (they use asset:// URLs)
       if (result.data) {
         updated.description = result.data.description ?? updated.description;
-        if (!freshRemote.is_tauri_managed) {
+        if (!freshRemote.is_charnel_managed) {
           updated.image_url = result.data.image_url ?? updated.image_url;
         }
         updated.version = result.data.version ?? updated.version;
