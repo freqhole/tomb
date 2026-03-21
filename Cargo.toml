@@ -91,3 +91,11 @@ image = "0.24"
 iroh = "0.97"
 iroh-blobs = "0.99"
 blake3 = "1.5"
+
+# release profile optimizations for smaller binaries
+[profile.release]
+lto = "thin"           # faster than "fat" LTO, still good size reduction  
+strip = "symbols"      # strip debug symbols
+panic = "abort"        # smaller than unwinding
+codegen-units = 1      # better optimization, slower compile
+opt-level = "z"        # optimize for size (use "3" if perf is more important)

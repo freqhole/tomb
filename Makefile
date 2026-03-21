@@ -33,6 +33,26 @@ PI32_TARGET := armv7-unknown-linux-gnueabihf
 .PHONY: all
 all: info
 
+# build all targets
+.PHONY: build-all
+build-all:
+	@echo "building all freqhole release artifacts..."
+	@echo ""
+	$(MAKE) build-mac-arm
+	$(MAKE) build-mac-intel
+	$(MAKE) build-linux
+	$(MAKE) build-pi
+	$(MAKE) build-pi32
+	@echo ""
+	@echo "building tauri apps..."
+	$(MAKE) build-tauri-mac-arm
+	$(MAKE) build-tauri-mac-intel
+	$(MAKE) build-tauri-linux-intel
+	$(MAKE) build-tauri-linux-arm64
+	@echo ""
+	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
+	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'
+
 # macOS arm64 CLI binary (signs + notarizes if APPLE_* env vars set)
 .PHONY: build-mac-arm
 build-mac-arm:
@@ -122,26 +142,6 @@ build-pi32:
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi32-builder \
 		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/freqhole-$(PI32_TARGET)"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(PI32_TARGET)"
-
-# build all targets
-.PHONY: build-all
-build-all:
-	@echo "building all freqhole release artifacts..."
-	@echo ""
-	$(MAKE) build-mac-arm
-	$(MAKE) build-mac-intel
-	$(MAKE) build-linux
-	$(MAKE) build-pi
-	$(MAKE) build-pi32
-	@echo ""
-	@echo "building tauri apps..."
-	$(MAKE) build-tauri-mac-arm
-	$(MAKE) build-tauri-mac-intel
-	$(MAKE) build-tauri-linux-intel
-	$(MAKE) build-tauri-linux-arm64
-	@echo ""
-	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
-	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'
 
 .PHONY: clean
 clean:
