@@ -1,17 +1,14 @@
-//! User favorites CLI commands (music domain)
+//! User favorites CLI commands (music domain) - uses offal dispatch
 
+use crate::plumbing::dispatch::dispatch_to_offal;
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
-use grimoire::error::GrimoireError;
-use grimoire::users::{FavoriteTarget, FavoritesService, SetFavoriteRequest};
+use serde_json::json;
 
 #[derive(Subcommand)]
 pub enum FavoritesAction {
     /// Set a favorite (song, artist, album)
     Set {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
         /// Target type (song, artist, album, genre, playlist)
         #[arg(long)]
         target_type: String,
@@ -21,9 +18,6 @@ pub enum FavoritesAction {
     },
     /// Remove a favorite
     Remove {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
         /// Target type (song, artist, album, genre, playlist)
         #[arg(long)]
         target_type: String,
@@ -33,9 +27,6 @@ pub enum FavoritesAction {
     },
     /// List user's favorites
     List {
-        /// User ID
-        #[arg(long)]
-        user_id: String,
         /// Filter by target type
         #[arg(long)]
         target_type: Option<String>,
@@ -47,114 +38,46 @@ pub enum FavoritesAction {
 
 /// Handle favorites commands
 pub async fn handle_command(action: FavoritesAction) -> CommandOutput<serde_json::Value> {
-    let favorites_service = FavoritesService::new();
-
     match action {
         FavoritesAction::Set {
-            user_id,
             target_type,
             target_id,
         } => {
-            let favorite_target = match parse_favorite_target(&target_type) {
-                Ok(target) => target,
-                Err(e) => {
-                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
-                }
-            };
-
-            let request = SetFavoriteRequest {
-                user_id: Some(user_id.clone()),
-                target_type: favorite_target,
-                target_id: target_id.clone(),
-                is_favorite: true,
-            };
-
-            let response = favorites_service.set_favorite(&request).await;
-            if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
-            }
-
-            let message = format!("Favorite set: {} {}", target_type, target_id);
-            CommandOutput::success(message, ())
+            dispatch_to_offal(
+                "/api/favorites/set",
+                json!({
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "is_favorite": true
+                }),
+            )
+            .await
         }
 
         FavoritesAction::Remove {
-            user_id,
             target_type,
             target_id,
         } => {
-            let favorite_target = match parse_favorite_target(&target_type) {
-                Ok(target) => target,
-                Err(e) => {
-                    return CommandOutput::failure("Invalid target type", vec![e.into()], ());
-                }
-            };
-
-            let request = SetFavoriteRequest {
-                user_id: Some(user_id.clone()),
-                target_type: favorite_target,
-                target_id: target_id.clone(),
-                is_favorite: false,
-            };
-
-            let response = favorites_service.set_favorite(&request).await;
-            if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
-            }
-
-            let message = format!("Favorite removed: {} {}", target_type, target_id);
-            CommandOutput::success(message, ())
+            dispatch_to_offal(
+                "/api/favorites/set",
+                json!({
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "is_favorite": false
+                }),
+            )
+            .await
         }
 
-        FavoritesAction::List {
-            user_id,
-            target_type,
-            limit,
-        } => {
-            let target_filter = match target_type.as_ref() {
-                Some(t) => match parse_favorite_target(t) {
-                    Ok(target) => Some(target),
-                    Err(e) => {
-                        return CommandOutput::failure("Invalid target type", vec![e.into()], ());
-                    }
-                },
-                None => None,
-            };
-
-            let response = favorites_service
-                .get_user_favorites(&user_id, target_filter, Some(limit as u32), Some(0))
-                .await;
-
-            if !response.success {
-                return CommandOutput::failure(response.message, response.errors, ());
-            }
-
-            let Some(favorites) = response.data else {
-                return CommandOutput::failure("No favorites data returned", vec![], ());
-            };
-
-            let message = format!(
-                "Found {} favorite{}",
-                favorites.len(),
-                if favorites.len() == 1 { "" } else { "s" }
-            );
-            CommandOutput::success(message, favorites)
+        FavoritesAction::List { target_type, limit } => {
+            dispatch_to_offal(
+                "/api/favorites/list",
+                json!({
+                    "target_type": target_type,
+                    "limit": limit
+                }),
+            )
+            .await
         }
-    }
-}
-
-fn parse_favorite_target(target_type: &str) -> Result<FavoriteTarget, GrimoireError> {
-    match target_type.to_lowercase().as_str() {
-        "song" => Ok(FavoriteTarget::Song),
-        "artist" => Ok(FavoriteTarget::Artist),
-        "album" => Ok(FavoriteTarget::Album),
-        "genre" => Ok(FavoriteTarget::Genre),
-        "playlist" => Ok(FavoriteTarget::Playlist),
-        _ => Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "Invalid target type: {}. Must be 'song', 'artist', 'album', 'genre', or 'playlist'",
-                target_type
-            ),
-        }),
     }
 }

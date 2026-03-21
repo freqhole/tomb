@@ -18,6 +18,7 @@ mod blobz;
 mod config;
 mod database;
 mod dir_tags;
+pub mod dispatch;
 mod federation;
 mod jobs;
 mod maintenance;

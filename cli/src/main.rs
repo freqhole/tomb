@@ -19,6 +19,10 @@ struct Cli {
     #[arg(long, global = true)]
     config: Option<std::path::PathBuf>,
 
+    /// Output as JSON
+    #[arg(long, global = true)]
+    json_output: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -32,99 +36,66 @@ enum Commands {
     Config {
         #[command(subcommand)]
         action: plumbing::ConfigAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Job queue management
     Jobs {
         #[command(subcommand)]
         action: plumbing::JobAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Database operations
     Database {
         #[command(subcommand)]
         action: plumbing::DatabaseAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Music query operations
     Music {
         #[command(subcommand)]
         action: plumbing::MusicAction,
-        /// Output as JSON (applies to list/query commands)
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Wordlist operations
     Wordlist {
         #[command(subcommand)]
         action: plumbing::WordlistAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// User management operations
     Users {
         #[command(subcommand)]
         action: plumbing::UserAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Maintenance operations
     Maintenance {
         #[command(subcommand)]
         action: plumbing::MaintenanceAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Analytics operations
     Analytics {
         #[command(subcommand)]
         action: plumbing::AnalyticsAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Directory tag rules (auto-tag albums based on file location)
     DirTags {
         #[command(subcommand)]
         action: plumbing::DirTagsAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Federation (P2P) operations - sync users from haruspex
     Federation {
         #[command(subcommand)]
         action: plumbing::FederationAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Blob operations (blake3 hashes for P2P streaming)
     Blobz {
         #[command(subcommand)]
         action: plumbing::BlobzAction,
-        /// Output as JSON
-        #[arg(long)]
-        json_output: bool,
     },
 
     /// Start the HTTP server
@@ -189,74 +160,43 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let json_output = cli.json_output;
+
     match cli.command {
         Commands::Setup(args) => {
             commands::setup::run(args).await?;
         }
-        Commands::Config {
-            action,
-            json_output,
-        } => {
+        Commands::Config { action } => {
             plumbing::handle_config(action, json_output, cli.config.clone()).await?;
         }
-        Commands::Jobs {
-            action,
-            json_output,
-        } => {
+        Commands::Jobs { action } => {
             plumbing::handle_jobs(action, json_output).await?;
         }
-        Commands::Database {
-            action,
-            json_output,
-        } => {
+        Commands::Database { action } => {
             plumbing::handle_database(action, json_output).await?;
         }
-        Commands::Music {
-            action,
-            json_output,
-        } => {
+        Commands::Music { action } => {
             plumbing::handle_music(action, json_output).await?;
         }
-        Commands::Wordlist {
-            action,
-            json_output,
-        } => {
+        Commands::Wordlist { action } => {
             plumbing::handle_wordlist(action, json_output).await?;
         }
-        Commands::Users {
-            action,
-            json_output,
-        } => {
+        Commands::Users { action } => {
             plumbing::handle_users(action, json_output).await?;
         }
-        Commands::Maintenance {
-            action,
-            json_output,
-        } => {
+        Commands::Maintenance { action } => {
             plumbing::handle_maintenance(action, json_output, cli.config.clone()).await?;
         }
-        Commands::Analytics {
-            action,
-            json_output,
-        } => {
+        Commands::Analytics { action } => {
             plumbing::handle_analytics(action, json_output).await?;
         }
-        Commands::DirTags {
-            action,
-            json_output,
-        } => {
+        Commands::DirTags { action } => {
             plumbing::handle_dir_tags(action, json_output).await?;
         }
-        Commands::Federation {
-            action,
-            json_output,
-        } => {
+        Commands::Federation { action } => {
             plumbing::handle_federation(action, json_output).await?;
         }
-        Commands::Blobz {
-            action,
-            json_output,
-        } => {
+        Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
         }
         Commands::Server { .. } => {

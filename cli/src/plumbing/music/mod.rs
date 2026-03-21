@@ -1,24 +1,20 @@
 //! Music operations CLI commands
 //!
-//! This module is further divided into:
-//! - query: Query commands (songs, artists, albums, genres, playlists)
-//! - playlists: Playlist management (create, update, delete, etc)
-//! - songs: Song operations (recent, update)
-//! - maintenance: Maintenance operations (blob cleanup, hard delete)
-//! - musicbrainz: MusicBrainz API integration
+//! Uses offal dispatch for most routes. Custom submodules for:
+//! - maintenance: Blob cleanup, hard delete (no offal routes)
+//! - scan: Directory scanning (no offal routes)
 
-use crate::plumbing::utils::CommandOutput;
+use crate::plumbing::dispatch::dispatch_to_offal;
+use crate::plumbing::utils::{resolve_request, CommandOutput};
 use clap::Subcommand;
 use grimoire::music::crud::QueryParams;
+use serde_json::json;
 
 mod fetch;
 mod images;
 mod maintenance;
 mod musicbrainz;
-mod playlists;
-mod query;
 mod scan;
-mod songs;
 mod user_favorites;
 mod user_ratings;
 
@@ -40,9 +36,6 @@ pub enum MusicAction {
     QueryArtists {
         #[command(flatten)]
         params: QueryParams,
-        /// Filter artists starting with letter
-        #[arg(long)]
-        starts_with: Option<String>,
     },
     /// Query albums
     QueryAlbums {
@@ -58,9 +51,6 @@ pub enum MusicAction {
     QueryPlaylists {
         #[command(flatten)]
         params: QueryParams,
-        /// Filter by public/private status
-        #[arg(long)]
-        is_public: Option<bool>,
     },
     /// Query songs in a playlist
     QueryPlaylistSongs {
@@ -75,8 +65,6 @@ pub enum MusicAction {
         /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
         json_input: Option<String>,
-
-        /// Individual fields
         #[command(flatten)]
         request: grimoire::music::CreatePlaylistRequest,
     },
@@ -85,13 +73,11 @@ pub enum MusicAction {
         /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
         json_input: Option<String>,
-
-        /// Individual fields
         #[command(flatten)]
         request: grimoire::music::AddSongsToPlaylistRequest,
     },
-    /// Update song position in playlist
-    UpdateSongPosition {
+    /// Update song positions in playlist
+    ReorderPlaylist {
         /// Playlist ID
         #[arg(long)]
         playlist_id: String,
@@ -110,63 +96,52 @@ pub enum MusicAction {
     },
     /// Update playlist metadata
     UpdatePlaylist {
-        /// Playlist ID
-        #[arg(long)]
-        playlist_id: String,
-
         /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
         json_input: Option<String>,
-
-        /// Individual fields
         #[command(flatten)]
         request: grimoire::music::UpdatePlaylistRequest,
     },
-    /// Remove playlist thumbnail
-    RemovePlaylistThumbnail {
+    /// Remove songs from playlist
+    RemoveSongsFromPlaylist {
         /// Playlist ID
         #[arg(long)]
         playlist_id: String,
-        /// Also cleanup the blob data
-        #[arg(long)]
-        cleanup_blob: bool,
+        /// Song IDs to remove (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        song_ids: Vec<String>,
     },
+
+    // Maintenance commands (custom - no offal routes)
     /// Check what references a blob
     CheckBlobReferences {
-        /// Blob ID to check
         #[arg(long)]
         blob_id: String,
     },
     /// Cleanup orphaned blobs
     CleanupOrphanedBlobs {
-        /// Minimum age in days before cleanup
         #[arg(long, default_value = "7")]
         min_age_days: i64,
-        /// Show what would be deleted without deleting
         #[arg(long)]
         dry_run: bool,
     },
     /// Hard delete old records
     HardDeleteOldRecords {
-        /// Retention period in days
         #[arg(long, default_value = "90")]
         retention_days: i64,
-        /// Keep blob data even if deleting records
         #[arg(long)]
         keep_blob_data: bool,
-        /// Show what would be deleted without deleting
         #[arg(long)]
         dry_run: bool,
     },
     /// Run all maintenance operations
     RunMaintenance {
-        /// Retention period in days
         #[arg(long, default_value = "90")]
         retention_days: i64,
-        /// Show what would be done without doing it
         #[arg(long)]
         dry_run: bool,
     },
+
     /// Show recently added songs
     RecentSongs {
         #[arg(long, default_value = "20")]
@@ -177,30 +152,15 @@ pub enum MusicAction {
         /// Provide request as JSON (overrides individual fields)
         #[arg(long)]
         json_input: Option<String>,
-
-        /// Individual fields
         #[command(flatten)]
         request: grimoire::music::crud::UpdateSongsRequest,
     },
-    /// MusicBrainz operations
-    MusicBrainz {
-        #[command(subcommand)]
-        action: MusicBrainzAction,
-    },
-    /// Image management operations
-    Images {
-        #[command(subcommand)]
-        action: ImageAction,
+    /// Delete song
+    DeleteSong {
+        #[arg(long)]
+        song_id: String,
     },
 
-    // Album operations
-    /// List all albums
-    ListAlbums {
-        #[arg(long)]
-        limit: Option<u32>,
-        #[arg(long)]
-        offset: Option<u32>,
-    },
     /// Get album by ID
     GetAlbum {
         #[arg(long)]
@@ -210,8 +170,6 @@ pub enum MusicAction {
     DeleteAlbum {
         #[arg(long)]
         album_id: String,
-        #[arg(long)]
-        deleted_by: Option<String>,
     },
     /// Get tags for an album
     GetAlbumTags {
@@ -219,14 +177,6 @@ pub enum MusicAction {
         album_id: String,
     },
 
-    // Artist operations
-    /// List all artists
-    ListArtists {
-        #[arg(long)]
-        limit: Option<u32>,
-        #[arg(long)]
-        offset: Option<u32>,
-    },
     /// Get artist by ID
     GetArtist {
         #[arg(long)]
@@ -236,63 +186,14 @@ pub enum MusicAction {
     DeleteArtist {
         #[arg(long)]
         artist_id: String,
-        #[arg(long)]
-        deleted_by: Option<String>,
     },
 
-    // Song operations
-    /// List all songs
-    ListSongs {
-        #[arg(long)]
-        limit: Option<u32>,
-        #[arg(long)]
-        offset: Option<u32>,
-    },
-    /// Delete song
-    DeleteSong {
-        #[arg(long)]
-        song_id: String,
-        #[arg(long)]
-        deleted_by: Option<String>,
-    },
-
-    // Playlist operations (additional)
-    /// List all playlists
-    ListPlaylists,
-    /// List playlists for a user
-    ListUserPlaylists {
-        #[arg(long)]
-        user_id: String,
-        #[arg(long, default_value = "50")]
-        limit: u32,
-        #[arg(long, default_value = "0")]
-        offset: u32,
-    },
-    /// Search playlists by name
-    SearchPlaylists {
-        #[arg(long)]
-        query: String,
-        #[arg(long, default_value = "50")]
-        limit: u32,
-        #[arg(long, default_value = "0")]
-        offset: u32,
-    },
-
-    // Genre operations
-    /// List all genres
-    ListGenres,
     /// Get genre by ID
     GetGenre {
         #[arg(long)]
         genre_id: String,
     },
-    /// Get genre statistics
-    GetGenreStats {
-        #[arg(long)]
-        genre_id: String,
-    },
 
-    // Tag operations
     /// List all tags
     ListTags,
     /// Get tag by ID
@@ -305,40 +206,32 @@ pub enum MusicAction {
         #[arg(long)]
         tag_id: String,
     },
-    /// Search/query tags by name
-    QueryTagsSearch {
-        #[arg(long)]
-        search: String,
-    },
 
-    // Additional query operations
-    /// Search/query genres by name
-    QueryGenresSearch {
-        #[arg(long)]
-        search: String,
+    /// MusicBrainz operations
+    MusicBrainz {
+        #[command(subcommand)]
+        action: MusicBrainzAction,
     },
-    // User favorites commands
+    /// Image management operations
+    Images {
+        #[command(subcommand)]
+        action: ImageAction,
+    },
     /// User favorites operations
     Favorites {
         #[command(subcommand)]
         action: FavoritesAction,
     },
-
-    // User ratings commands
     /// User ratings operations
     Ratings {
         #[command(subcommand)]
         action: RatingsAction,
     },
-
-    // Fetch commands
     /// Fetch media from external sources
     Fetch {
         #[command(subcommand)]
         action: FetchAction,
     },
-
-    // Scan commands
     /// Scan and directory management
     Scan {
         #[command(subcommand)]
@@ -348,131 +241,202 @@ pub enum MusicAction {
 
 /// Handle music commands
 pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Value> {
-    execute_music_command(action).await
-}
-
-async fn execute_music_command(action: MusicAction) -> CommandOutput<serde_json::Value> {
     match action {
-        // Query commands
-        MusicAction::QuerySongs { .. } => query::handle_query_songs(action).await,
-        MusicAction::QueryArtists { .. } => query::handle_query_artists(action).await,
-        MusicAction::QueryAlbums { .. } => query::handle_query_albums(action).await,
-        MusicAction::QueryGenres { .. } => query::handle_query_genres(action).await,
-        MusicAction::QueryPlaylists { .. } => {
-            query::handle_query_playlists(action).await
+        // Query commands - all use offal dispatch
+        MusicAction::QuerySongs { params } => {
+            dispatch_to_offal("/api/songs/query", serde_json::to_value(params).unwrap()).await
         }
-        MusicAction::QueryPlaylistSongs { .. } => {
-            query::handle_query_playlist_songs(action).await
+        MusicAction::QueryArtists { params } => {
+            dispatch_to_offal("/api/artists/query", serde_json::to_value(params).unwrap()).await
+        }
+        MusicAction::QueryAlbums { params } => {
+            dispatch_to_offal("/api/albums/query", serde_json::to_value(params).unwrap()).await
+        }
+        MusicAction::QueryGenres { params } => {
+            dispatch_to_offal("/api/genres/query", serde_json::to_value(params).unwrap()).await
+        }
+        MusicAction::QueryPlaylists { params } => {
+            dispatch_to_offal(
+                "/api/music/playlists/list",
+                serde_json::to_value(params).unwrap(),
+            )
+            .await
+        }
+        MusicAction::QueryPlaylistSongs {
+            playlist_id,
+            params,
+        } => {
+            let mut body = serde_json::to_value(params).unwrap();
+            body["playlist_id"] = json!(playlist_id);
+            dispatch_to_offal("/api/playlists/songs", body).await
         }
 
         // Song commands
-        MusicAction::RecentSongs { .. } => songs::handle_recent_songs(action).await,
-        MusicAction::UpdateSongs { .. } => songs::handle_update_songs(action).await,
-
-        // Playlist commands
-        MusicAction::CreatePlaylist { .. } => {
-            playlists::handle_create_playlist(action).await
+        MusicAction::RecentSongs { limit } => {
+            dispatch_to_offal("/api/songs/recent", json!({ "limit": limit })).await
         }
-        MusicAction::AddSongsToPlaylist { .. } => {
-            playlists::handle_add_songs(action).await
+        MusicAction::UpdateSongs {
+            json_input,
+            request,
+        } => {
+            let req = match resolve_request(json_input, request) {
+                Ok(r) => r,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "invalid request",
+                        vec![grimoire::error::ErrorDetail::from(&e)],
+                        (),
+                    )
+                }
+            };
+            dispatch_to_offal("/api/songs/update", serde_json::to_value(req).unwrap()).await
         }
-        MusicAction::UpdateSongPosition { .. } => {
-            playlists::handle_update_position(action).await
+        MusicAction::DeleteSong { song_id } => {
+            dispatch_to_offal("/api/songs/delete", json!({ "id": song_id })).await
         }
-        MusicAction::DeletePlaylist { .. } => {
-            playlists::handle_delete_playlist(action).await
-        }
-        MusicAction::UpdatePlaylist { .. } => {
-            playlists::handle_update_playlist(action).await
-        }
-        MusicAction::RemovePlaylistThumbnail { .. } => {
-            playlists::handle_remove_thumbnail(action).await
-        }
-
-        // Maintenance commands
-        MusicAction::CheckBlobReferences { .. } => {
-            maintenance::handle_check_blob_references(action)
-                .await
-
-        }
-        MusicAction::CleanupOrphanedBlobs { .. } => {
-            maintenance::handle_cleanup_orphaned_blobs(action)
-                .await
-
-        }
-        MusicAction::HardDeleteOldRecords { .. } => {
-            maintenance::handle_hard_delete_old_records(action)
-                .await
-
-        }
-        MusicAction::RunMaintenance { .. } => maintenance::handle_run_maintenance(action)
-            .await
-            ,
 
         // Album commands
-        MusicAction::ListAlbums { .. } => query::handle_list_albums(action).await,
-        MusicAction::GetAlbum { .. } => query::handle_get_album(action).await,
-        MusicAction::DeleteAlbum { .. } => query::handle_delete_album(action).await,
-        MusicAction::GetAlbumTags { .. } => query::handle_get_album_tags(action).await,
+        MusicAction::GetAlbum { album_id } => {
+            dispatch_to_offal("/api/albums/get", json!({ "id": album_id })).await
+        }
+        MusicAction::DeleteAlbum { album_id } => {
+            dispatch_to_offal("/api/albums/delete", json!({ "id": album_id })).await
+        }
+        MusicAction::GetAlbumTags { album_id } => {
+            dispatch_to_offal("/api/tags/albums/get", json!({ "album_ids": [album_id] })).await
+        }
 
         // Artist commands
-        MusicAction::ListArtists { .. } => query::handle_list_artists(action).await,
-        MusicAction::GetArtist { .. } => query::handle_get_artist(action).await,
-        MusicAction::DeleteArtist { .. } => query::handle_delete_artist(action).await,
-
-        // Song commands
-        MusicAction::ListSongs { .. } => query::handle_list_songs(action).await,
-        MusicAction::DeleteSong { .. } => query::handle_delete_song(action).await,
-
-        // Additional playlist commands
-        MusicAction::ListPlaylists => playlists::handle_list_playlists(action).await,
-        MusicAction::ListUserPlaylists { .. } => playlists::handle_list_user_playlists(action)
-            .await
-            ,
-        MusicAction::SearchPlaylists { .. } => {
-            playlists::handle_search_playlists(action).await
+        MusicAction::GetArtist { artist_id } => {
+            dispatch_to_offal("/api/artists/get", json!({ "id": artist_id })).await
+        }
+        MusicAction::DeleteArtist { artist_id } => {
+            dispatch_to_offal("/api/artists/delete", json!({ "id": artist_id })).await
         }
 
         // Genre commands
-        MusicAction::ListGenres => query::handle_list_genres(action).await,
-        MusicAction::GetGenre { .. } => query::handle_get_genre(action).await,
-        MusicAction::GetGenreStats { .. } => {
-            query::handle_get_genre_stats(action).await
+        MusicAction::GetGenre { genre_id } => {
+            dispatch_to_offal("/api/genres/get", json!({ "id": genre_id })).await
         }
 
         // Tag commands
-        MusicAction::ListTags => query::handle_list_tags(action).await,
-        MusicAction::GetTag { .. } => query::handle_get_tag(action).await,
-        MusicAction::DeleteTag { .. } => query::handle_delete_tag(action).await,
-        MusicAction::QueryTagsSearch { .. } => {
-            query::handle_query_tags_search(action).await
+        MusicAction::ListTags => dispatch_to_offal("/api/tags/list", json!({})).await,
+        MusicAction::GetTag { tag_id } => {
+            dispatch_to_offal("/api/tags/get", json!({ "id": tag_id })).await
+        }
+        MusicAction::DeleteTag { tag_id } => {
+            dispatch_to_offal("/api/tags/delete", json!({ "id": tag_id })).await
         }
 
-        // Additional query commands
-        MusicAction::QueryGenresSearch { .. } => {
-            query::handle_query_genres_search(action).await
+        // Playlist commands
+        MusicAction::CreatePlaylist {
+            json_input,
+            request,
+        } => {
+            let req = match resolve_request(json_input, request) {
+                Ok(r) => r,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "invalid request",
+                        vec![grimoire::error::ErrorDetail::from(&e)],
+                        (),
+                    )
+                }
+            };
+            dispatch_to_offal("/api/music/playlists", serde_json::to_value(req).unwrap()).await
+        }
+        MusicAction::AddSongsToPlaylist {
+            json_input,
+            request,
+        } => {
+            let req = match resolve_request(json_input, request) {
+                Ok(r) => r,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "invalid request",
+                        vec![grimoire::error::ErrorDetail::from(&e)],
+                        (),
+                    )
+                }
+            };
+            dispatch_to_offal(
+                "/api/playlists/add-songs",
+                serde_json::to_value(req).unwrap(),
+            )
+            .await
+        }
+        MusicAction::ReorderPlaylist {
+            playlist_id,
+            song_ids,
+            new_position,
+        } => {
+            dispatch_to_offal(
+                "/api/playlists/reorder",
+                json!({
+                    "playlist_id": playlist_id,
+                    "song_ids": song_ids,
+                    "new_position": new_position
+                }),
+            )
+            .await
+        }
+        MusicAction::DeletePlaylist { playlist_id } => {
+            dispatch_to_offal("/api/playlists/delete", json!({ "id": playlist_id })).await
+        }
+        MusicAction::UpdatePlaylist {
+            json_input,
+            request,
+        } => {
+            let req = match resolve_request(json_input, request) {
+                Ok(r) => r,
+                Err(e) => {
+                    return CommandOutput::failure(
+                        "invalid request",
+                        vec![grimoire::error::ErrorDetail::from(&e)],
+                        (),
+                    )
+                }
+            };
+            dispatch_to_offal("/api/playlists/update", serde_json::to_value(req).unwrap()).await
+        }
+        MusicAction::RemoveSongsFromPlaylist {
+            playlist_id,
+            song_ids,
+        } => {
+            dispatch_to_offal(
+                "/api/playlists/remove-songs",
+                json!({ "playlist_id": playlist_id, "song_ids": song_ids }),
+            )
+            .await
         }
 
-        // MusicBrainz commands
-        MusicAction::MusicBrainz { action } => {
-            musicbrainz::handle_command(action).await
+        // Maintenance commands - custom (no offal routes)
+        MusicAction::CheckBlobReferences { blob_id } => {
+            maintenance::handle_check_blob_references(blob_id).await
         }
+        MusicAction::CleanupOrphanedBlobs {
+            min_age_days,
+            dry_run,
+        } => maintenance::handle_cleanup_orphaned_blobs(min_age_days, dry_run).await,
+        MusicAction::HardDeleteOldRecords {
+            retention_days,
+            keep_blob_data,
+            dry_run,
+        } => {
+            maintenance::handle_hard_delete_old_records(retention_days, keep_blob_data, dry_run)
+                .await
+        }
+        MusicAction::RunMaintenance {
+            retention_days,
+            dry_run,
+        } => maintenance::handle_run_maintenance(retention_days, dry_run).await,
 
-        // Image management commands
+        // Subcommand modules
+        MusicAction::MusicBrainz { action } => musicbrainz::handle_command(action).await,
         MusicAction::Images { action } => action.execute().await,
-
-        // User favorites commands
-        MusicAction::Favorites { action } => {
-            user_favorites::handle_command(action).await
-        }
-
-        // User ratings commands
+        MusicAction::Favorites { action } => user_favorites::handle_command(action).await,
         MusicAction::Ratings { action } => user_ratings::handle_command(action).await,
-
-        // Fetch commands
         MusicAction::Fetch { action } => fetch::handle_command(action).await,
-
-        // Scan commands
         MusicAction::Scan { action } => scan::handle_command(action).await,
     }
 }
