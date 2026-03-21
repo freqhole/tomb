@@ -56,7 +56,7 @@ export function ContextMenu(props: ContextMenuProps) {
             shadow-2xl
             overflow-hidden
             animate-[fade-in_0.15s_ease-out]
-            z-50
+            z-[1200]
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "
@@ -133,7 +133,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
             shadow-2xl
             overflow-hidden
             animate-[fade-in_0.15s_ease-out]
-            z-50
+            z-[1200]
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "

@@ -1035,9 +1035,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
               fallback={
                 <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
                   <div class="text-center max-w-md">
-                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-4">
                       no playlists found!
                     </p>
+                    <Button variant="primary" onClick={handleCreatePlaylist}>
+                      create playlist
+                    </Button>
                   </div>
                 </div>
               }
