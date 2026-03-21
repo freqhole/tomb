@@ -529,6 +529,29 @@ button.warning:disabled {
   }
 }
 
+/* animated dots for loading text */
+.dots-animation::after {
+  content: "";
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%,
+  20% {
+    content: "";
+  }
+  40% {
+    content: ".";
+  }
+  60% {
+    content: "..";
+  }
+  80%,
+  100% {
+    content: "...";
+  }
+}
+
 .success-icon {
   font-size: 3rem;
   margin-bottom: 1rem;
@@ -1873,4 +1896,86 @@ button.danger:hover {
   padding: 0.625rem 0.75rem;
   color: #71717a;
   font-size: 0.875rem;
+}
+
+/* custom checkbox */
+.checkbox-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.checkbox-toggle .checkbox-box {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #3f3f46;
+  border-radius: 5px;
+  background: #18181b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  margin-top: 1px;
+}
+
+.checkbox-toggle .checkbox-box svg {
+  width: 12px;
+  height: 12px;
+  stroke: transparent;
+  stroke-width: 3;
+  fill: none;
+  transition: stroke 0.2s ease;
+}
+
+.checkbox-toggle:hover .checkbox-box {
+  border-color: #52525b;
+  background: #27272a;
+}
+
+.checkbox-toggle input[type="checkbox"]:checked + .checkbox-box {
+  border-color: #ff1a9e;
+  background: #ff1a9e;
+}
+
+.checkbox-toggle input[type="checkbox"]:checked + .checkbox-box svg {
+  stroke: #fff;
+}
+
+.checkbox-toggle:hover input[type="checkbox"]:checked + .checkbox-box {
+  border-color: #e6007a;
+  background: #e6007a;
+}
+
+.checkbox-toggle input[type="checkbox"]:focus-visible + .checkbox-box {
+  outline: 2px solid #ff1a9e;
+  outline-offset: 2px;
+}
+
+.checkbox-toggle .checkbox-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.checkbox-toggle .checkbox-label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #d4d4d8;
+  line-height: 1.4;
+}
+
+.checkbox-toggle .checkbox-hint {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.4;
 }

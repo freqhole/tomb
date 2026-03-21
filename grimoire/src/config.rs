@@ -687,6 +687,9 @@ pub fn create_config_with_server_info(
         None,  // ffmpeg_path
         None,  // ffprobe_path
         None,  // ytdlp_path
+        None,  // server_enabled (use template default: true)
+        None,  // federation_enabled (use template default: false)
+        None,  // knocking_enabled (use template default: false)
     )
 }
 
@@ -705,6 +708,9 @@ pub fn create_config_with_server_info(
 /// * `ffmpeg_path` - Optional absolute path to ffmpeg binary
 /// * `ffprobe_path` - Optional absolute path to ffprobe binary
 /// * `ytdlp_path` - Optional absolute path to yt-dlp binary
+/// * `server_enabled` - Optional server enabled flag (default: true)
+/// * `federation_enabled` - Optional federation enabled flag (default: false)
+/// * `knocking_enabled` - Optional knocking enabled flag (default: false)
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -718,6 +724,9 @@ pub fn create_config_full(
     ffmpeg_path: Option<PathBuf>,
     ffprobe_path: Option<PathBuf>,
     ytdlp_path: Option<PathBuf>,
+    server_enabled: Option<bool>,
+    federation_enabled: Option<bool>,
+    knocking_enabled: Option<bool>,
 ) -> Result<PathBuf, ConfigError> {
     let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
     let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -755,6 +764,9 @@ pub fn create_config_full(
         ffmpeg_path.as_deref(),
         ffprobe_path.as_deref(),
         ytdlp_path.as_deref(),
+        server_enabled,
+        federation_enabled,
+        knocking_enabled,
     );
 
     // write file
@@ -781,6 +793,9 @@ fn generate_config_template(
     ffmpeg_path: Option<&Path>,
     ffprobe_path: Option<&Path>,
     ytdlp_path: Option<&Path>,
+    server_enabled: Option<bool>,
+    federation_enabled: Option<bool>,
+    knocking_enabled: Option<bool>,
 ) -> String {
     let mut doc = CONFIG_TEMPLATE
         .parse::<DocumentMut>()
@@ -848,6 +863,21 @@ fn generate_config_template(
                 ytdlp_str
             ));
         }
+    }
+
+    // set server.enabled (default: true in template)
+    if let Some(enabled) = server_enabled {
+        doc["server"]["enabled"] = value(enabled);
+    }
+
+    // set federation.enabled (default: false in template)
+    if let Some(enabled) = federation_enabled {
+        doc["federation"]["enabled"] = value(enabled);
+    }
+
+    // set federation.knocking_enabled (default: false in template)
+    if let Some(enabled) = knocking_enabled {
+        doc["federation"]["knocking_enabled"] = value(enabled);
     }
 
     doc.to_string()

@@ -55,6 +55,12 @@ pub struct SetupConfig {
     pub ffprobe_path: Option<PathBuf>,
     /// absolute path to yt-dlp (written to config if provided)
     pub ytdlp_path: Option<PathBuf>,
+    /// enable HTTP server (default: true when not provided)
+    pub server_enabled: Option<bool>,
+    /// enable P2P federation (default: false when not provided)
+    pub federation_enabled: Option<bool>,
+    /// enable P2P knocking (allow unknown peers to request access, default: false)
+    pub knocking_enabled: Option<bool>,
 }
 
 /// a directory to scan with optional tags
@@ -270,6 +276,9 @@ impl SetupService {
             config.ffmpeg_path.clone(),
             config.ffprobe_path.clone(),
             config.ytdlp_path.clone(),
+            config.server_enabled,
+            config.federation_enabled,
+            config.knocking_enabled,
         )
     }
 

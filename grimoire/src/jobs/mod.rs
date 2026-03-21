@@ -53,8 +53,9 @@ pub use tokio_util::sync::CancellationToken;
 
 pub use service::{
     cancel_job, complete_session, create_job, create_job_session, delete_job, fail_session,
-    get_job, get_job_session, get_jobs_status, get_next_pending_job, get_queue_stats, list_jobs,
-    mark_job_completed, mark_job_failed, mark_job_started, update_session_progress,
+    get_job, get_job_session, get_jobs_status, get_next_pending_job, get_queue_stats,
+    get_session_job_counts, list_jobs, mark_job_completed, mark_job_failed, mark_job_started,
+    update_session_progress, SessionJobCounts,
 };
 
 // re-export music job processors (used by runner module)

@@ -165,14 +165,13 @@ pub async fn get_job(job_id: &str) -> GrimoireResponse<Job> {
 ///
 /// Returns a map of job_id -> JobResponse for all requested jobs.
 /// Jobs that don't exist are silently omitted from the response.
-pub async fn get_jobs_status(job_ids: &[String]) -> GrimoireResponse<std::collections::HashMap<String, super::models::JobResponse>> {
+pub async fn get_jobs_status(
+    job_ids: &[String],
+) -> GrimoireResponse<std::collections::HashMap<String, super::models::JobResponse>> {
     use super::models::JobResponse;
-    
+
     if job_ids.is_empty() {
-        return GrimoireResponse::success(
-            "no jobs requested",
-            std::collections::HashMap::new(),
-        );
+        return GrimoireResponse::success("no jobs requested", std::collections::HashMap::new());
     }
 
     let pool = match database::connect().await {
@@ -216,10 +215,7 @@ pub async fn get_jobs_status(job_ids: &[String]) -> GrimoireResponse<std::collec
         })
         .collect();
 
-    GrimoireResponse::success(
-        &format!("retrieved {} jobs", result.len()),
-        result,
-    )
+    GrimoireResponse::success(&format!("retrieved {} jobs", result.len()), result)
 }
 
 /// Get a job session by ID
@@ -411,9 +407,7 @@ pub async fn mark_job_failed(
     // serialize errors to JSON for structured storage in result field
     let errors_json = match serde_json::to_string(&errors) {
         Ok(s) => Some(s),
-        Err(e) => {
-            return GrimoireResponse::failure("failed to serialize errors", vec![e.into()])
-        }
+        Err(e) => return GrimoireResponse::failure("failed to serialize errors", vec![e.into()]),
     };
 
     // First get the current job to check retry count
@@ -436,7 +430,10 @@ pub async fn mark_job_failed(
         tracing::info!(
             "job {} failed with non-retryable error (type: {}), marking as Failed immediately",
             job_id,
-            errors.first().map(|e| e.error_type.as_str()).unwrap_or("unknown")
+            errors
+                .first()
+                .map(|e| e.error_type.as_str())
+                .unwrap_or("unknown")
         );
     } else if should_retry {
         tracing::info!(
@@ -744,4 +741,54 @@ pub async fn list_jobs(
     };
 
     GrimoireResponse::success("jobs retrieved successfully", jobs)
+}
+
+/// session job counts for progress tracking
+#[derive(Debug, Clone)]
+pub struct SessionJobCounts {
+    pub pending: u32,
+    pub running: u32,
+    pub completed: u32,
+    pub failed: u32,
+    pub total: u32,
+}
+
+/// get job counts for a session (for progress tracking)
+pub async fn get_session_job_counts(session_id: &str) -> GrimoireResponse<SessionJobCounts> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let counts = match sqlx::query!(
+        r#"
+        SELECT
+            COALESCE(SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END), 0) as "pending!: i64",
+            COALESCE(SUM(CASE WHEN status = 'Running' THEN 1 ELSE 0 END), 0) as "running!: i64",
+            COALESCE(SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END), 0) as "completed!: i64",
+            COALESCE(SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END), 0) as "failed!: i64",
+            COUNT(*) as "total!: i64"
+        FROM jobz
+        WHERE session_id = ?
+        "#,
+        session_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(row) => SessionJobCounts {
+            pending: row.pending as u32,
+            running: row.running as u32,
+            completed: row.completed as u32,
+            failed: row.failed as u32,
+            total: row.total as u32,
+        },
+        Err(e) => {
+            return GrimoireResponse::failure("failed to get session job counts", vec![e.into()])
+        }
+    };
+
+    GrimoireResponse::success("session job counts retrieved", counts)
 }

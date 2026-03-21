@@ -335,6 +335,9 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         ffmpeg_path: deps.ffmpeg_path.clone(),
         ffprobe_path: deps.ffprobe_path.clone(),
         ytdlp_path: deps.ytdlp_path.clone(),
+        server_enabled: Some(true),      // CLI mode always runs server
+        federation_enabled: Some(false), // disabled by default for CLI
+        knocking_enabled: Some(false),
     };
 
     let service = SetupService::new();

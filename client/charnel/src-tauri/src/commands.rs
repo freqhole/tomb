@@ -123,6 +123,8 @@ pub async fn run_setup_core(
     server_port: u16,
     image_path: Option<String>,
     fetch_music_dir: Option<String>,
+    federation_enabled: Option<bool>,
+    knocking_enabled: Option<bool>,
 ) -> grimoire::setup::SetupResult {
     let deps = grimoire::setup::check_dependencies();
 
@@ -175,6 +177,9 @@ pub async fn run_setup_core(
         ffmpeg_path: deps.ffmpeg_path.clone(),
         ffprobe_path: deps.ffprobe_path.clone(),
         ytdlp_path: deps.ytdlp_path.clone(),
+        server_enabled: Some(false), // HTTP server disabled in charnel (tauri) mode
+        federation_enabled,          // passed from UI (default: false)
+        knocking_enabled,            // passed from UI (default: false)
     };
 
     let service = grimoire::setup::SetupService::new();

@@ -24,6 +24,26 @@ pub enum GrimoireEvent {
         status: String,
         username: String,
     },
+    /// job progress update - emitted after import jobs complete
+    JobProgress {
+        /// session_id for tracking related jobs
+        session_id: String,
+        /// directory being processed (parent of file)
+        directory: String,
+        /// total songs added so far in this session
+        songs_added: u32,
+        /// jobs remaining in this session
+        jobs_pending: u32,
+        /// total jobs in this session
+        jobs_total: u32,
+    },
+    /// job session completed - all jobs in session finished
+    JobSessionComplete {
+        session_id: String,
+        songs_added: u32,
+        albums_added: u32,
+        artists_added: u32,
+    },
 }
 
 /// the global event channel

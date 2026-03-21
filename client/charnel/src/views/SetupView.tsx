@@ -1,7 +1,8 @@
-import { createSignal, Show, onMount, For } from "solid-js";
+import { createSignal, Show, onMount, onCleanup, For } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
+import { listen } from "@tauri-apps/api/event";
 
 // step flow: welcome → config → running → admin → music → done
 type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
@@ -62,7 +63,7 @@ export default function SetupView() {
   const [appDataDir, setAppDataDir] = createSignal("");
   // dataDir is customizable - where database/cache/media live (defaults to appDataDir)
   const [dataDir, setDataDir] = createSignal("");
-  // fetchMusicDir is where fetched/uploaded music files are stored
+  // fetchMusicDir is where fetched/uploaded music filez are stored
   const [fetchMusicDir, setFetchMusicDir] = createSignal("");
   const [serverName, setServerName] = createSignal("my music server");
   const [serverImage, setServerImage] = createSignal<string | null>(null);
@@ -80,6 +81,19 @@ export default function SetupView() {
     null,
   );
   const [depCheckLoading, setDepCheckLoading] = createSignal(true);
+  // federation options
+  const [federationEnabled, setFederationEnabled] = createSignal(false);
+  const [knockingEnabled, setKnockingEnabled] = createSignal(true);
+  // job progress state for done step
+  const [jobProgress, setJobProgress] = createSignal<{
+    directory: string;
+    songsAdded: number;
+    jobsPending: number;
+    jobsTotal: number;
+  } | null>(null);
+  const [jobsComplete, setJobsComplete] = createSignal(false);
+  // cleanup function for event listener
+  let unlistenProgress: (() => void) | null = null;
 
   onMount(async () => {
     try {
@@ -92,9 +106,9 @@ export default function SetupView() {
       const dir = await invoke<string | null>("get_default_data_dir");
       setAppDataDir(dir || "");
       setDataDir(dir || ""); // default data dir to same location
-      // default fetch music dir to data_dir/Music
+      // default fetch music dir to data_dir/fetch
       if (dir) {
-        setFetchMusicDir(`${dir}/Music`);
+        setFetchMusicDir(`${dir}/fetch`);
       }
 
       // get os username for default
@@ -108,9 +122,38 @@ export default function SetupView() {
         navigate("/logs", { replace: true });
         return;
       }
+
+      // listen for job progress events
+      unlistenProgress = await listen<{
+        type: string;
+        data: {
+          session_id: string;
+          directory: string;
+          songs_added: number;
+          jobs_pending: number;
+          jobs_total: number;
+        };
+      }>("freqhole:event", (event) => {
+        if (event.payload.type === "job-progress") {
+          setJobProgress({
+            directory: event.payload.data.directory,
+            songsAdded: event.payload.data.songs_added,
+            jobsPending: event.payload.data.jobs_pending,
+            jobsTotal: event.payload.data.jobs_total,
+          });
+        } else if (event.payload.type === "job-session-complete") {
+          setJobsComplete(true);
+        }
+      });
     } catch (e) {
       console.error("init error:", e);
       setDepCheckLoading(false);
+    }
+  });
+
+  onCleanup(() => {
+    if (unlistenProgress) {
+      unlistenProgress();
     }
   });
 
@@ -180,6 +223,8 @@ export default function SetupView() {
         serverPort: 8081,
         imagePath: serverImage(),
         fetchMusicDir: fetchMusicDir() || null,
+        federationEnabled: federationEnabled(),
+        knockingEnabled: knockingEnabled(),
       });
 
       if (result.success) {
@@ -280,11 +325,18 @@ export default function SetupView() {
 
   async function finishSetup() {
     try {
-      // close wizard and open main window
+      // generate remote slug from server name (matches spume's remoteManager.ts generateSlug)
+      const remoteSlug = serverName()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+
+      // close wizard and open main window at /{remoteSlug}/songs route
       const configPath = `${dataDir()}/freqhole-config.toml`;
       await invoke("close_setup_wizard", {
         configPath,
-        serverPort: 8081,
+        route: `/${remoteSlug}/songs`,
       });
     } catch (e) {
       console.error("finish error:", e);
@@ -514,7 +566,7 @@ export default function SetupView() {
           </div>
 
           <div class="form-group">
-            <label for="fetch-music-dir">music storage directory</label>
+            <label for="fetch-music-dir">fetched music storage directory</label>
             <div class="input-with-button">
               <input
                 type="text"
@@ -531,10 +583,57 @@ export default function SetupView() {
                 browse
               </button>
             </div>
-            <p class="hint">
-              where downloaded and uploaded music files are stored.
-            </p>
+            <p class="hint">where fetched music filez are stored.</p>
           </div>
+
+          {/* federation options */}
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={federationEnabled()}
+                onChange={(e) => setFederationEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable P2P federation</span>
+                <span class="checkbox-hint">
+                  connect with other freqhole servers over encrypted P2P
+                  network.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <Show when={federationEnabled()}>
+            <div class="form-group" style={{ "margin-left": "1.5rem" }}>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={knockingEnabled()}
+                  onChange={(e) => setKnockingEnabled(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    allow unknown peers to knock
+                  </span>
+                  <span class="checkbox-hint">
+                    let unknown users request access to your server. you can
+                    approve/reject them later.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </Show>
 
           {/* advanced toggle */}
           <button
@@ -562,7 +661,8 @@ export default function SetupView() {
                   </button>
                 </div>
                 <p class="hint">
-                  where database, cache, and media files are stored.
+                  where database, cache, config, and miscellaneous filez are
+                  stored.
                 </p>
               </div>
             </div>
@@ -640,7 +740,7 @@ export default function SetupView() {
         <div class="step">
           <h1>add your music</h1>
           <p class="subtitle">
-            optionally add directories to scan for music files.
+            optionally add directories to scan for music filez.
           </p>
 
           <div class="directory-list" style={{ margin: "1.5rem 0" }}>
@@ -711,10 +811,69 @@ export default function SetupView() {
           <h1>all set!</h1>
           <p class="subtitle">your freqhole server is ready to go.</p>
 
-          <p style={{ color: "#a1a1aa", "margin-bottom": "1.5rem" }}>
-            the server will start automatically. you can control it from the
-            menu bar icon.
-          </p>
+          {/* job progress display */}
+          <Show when={jobProgress() && !jobsComplete()}>
+            <div
+              class="job-progress"
+              style={{
+                background: "rgba(236, 72, 153, 0.1)",
+                border: "1px solid rgba(236, 72, 153, 0.3)",
+                "border-radius": "8px",
+                padding: "1rem",
+                "margin-bottom": "1.5rem",
+                "text-align": "left",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "0.5rem",
+                  "margin-bottom": "0.5rem",
+                }}
+              >
+                <span class="spinner" />
+                <span style={{ color: "#ec4899", "font-weight": "500" }}>
+                  importing music
+                  <span class="dots-animation" />
+                </span>
+              </div>
+              <div style={{ color: "#a1a1aa", "font-size": "0.875rem" }}>
+                <Show when={jobProgress()?.directory}>
+                  <div style={{ "margin-bottom": "0.25rem" }}>
+                    {jobProgress()?.directory}
+                  </div>
+                </Show>
+                <div>
+                  {jobProgress()?.songsAdded} songs added •{" "}
+                  {jobProgress()?.jobsPending} of {jobProgress()?.jobsTotal}{" "}
+                  remaining
+                </div>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={jobsComplete()}>
+            <div
+              style={{
+                background: "rgba(34, 197, 94, 0.1)",
+                border: "1px solid rgba(34, 197, 94, 0.3)",
+                "border-radius": "8px",
+                padding: "1rem",
+                "margin-bottom": "1.5rem",
+                color: "#22c55e",
+              }}
+            >
+              import complete! {jobProgress()?.songsAdded} songs added.
+            </div>
+          </Show>
+
+          <Show when={!jobProgress() && !jobsComplete()}>
+            <p style={{ color: "#a1a1aa", "margin-bottom": "1.5rem" }}>
+              the server will start automatically. you can control it from the
+              menu bar icon.
+            </p>
+          </Show>
 
           <div class="button-row" style={{ "justify-content": "center" }}>
             <button class="primary" onClick={finishSetup}>

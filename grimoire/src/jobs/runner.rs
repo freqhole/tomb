@@ -7,9 +7,13 @@ use super::music::{
     process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
     process_rescan_directories_job, process_scan_directory_job,
 };
-use super::service::{delete_job, get_next_pending_job, mark_job_completed, mark_job_failed};
+use super::service::{
+    delete_job, get_next_pending_job, get_session_job_counts, mark_job_completed, mark_job_failed,
+};
 use crate::error::ErrorDetail;
+use crate::events::{emit, GrimoireEvent};
 use crate::response::GrimoireResponse;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -55,6 +59,44 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // clean up completed ProcessFile jobs to avoid bloating the jobz table
             if job_type == JobType::ProcessFile {
                 let _ = delete_job(&job.id).await;
+            }
+
+            // emit progress event for ImportMusic jobs (for UI updates)
+            if job_type == JobType::ImportMusic {
+                if let Some(session_id) = &job.session_id {
+                    // get session stats for progress
+                    if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
+                        // extract directory from job parameters (parent of local_path)
+                        let directory = job
+                            .parameters()
+                            .ok()
+                            .and_then(|p: serde_json::Value| {
+                                p.get("local_path")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|path| Path::new(path).parent())
+                                    .map(|p| p.display().to_string())
+                            })
+                            .unwrap_or_default();
+
+                        emit(GrimoireEvent::JobProgress {
+                            session_id: session_id.clone(),
+                            directory,
+                            songs_added: counts.completed,
+                            jobs_pending: counts.pending + counts.running,
+                            jobs_total: counts.total,
+                        });
+
+                        // emit session complete when all jobs done
+                        if counts.pending == 0 && counts.running == 0 {
+                            emit(GrimoireEvent::JobSessionComplete {
+                                session_id: session_id.clone(),
+                                songs_added: counts.completed,
+                                albums_added: 0,  // TODO: track these
+                                artists_added: 0, // TODO: track these
+                            });
+                        }
+                    }
+                }
             }
 
             let job_result = JobResult {

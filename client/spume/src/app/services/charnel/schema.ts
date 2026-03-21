@@ -113,6 +113,33 @@ export const PeerOfflineEventSchema = z.object({
 });
 
 /**
+ * job progress event - emitted after import jobs complete
+ */
+export const JobProgressEventSchema = z.object({
+  type: z.literal("job-progress"),
+  data: z.object({
+    session_id: z.string(),
+    directory: z.string(),
+    songs_added: z.number(),
+    jobs_pending: z.number(),
+    jobs_total: z.number(),
+  }),
+});
+
+/**
+ * job session complete event - all jobs in session finished
+ */
+export const JobSessionCompleteEventSchema = z.object({
+  type: z.literal("job-session-complete"),
+  data: z.object({
+    session_id: z.string(),
+    songs_added: z.number(),
+    albums_added: z.number(),
+    artists_added: z.number(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const TauriEventSchema = z.discriminatedUnion("type", [
@@ -122,6 +149,8 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   ScanCompleteEventSchema,
   KnockCreatedEventSchema,
   PeerOfflineEventSchema,
+  JobProgressEventSchema,
+  JobSessionCompleteEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -131,3 +160,5 @@ export type ScanProgressEvent = z.infer<typeof ScanProgressEventSchema>;
 export type ScanCompleteEvent = z.infer<typeof ScanCompleteEventSchema>;
 export type KnockCreatedEvent = z.infer<typeof KnockCreatedEventSchema>;
 export type PeerOfflineEvent = z.infer<typeof PeerOfflineEventSchema>;
+export type JobProgressEvent = z.infer<typeof JobProgressEventSchema>;
+export type JobSessionCompleteEvent = z.infer<typeof JobSessionCompleteEventSchema>;
