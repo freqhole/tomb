@@ -18,6 +18,7 @@ async fn main() -> anyhow::Result<()> {
 
     let options = server::ServerOptions {
         config_path: args.config.into(),
+        mode: server::ServeMode::Auto,
     };
 
     server::run_server(options).await

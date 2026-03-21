@@ -15,6 +15,6 @@ pub mod static_files;
 pub mod upload;
 
 pub use error::ApiError;
-pub use run::{run_server, ServerOptions};
+pub use run::{run_server, ServeMode, ServerOptions};
 pub use server::start_server;
 pub use state::AppState;

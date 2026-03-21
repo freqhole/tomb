@@ -10,17 +10,32 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{start_server, AppState};
 
+/// what services to start
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ServeMode {
+    /// start whatever is enabled in config (default)
+    #[default]
+    Auto,
+    /// start HTTP server only (ignores server.enabled config)
+    HttpOnly,
+    /// start P2P endpoint only (ignores federation.enabled config)
+    P2pOnly,
+}
+
 /// Server run options
 #[derive(Debug, Clone)]
 pub struct ServerOptions {
     /// Path to configuration file
     pub config_path: PathBuf,
+    /// What services to start
+    pub mode: ServeMode,
 }
 
 impl Default for ServerOptions {
     fn default() -> Self {
         Self {
             config_path: PathBuf::from("freqhole-config.toml"),
+            mode: ServeMode::Auto,
         }
     }
 }
@@ -61,7 +76,7 @@ fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
 /// - Setting up tracing/logging (console + optional file)
 /// - Initializing the database
 /// - Setting up signal handlers for graceful shutdown
-/// - Starting the HTTP server
+/// - Starting the HTTP server and/or P2P endpoint based on mode
 ///
 /// # Arguments
 /// * `options` - Server configuration options
@@ -69,7 +84,7 @@ fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
 /// # Returns
 /// Ok(()) on graceful shutdown, Err on fatal error
 pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
-    // set up shutdown channel for HTTP server
+    // set up shutdown channel
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let shutdown_tx = Arc::new(tokio::sync::Mutex::new(Some(shutdown_tx)));
     let shutdown_tx_clone = shutdown_tx.clone();
@@ -95,7 +110,7 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
             }
         }
 
-        // trigger shutdown of HTTP server
+        // trigger shutdown
         if let Some(tx) = shutdown_tx_clone.lock().await.take() {
             let _ = tx.send(());
         }
@@ -123,6 +138,42 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to initialize config: {}", e))?;
 
     let config = grimoire::config::get_config();
+
+    // determine what to start based on mode and config
+    let start_http = match options.mode {
+        ServeMode::Auto => config.server.as_ref().map(|s| s.enabled).unwrap_or(false),
+        ServeMode::HttpOnly => true,
+        ServeMode::P2pOnly => false,
+    };
+
+    let start_p2p = match options.mode {
+        ServeMode::Auto => config
+            .federation
+            .as_ref()
+            .map(|f| f.enabled)
+            .unwrap_or(false),
+        ServeMode::HttpOnly => false,
+        ServeMode::P2pOnly => true,
+    };
+
+    // validate that we have something to start
+    if !start_http && !start_p2p {
+        return Err(anyhow::anyhow!(
+            "nothing to start: both HTTP server (server.enabled) and P2P endpoint (federation.enabled) are disabled in config"
+        ));
+    }
+
+    // validate required config sections exist
+    if start_http && config.server.is_none() {
+        return Err(anyhow::anyhow!(
+            "[server] section required in config to start HTTP server"
+        ));
+    }
+    if start_p2p && config.federation.is_none() {
+        return Err(anyhow::anyhow!(
+            "[federation] section required in config to start P2P endpoint"
+        ));
+    }
 
     // initialize tracing with config log level
     // RUST_LOG env var takes full precedence if set
@@ -200,70 +251,79 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         }
     }
 
-    tracing::info!("starting freqhole server...");
+    tracing::info!("starting freqhole...");
     tracing::info!("config: {}", options.config_path.display());
     tracing::info!("log level: {}", log_level);
+    tracing::info!("mode: {:?}", options.mode);
+    tracing::info!("start HTTP: {}, start P2P: {}", start_http, start_p2p);
 
     // initialize database (migrations + views) once at startup
     grimoire::database::initialize()
         .await
         .map_err(|e| anyhow::anyhow!("failed to initialize database: {}", e))?;
 
-    // initialize session store from grimoire
-    tracing::info!("initializing session store...");
-    let session_store = grimoire::sessions::init_session_store()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to initialize session store: {}", e))?;
+    // HTTP server setup (only if starting HTTP)
+    let http_state = if start_http {
+        // initialize session store from grimoire
+        tracing::info!("initializing session store...");
+        let session_store = grimoire::sessions::init_session_store()
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to initialize session store: {}", e))?;
 
-    // get server config before building state
-    let server_config = config
-        .server
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("server config missing"))?;
+        // get server config
+        let server_config = config
+            .server
+            .as_ref()
+            .expect("server config validated above");
 
-    let host = server_config.host.clone();
-    let port = server_config.port;
+        // build app state
+        let state = AppState::new(config.clone(), session_store);
 
-    // build app state
-    let state = AppState::new(config.clone(), session_store);
+        // validate state
+        state
+            .validate()
+            .map_err(|e| anyhow::anyhow!("invalid configuration: {}", e))?;
 
-    // validate state
-    state
-        .validate()
-        .map_err(|e| anyhow::anyhow!("invalid configuration: {}", e))?;
+        tracing::info!("HTTP server configuration validated");
+        tracing::info!("webauthn enabled: {}", server_config.auth.webauthn_enabled);
+        tracing::info!(
+            "static files enabled: {}",
+            server_config.static_files.enabled
+        );
 
-    tracing::info!("server configuration validated");
-    tracing::info!("webauthn enabled: {}", server_config.auth.webauthn_enabled);
-    tracing::info!(
-        "static files enabled: {}",
-        server_config.static_files.enabled
-    );
-
-    // spawn job runner if enabled (with shared cancellation token)
-    let job_runner_handle = if server_config.start_job_runner {
-        tracing::info!("spawning job runner task...");
-        let token = job_cancellation_token.clone();
-        Some(tokio::spawn(async move {
-            tracing::info!("job runner started");
-            let result = grimoire::jobs::run_job_processor_with_token(token).await;
-            if result.success {
-                tracing::info!("job runner stopped gracefully");
-            } else {
-                tracing::error!("job runner failed: {}", result.message);
-            }
-        }))
+        Some((state, server_config.host.clone(), server_config.port))
     } else {
-        tracing::info!("job runner disabled - use CLI to process jobs");
         None
     };
 
-    // start federation endpoint if enabled
-    let federation_endpoint = if config
-        .federation
-        .as_ref()
-        .map(|f| f.enabled)
-        .unwrap_or(false)
-    {
+    // spawn job runner if enabled (only when running HTTP server)
+    let job_runner_handle = if start_http {
+        let server_config = config
+            .server
+            .as_ref()
+            .expect("server config validated above");
+        if server_config.start_job_runner {
+            tracing::info!("spawning job runner task...");
+            let token = job_cancellation_token.clone();
+            Some(tokio::spawn(async move {
+                tracing::info!("job runner started");
+                let result = grimoire::jobs::run_job_processor_with_token(token).await;
+                if result.success {
+                    tracing::info!("job runner stopped gracefully");
+                } else {
+                    tracing::error!("job runner failed: {}", result.message);
+                }
+            }))
+        } else {
+            tracing::info!("job runner disabled - use CLI to process jobs");
+            None
+        }
+    } else {
+        None
+    };
+
+    // start federation P2P endpoint
+    let federation_endpoint = if start_p2p {
         tracing::info!("starting federation P2P endpoint...");
         match grimoire::federation::transport::start_federation_endpoint().await {
             Ok(endpoint) => {
@@ -277,24 +337,30 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
             }
             Err(e) => {
                 tracing::error!("failed to start federation endpoint: {}", e);
-                None
+                return Err(anyhow::anyhow!("failed to start P2P endpoint: {}", e));
             }
         }
     } else {
-        tracing::debug!("federation disabled");
+        tracing::debug!("P2P federation not started");
         None
     };
 
-    // start server with graceful shutdown
-    tracing::info!("starting http server on {}:{}", host, port);
+    // start HTTP server and/or wait for shutdown
+    if let Some((state, host, port)) = http_state {
+        tracing::info!("starting HTTP server on {}:{}", host, port);
 
-    let shutdown_future = async move {
+        let shutdown_future = async move {
+            let _ = shutdown_rx.await;
+        };
+
+        start_server(state, &host, port, shutdown_future).await?;
+    } else {
+        // P2P only mode - wait for shutdown signal
+        tracing::info!("P2P-only mode, waiting for shutdown signal...");
         let _ = shutdown_rx.await;
-    };
+    }
 
-    start_server(state, &host, port, shutdown_future).await?;
-
-    tracing::info!("server stopped, cleaning up...");
+    tracing::info!("shutting down, cleaning up...");
 
     // close federation endpoint
     if let Some(endpoint) = federation_endpoint {

@@ -155,7 +155,11 @@ log_file = "freqhole.log"
 # if you only use the CLI, you can omit or comment out this section
 # ============================================================================
 [server]
-# server identification (all REQUIRED when [server] section exists)
+# OPTIONAL: enable HTTP server (default: true when [server] section exists)
+# set to false to disable HTTP server (useful when running P2P only)
+enabled = true
+
+# server identification (all REQUIRED when enabled=true)
 # these fields are exposed via the public /api/hello endpoint (no auth required)
 # remote clients fetch this info when adding yr server to their remote list
 

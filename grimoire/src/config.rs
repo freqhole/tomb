@@ -136,6 +136,10 @@ fn default_skip_duplicates() -> bool {
     true
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_generate_scan_duplicate_report() -> bool {
     false
 }
@@ -247,6 +251,9 @@ fn default_log_file() -> String {
 /// Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
+    /// Enable HTTP server (default: true when section exists)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// Server display name
     pub name: String,
     /// Server version (semantic versioning recommended)

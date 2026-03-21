@@ -98,8 +98,22 @@ enum Commands {
         action: plumbing::BlobzAction,
     },
 
-    /// Start the HTTP server
-    Server {
+    /// Start HTTP server and/or P2P endpoint based on config
+    Serve {
+        /// Path to configuration file (overrides --config global flag)
+        #[arg(long, short = 'c')]
+        config: Option<std::path::PathBuf>,
+    },
+
+    /// Start HTTP server only (ignores server.enabled config)
+    Http {
+        /// Path to configuration file (overrides --config global flag)
+        #[arg(long, short = 'c')]
+        config: Option<std::path::PathBuf>,
+    },
+
+    /// Start P2P endpoint only (ignores federation.enabled config)
+    P2p {
         /// Path to configuration file (overrides --config global flag)
         #[arg(long, short = 'c')]
         config: Option<std::path::PathBuf>,
@@ -110,13 +124,20 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Server command handles its own initialization
-    if let Commands::Server { config } = cli.command {
+    // server commands handle their own initialization
+    let serve_mode = match &cli.command {
+        Commands::Serve { config } => Some((config.clone(), server::ServeMode::Auto)),
+        Commands::Http { config } => Some((config.clone(), server::ServeMode::HttpOnly)),
+        Commands::P2p { config } => Some((config.clone(), server::ServeMode::P2pOnly)),
+        _ => None,
+    };
+
+    if let Some((config, mode)) = serve_mode {
         let config_path = config
             .or(cli.config)
             .unwrap_or_else(|| std::path::PathBuf::from("freqhole-config.toml"));
 
-        let options = server::ServerOptions { config_path };
+        let options = server::ServerOptions { config_path, mode };
         return server::run_server(options).await;
     }
 
@@ -199,7 +220,7 @@ async fn main() -> Result<()> {
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
         }
-        Commands::Server { .. } => {
+        Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return
             unreachable!()
         }
