@@ -17,7 +17,7 @@ src-tauri/
     wizard.rs           # setup wizard window management
 ```
 
-the tauri app embeds grimoire directly for wizard operations (config creation, user management, scanning). the actual music server runs as a separate `freqhole server` process managed by the sidecar module.
+the tauri app embeds grimoire directly for wizard operations (config creation, user management, scanning). the actual music server runs as a separate `freqhole serve` process managed by the sidecar module.
 
 ## development
 
@@ -51,7 +51,7 @@ bundles the app with the `freqhole` binary included. output in `src-tauri/target
 ## key behaviors
 
 - **setup wizard**: shows on first run (no config) or when setup incomplete (no root user)
-- **sidecar server**: spawns `freqhole server --config <path>` as child process
+- **sidecar server**: spawns `freqhole serve --config <path>` as child process
 - **log capture**: server stdout/stderr captured and viewable in logs view
 - **config location**: user-specified during setup (defaults to app data dir), path saved in `freqhole-app-config.toml`
 - **migrations**: run explicitly during setup wizard (`auto_run_migrations: false` in config)

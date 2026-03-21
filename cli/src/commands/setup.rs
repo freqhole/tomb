@@ -409,7 +409,7 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         println!("setup complete!");
         println!();
         println!("start the server with:");
-        println!("  freqhole server start -c {}", config_path.display());
+        println!("  freqhole serve -c {}", config_path.display());
         println!();
     } else {
         println!("setup failed:");

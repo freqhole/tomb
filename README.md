@@ -16,7 +16,7 @@ stuff that's here:
 2. `/cli/` a rust cli `cargo run --bin freqhole` (or just `cargo run`) that:
 
 - does mostly everything the server does (plus a few more admin/maintenance thingz) but via terminal ui (simple `clap` arg parser)
-- bundles the server/ package and can start the http server (also used as a sidecar proc in the tauri app)
+- bundles the server/ package and can start the http server (`freqhole serve`), P2P endpoint (`freqhole p2p`), or both (also used as a sidecar proc in the tauri app)
 - see also: [/docs/grimoire-cli-testing.md](/docs/grimoire-cli-testing.md)
 
 3. `/grimoire/` shared (between server & cli & tauri app) rust code; all the sqlx db logic is here
