@@ -166,7 +166,7 @@ enabled = true
 # REQUIRED: server display name
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.10"
+version = "0.1.11"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
