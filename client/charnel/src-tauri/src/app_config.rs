@@ -1,6 +1,6 @@
-//! freqhole app configuration
+//! charnel app configuration
 //!
-//! manages tauri-specific config separate from the server's freqhole-config.toml
+//! manages charnel-specific config separate from the server's freqhole-config.toml
 //! this config stores:
 //! - path to the server config file
 //! - admin user info (for auto-generating invite codes)
@@ -8,12 +8,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// freqhole app config filename
-const APP_CONFIG_FILENAME: &str = "freqhole-app-config.toml";
+/// charnel app config filename
+const APP_CONFIG_FILENAME: &str = "charnel-config.toml";
 
-/// freqhole app configuration
+/// charnel app configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct FreqholeAppConfig {
+pub struct CharnelAppConfig {
     /// app config version (tracks which binary version last wrote this config)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
